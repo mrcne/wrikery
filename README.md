@@ -1,2 +1,3 @@
-# wrikery
-Unofficial Wrike TUI
+# Wrike TUI
+
+Unofficial Terminal client for Wrike.
