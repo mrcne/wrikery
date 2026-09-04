@@ -17,8 +17,7 @@ func DefaultPaths() (Paths, error) {
 	dataDir := os.Getenv("XDG_DATA_HOME")
 	stateDir := os.Getenv("XDG_STATE_HOME")
 
-	// The home directory only serves as a fallback, so resolve it only when one of the variables is missing.
-	// A hardened service unit can run without HOME but with all three set.
+	// Home is only a fallback. Some setups have no HOME but do set these three.
 	if configDir == "" || dataDir == "" || stateDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {

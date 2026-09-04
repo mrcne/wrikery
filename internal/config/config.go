@@ -32,8 +32,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("reading %s: %w", path, err)
 	}
-	// The decoder drops keys it does not know.
-	// Without this check a typo leaves the user with a setting that never took effect and no message saying so.
+	// The decoder drops keys it does not know, so a typo would silently do nothing.
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, key := range undecoded {
