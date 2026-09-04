@@ -1,8 +1,21 @@
 # IDEs
 .vscode/
 /.idea/
+*.swp
+*.swo
 .DS_Store
 
 # GO
 /dist/
 /bin/
+/wrikery
+*.test
+coverage.out
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
