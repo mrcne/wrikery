@@ -52,6 +52,30 @@ func TestLoadRejectsMalformedToml(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsUnknownKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("loglevel = \"debug\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err == nil {
+		t.Fatal("want error for a misspelled key, got nil")
+	}
+}
+
+func TestLoadAcceptsUppercaseLogLevel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`log_level = "DEBUG"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q, want debug", cfg.LogLevel)
+	}
+}
+
 func TestDefaultPathsHonorXDGEnv(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
 	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
@@ -85,5 +109,20 @@ func TestEnsureDirsCreatesParents(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "d", "wrike-tui")); err != nil {
 		t.Errorf("data dir not created: %v", err)
+	}
+}
+
+// Every XDG variable is set, so nothing needs the home directory. A hardened service unit can run that way.
+func TestDefaultPathsWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
+	t.Setenv("XDG_STATE_HOME", "/tmp/xdg-state")
+	p, err := config.DefaultPaths()
+	if err != nil {
+		t.Fatalf("DefaultPaths() = %v, want no error", err)
+	}
+	if p.ConfigFile != "/tmp/xdg-config/wrike-tui/config.toml" {
+		t.Errorf("ConfigFile = %q", p.ConfigFile)
 	}
 }
