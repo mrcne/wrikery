@@ -1,6 +1,6 @@
 # 001: Go and bubbletea
 
-Accepted, 2026-09-01.
+Status: Accepted
 
 ## Context
 
