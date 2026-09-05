@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -124,5 +125,65 @@ func TestDefaultPathsWithoutHome(t *testing.T) {
 	}
 	if p.ConfigFile != "/tmp/xdg-config/wrikery/config.toml" {
 		t.Errorf("ConfigFile = %q", p.ConfigFile)
+	}
+}
+
+func writeConfig(t *testing.T, body string) string {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadReadsUITableAndPollInterval(t *testing.T) {
+	path := writeConfig(t, `
+poll_interval = "2m"
+[ui]
+theme = "dark"
+accent = "#7aa2f7"
+ascii = true
+branch_template = "feat/{id}-{slug}"
+`)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PollInterval != 2*time.Minute {
+		t.Errorf("PollInterval = %v", cfg.PollInterval)
+	}
+	if cfg.UI.Theme != "dark" || cfg.UI.Accent != "#7aa2f7" || !cfg.UI.ASCII || cfg.UI.BranchTemplate != "feat/{id}-{slug}" {
+		t.Errorf("UI = %+v", cfg.UI)
+	}
+}
+
+func TestLoadDefaultsForUI(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PollInterval != 60*time.Second || cfg.UI.Theme != "auto" || cfg.UI.BranchTemplate != "{id}-{slug}" {
+		t.Errorf("defaults = %+v", cfg)
+	}
+}
+
+func TestLoadRejectsBadThemeAndShortPoll(t *testing.T) {
+	for _, body := range []string{"[ui]\ntheme = \"solarized\"\n", "poll_interval = \"2s\"\n"} {
+		if _, err := config.Load(writeConfig(t, body)); err == nil {
+			t.Errorf("Load(%q) succeeded, want error", body)
+		}
+	}
+}
+
+func TestDefaultPathsHasTokenFile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
+	t.Setenv("XDG_STATE_HOME", "/tmp/xdg-state")
+	p, err := config.DefaultPaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TokenFile != "/tmp/xdg-config/wrikery/token" {
+		t.Errorf("TokenFile = %q", p.TokenFile)
 	}
 }

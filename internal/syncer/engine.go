@@ -9,8 +9,6 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-const metaKeyMe = "me_contact_id"
-
 type Config struct {
 	PollInterval   time.Duration // pull cadence, default 60s
 	ReferenceEvery time.Duration // reference data refresh, default 1h
@@ -271,7 +269,7 @@ func (e *Engine) ensureMe(ctx context.Context) (string, error) {
 	if e.meID != "" {
 		return e.meID, nil
 	}
-	id, err := e.st.GetMeta(ctx, metaKeyMe)
+	id, err := e.st.GetMeta(ctx, store.MetaKeyMe)
 	if err == nil {
 		e.meID = id
 		return id, nil
@@ -283,7 +281,7 @@ func (e *Engine) ensureMe(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := e.st.SetMeta(ctx, metaKeyMe, me.ID); err != nil {
+	if err := e.st.SetMeta(ctx, store.MetaKeyMe, me.ID); err != nil {
 		return "", err
 	}
 	e.meID = me.ID

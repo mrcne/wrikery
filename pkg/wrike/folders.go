@@ -12,6 +12,8 @@ type Folder struct {
 	Scope    string   `json:"scope"`
 	ChildIDs []string `json:"childIds"`
 	Project  *Project `json:"project"`
+	// Space marks the root folder of a space ("Is folder a space", https://developers.wrike.com/api/v4/folders-projects/).
+	Space bool `json:"space"`
 }
 
 // Project is present on folders that are projects. A plain folder has none.

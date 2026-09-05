@@ -10,6 +10,7 @@ type FolderRepo interface {
 	ReplaceTree(ctx context.Context, folders []Folder) error
 	Get(ctx context.Context, id string) (Folder, error)
 	Children(ctx context.Context, parentID string) ([]Folder, error)
+	Subtree(ctx context.Context, rootID string) ([]Folder, error)
 }
 
 func (s *Store) Folders() FolderRepo { return folderRepo{w: s.writer, r: s.reader} }
@@ -38,11 +39,15 @@ func (f folderRepo) ReplaceTree(ctx context.Context, folders []Folder) error {
 			pStatus, pCustom, pStart, pEnd = fo.Project.Status, fo.Project.CustomStatusID,
 				fo.Project.StartDate, fo.Project.EndDate
 		}
+		space := 0
+		if fo.Space {
+			space = 1
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO folders (id, title, scope, is_project, project_status,
+			INSERT INTO folders (id, title, scope, space, is_project, project_status,
 				project_custom_status_id, project_start_date, project_end_date)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			fo.ID, fo.Title, fo.Scope, isProject, pStatus, pCustom, pStart, pEnd); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			fo.ID, fo.Title, fo.Scope, space, isProject, pStatus, pCustom, pStart, pEnd); err != nil {
 			return err
 		}
 		for _, child := range fo.ChildIDs {
@@ -58,13 +63,14 @@ func (f folderRepo) ReplaceTree(ctx context.Context, folders []Folder) error {
 
 func scanFolder(row interface{ Scan(...any) error }) (Folder, error) {
 	var fo Folder
-	var isProject int
+	var isProject, space int
 	var pStatus, pCustom, pStart, pEnd sql.NullString
-	err := row.Scan(&fo.ID, &fo.Title, &fo.Scope, &isProject,
+	err := row.Scan(&fo.ID, &fo.Title, &fo.Scope, &space, &isProject,
 		&pStatus, &pCustom, &pStart, &pEnd)
 	if err != nil {
 		return Folder{}, err
 	}
+	fo.Space = space == 1
 	if isProject == 1 {
 		fo.Project = &Project{
 			Status:         pStatus.String,
@@ -76,7 +82,7 @@ func scanFolder(row interface{ Scan(...any) error }) (Folder, error) {
 	return fo, nil
 }
 
-const folderColumns = `id, title, scope, is_project, project_status,
+const folderColumns = `id, title, scope, space, is_project, project_status,
 	project_custom_status_id, project_start_date, project_end_date`
 
 func (f folderRepo) Get(ctx context.Context, id string) (Folder, error) {
@@ -128,4 +134,44 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 		out = append(out, fo)
 	}
 	return out, rows.Err()
+}
+
+// Subtree returns the root and everything under it, parents before children, siblings by title.
+// The depth guard stops a cycle in a corrupt tree from running forever.
+func (f folderRepo) Subtree(ctx context.Context, rootID string) ([]Folder, error) {
+	// char(1) and not "/" separates path segments.
+	// A sibling titled "API v2" would otherwise sort between "API" and the children of "API" (space is 0x20, slash is 0x2F, 0x01 is below both).
+	rows, err := f.r.QueryContext(ctx, `
+		WITH RECURSIVE tree(id, depth, path) AS (
+			SELECT id, 0, title FROM folders WHERE id = ?
+			UNION ALL
+			SELECT fo.id, tree.depth + 1, tree.path || char(1) || fo.title
+			FROM folder_children fc
+			JOIN tree ON fc.parent_id = tree.id
+			JOIN folders fo ON fo.id = fc.child_id
+			WHERE tree.depth < 32
+		)
+		SELECT `+folderColumns+` FROM folders JOIN tree USING (id) ORDER BY tree.path`, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Folder
+	for rows.Next() {
+		fo, err := scanFolder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].ChildIDs, err = f.childIDs(ctx, out[i].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }

@@ -88,6 +88,7 @@ type OutboxRepo interface {
 	Discard(ctx context.Context, id int64) error
 	ListFailed(ctx context.Context) ([]OutboxRow, error)
 	ResetInflight(ctx context.Context) (int64, error)
+	StatesByEntity(ctx context.Context) (map[string]OutboxState, error)
 }
 
 func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader} }
@@ -478,4 +479,28 @@ func (o outboxRepo) ResetInflight(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// StatesByEntity maps each entity with queued work to pending or failed. Inflight counts as pending, failed wins.
+func (o outboxRepo) StatesByEntity(ctx context.Context) (map[string]OutboxState, error) {
+	rows, err := o.r.QueryContext(ctx, `SELECT entity_id, state FROM outbox`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]OutboxState{}
+	for rows.Next() {
+		var id string
+		var state OutboxState
+		if err := rows.Scan(&id, &state); err != nil {
+			return nil, err
+		}
+		if state == StateInflight {
+			state = StatePending
+		}
+		if out[id] != StateFailed {
+			out[id] = state
+		}
+	}
+	return out, rows.Err()
 }

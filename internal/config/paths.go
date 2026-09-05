@@ -10,6 +10,7 @@ type Paths struct {
 	ConfigFile string
 	DBFile     string
 	LogFile    string
+	TokenFile  string
 }
 
 func DefaultPaths() (Paths, error) {
@@ -38,6 +39,7 @@ func DefaultPaths() (Paths, error) {
 		ConfigFile: filepath.Join(configDir, "wrikery", "config.toml"),
 		DBFile:     filepath.Join(dataDir, "wrikery", "wrike.db"),
 		LogFile:    filepath.Join(stateDir, "wrikery", "wrikery.log"),
+		TokenFile:  filepath.Join(configDir, "wrikery", "token"),
 	}, nil
 }
 
