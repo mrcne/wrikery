@@ -36,12 +36,19 @@ type TaskDates struct {
 	Due      string `json:"due,omitempty"`
 }
 
+// TaskParams narrows a task query. Descendants only applies together with FolderID.
+// Without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
+// which is not what "follow a project" means.
 type TaskParams struct {
 	FolderID     string
+	Descendants  bool
 	UpdatedAfter time.Time
 	Fields       []string
 	PageSize     int
 	PageToken    string
+	// Responsibles narrows the search to tasks assigned to any of the given contact ids.
+	// The reference sends it as a JSON array.
+	Responsibles []string
 }
 
 type TasksPage struct {
@@ -55,11 +62,17 @@ func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 		path = "/folders/" + p.FolderID + "/tasks"
 	}
 	q := url.Values{}
+	if p.FolderID != "" && p.Descendants {
+		q.Set("descendants", "true")
+	}
 	if !p.UpdatedAfter.IsZero() {
 		q.Set("updatedDate", fmt.Sprintf(`{"start":%q}`, p.UpdatedAfter.UTC().Format("2006-01-02T15:04:05Z")))
 	}
 	if len(p.Fields) > 0 {
 		q.Set("fields", jsonArray(p.Fields))
+	}
+	if len(p.Responsibles) > 0 {
+		q.Set("responsibles", jsonArray(p.Responsibles))
 	}
 	if p.PageSize > 0 {
 		q.Set("pageSize", strconv.Itoa(p.PageSize))
@@ -79,8 +92,9 @@ func (c *Client) TasksByIDs(ctx context.Context, ids []string, fields []string) 
 	if len(ids) == 0 {
 		return nil, errors.New("wrike: at least one task id is required")
 	}
-	if len(ids) > 100 {
-		return nil, fmt.Errorf("wrike: at most 100 task ids per request, got %d", len(ids))
+	// The reference for GET /tasks/{taskIds} states "Limit : 1000".
+	if len(ids) > 1000 {
+		return nil, fmt.Errorf("wrike: at most 1000 task ids per request, got %d", len(ids))
 	}
 	q := url.Values{}
 	if len(fields) > 0 {

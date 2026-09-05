@@ -6,9 +6,10 @@ import (
 	"testing"
 )
 
-const timelogsFixture = `{"kind":"timelogs","data":[
+const timelogsFixture = `{"kind":"timelogs","nextPageToken":"TLPAGE2","data":[
   {"id":"IEAAAATL1","taskId":"IEAAAATSK1","userId":"KUAAAA01","categoryId":"",
    "hours":1.5,"trackedDate":"2026-09-01","comment":"code review",
+   "lockStatus":"Locked","approvalStatus":"Approved",
    "createdDate":"2026-09-01T15:00:00Z","updatedDate":"2026-09-01T15:00:00Z"}]}`
 
 func TestTimelogsBuildsFilters(t *testing.T) {
@@ -23,24 +24,39 @@ func TestTimelogsBuildsFilters(t *testing.T) {
 		if got := q.Get("trackedDate"); got != `{"start":"2026-08-31","end":"2026-09-06"}` {
 			t.Errorf("trackedDate = %q", got)
 		}
+		if got := q.Get("pageSize"); got != "200" {
+			t.Errorf("pageSize = %q", got)
+		}
+		if got := q.Get("nextPageToken"); got != "TLPAGE1" {
+			t.Errorf("nextPageToken = %q", got)
+		}
 		_, _ = w.Write([]byte(timelogsFixture))
 	}))
 
-	got, err := c.Timelogs(context.Background(), TimelogParams{
+	page, err := c.Timelogs(context.Background(), TimelogParams{
 		Me: true, TrackedFrom: "2026-08-31", TrackedTo: "2026-09-06",
+		PageSize: 200, PageToken: "TLPAGE1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if page.NextPageToken != "TLPAGE2" {
+		t.Errorf("nextPageToken = %q", page.NextPageToken)
+	}
+	got := page.Timelogs
 	if len(got) != 1 || got[0].Hours != 1.5 || got[0].TrackedDate != "2026-09-01" {
 		t.Errorf("timelogs = %+v", got)
+	}
+	if got[0].LockStatus != "Locked" || got[0].ApprovalStatus != "Approved" {
+		t.Errorf("lock state = %q %q", got[0].LockStatus, got[0].ApprovalStatus)
 	}
 }
 
 func TestTimelogsOmitsUnsetFilters(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Has("me") || r.URL.Query().Has("trackedDate") {
-			t.Errorf("filters must be omitted, query = %v", r.URL.Query())
+		q := r.URL.Query()
+		if q.Has("me") || q.Has("trackedDate") || q.Has("pageSize") || q.Has("nextPageToken") {
+			t.Errorf("filters must be omitted, query = %v", q)
 		}
 		_, _ = w.Write([]byte(`{"kind":"timelogs","data":[]}`))
 	}))

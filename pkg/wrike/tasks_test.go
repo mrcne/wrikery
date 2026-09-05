@@ -3,6 +3,7 @@ package wrike
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -26,6 +27,9 @@ func TestTasksSearchBuildsQueryAndPages(t *testing.T) {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		q := r.URL.Query()
+		if got := q.Get("descendants"); got != "true" {
+			t.Errorf("descendants = %q", got)
+		}
 		if got := q.Get("updatedDate"); got != `{"start":"2026-09-01T00:00:00Z"}` {
 			t.Errorf("updatedDate = %q", got)
 		}
@@ -43,6 +47,7 @@ func TestTasksSearchBuildsQueryAndPages(t *testing.T) {
 
 	page, err := c.Tasks(context.Background(), TaskParams{
 		FolderID:     "IEAAAAFD2",
+		Descendants:  true,
 		UpdatedAfter: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		Fields:       []string{"description", "responsibleIds", "parentIds"},
 		PageSize:     500,
@@ -69,7 +74,7 @@ func TestTasksSearchAccountWideOmitsEmptyParams(t *testing.T) {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		q := r.URL.Query()
-		for _, key := range []string{"updatedDate", "fields", "pageSize", "nextPageToken"} {
+		for _, key := range []string{"descendants", "updatedDate", "fields", "pageSize", "nextPageToken"} {
 			if q.Has(key) {
 				t.Errorf("query must omit %s, got %q", key, q.Get(key))
 			}
@@ -77,7 +82,7 @@ func TestTasksSearchAccountWideOmitsEmptyParams(t *testing.T) {
 		_, _ = w.Write([]byte(`{"kind":"tasks","data":[]}`))
 	}))
 
-	page, err := c.Tasks(context.Background(), TaskParams{})
+	page, err := c.Tasks(context.Background(), TaskParams{Descendants: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +110,12 @@ func TestTasksByIDsJoinsAndLimits(t *testing.T) {
 		t.Errorf("tasks = %+v", got)
 	}
 
-	tooMany := make([]string, 101)
+	tooMany := make([]string, 1001)
 	for i := range tooMany {
 		tooMany[i] = "X"
 	}
 	if _, err := c.TasksByIDs(context.Background(), tooMany, nil); err == nil {
-		t.Error("want error for more than 100 ids, got nil")
+		t.Error("want error for more than 1000 ids, got nil")
 	}
 	if _, err := c.TasksByIDs(context.Background(), nil, nil); err == nil {
 		t.Error("want error for zero ids, got nil")
@@ -163,5 +168,34 @@ func TestUpdateTaskRejectsEmptyID(t *testing.T) {
 
 	if _, err := c.UpdateTask(context.Background(), "", TaskUpdate{Title: "x"}); err == nil {
 		t.Error("want error for empty task id, got nil")
+	}
+}
+
+func TestTasksSendsResponsibles(t *testing.T) {
+	var got url.Values
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[]}`))
+	}))
+	_, err := c.Tasks(context.Background(), TaskParams{Responsibles: []string{"KUAAAAA1", "KUAAAAA2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("responsibles") != `["KUAAAAA1","KUAAAAA2"]` {
+		t.Errorf("responsibles = %q, want the JSON array", got.Get("responsibles"))
+	}
+}
+
+func TestTasksOmitsEmptyResponsibles(t *testing.T) {
+	var got url.Values
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[]}`))
+	}))
+	if _, err := c.Tasks(context.Background(), TaskParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["responsibles"]; ok {
+		t.Error("responsibles sent for an empty filter")
 	}
 }

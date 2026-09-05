@@ -10,30 +10,48 @@ import (
 	"time"
 )
 
+// Timelog is one time entry. LockStatus is Locked or Unlocked, ApprovalStatus is NotSubmitted, Pending, Approved or Rejected.
+// A locked or approved entry rejects edits and deletes, so callers should check both before queueing a write.
 type Timelog struct {
-	ID          string    `json:"id"`
-	TaskID      string    `json:"taskId"`
-	UserID      string    `json:"userId"`
-	CategoryID  string    `json:"categoryId"`
-	TrackedDate string    `json:"trackedDate"`
-	Comment     string    `json:"comment"`
-	Hours       float64   `json:"hours"`
-	CreatedDate time.Time `json:"createdDate"`
-	UpdatedDate time.Time `json:"updatedDate"`
+	ID             string    `json:"id"`
+	TaskID         string    `json:"taskId"`
+	UserID         string    `json:"userId"`
+	CategoryID     string    `json:"categoryId"`
+	TrackedDate    string    `json:"trackedDate"`
+	Comment        string    `json:"comment"`
+	Hours          float64   `json:"hours"`
+	LockStatus     string    `json:"lockStatus"`
+	ApprovalStatus string    `json:"approvalStatus"`
+	CreatedDate    time.Time `json:"createdDate"`
+	UpdatedDate    time.Time `json:"updatedDate"`
 }
 
 // TimelogParams filters the account wide timelog listing.
 // Dates are yyyy-MM-dd strings because that is what the API takes and returns.
+// Setting PageSize turns paging on, the API then returns a page token while there is more.
 type TimelogParams struct {
 	Me          bool
 	TrackedFrom string
 	TrackedTo   string
+	PageSize    int
+	PageToken   string
 }
 
-func (c *Client) Timelogs(ctx context.Context, p TimelogParams) ([]Timelog, error) {
+type TimelogsPage struct {
+	Timelogs      []Timelog
+	NextPageToken string
+}
+
+func (c *Client) Timelogs(ctx context.Context, p TimelogParams) (TimelogsPage, error) {
 	q := url.Values{}
 	if p.Me {
 		q.Set("me", "true")
+	}
+	if p.PageSize > 0 {
+		q.Set("pageSize", strconv.Itoa(p.PageSize))
+	}
+	if p.PageToken != "" {
+		q.Set("nextPageToken", p.PageToken)
 	}
 	if p.TrackedFrom != "" || p.TrackedTo != "" {
 		rangeJSON := "{"
@@ -50,10 +68,11 @@ func (c *Client) Timelogs(ctx context.Context, p TimelogParams) ([]Timelog, erro
 		q.Set("trackedDate", rangeJSON)
 	}
 	var out []Timelog
-	if _, err := c.do(ctx, http.MethodGet, "/timelogs", q, nil, &out); err != nil {
-		return nil, err
+	next, err := c.do(ctx, http.MethodGet, "/timelogs", q, nil, &out)
+	if err != nil {
+		return TimelogsPage{}, err
 	}
-	return out, nil
+	return TimelogsPage{Timelogs: out, NextPageToken: next}, nil
 }
 
 func (c *Client) TaskTimelogs(ctx context.Context, taskID string) ([]Timelog, error) {
@@ -93,8 +112,7 @@ func (c *Client) CreateTimelog(ctx context.Context, taskID string, hours float64
 	return out[0], nil
 }
 
-// TimelogUpdate lists the changes to apply.
-// Hours is sent when positive, the strings are sent when non empty.
+// TimelogUpdate lists the changes to apply. Hours is sent when positive, the strings are sent when non empty.
 type TimelogUpdate struct {
 	Hours       float64
 	TrackedDate string
