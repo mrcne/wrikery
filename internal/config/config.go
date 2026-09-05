@@ -32,11 +32,13 @@ var levels = map[string]slog.Level{
 	"error": slog.LevelError,
 }
 
+const defaultBranchTemplate = "{id}-{slug}"
+
 func defaults() Config {
 	return Config{
 		LogLevel:     "info",
 		PollInterval: 60 * time.Second,
-		UI:           UIConfig{Theme: "auto", BranchTemplate: "{id}-{slug}"},
+		UI:           UIConfig{Theme: "auto", BranchTemplate: defaultBranchTemplate},
 	}
 }
 
@@ -69,12 +71,14 @@ func Load(path string) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("reading %s: unknown ui.theme %q", path, cfg.UI.Theme)
 	}
-	// Below ten seconds the poll would eat a large share of the 400 requests per minute Wrike allows.
+	// Below ten seconds the poll alone would eat a large share of the roughly 400 requests per
+	// minute Wrike allows (https://developers.wrike.com/faq/).
 	if cfg.PollInterval < 10*time.Second {
 		return Config{}, fmt.Errorf("reading %s: poll_interval %s is below 10s", path, cfg.PollInterval)
 	}
+	// An empty template would produce no branch name at all, so it falls back instead of failing the load.
 	if cfg.UI.BranchTemplate == "" {
-		cfg.UI.BranchTemplate = "{id}-{slug}"
+		cfg.UI.BranchTemplate = defaultBranchTemplate
 	}
 	return cfg, nil
 }
