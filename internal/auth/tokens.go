@@ -58,6 +58,11 @@ func (t Tokens) Save(token string) error {
 	}
 	err := keyring.Set(service, account, token)
 	if err == nil {
+		// A stale fallback file would otherwise be read by a later headless run that has no
+		// keychain, handing it a revoked token instead of ErrNoToken.
+		if rmErr := os.Remove(t.FallbackFile); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			slog.Debug("removing stale token file failed", "path", t.FallbackFile, "error", rmErr)
+		}
 		return nil
 	}
 	slog.Info("keyring unavailable, storing the token in a file", "path", t.FallbackFile, "error", err)

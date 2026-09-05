@@ -72,3 +72,22 @@ func TestSaveRejectsEmpty(t *testing.T) {
 		t.Fatal("Save of blank token succeeded")
 	}
 }
+
+func TestSaveRemovesStaleFileWhenKeychainWorks(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "token")
+	tk := Tokens{FallbackFile: file}
+	keyring.MockInitWithError(errors.New("no secret service"))
+	if err := tk.Save("old"); err != nil {
+		t.Fatal(err)
+	}
+	keyring.MockInit()
+	if err := tk.Save("new"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stale token file still there: %v", err)
+	}
+	if got, err := tk.Load(); err != nil || got != "new" {
+		t.Fatalf("Load = %q, %v", got, err)
+	}
+}
