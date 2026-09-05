@@ -96,11 +96,14 @@ func TestSpacesAndContactsReplaceAll(t *testing.T) {
 func TestFolderSubtreeReturnsRootThenDescendants(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
+	// API v2 sits next to API, not under it: a "/" separator would sort it between
+	// "API" and "API/Core" (space is 0x20, slash is 0x2F), char(1) must not.
 	err := st.Folders().ReplaceTree(ctx, []Folder{
-		{ID: "S1", Title: "Platform", Space: true, ChildIDs: []string{"F2", "F1"}},
+		{ID: "S1", Title: "Platform", Space: true, ChildIDs: []string{"F2", "F1", "F4"}},
 		{ID: "F1", Title: "API", ChildIDs: []string{"F3"}, Project: &Project{Status: "Green"}},
+		{ID: "F3", Title: "Core"},
+		{ID: "F4", Title: "API v2"},
 		{ID: "F2", Title: "Web"},
-		{ID: "F3", Title: "API v2"},
 		{ID: "X", Title: "Elsewhere"},
 	})
 	if err != nil {
@@ -114,11 +117,11 @@ func TestFolderSubtreeReturnsRootThenDescendants(t *testing.T) {
 	for _, f := range got {
 		ids = append(ids, f.ID)
 	}
-	want := []string{"S1", "F1", "F3", "F2"}
+	want := []string{"S1", "F1", "F3", "F4", "F2"}
 	if !reflect.DeepEqual(ids, want) {
 		t.Errorf("ids = %v, want %v", ids, want)
 	}
-	if !got[0].Space || len(got[0].ChildIDs) != 2 || got[1].Project == nil {
+	if !got[0].Space || len(got[0].ChildIDs) != 3 || got[1].Project == nil {
 		t.Errorf("fields lost: %+v", got[:2])
 	}
 }
