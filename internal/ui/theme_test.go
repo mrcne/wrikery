@@ -35,6 +35,34 @@ func TestBoxTruncatesLongTitle(t *testing.T) {
 	}
 }
 
+func TestBoxHoldsWidthAtMinimum(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	out := th.box("Tasks", "x", 4, 3, false)
+	lines := strings.Split(out, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("height = %d, want 3:\n%s", len(lines), out)
+	}
+	for i, l := range lines {
+		if w := lipgloss.Width(l); w != 4 {
+			t.Errorf("line %d width = %d, want 4: %q", i, w, l)
+		}
+	}
+}
+
+func TestBoxHoldsHeightAtMinimum(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	out := th.box("T", "x", 20, 2, false)
+	lines := strings.Split(out, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("height = %d, want 2:\n%s", len(lines), out)
+	}
+	for i, l := range lines {
+		if w := lipgloss.Width(l); w != 20 {
+			t.Errorf("line %d width = %d, want 20: %q", i, w, l)
+		}
+	}
+}
+
 func TestStatusColorFallsBackToGroup(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark"})
 	if th.StatusColor(store.CustomStatus{Color: "NoSuchColor", Group: "Completed"}) != th.Success {

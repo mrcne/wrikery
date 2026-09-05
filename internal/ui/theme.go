@@ -25,7 +25,7 @@ type Glyphs struct {
 	Cursor                                 string
 }
 
-// The only two lines in the package allowed to hold non ASCII characters.
+// The only line in the package allowed to hold non ASCII characters.
 var unicodeGlyphs = Glyphs{Active: "○", Completed: "✓", Deferred: "◌", Cancelled: "✕", Expanded: "▾", Collapsed: "▸", Pending: "~", Failed: "!", Synced: "●", Syncing: "◐", Offline: "○", Cursor: ">"}
 var asciiGlyphs = Glyphs{Active: "o", Completed: "v", Deferred: "z", Cancelled: "x", Expanded: "v", Collapsed: ">", Pending: "~", Failed: "!", Synced: "*", Syncing: "~", Offline: "o", Cursor: ">"}
 
@@ -43,18 +43,18 @@ var basePalette = map[string]palette{
 	"success": {"#1b7f3b", "#9ece6a"},
 }
 
-// Wrike status color names, from the customStatuses color field. Unknown names fall back to the group.
+// Wrike status color names, the customStatuses color enum (https://developers.wrike.com/api/v4/workflows/).
+// Unknown names fall back to the group color.
 var wrikeColors = map[string]palette{
 	"Blue": {"#2f6fdb", "#7aa2f7"}, "DarkBlue": {"#1e3a8a", "#5a7bd6"}, "Indigo": {"#4b3fbf", "#9d8cff"},
 	"Turquoise": {"#0e8a8a", "#4fd1c5"}, "DarkCyan": {"#0b6e6e", "#3aa7a7"}, "Green": {"#1b7f3b", "#9ece6a"},
 	"YellowGreen": {"#5e8f1a", "#b8d55c"}, "Yellow": {"#b26a00", "#e0af68"}, "Orange": {"#c2410c", "#ff9e64"},
-	"Red": {"#c62828", "#f7768e"}, "Pink": {"#b3286e", "#f59ad0"}, "Purple": {"#7c3aed", "#bb9af7"},
-	"Violet": {"#6d28d9", "#a78bfa"}, "Brown": {"#7a4b1f", "#c48a5a"}, "Gray": {"#6e7781", "#8b8b8b"},
+	"Red": {"#c62828", "#f7768e"}, "DarkRed": {"#8b1a1a", "#d95757"}, "Purple": {"#7c3aed", "#bb9af7"},
+	"Brown": {"#7a4b1f", "#c48a5a"}, "Gray": {"#6e7781", "#8b8b8b"},
 }
 
 var ansiNames = map[string]string{"black": "0", "red": "1", "green": "2", "yellow": "3", "blue": "4", "magenta": "5", "cyan": "6", "white": "7"}
 
-// fromPalette resolves a palette entry against the configured theme mode, and falls back to an adaptive color when the mode is unset (auto).
 func (t Theme) fromPalette(p palette) lipgloss.TerminalColor {
 	switch t.mode {
 	case "dark":
@@ -62,6 +62,7 @@ func (t Theme) fromPalette(p palette) lipgloss.TerminalColor {
 	case "light":
 		return lipgloss.Color(p.light)
 	}
+	// An unset mode means auto: adapt to the terminal's own light or dark background.
 	return lipgloss.AdaptiveColor{Light: p.light, Dark: p.dark}
 }
 
@@ -138,12 +139,23 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 		titleStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
 	}
 	inner := width - 2
-	title = ansi.Truncate(title, inner-4, "...")
-	rest := inner - ansi.StringWidth(title) - 3
-	if rest < 0 {
-		rest = 0
+	var top string
+	if inner >= 5 {
+		// "- x -" needs at least 5 cells (TopLeft and TopRight are drawn outside inner), so below that the title is dropped rather than overflowing the width.
+		title = ansi.Truncate(title, inner-4, "...")
+		rest := inner - ansi.StringWidth(title) - 3
+		if rest < 0 {
+			rest = 0
+		}
+		top = edge.Render(b.TopLeft+b.Top+" ") + titleStyle.Render(title) + edge.Render(" "+strings.Repeat(b.Top, rest)+b.TopRight)
+	} else {
+		top = edge.Render(b.TopLeft + strings.Repeat(b.Top, inner) + b.TopRight)
 	}
-	top := edge.Render(b.TopLeft+b.Top+" ") + titleStyle.Render(title) + edge.Render(" "+strings.Repeat(b.Top, rest)+b.TopRight)
+
+	if height == 2 {
+		bottom := edge.Render(b.BottomLeft + strings.Repeat(b.Bottom, inner) + b.BottomRight)
+		return top + "\n" + bottom
+	}
 
 	// The body is padded or trimmed by hand: lipgloss's Height and MaxHeight alone did not pin the exact line count the box tests require for every input shape.
 	lines := strings.Split(body, "\n")

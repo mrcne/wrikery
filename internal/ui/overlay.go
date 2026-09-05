@@ -7,7 +7,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// composite draws fg over bg at column x, row y. The cuts are ANSI aware so colors in the background survive.
+// composite draws fg over bg at column x, row y.
+// The cuts are ANSI aware so colors in the background survive.
 func composite(bg, fg string, x, y int) string {
 	bgLines := strings.Split(bg, "\n")
 	for i, fl := range strings.Split(fg, "\n") {

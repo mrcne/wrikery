@@ -23,7 +23,8 @@ type statusModel struct {
 
 type toastExpiredMsg struct{ seq int }
 
-// show replaces the key hints with text for three seconds. The sequence number keeps an old timer from clearing a newer toast.
+// show replaces the key hints with text for three seconds.
+// The sequence number keeps an old timer from clearing a newer toast.
 func (s *statusModel) show(text string, isErr bool) tea.Cmd {
 	s.toastSeq++
 	s.toast, s.toastErr = text, isErr
