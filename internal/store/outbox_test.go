@@ -137,6 +137,37 @@ func TestEnqueueTimelogLifecycle(t *testing.T) {
 	}
 }
 
+func TestStatesByEntityFailedWins(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T2", "b")}); err != nil {
+		t.Fatal(err)
+	}
+	id1, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T2", TaskUpdatePayload{Title: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, id1, "rejected"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Outbox().StatesByEntity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["T1"] != StateFailed || got["T2"] != StatePending || len(got) != 2 {
+		t.Errorf("states = %v", got)
+	}
+}
+
 func TestCountsSeparatesFailed(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

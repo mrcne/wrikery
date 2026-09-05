@@ -28,6 +28,7 @@ type Folder struct {
 	ID       string
 	Title    string
 	Scope    string
+	Space    bool // true for a space root folder, the API's "space" flag
 	ChildIDs []string
 	Project  *Project // nil for plain folders
 }
@@ -109,3 +110,6 @@ type Scope struct {
 	Cursor       string // empty means initial sync has not completed
 	LastSyncedAt string
 }
+
+// MetaKeyMe is the meta row holding the current user's contact id. The syncer writes it, the UI reads it.
+const MetaKeyMe = "me_contact_id"

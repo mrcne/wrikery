@@ -90,7 +90,7 @@ func TestEngineFirstCycleDrainsAndSyncs(t *testing.T) {
 	if _, err := st.Tasks().Get(ctx, "T2"); err != nil {
 		t.Errorf("pulled task missing: %v", err)
 	}
-	if id, err := st.GetMeta(ctx, metaKeyMe); err != nil || id != "U1" {
+	if id, err := st.GetMeta(ctx, store.MetaKeyMe); err != nil || id != "U1" {
 		t.Errorf("me meta = %q, %v", id, err)
 	}
 	scopes, err := st.Scopes().Followed(ctx)

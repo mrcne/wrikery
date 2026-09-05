@@ -46,7 +46,12 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen failed: %v", err)
 	}
-	_ = st.Close()
+	defer func() { _ = st.Close() }()
+	rows, err := st.reader.Query(`SELECT space FROM folders LIMIT 0`)
+	if err != nil {
+		t.Fatalf("space column missing after reopen: %v", err)
+	}
+	_ = rows.Close()
 }
 
 func TestFTS5IsAvailable(t *testing.T) {

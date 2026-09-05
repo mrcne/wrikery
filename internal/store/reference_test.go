@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -89,6 +90,44 @@ func TestSpacesAndContactsReplaceAll(t *testing.T) {
 	got, err := st.Contacts().Get(ctx, "U1")
 	if err != nil || got.FirstName != "Anna" {
 		t.Errorf("get U1 = %+v, %v", got, err)
+	}
+}
+
+func TestFolderSubtreeReturnsRootThenDescendants(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	err := st.Folders().ReplaceTree(ctx, []Folder{
+		{ID: "S1", Title: "Platform", Space: true, ChildIDs: []string{"F2", "F1"}},
+		{ID: "F1", Title: "API", ChildIDs: []string{"F3"}, Project: &Project{Status: "Green"}},
+		{ID: "F2", Title: "Web"},
+		{ID: "F3", Title: "API v2"},
+		{ID: "X", Title: "Elsewhere"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Folders().Subtree(ctx, "S1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, f := range got {
+		ids = append(ids, f.ID)
+	}
+	want := []string{"S1", "F1", "F3", "F2"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("ids = %v, want %v", ids, want)
+	}
+	if !got[0].Space || len(got[0].ChildIDs) != 2 || got[1].Project == nil {
+		t.Errorf("fields lost: %+v", got[:2])
+	}
+}
+
+func TestFolderSubtreeUnknownRoot(t *testing.T) {
+	st := newTestStore(t)
+	got, err := st.Folders().Subtree(context.Background(), "nope")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("Subtree(unknown) = %v, %v", got, err)
 	}
 }
 
