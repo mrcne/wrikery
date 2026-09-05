@@ -82,7 +82,7 @@ func run() error {
 	defer func() { _ = st.Close() }()
 	slog.Info("started", "version", version, "db", paths.DBFile)
 
-	p := tea.NewProgram(ui.New(version), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(ui.Options{Version: version, Store: st}), tea.WithAltScreen())
 	_, err = p.Run()
 	return err
 }
