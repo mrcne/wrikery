@@ -77,6 +77,33 @@ A 429 response, meaning the rate limit was hit, is treated the same way.
 This is what the Wrike documentation asks for, retries with growing waits.
 It puts the limit at around 400 requests per minute (https://developers.wrike.com/faq/ ).
 
+## Conflicts
+
+Comments can only be added, so they cannot conflict.
+A timelog is only ever edited by the person who created it.
+It can still be locked or approved in a timesheet later, and then Wrike rejects the edit.
+The client exposes both flags, so the UI can refuse the change up front instead of queueing a write that is going to fail.
+
+Task edits send only the fields the user changed.
+Two people editing different fields of the same task both keep their change.
+If they edit the same field, the last write wins, which is also what the web application does in practice.
+
+Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.
+Those rows move to the failed state.
+A sync issues view lists them and offers a retry or a discard.
+The status bar always shows the pending and failed counts, so nothing fails without the user seeing it.
+
+## Error handling
+
+The network is treated as unreliable by default.
+A failed request puts the app in offline mode, which shows in the status bar.
+Reads keep coming from the cache and writes keep going to the queue.
+The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).
+A 401 is the exception: sync pauses and asks for a new token instead of retrying.
+A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
+Logs go to a file through log/slog, never onto the screen.
+Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.
+
 ## Files on disk
 
 The app follows the XDG base directory convention on both macOS and Linux , because the audience is developers who expect `~/.config`.
@@ -86,3 +113,19 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
 - logs: `~/.local/state/wrikery/wrikery.log`
 - API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to a file with restricted permissions on machines without one
+
+## Testing
+
+Each module is tested on its own, along the boundaries above:
+
+- `pkg/wrike` against a local test HTTP server that serves hand written fixtures shaped like the documented responses
+- `internal/store` against a real SQLite database in a temporary file, migrations included
+- `internal/sync` against a fake client and a real store in a temporary file
+- `internal/ui` flows with teatest
+
+The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.
+One more test drives the real client against a local fixture server end to end.
+
+CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, always with cgo disabled.
+Releases are single static binaries for Linux and macOS on amd64 and arm64.
+`make cross` builds all four.
