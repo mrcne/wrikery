@@ -7,13 +7,16 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 )
 
 func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	return New("test-token", WithBaseURL(srv.URL))
+	c := New("test-token", WithBaseURL(srv.URL))
+	c.sleep = func(ctx context.Context, d time.Duration) error { return nil }
+	return c
 }
 
 func TestDoSendsAuthAndDecodesData(t *testing.T) {

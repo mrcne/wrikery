@@ -5,6 +5,7 @@ package wrike
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,8 @@ type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	maxRetries int
+	sleep      func(ctx context.Context, d time.Duration) error
 }
 
 type Option func(*Client)
@@ -36,6 +39,8 @@ func New(token string, opts ...Option) *Client {
 		baseURL:    DefaultBaseURL,
 		token:      token,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		maxRetries: 3,
+		sleep:      sleepContext,
 	}
 	for _, o := range opts {
 		o(c)
@@ -50,9 +55,9 @@ type envelope struct {
 	Data          json.RawMessage `json:"data"`
 }
 
-// do performs one API request and unmarshals the envelope's data into out.
+// doOnce performs one API request and unmarshals the envelope's data into out.
 // out may be nil when the caller does not need the response body.
-func (c *Client) do(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
+func (c *Client) doOnce(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -91,4 +96,53 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 	}
 	return env.NextPageToken, nil
+}
+
+// do wraps doOnce with the retry policy: rate limits and transient failures are retried with backoff,
+// everything else returns immediately.
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
+	var lastErr error
+	for attempt := 0; ; attempt++ {
+		next, err := c.doOnce(ctx, method, path, query, form, out)
+		if err == nil {
+			return next, nil
+		}
+		lastErr = err
+		if attempt >= c.maxRetries || !retryable(err) {
+			return "", lastErr
+		}
+		if serr := c.sleep(ctx, retryDelay(err, attempt)); serr != nil {
+			return "", serr
+		}
+	}
+}
+
+// retryable is true for rate limits, server errors and network failures.
+// Client errors and undecodable responses are permanent.
+func retryable(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusTooManyRequests || apiErr.StatusCode >= 500
+	}
+	var urlErr *url.Error
+	return errors.As(err, &urlErr)
+}
+
+func retryDelay(err error, attempt int) time.Duration {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter
+	}
+	return time.Duration(1<<attempt) * time.Second
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
