@@ -1,6 +1,7 @@
 # Wrikery (Wrike TUI)
 
-Unofficial Terminal client for Wrike.
+A fast terminal client for Wrike (Unofficial).
+Browse tasks, read descriptions, add comments, change statuses, log time and check your timesheet without leaving the terminal.
 
 ## Why
 
@@ -14,3 +15,8 @@ This tool stores a local copy of tasks, so browsing and searching is instant, an
 - add comments, change status, assignee and dates
 - log time and review week in a timesheet view
 - offline mode: reads come from the local cache, writes are queued and synced later
+
+## Docs
+
+The project description is in [docs/overview.md](docs/overview.md) and the technical design in [docs/architecture.md](docs/architecture.md).
+Technology decisions are recorded in [docs/adr/](docs/adr/).
