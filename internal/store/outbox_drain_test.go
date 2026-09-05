@@ -312,3 +312,27 @@ func TestMarkInflightAndReset(t *testing.T) {
 		t.Errorf("row not pending after reset: %v", err)
 	}
 }
+
+func TestCompleteTaskSwapsInServerVersion(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := makeTask("T1", "server")
+	server.UpdatedDate = "2026-09-03T12:00:00Z"
+	if err := st.Outbox().CompleteTask(ctx, id, server); err != nil {
+		t.Fatal(err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Fatalf("counts = %d, %d, %v, want the row gone", pending, failed, err)
+	}
+	task, err := st.Tasks().Get(ctx, "T1")
+	if err != nil || task.Title != "server" || task.UpdatedDate != "2026-09-03T12:00:00Z" {
+		t.Fatalf("task = %+v, %v, want the server version in the cache", task, err)
+	}
+}

@@ -68,6 +68,26 @@ func TestTasksSearchBuildsQueryAndPages(t *testing.T) {
 	}
 }
 
+func TestTasksInSpaceUsesSpacePath(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/spaces/IEAAAASP1/tasks" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("descendants"); got != "true" {
+			t.Errorf("descendants = %q", got)
+		}
+		_, _ = w.Write([]byte(tasksFixture))
+	}))
+
+	page, err := c.Tasks(context.Background(), TaskParams{SpaceID: "IEAAAASP1", Descendants: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 2 {
+		t.Errorf("page = %+v", page)
+	}
+}
+
 func TestTasksSearchAccountWideOmitsEmptyParams(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/tasks" {

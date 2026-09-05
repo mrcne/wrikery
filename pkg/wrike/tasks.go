@@ -36,11 +36,14 @@ type TaskDates struct {
 	Due      string `json:"due,omitempty"`
 }
 
-// TaskParams narrows a task query. Descendants only applies together with FolderID.
+// TaskParams narrows a task query. FolderID and SpaceID each select their own endpoint,
+// GET /folders/{folderId}/tasks and GET /spaces/{spaceId}/tasks, the reference names both
+// under the descendants parameter. Descendants only applies together with one of them.
 // Without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
 // which is not what "follow a project" means.
 type TaskParams struct {
 	FolderID     string
+	SpaceID      string
 	Descendants  bool
 	UpdatedAfter time.Time
 	Fields       []string
@@ -58,11 +61,14 @@ type TasksPage struct {
 
 func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	path := "/tasks"
-	if p.FolderID != "" {
+	switch {
+	case p.FolderID != "":
 		path = "/folders/" + p.FolderID + "/tasks"
+	case p.SpaceID != "":
+		path = "/spaces/" + p.SpaceID + "/tasks"
 	}
 	q := url.Values{}
-	if p.FolderID != "" && p.Descendants {
+	if path != "/tasks" && p.Descendants {
 		q.Set("descendants", "true")
 	}
 	if !p.UpdatedAfter.IsZero() {

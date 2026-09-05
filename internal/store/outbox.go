@@ -79,6 +79,7 @@ type OutboxRepo interface {
 	NextDue(ctx context.Context, now string) (OutboxRow, error)
 	MarkInflight(ctx context.Context, id int64) error
 	Complete(ctx context.Context, id int64) error
+	CompleteTask(ctx context.Context, id int64, real Task) error
 	CompleteComment(ctx context.Context, id int64, real Comment) error
 	CompleteTimelog(ctx context.Context, id int64, real Timelog) error
 	Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error
@@ -311,6 +312,21 @@ func (o outboxRepo) expectOne(ctx context.Context, query string, args ...any) er
 
 func (o outboxRepo) Complete(ctx context.Context, id int64) error {
 	return o.expectOne(ctx, `DELETE FROM outbox WHERE id = ?`, id)
+}
+
+func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment) error {
