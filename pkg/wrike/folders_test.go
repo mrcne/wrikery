@@ -56,3 +56,13 @@ func TestSpaceFolders(t *testing.T) {
 		t.Errorf("folders = %+v", got)
 	}
 }
+
+func TestSpaceFoldersRejectsEmptyID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("no request must be sent")
+	}))
+
+	if _, err := c.SpaceFolders(context.Background(), ""); err == nil {
+		t.Error("want error for empty space id, got nil")
+	}
+}

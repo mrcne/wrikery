@@ -2,6 +2,7 @@ package wrike
 
 import (
 	"context"
+	"errors"
 	"net/http"
 )
 
@@ -32,6 +33,9 @@ func (c *Client) FolderTree(ctx context.Context) ([]Folder, error) {
 }
 
 func (c *Client) SpaceFolders(ctx context.Context, spaceID string) ([]Folder, error) {
+	if spaceID == "" {
+		return nil, errors.New("wrike: space id is required")
+	}
 	var out []Folder
 	if _, err := c.do(ctx, http.MethodGet, "/spaces/"+spaceID+"/folders", nil, nil, &out); err != nil {
 		return nil, err

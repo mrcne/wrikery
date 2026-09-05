@@ -151,3 +151,41 @@ func TestSleepContext(t *testing.T) {
 		t.Fatalf("want context.Canceled, got %v", err)
 	}
 }
+
+func TestServerErrorsOnPostAreNotRetried(t *testing.T) {
+	calls := 0
+	c, slept := retryTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"server_error","errorDescription":"bad gateway"}`))
+	}))
+
+	_, err := c.do(context.Background(), http.MethodPost, "/things", nil, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 502 {
+		t.Fatalf("want 502 APIError, got %v", err)
+	}
+	if calls != 1 || len(*slept) != 0 {
+		t.Errorf("calls = %d, slept = %v, want 1 call and no sleeps", calls, *slept)
+	}
+}
+
+func Test429OnPostIsRetried(t *testing.T) {
+	calls := 0
+	c, _ := retryTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
+	}))
+
+	if _, err := c.do(context.Background(), http.MethodPost, "/things", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+}

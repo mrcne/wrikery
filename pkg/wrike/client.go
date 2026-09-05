@@ -98,8 +98,8 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	return env.NextPageToken, nil
 }
 
-// do wraps doOnce with the retry policy: rate limits and transient failures are retried with backoff,
-// everything else returns immediately.
+// do wraps doOnce with the retry policy: rate limits and transient
+// failures are retried with backoff, everything else returns immediately.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
 	var lastErr error
 	for attempt := 0; ; attempt++ {
@@ -108,7 +108,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return next, nil
 		}
 		lastErr = err
-		if attempt >= c.maxRetries || !retryable(err) {
+		if attempt >= c.maxRetries || !retryable(method, err) {
 			return "", lastErr
 		}
 		if serr := c.sleep(ctx, retryDelay(err, attempt)); serr != nil {
@@ -117,15 +117,26 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	}
 }
 
-// retryable is true for rate limits, server errors and network failures.
-// Client errors and undecodable responses are permanent.
-func retryable(err error) bool {
+// retryable is true for rate limits always, and for server errors and network failures only on idempotent methods.
+// A POST that hit a server error may already be applied, retrying it could duplicate the write.
+func retryable(method string, err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == http.StatusTooManyRequests || apiErr.StatusCode >= 500
+		if apiErr.StatusCode == http.StatusTooManyRequests {
+			return true
+		}
+		return idempotent(method) && apiErr.StatusCode >= 500
 	}
 	var urlErr *url.Error
-	return errors.As(err, &urlErr)
+	return idempotent(method) && errors.As(err, &urlErr)
+}
+
+func idempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodPut, http.MethodDelete:
+		return true
+	}
+	return false
 }
 
 func retryDelay(err error, attempt int) time.Duration {
