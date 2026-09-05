@@ -93,7 +93,10 @@ func run(demoMode, logout bool) error {
 			return err
 		}
 		defer cleanup()
-		p := tea.NewProgram(ui.New(ui.Options{Version: version, Store: st, Config: cfg.UI, Demo: true}), tea.WithAltScreen())
+		p := tea.NewProgram(ui.New(ui.Options{
+			Version: version, Store: st, Config: cfg.UI, Demo: true,
+			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+		}), tea.WithAltScreen())
 		_, err = p.Run()
 		return err
 	}
@@ -118,6 +121,6 @@ func run(demoMode, logout bool) error {
 		a.startEngine(token)
 	}
 	_, err = a.prog.Run()
-	a.stopEngine()
+	a.shutdown()
 	return err
 }
