@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,11 +15,36 @@ import (
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
-// @TODO: version will be set at build time through ldflags, see the Makefile.
+// TODO: version will be set at build time through ldflags, see the Makefile.
 var version = "dev"
 
+const usage = `usage: wrikery [flags]
+
+An unofficial terminal client for Wrike.
+
+Flags:
+`
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
+	fs := flag.NewFlagSet("wrikery", flag.ContinueOnError)
+	fs.Usage = func() {
+		_, _ = fmt.Fprint(fs.Output(), usage)
+		fs.PrintDefaults()
+	}
+	showVersion := fs.Bool("version", false, "print the version and exit")
+
+	switch err := fs.Parse(os.Args[1:]); {
+	case errors.Is(err, flag.ErrHelp):
+		return
+	case err != nil:
+		os.Exit(2)
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "wrikery: unexpected argument %q\n", fs.Arg(0))
+		fs.Usage()
+		os.Exit(2)
+	}
+	if *showVersion {
 		fmt.Println("wrikery " + version)
 		return
 	}
