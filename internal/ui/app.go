@@ -246,7 +246,7 @@ func (m Model) View() string {
 	}
 	out := body + "\n" + m.status.View(m.theme, m.width, hints, m.opts.Now())
 	if m.overlay == overlayHelp {
-		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width), m.width, m.height)
+		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	return out
 }

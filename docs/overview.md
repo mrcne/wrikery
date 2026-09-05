@@ -62,3 +62,7 @@ Arrow keys move between days, one key adds an entry. The view exists to answer o
 Paste a Wrike API token. The app checks it and stores it in the system keychain.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
 The goal is less than a minute from install to a working app.
+
+### Demo mode
+
+`wrikery --demo` runs on built in sample data, no token and no network, to try the interface.

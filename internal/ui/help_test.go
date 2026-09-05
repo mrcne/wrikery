@@ -13,8 +13,8 @@ import (
 func TestHelpViewListsGroupedBindings(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	k := defaultKeyMap()
-	out := helpView(th, help.New(), [][]key.Binding{k.global(), k.list()}, 60)
-	for _, want := range []string{"Keys", "quit", "up", "esc or ? to close"} {
+	out := helpView(th, help.New(), [][]key.Binding{k.global(), k.list()}, 60, "wrikery dev")
+	for _, want := range []string{"wrikery dev", "quit", "up", "esc or ? to close"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help view %q lacks %q", out, want)
 		}
