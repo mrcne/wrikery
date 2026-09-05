@@ -18,11 +18,11 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Println("wrike-tui " + version)
+		fmt.Println("wrikery " + version)
 		return
 	}
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "wrike-tui: "+err.Error())
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		os.Exit(1)
 	}
 }

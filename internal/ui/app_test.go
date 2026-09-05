@@ -16,7 +16,7 @@ func TestAppShowsTitleAndQuitsOnQ(t *testing.T) {
 		teatest.WithInitialTermSize(80, 24))
 
 	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return strings.Contains(string(b), "wrike-tui test")
+		return strings.Contains(string(b), "wrikery test")
 	}, teatest.WithDuration(2*time.Second))
 
 	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})

@@ -84,13 +84,13 @@ func TestDefaultPathsHonorXDGEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ConfigFile != "/tmp/xdg-config/wrike-tui/config.toml" {
+	if p.ConfigFile != "/tmp/xdg-config/wrikery/config.toml" {
 		t.Errorf("ConfigFile = %q", p.ConfigFile)
 	}
-	if p.DBFile != "/tmp/xdg-data/wrike-tui/wrike.db" {
+	if p.DBFile != "/tmp/xdg-data/wrikery/wrike.db" {
 		t.Errorf("DBFile = %q", p.DBFile)
 	}
-	if p.LogFile != "/tmp/xdg-state/wrike-tui/wrike-tui.log" {
+	if p.LogFile != "/tmp/xdg-state/wrikery/wrikery.log" {
 		t.Errorf("LogFile = %q", p.LogFile)
 	}
 }
@@ -107,7 +107,7 @@ func TestEnsureDirsCreatesParents(t *testing.T) {
 	if err := p.EnsureDirs(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(base, "d", "wrike-tui")); err != nil {
+	if _, err := os.Stat(filepath.Join(base, "d", "wrikery")); err != nil {
 		t.Errorf("data dir not created: %v", err)
 	}
 }
@@ -122,7 +122,7 @@ func TestDefaultPathsWithoutHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultPaths() = %v, want no error", err)
 	}
-	if p.ConfigFile != "/tmp/xdg-config/wrike-tui/config.toml" {
+	if p.ConfigFile != "/tmp/xdg-config/wrikery/config.toml" {
 		t.Errorf("ConfigFile = %q", p.ConfigFile)
 	}
 }

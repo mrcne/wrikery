@@ -43,7 +43,7 @@ var (
 func (m Model) View() string {
 	var b strings.Builder
 	// TODO: add screens
-	b.WriteString(titleStyle.Render("wrike-tui " + m.version))
+	b.WriteString(titleStyle.Render("wrikery " + m.version))
 	b.WriteString("\n\nnothing here yet...\n\n")
 	b.WriteString(statusStyle.Render("q quit"))
 	return b.String()

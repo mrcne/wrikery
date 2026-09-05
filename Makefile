@@ -1,9 +1,9 @@
-BINARY := wrike-tui
+BINARY := wrikery
 
 .PHONY: build test lint check clean
 
 build:
-	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) ./cmd/wrike-tui
+	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) ./cmd/wrikery
 
 test:
 	go test ./...

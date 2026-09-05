@@ -1,4 +1,4 @@
-# Wrike TUI
+# Wrikery (Wrike TUI)
 
 Unofficial Terminal client for Wrike.
 

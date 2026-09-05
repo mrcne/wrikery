@@ -35,9 +35,9 @@ func DefaultPaths() (Paths, error) {
 	}
 
 	return Paths{
-		ConfigFile: filepath.Join(configDir, "wrike-tui", "config.toml"),
-		DBFile:     filepath.Join(dataDir, "wrike-tui", "wrike.db"),
-		LogFile:    filepath.Join(stateDir, "wrike-tui", "wrike-tui.log"),
+		ConfigFile: filepath.Join(configDir, "wrikery", "config.toml"),
+		DBFile:     filepath.Join(dataDir, "wrikery", "wrike.db"),
+		LogFile:    filepath.Join(stateDir, "wrikery", "wrikery.log"),
 	}, nil
 }
 
