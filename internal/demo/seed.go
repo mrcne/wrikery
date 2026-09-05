@@ -14,6 +14,7 @@ const (
 	SpacePlatform = "IEAAPLAT"
 	SpaceMobile   = "IEAAMOBI"
 	ProjectAPI    = "IEAAAPI1"
+	taskCount     = 60
 )
 
 var contacts = []store.Contact{
@@ -45,7 +46,7 @@ var workflows = []store.Workflow{
 	}},
 }
 
-// statusFor cycles tasks through the Engineering workflow so every group shows up in the list.
+// statusCycle cycles tasks through the Engineering workflow so every group shows up in the list.
 var statusCycle = []struct{ id, group string }{
 	{"IEAAST12", "Active"}, {"IEAAST11", "Active"}, {"IEAAST13", "Active"}, {"IEAAST15", "Completed"},
 	{"IEAAST12", "Active"}, {"IEAAST14", "Active"}, {"IEAAST16", "Deferred"}, {"IEAAST15", "Completed"},
@@ -63,9 +64,8 @@ var folders = []store.Folder{
 	{ID: "IEAAIOS1", Title: "iOS app", Scope: "WsFolder", Project: &store.Project{Status: "Yellow", CustomStatusID: "IEAAST14"}},
 }
 
-// leafFolders is where tasks live.
-// Space roots hold none directly, like most real accounts.
-var leafFolders = []string{ProjectAPI, "IEAAWEB1", "IEAADSGN", "IEAAINFR", "IEAAINF2", "IEAAIOS1"}
+// taskFolders is where tasks live. Space roots hold none directly, like most real accounts.
+var taskFolders = []string{ProjectAPI, "IEAAWEB1", "IEAADSGN", "IEAAINFR", "IEAAINF2", "IEAAIOS1"}
 
 var verbs = []string{"Fix", "Add", "Rotate", "Document", "Refactor", "Remove", "Bump", "Investigate", "Design", "Write tests for"}
 var objects = []string{"auth retry loop", "signing keys", "rate limit test", "error codes", "sync cursor", "legacy config loader",
@@ -79,6 +79,8 @@ var descriptions = []string{
 	``,
 }
 
+// Seed fills an empty store. Seeding twice appends more outbox rows, so it is for a fresh store only.
+// Everything derives from now except the rows the store stamps itself (optimistic outbox rows, last sync times), which carry the real time.
 func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	day := func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
 	stamp := func(offset, hour int) string {
@@ -106,8 +108,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	}
 
 	var tasks []store.Task
-	for i := 0; i < 60; i++ {
-		cs := statusCycle[i%len(statusCycle)]
+	var mine []store.Task
+	for i := 0; i < taskCount; i++ {
+		// i picks the folder, row is the task's position inside it. Keying the other cycles on
+		// row gives every folder all statuses, every assignee mix and some undated tasks.
+		row := i / len(taskFolders)
+		cs := statusCycle[row%len(statusCycle)]
 		t := store.Task{
 			ID:             fmt.Sprintf("IEAATASK%02d", i),
 			Title:          verbs[i%len(verbs)] + " " + objects[(i/len(verbs)+i)%len(objects)],
@@ -116,14 +122,14 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 			CustomStatusID: cs.id,
 			Importance:     "Normal",
 			Permalink:      fmt.Sprintf("https://www.wrike.com/open.htm?id=%d", 1200000+i),
-			ParentIDs:      []string{leafFolders[i%len(leafFolders)]},
+			ParentIDs:      []string{taskFolders[i%len(taskFolders)]},
 			CreatedDate:    stamp(-(30 + i%20), 9),
 			UpdatedDate:    stamp(-(i % 12), 8+i%9),
 		}
 		if i%13 == 0 {
 			t.Importance = "High"
 		}
-		switch i % 3 {
+		switch row % 3 {
 		case 0:
 			t.ResponsibleIDs = []string{MeID}
 		case 1:
@@ -131,9 +137,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		default:
 			t.ResponsibleIDs = []string{MeID, "KUAAAAC1"}
 		}
-		if i%4 != 0 {
-			// Wrike dates: Planned tasks carry start and due, Backlog tasks have no dates block.
-			t.Dates = &store.TaskDates{Type: "Planned", Start: day(-(i % 9)), Due: day((i % 11) - 4)}
+		if row%4 != 0 {
+			// Every fourth row in a folder has no dates block, the rest are Planned with the due date after the start.
+			t.Dates = &store.TaskDates{Type: "Planned", Start: day(-(i % 9)), Due: day(-(i % 9) + 1 + i%11)}
+		}
+		if row%3 == 0 {
+			mine = append(mine, t)
 		}
 		tasks = append(tasks, t)
 	}
@@ -142,7 +151,8 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	}
 
 	for i, t := range tasks {
-		if i%3 != 0 {
+		row := i / len(taskFolders)
+		if row%3 != 1 {
 			continue
 		}
 		comments := []store.Comment{
@@ -156,15 +166,15 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 
 	// Three weeks of my time on my tasks, weekdays only, so the timesheet has totals to show.
 	var logs []store.Timelog
-	mine := 0
+	n := 0
 	for offset := -21; offset <= 0; offset++ {
 		d := now.AddDate(0, 0, offset)
 		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 			continue
 		}
 		for j := 0; j < 2; j++ {
-			task := tasks[(mine*3)%60] // every third task is mine
-			mine++
+			task := mine[n%len(mine)]
+			n++
 			logs = append(logs, store.Timelog{
 				ID:          fmt.Sprintf("IEAATLOG%03d", len(logs)),
 				TaskID:      task.ID,
@@ -202,7 +212,9 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if _, err := st.Outbox().EnqueueComment(ctx, tasks[0].ID, MeID, "Queued while offline."); err != nil {
 		return err
 	}
-	id, err := st.Outbox().EnqueueTaskUpdate(ctx, tasks[1].ID, store.TaskUpdatePayload{CustomStatusID: "IEAAST15"})
+	// A failed update never rolls back its optimistic write, so the target status must stay in the
+	// same group as the task's own Status, or the row would fail its own consistency check forever.
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, tasks[1].ID, store.TaskUpdatePayload{CustomStatusID: "IEAAST13"})
 	if err != nil {
 		return err
 	}
