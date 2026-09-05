@@ -67,8 +67,7 @@ func press(tm *teatest.TestModel, keys ...string) {
 }
 
 // Reading teatest's output drains it, and bubbletea only repaints the lines that changed.
-// Two waits for text drawn in the same frame would then see only the first one.
-// Every model keeps the frames it has produced and each wait searches that history.
+// Two waits for text drawn in the same frame would then see only the first one, so every model keeps the frames it has produced so far and each wait searches that whole history.
 var frames sync.Map // *teatest.TestModel -> *bytes.Buffer
 
 func seenOutput(t *testing.T, tm *teatest.TestModel) *bytes.Buffer {
