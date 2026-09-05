@@ -7,12 +7,22 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
 
 type Config struct {
-	LogLevel string `toml:"log_level"`
+	LogLevel     string        `toml:"log_level"`
+	PollInterval time.Duration `toml:"poll_interval"`
+	UI           UIConfig      `toml:"ui"`
+}
+
+type UIConfig struct {
+	Theme          string `toml:"theme"`
+	Accent         string `toml:"accent"`
+	ASCII          bool   `toml:"ascii"`
+	BranchTemplate string `toml:"branch_template"`
 }
 
 var levels = map[string]slog.Level{
@@ -22,9 +32,17 @@ var levels = map[string]slog.Level{
 	"error": slog.LevelError,
 }
 
+func defaults() Config {
+	return Config{
+		LogLevel:     "info",
+		PollInterval: 60 * time.Second,
+		UI:           UIConfig{Theme: "auto", BranchTemplate: "{id}-{slug}"},
+	}
+}
+
 // Load reads the config file. A missing file is fine and yields defaults.
 func Load(path string) (Config, error) {
-	cfg := Config{LogLevel: "info"}
+	cfg := defaults()
 	md, err := toml.DecodeFile(path, &cfg)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
@@ -44,6 +62,19 @@ func Load(path string) (Config, error) {
 	cfg.LogLevel = strings.ToLower(cfg.LogLevel)
 	if _, ok := levels[cfg.LogLevel]; !ok {
 		return Config{}, fmt.Errorf("reading %s: unknown log_level %q", path, cfg.LogLevel)
+	}
+	cfg.UI.Theme = strings.ToLower(cfg.UI.Theme)
+	switch cfg.UI.Theme {
+	case "auto", "dark", "light":
+	default:
+		return Config{}, fmt.Errorf("reading %s: unknown ui.theme %q", path, cfg.UI.Theme)
+	}
+	// Below ten seconds the poll would eat a large share of the 400 requests per minute Wrike allows.
+	if cfg.PollInterval < 10*time.Second {
+		return Config{}, fmt.Errorf("reading %s: poll_interval %s is below 10s", path, cfg.PollInterval)
+	}
+	if cfg.UI.BranchTemplate == "" {
+		cfg.UI.BranchTemplate = "{id}-{slug}"
 	}
 	return cfg, nil
 }
