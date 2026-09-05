@@ -96,8 +96,8 @@ func TestSpacesAndContactsReplaceAll(t *testing.T) {
 func TestFolderSubtreeReturnsRootThenDescendants(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	// API v2 sits next to API, not under it: a "/" separator would sort it between
-	// "API" and "API/Core" (space is 0x20, slash is 0x2F), char(1) must not.
+	// API v2 sits next to API, not under it.
+	// A "/" separator would sort it between "API" and "API/Core" (space is 0x20, slash is 0x2F), char(1) must not.
 	err := st.Folders().ReplaceTree(ctx, []Folder{
 		{ID: "S1", Title: "Platform", Space: true, ChildIDs: []string{"F2", "F1", "F4"}},
 		{ID: "F1", Title: "API", ChildIDs: []string{"F3"}, Project: &Project{Status: "Green"}},

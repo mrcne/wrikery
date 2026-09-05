@@ -24,8 +24,8 @@ type Tokens struct {
 }
 
 // Load checks the environment, then the keychain, then the fallback file.
-// A keychain error other than not found is treated like an empty keychain: on a headless Linux box
-// go-keyring returns a D-Bus error rather than a typed one, and the file is where Save put the token.
+// A keychain error other than not found is treated like an empty keychain.
+// On a headless Linux box go-keyring returns a D-Bus error rather than a typed one, and the file is where Save put the token.
 func (t Tokens) Load() (string, error) {
 	if v := strings.TrimSpace(os.Getenv(EnvToken)); v != "" {
 		return v, nil
@@ -58,8 +58,8 @@ func (t Tokens) Save(token string) error {
 	}
 	err := keyring.Set(service, account, token)
 	if err == nil {
-		// A stale fallback file would otherwise be read by a later headless run that has no
-		// keychain, handing it a revoked token instead of ErrNoToken.
+		// A stale fallback file would otherwise be read by a later headless run that has no keychain,
+		// handing it a revoked token instead of ErrNoToken.
 		if rmErr := os.Remove(t.FallbackFile); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
 			slog.Debug("removing stale token file failed", "path", t.FallbackFile, "error", rmErr)
 		}

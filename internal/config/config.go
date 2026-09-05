@@ -71,8 +71,7 @@ func Load(path string) (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("reading %s: unknown ui.theme %q", path, cfg.UI.Theme)
 	}
-	// Below ten seconds the poll alone would eat a large share of the roughly 400 requests per
-	// minute Wrike allows (https://developers.wrike.com/faq/).
+	// Below ten seconds the poll alone would eat a large share of the roughly 400 requests per minute Wrike allows (https://developers.wrike.com/faq/).
 	if cfg.PollInterval < 10*time.Second {
 		return Config{}, fmt.Errorf("reading %s: poll_interval %s is below 10s", path, cfg.PollInterval)
 	}

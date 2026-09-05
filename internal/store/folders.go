@@ -139,8 +139,8 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 // Subtree returns the root and everything under it, parents before children, siblings by title.
 // The depth guard stops a cycle in a corrupt tree from running forever.
 func (f folderRepo) Subtree(ctx context.Context, rootID string) ([]Folder, error) {
-	// char(1) and not "/" separates path segments, a sibling titled "API v2" would otherwise sort
-	// between "API" and the children of "API" (space is 0x20, slash is 0x2F, 0x01 is below both).
+	// char(1) and not "/" separates path segments.
+	// A sibling titled "API v2" would otherwise sort between "API" and the children of "API" (space is 0x20, slash is 0x2F, 0x01 is below both).
 	rows, err := f.r.QueryContext(ctx, `
 		WITH RECURSIVE tree(id, depth, path) AS (
 			SELECT id, 0, title FROM folders WHERE id = ?
