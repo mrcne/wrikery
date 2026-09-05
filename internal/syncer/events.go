@@ -1,4 +1,4 @@
-package sync
+package syncer
 
 type SyncState string
 

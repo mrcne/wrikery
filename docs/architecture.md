@@ -16,7 +16,7 @@ The code is split into four parts with strict boundaries, plus a small config pa
   It could become a library of its own one day.
 - `internal/store` is the SQLite layer: schema, migrations, queries, the search index and the outbox table.
   No HTTP, no UI code.
-- `internal/sync` is the only module that knows both sides.
+- `internal/syncer` is the only module that knows both sides.
   It pulls changes from Wrike into the store and sends the writes waiting in the outbox back to Wrike.
   It depends on a small interface that covers only the part of the client it needs, so its tests run against a fake.
 - `internal/ui` is the bubbletea application.
@@ -24,7 +24,7 @@ The code is split into four parts with strict boundaries, plus a small config pa
   When sync changes the store, the UI hears about it through a bubbletea message and refreshes.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
 
-Data flows in one line: ui <-> store <-> sync <-> `pkg/wrike` <-> Wrike API.
+Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
 ## What gets cached
 
@@ -120,7 +120,7 @@ Each module is tested on its own, along the boundaries above:
 
 - `pkg/wrike` against a local test HTTP server that serves hand written fixtures shaped like the documented responses
 - `internal/store` against a real SQLite database in a temporary file, migrations included
-- `internal/sync` against a fake client and a real store in a temporary file
+- `internal/syncer` against a fake client and a real store in a temporary file
 - `internal/ui` flows with teatest
 
 The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.

@@ -44,7 +44,7 @@ type OutboxRow struct {
 }
 
 // Payloads mirror the params of the client call each kind replays.
-// internal/sync decodes them, the JSON never leaves the app.
+// internal/syncer decodes them, the JSON never leaves the app.
 type TaskUpdatePayload struct {
 	Title              string     `json:"title,omitempty"`
 	CustomStatusID     string     `json:"customStatusId,omitempty"`
