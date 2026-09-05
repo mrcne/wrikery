@@ -13,8 +13,7 @@ const (
 	failTransient failureClass = iota
 	// failAuth pauses the engine until the user refreshes the token.
 	failAuth
-	// failPermanent rejections will not succeed by waiting. An outbox row goes to the failed state,
-	// a scope or a task thread is skipped for the cycle with a log line.
+	// failPermanent rejections will not succeed by waiting. An outbox row goes to the failed state, a scope or a task thread is skipped for the cycle with a log line.
 	failPermanent
 )
 

@@ -227,31 +227,43 @@ func (e *Engine) cycle(ctx context.Context, manual bool) error {
 		return err
 	}
 	partial := false
+	pulled := 0
+	// Scopes pulled from scratch this cycle. The sweep reuses their ids instead of crawling them again.
+	full := map[string][]string{}
 	for _, sc := range scopes {
-		err := pullScope(ctx, e.client, e.st, sc, meID)
-		if err == nil {
+		ids, err := pullScope(ctx, e.client, e.st, sc, meID)
+		if err != nil {
+			if classify(err) != failPermanent {
+				return err
+			}
+			// Access revoked or the folder deleted. Waiting will not help, and one scope must not stop the others.
+			e.log.Warn("scope pull rejected", "scope", sc.ID, "error", err)
+			partial = true
 			continue
 		}
-		if classify(err) != failPermanent {
-			return err
+		pulled += len(ids)
+		if sc.Cursor == "" {
+			full[sc.ID] = ids
 		}
-		// Access revoked or the folder deleted. Waiting will not help, and one scope must not stop the others.
-		e.log.Warn("scope pull rejected", "scope", sc.ID, "error", err)
-		partial = true
 	}
-	e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
+	if pulled > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
+	}
 
 	// The sweep prunes with the union of every scope. Without the rejected one it would delete that scope's tasks.
 	if manual && !partial {
-		if err := sweep(ctx, e.client, e.st, scopes, meID); err != nil {
+		if err := sweep(ctx, e.client, e.st, scopes, meID, full); err != nil {
 			return err
 		}
 	}
 
-	if err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit); err != nil {
+	touched, err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
+	if err != nil {
 		return err
 	}
-	e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindComments, KindTimelogs}})
+	if len(touched) > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
+	}
 	return nil
 }
 

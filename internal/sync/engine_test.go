@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -76,6 +77,15 @@ func TestEngineFirstCycleDrainsAndSyncs(t *testing.T) {
 	log := fc.callLog()
 	if len(log) == 0 || log[0] != "CreateComment T1" {
 		t.Fatalf("calls = %v, the drain must run before any pull", log)
+	}
+	tasksCalls := 0
+	for _, call := range log {
+		if strings.HasPrefix(call, "Tasks") {
+			tasksCalls++
+		}
+	}
+	if tasksCalls != 2 {
+		t.Errorf("Tasks calls = %d, want one per scope, the initial pull already saw every id the sweep needs", tasksCalls)
 	}
 	if _, err := st.Tasks().Get(ctx, "T2"); err != nil {
 		t.Errorf("pulled task missing: %v", err)
@@ -256,5 +266,36 @@ func TestEngineSkipsRejectedScope(t *testing.T) {
 	}
 	if _, err := st.Tasks().Get(ctx, "T9"); err != nil {
 		t.Errorf("T9 was pruned from a partial union: %v", err)
+	}
+}
+
+func TestEngineQuietCyclesEmitNoStoreHints(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject,
+		Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		if p.FolderID == "F1" && p.UpdatedAfter.IsZero() {
+			return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1", Title: "one", Status: "Active",
+				UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
+		}
+		return wrike.TasksPage{}, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: 2 * time.Millisecond})
+	waitFor(t, e, "first idle", isState(StateIdle))
+
+	// The polls after that find nothing new, so the UI must not be told to re-read anything.
+	deadline := time.After(50 * time.Millisecond)
+	for {
+		select {
+		case ev := <-e.Events():
+			if ev.Kind == EventStoreChanged {
+				t.Fatalf("store hint for %v on a cycle that pulled nothing", ev.Entities)
+			}
+		case <-deadline:
+			return
+		}
 	}
 }

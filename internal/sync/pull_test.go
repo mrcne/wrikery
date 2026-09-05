@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -44,8 +45,12 @@ func TestPullScopeInitialThenIncremental(t *testing.T) {
 		return wrike.TasksPage{Tasks: []wrike.Task{wtask("T2", "two v2", t2.Add(time.Hour))}}, nil
 	}}
 
-	if err := pullScope(ctx, fc, st, sc, "U1"); err != nil {
+	ids, err := pullScope(ctx, fc, st, sc, "U1")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "T1" || ids[1] != "T2" {
+		t.Errorf("ids = %v, want every task across the pages", ids)
 	}
 	if gotParams[0].FolderID != "F1" || !gotParams[0].Descendants {
 		t.Errorf("params = %+v, want the folder query with descendants", gotParams[0])
@@ -66,7 +71,7 @@ func TestPullScopeInitialThenIncremental(t *testing.T) {
 	}
 
 	// Second pull resumes from the cursor.
-	if err := pullScope(ctx, fc, st, got, "U1"); err != nil {
+	if _, err := pullScope(ctx, fc, st, got, "U1"); err != nil {
 		t.Fatal(err)
 	}
 	last := gotParams[len(gotParams)-1]
@@ -92,7 +97,7 @@ func TestPullScopeMeUsesResponsibles(t *testing.T) {
 		got = p
 		return wrike.TasksPage{}, nil
 	}}
-	if err := pullScope(context.Background(), fc, st, sc, "U1"); err != nil {
+	if _, err := pullScope(context.Background(), fc, st, sc, "U1"); err != nil {
 		t.Fatal(err)
 	}
 	if got.FolderID != "" || len(got.Responsibles) != 1 || got.Responsibles[0] != "U1" {
@@ -109,7 +114,7 @@ func TestPullScopeSpaceUsesSpaceEndpoint(t *testing.T) {
 		got = p
 		return wrike.TasksPage{}, nil
 	}}
-	if err := pullScope(context.Background(), fc, st, sc, "U1"); err != nil {
+	if _, err := pullScope(context.Background(), fc, st, sc, "U1"); err != nil {
 		t.Fatal(err)
 	}
 	if got.SpaceID != "S1" || got.FolderID != "" || !got.Descendants {
@@ -120,7 +125,7 @@ func TestPullScopeSpaceUsesSpaceEndpoint(t *testing.T) {
 func TestPullScopeEmptyInitialStampsCursor(t *testing.T) {
 	st := newTestStore(t)
 	sc := mustScope(t, st, "F1", store.ScopeKindProject)
-	if err := pullScope(context.Background(), &fakeClient{}, st, sc, "U1"); err != nil {
+	if _, err := pullScope(context.Background(), &fakeClient{}, st, sc, "U1"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.Scopes().Get(context.Background(), "F1")
@@ -139,8 +144,31 @@ func TestSweepPrunesVanishedTasks(t *testing.T) {
 	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
 		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1"); err != nil {
+	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
+		t.Error("T2 survived the sweep")
+	}
+	if _, err := st.Tasks().Get(ctx, "T1"); err != nil {
+		t.Errorf("T1 pruned wrongly: %v", err)
+	}
+}
+
+func TestSweepReusesInitialPull(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	sc := mustScope(t, st, "F1", store.ScopeKindProject)
+	seedTask(t, st, "T1", "keep")
+	seedTask(t, st, "T2", "gone remotely")
+
+	fc := &fakeClient{}
+	full := map[string][]string{"F1": {"T1"}}
+	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", full); err != nil {
+		t.Fatal(err)
+	}
+	if calls := fc.callLog(); len(calls) != 0 {
+		t.Errorf("calls = %v, a scope the pull just walked in full must not be crawled again", calls)
 	}
 	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
 		t.Error("T2 survived the sweep")
@@ -163,7 +191,7 @@ func TestSweepAbortsOnPartialUnion(t *testing.T) {
 		}
 		return wrike.TasksPage{}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{scA, scB}, "U1"); err == nil {
+	if err := sweep(ctx, fc, st, []store.Scope{scA, scB}, "U1", nil); err == nil {
 		t.Fatal("want the error back")
 	}
 	if _, err := st.Tasks().Get(ctx, "T1"); err != nil {
@@ -198,7 +226,7 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 				UpdatedDate: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)}}, nil
 		},
 	}
-	if err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+	if _, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
 		t.Fatal(err)
 	}
 
@@ -279,8 +307,12 @@ func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
 			return nil, nil
 		},
 	}
-	if err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+	touched, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
+	if err != nil {
 		t.Fatalf("one rejected thread must not fail the refresh: %v", err)
+	}
+	if !slices.Contains(touched, KindComments) || !slices.Contains(touched, KindTasks) {
+		t.Errorf("touched = %v, want the threads and the dropped task reported", touched)
 	}
 	if _, err := st.Tasks().Get(ctx, "T1"); err != nil {
 		t.Errorf("T1 must survive a 403, it may still be readable later: %v", err)

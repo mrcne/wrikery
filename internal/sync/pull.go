@@ -57,26 +57,29 @@ func scopeParams(sc store.Scope, meID string) wrike.TaskParams {
 	return p
 }
 
-// pullScope walks one scope through the updatedDate filter.
+// pullScope walks one scope through the updatedDate filter and returns the ids of the tasks it saw.
+// Without a cursor that is every task in the scope.
 // The cursor travels with the final page only,
 // so a crash between pages re-pulls from the old cursor and the upserts stay idempotent.
-func pullScope(ctx context.Context, c Client, st *store.Store, sc store.Scope, meID string) error {
+func pullScope(ctx context.Context, c Client, st *store.Store, sc store.Scope, meID string) ([]string, error) {
 	p := scopeParams(sc, meID)
 	p.Fields = pullFields
 	if sc.Cursor != "" {
 		after, err := time.Parse(time.RFC3339, sc.Cursor)
 		if err != nil {
-			return fmt.Errorf("sync: scope %s cursor: %w", sc.ID, err)
+			return nil, fmt.Errorf("sync: scope %s cursor: %w", sc.ID, err)
 		}
 		p.UpdatedAfter = after
 	}
 	maxSeen := sc.Cursor
+	var seen []string
 	for {
 		page, err := c.Tasks(ctx, p)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, t := range page.Tasks {
+			seen = append(seen, t.ID)
 			if u := rfc3339(t.UpdatedDate); u > maxSeen {
 				maxSeen = u
 			}
@@ -86,14 +89,14 @@ func pullScope(ctx context.Context, c Client, st *store.Store, sc store.Scope, m
 			cursor = maxSeen
 			if cursor == "" {
 				// An empty scope on the initial pull has nothing to date the cursor with, start incremental polling from now.
-				cursor = time.Now().UTC().Format(time.RFC3339)
+				cursor = rfc3339(time.Now())
 			}
 		}
 		if err := st.Tasks().ApplyPage(ctx, sc.ID, tasksFromWrike(page.Tasks), cursor); err != nil {
-			return err
+			return nil, err
 		}
 		if page.NextPageToken == "" {
-			return nil
+			return seen, nil
 		}
 		p.PageToken = page.NextPageToken
 	}
@@ -101,9 +104,14 @@ func pullScope(ctx context.Context, c Client, st *store.Store, sc store.Scope, m
 
 // sweep deletes tasks that vanished from every followed scope.
 // It only ever prunes with the complete union, a partial one would delete live tasks and cascade their comments.
-func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope, meID string) error {
+// full holds the ids of the scopes pulled from scratch in this cycle, those are not crawled a second time.
+func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope, meID string, full map[string][]string) error {
 	var keep []string
 	for _, sc := range scopes {
+		if ids, ok := full[sc.ID]; ok {
+			keep = append(keep, ids...)
+			continue
+		}
 		p := scopeParams(sc, meID)
 		for {
 			page, err := c.Tasks(ctx, p)
@@ -123,30 +131,40 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 	return err
 }
 
-// refreshThreads pulls comments and timelogs for recently opened tasks.
+// refreshThreads pulls comments and timelogs for recently opened tasks and reports which caches it touched.
 // A 404 means the task is gone on the server, drop it. Any other rejection skips the task,
 // it stays in the window for days and must not block the other threads for that long.
-func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) error {
+func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
 	since := rfc3339(time.Now().Add(-window))
 	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, since, limit)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	threads, dropped := false, false
 	for _, id := range ids {
 		err := refreshThread(ctx, c, st, id)
 		switch {
 		case err == nil:
+			threads = true
 		case isNotFound(err):
 			if err := st.Tasks().Delete(ctx, id); err != nil {
-				return err
+				return nil, err
 			}
+			dropped = true
 		case classify(err) == failPermanent:
 			log.Warn("thread refresh rejected", "task", id, "error", err)
 		default:
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	var touched []EntityKind
+	if threads {
+		touched = append(touched, KindComments, KindTimelogs)
+	}
+	if dropped {
+		touched = append(touched, KindTasks)
+	}
+	return touched, nil
 }
 
 func refreshThread(ctx context.Context, c Client, st *store.Store, id string) error {
