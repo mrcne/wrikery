@@ -110,8 +110,8 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	var tasks []store.Task
 	var mine []store.Task
 	for i := 0; i < taskCount; i++ {
-		// i picks the folder, row is the task's position inside it. Keying the other cycles on
-		// row gives every folder all statuses, every assignee mix and some undated tasks.
+		// i picks the folder, row is the task's position inside it.
+		// Keying the other cycles on row gives every folder all statuses, every assignee mix and some undated tasks.
 		row := i / len(taskFolders)
 		cs := statusCycle[row%len(statusCycle)]
 		t := store.Task{
@@ -212,8 +212,8 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if _, err := st.Outbox().EnqueueComment(ctx, tasks[0].ID, MeID, "Queued while offline."); err != nil {
 		return err
 	}
-	// A failed update never rolls back its optimistic write, so the target status must stay in the
-	// same group as the task's own Status, or the row would fail its own consistency check forever.
+	// A failed update never rolls back its optimistic write.
+	// The target status must stay in the same group as the task's own Status, or the row would fail its own consistency check forever.
 	id, err := st.Outbox().EnqueueTaskUpdate(ctx, tasks[1].ID, store.TaskUpdatePayload{CustomStatusID: "IEAAST13"})
 	if err != nil {
 		return err
