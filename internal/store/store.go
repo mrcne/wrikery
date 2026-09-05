@@ -29,7 +29,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	writer.SetMaxOpenConns(1)
-	if err := migrate(writer); err != nil {
+	if err := migrate(context.Background(), writer); err != nil {
 		_ = writer.Close()
 		return nil, err
 	}

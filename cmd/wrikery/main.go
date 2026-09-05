@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -76,7 +75,7 @@ func run() error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
 		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
 
-	st, err := store.Open(context.Background(), paths.DBFile)
+	st, err := store.Open(paths.DBFile)
 	if err != nil {
 		return err
 	}
