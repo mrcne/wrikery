@@ -24,7 +24,7 @@ The code is split into four parts with strict boundaries, plus a small config pa
   When sync changes the store, the UI hears about it through a bubbletea message and refreshes.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
 
-Data flows in one line: ui <-> store <-> sync <-> `pkg/wrike` <-> Wrike API.
+Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
 ## What gets cached
 
