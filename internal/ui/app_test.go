@@ -67,26 +67,48 @@ func press(tm *teatest.TestModel, keys ...string) {
 }
 
 // Reading teatest's output drains it, and bubbletea only repaints the lines that changed.
-// Two waits for text drawn in the same frame would then see only the first one, so every model keeps the frames it has produced so far and each wait searches that whole history.
+// Two waits for text drawn in the same frame would then see only the first one.
+// Every model keeps the frames it has produced and each wait searches that history.
 var frames sync.Map // *teatest.TestModel -> *bytes.Buffer
 
-func waitFor(t *testing.T, tm *teatest.TestModel, want string) {
+func seenOutput(t *testing.T, tm *teatest.TestModel) *bytes.Buffer {
 	t.Helper()
 	v, loaded := frames.LoadOrStore(tm, &bytes.Buffer{})
 	if !loaded {
 		t.Cleanup(func() { frames.Delete(tm) })
 	}
-	seen := v.(*bytes.Buffer)
+	return v.(*bytes.Buffer)
+}
+
+func waitFor(t *testing.T, tm *teatest.TestModel, want string) {
+	t.Helper()
+	waitAfter(t, tm, 0, want)
+}
+
+// mark reads what has been drawn so far and returns its length.
+// Text that was already on screen once, such as a pane title the first run box covered, needs it to prove the frame was drawn again.
+func mark(t *testing.T, tm *teatest.TestModel) int {
+	t.Helper()
+	seen := seenOutput(t, tm)
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the program output: %v", err)
+	}
+	return seen.Len()
+}
+
+func waitAfter(t *testing.T, tm *teatest.TestModel, from int, want string) {
+	t.Helper()
+	seen := seenOutput(t, tm)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		if _, err := io.Copy(seen, tm.Output()); err != nil {
 			t.Fatalf("reading the program output: %v", err)
 		}
-		if strings.Contains(seen.String(), want) {
+		if strings.Contains(seen.String()[from:], want) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("waiting for %q, output so far:\n%s", want, seen.String())
+			t.Fatalf("waiting for %q, output so far:\n%s", want, seen.String()[from:])
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -131,6 +153,26 @@ func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	waitFor(t, tm, "1 failed")
 	tm.Send(ui.SyncStateMsg{State: "offline"})
 	waitFor(t, tm, "offline since")
+}
+
+// The short hints are in the goldens, the overlay is not, and bubbles reaches for a bullet and an ellipsis of its own.
+func TestHelpOverlayStaysASCII(t *testing.T) {
+	for _, w := range []int{160, 120, 70} {
+		t.Run(fmt.Sprint(w), func(t *testing.T) {
+			st := seededStore(t)
+			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
+			waitFor(t, tm, "Tasks")
+			press(tm, "?")
+			waitFor(t, tm, "esc or ? to close")
+			for _, r := range seenOutput(t, tm).String() {
+				if r > 127 {
+					t.Fatalf("ASCII mode drew %q", r)
+				}
+			}
+			press(tm, "esc")
+			_ = finalView(t, tm)
+		})
+	}
 }
 
 func TestHelpOverlayListsBindings(t *testing.T) {

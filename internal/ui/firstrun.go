@@ -29,6 +29,7 @@ type pickerItem struct {
 
 type firstRunModel struct {
 	step      firstRunStep
+	reauth    bool   // a 401 sent the user back here, so a good token returns to the main screen instead of asking again
 	notice    string // shown above the token input, set after a 401
 	input     textinput.Model
 	spinner   spinner.Model
@@ -46,6 +47,8 @@ func newFirstRun(step firstRunStep, notice string, keys KeyMap) firstRunModel {
 	in.Placeholder = "paste the token here"
 	in.EchoMode = textinput.EchoPassword
 	in.CharLimit = 200
+	// A permanent token is longer than the box, the input scrolls it instead of wrapping out of the border.
+	in.Width = 60
 	in.Focus()
 	sp := spinner.New(spinner.WithSpinner(spinner.Line))
 	return firstRunModel{step: step, notice: notice, input: in, spinner: sp, keys: keys}
@@ -60,10 +63,17 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 			return f, nil
 		}
 		f.name, f.errText = msg.name, ""
+		if f.reauth {
+			return f, intent(firstRunFinishedMsg{})
+		}
 		f.step = stepScopes
 		return f, nil
 	case pickerLoadedMsg:
 		f.items = f.mergePicker(msg)
+		// The list can shrink when a space is unfollowed upstream, and a cursor past the end would panic on the next toggle.
+		if f.cursor >= len(f.items) {
+			f.cursor = max(0, len(f.items)-1)
+		}
 		return f, nil
 	case scopesLoadedMsg:
 		f.scopes = msg.scopes

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/exp/teatest"
@@ -35,7 +36,7 @@ func TestFirstRunFlow(t *testing.T) {
 	if got := <-verified; got != "abc" {
 		t.Fatalf("verified %q", got)
 	}
-	waitFor(t, tm, "Follow")
+	waitFor(t, tm, "Hello Ada Nowak")
 
 	// The engine would have pulled these by now. Seed and send the hint the bridge would send.
 	_ = st.Spaces().ReplaceAll(ctx, []store.Space{{ID: demo.SpacePlatform, Title: "Platform"}, {ID: demo.SpaceMobile, Title: "Mobile"}})
@@ -64,12 +65,24 @@ func TestFirstRunFlow(t *testing.T) {
 	waitFor(t, tm, "v Platform") // ASCII completed glyph marks a synced scope
 	press(tm, "enter")
 	waitFor(t, tm, "Tasks")
+	_ = finalView(t, tm)
 }
 
 func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	opts := testOptions(st)
+	opts.Hooks.VerifyToken = func(context.Context, string) (string, error) { return "Ada Nowak", nil }
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike rejected the token")
+
+	// The pane titles were on screen before the box covered them, so only the frames drawn from here on prove the main screen is back.
+	from := mark(t, tm)
+	press(tm, "newtoken", "enter")
+	waitAfter(t, tm, from, "Tasks")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Follow") {
+		t.Errorf("a second token walked into the scope picker:\n%s", view)
+	}
 }

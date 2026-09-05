@@ -17,7 +17,7 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// Hooks are the few things the UI needs from outside the store. Any of them may be nil, the UI then shows a toast.
+// Hooks are the few things the UI needs from outside the store. Any of them may be nil, the UI then reports it instead of failing.
 type Hooks struct {
 	Refresh     func()
 	WakeOutbox  func()
@@ -76,6 +76,11 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
+	if m.theme.ASCII {
+		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
+		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
+		m.help.Ellipsis = "..."
+	}
 	m.status.demo = o.Demo
 	if o.Demo {
 		m.status.state = "idle"
@@ -129,7 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tokenVerifiedMsg:
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
-		if msg.err == nil {
+		if msg.err == nil && !m.firstRun.reauth {
 			cmd = tea.Batch(cmd, m.loadPicker(), m.firstRun.spinner.Tick)
 		}
 		return m, cmd
@@ -154,6 +159,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	case "auth_required":
 		m.screen = screenFirstRun
 		m.firstRun = newFirstRun(stepToken, "Wrike rejected the token. Paste a new one to continue.", m.keys)
+		m.firstRun.reauth = true
 	}
 	if state != "offline" {
 		m.status.offlineSince = time.Time{}
@@ -161,7 +167,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// reload re-reads what is on screen for the caches that changed. Later PRs add their panes here.
+// reload re-reads what is on screen for the caches that changed.
 func (m Model) reload(entities []string) tea.Cmd {
 	var cmds []tea.Cmd
 	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") {
@@ -189,6 +195,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.screen == screenFirstRun {
+		// A token may contain a q, so only the step with the input swallows it.
+		if m.firstRun.step != stepToken && key.Matches(msg, m.keys.Quit) {
+			return m, tea.Quit
+		}
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
 		return m, cmd
@@ -261,7 +271,7 @@ func (m Model) paneTitle(p pane) string {
 	return "Task"
 }
 
-// paneBody is empty in this PR. The browse PR fills it from the child models.
+// paneBody has no content yet, the child models fill it.
 func (m Model) paneBody(p pane, r rect) string { return "" }
 
 func (m Model) hintBindings() []key.Binding {
