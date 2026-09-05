@@ -37,13 +37,19 @@ func TestTaskFromWrike(t *testing.T) {
 }
 
 func TestFolderAndWorkflowFromWrike(t *testing.T) {
-	f := folderFromWrike(wrike.Folder{ID: "F1", Title: "Root", ChildIDs: []string{"F2"}})
+	f := folderFromWrike(wrike.Folder{ID: "F1", Title: "Root", ChildIDs: []string{"F2"}, Space: true})
 	if f.Project != nil {
 		t.Errorf("plain folder got project %+v", f.Project)
+	}
+	if !f.Space {
+		t.Errorf("folder should have Space == true, got %+v", f.Space)
 	}
 	p := folderFromWrike(wrike.Folder{ID: "F2", Title: "Api", Project: &wrike.Project{Status: "Green"}})
 	if p.Project == nil || p.Project.Status != "Green" {
 		t.Errorf("project folder = %+v", p)
+	}
+	if p.Space {
+		t.Errorf("folder should have Space == false, got %+v", p.Space)
 	}
 
 	ws := workflowsFromWrike([]wrike.Workflow{{ID: "W1", Name: "Default", CustomStatuses: []wrike.CustomStatus{

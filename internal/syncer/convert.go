@@ -45,7 +45,7 @@ func tasksFromWrike(in []wrike.Task) []store.Task {
 }
 
 func folderFromWrike(f wrike.Folder) store.Folder {
-	out := store.Folder{ID: f.ID, Title: f.Title, Scope: f.Scope, ChildIDs: f.ChildIDs}
+	out := store.Folder{ID: f.ID, Title: f.Title, Scope: f.Scope, Space: f.Space, ChildIDs: f.ChildIDs}
 	if f.Project != nil {
 		out.Project = &store.Project{
 			Status:         f.Project.Status,

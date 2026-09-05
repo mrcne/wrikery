@@ -7,7 +7,7 @@ import (
 )
 
 const foldersFixture = `{"kind":"folderTree","data":[
-  {"id":"IEAAAAFD1","title":"Engineering","childIds":["IEAAAAFD2"],"scope":"WsFolder"},
+  {"id":"IEAAAAFD1","title":"Engineering","childIds":["IEAAAAFD2"],"scope":"WsFolder","space":true},
   {"id":"IEAAAAFD2","title":"TUI Rewrite","childIds":[],"scope":"WsFolder",
    "project":{"authorId":"KUAAAA01","ownerIds":["KUAAAA01"],"status":"Green",
               "customStatusId":"IEAAAACS9","startDate":"2026-09-01","endDate":"2026-12-24"}}
@@ -37,6 +37,12 @@ func TestFolderTree(t *testing.T) {
 	}
 	if got[0].ChildIDs[0] != "IEAAAAFD2" {
 		t.Errorf("childIds = %+v", got[0].ChildIDs)
+	}
+	if !got[0].Space {
+		t.Errorf("first folder should have Space == true, got %+v", got[0].Space)
+	}
+	if got[1].Space {
+		t.Errorf("second folder should have Space == false, got %+v", got[1].Space)
 	}
 }
 
