@@ -166,6 +166,10 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 	for len(lines) < bodyHeight {
 		lines = append(lines, "")
 	}
+	// Width() word wraps before MaxWidth() clips, which would push a long line into extra rows and grow the box past its height.
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, inner, "")
+	}
 	content := lipgloss.NewStyle().Width(inner).MaxWidth(inner).Render(strings.Join(lines, "\n"))
 	sides := lipgloss.NewStyle().
 		Border(b, false, true, true, true).BorderForeground(color).

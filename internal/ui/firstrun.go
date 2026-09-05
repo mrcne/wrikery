@@ -174,7 +174,7 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 			body.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(f.notice) + "\n\n")
 		}
 		body.WriteString("Paste a permanent access token.\n")
-		body.WriteString(muted.Render("Create one in Wrike under Apps & Integrations -> API. Details: https://developers.wrike.com/") + "\n\n")
+		body.WriteString(muted.Render("Create one in Wrike: App Console (https://www.wrike.com/appconsole.htm?#/api), Get token. Wrike shows it only once.") + "\n\n")
 		body.WriteString(f.input.View() + "\n\n")
 		switch {
 		case f.verifying:

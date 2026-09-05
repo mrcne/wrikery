@@ -125,10 +125,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
 	case firstRunConfirmScopesMsg:
-		var cmd tea.Cmd
-		m.firstRun, cmd = m.firstRun.Update(msg)
-		return m, tea.Batch(cmd, m.saveScopes(msg.scopes), m.firstRun.spinner.Tick)
+		return m, tea.Batch(m.saveScopes(msg.scopes), m.firstRun.spinner.Tick)
 	case firstRunFinishedMsg:
+		if m.firstRun.reauth {
+			// verifyToken restarted the engine, so a cycle is already running and the bar would otherwise still read as rejected.
+			m.status.state = "syncing"
+		}
 		m.screen = screenMain
 		return m, tea.Batch(m.loadRef(), m.loadScopes())
 	case tokenVerifiedMsg:
@@ -157,9 +159,11 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 			m.status.offlineSince = m.opts.Now()
 		}
 	case "auth_required":
-		m.screen = screenFirstRun
-		m.firstRun = newFirstRun(stepToken, "Wrike rejected the token. Paste a new one to continue.", m.keys)
-		m.firstRun.reauth = true
+		if m.screen != screenFirstRun {
+			m.screen = screenFirstRun
+			m.firstRun = newFirstRun(stepToken, "Wrike rejected the token. Paste a new one to continue.", m.keys)
+			m.firstRun.reauth = true
+		}
 	}
 	if state != "offline" {
 		m.status.offlineSince = time.Time{}
@@ -274,8 +278,9 @@ func (m Model) paneTitle(p pane) string {
 // paneBody has no content yet, the child models fill it.
 func (m Model) paneBody(p pane, r rect) string { return "" }
 
+// Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
-	return []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Timesheet, m.keys.Help, m.keys.Quit}
+	return []key.Binding{m.keys.NextPane, m.keys.Help, m.keys.Quit}
 }
 
 func (m Model) helpGroups() [][]key.Binding {

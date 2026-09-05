@@ -15,7 +15,7 @@ type layout struct {
 	rects   map[pane]rect
 }
 
-// visibleCount is the breakpoint table from the spec: three panes from 120 columns, two from 80, one below.
+// visibleCount holds the breakpoints: three panes from 120 columns, two from 80, one below.
 func visibleCount(width int) int {
 	switch {
 	case width >= 120:

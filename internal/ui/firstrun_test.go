@@ -39,19 +39,26 @@ func TestFirstRunFlow(t *testing.T) {
 	waitFor(t, tm, "Hello Ada Nowak")
 
 	// The engine would have pulled these by now. Seed and send the hint the bridge would send.
-	_ = st.Spaces().ReplaceAll(ctx, []store.Space{{ID: demo.SpacePlatform, Title: "Platform"}, {ID: demo.SpaceMobile, Title: "Mobile"}})
-	_ = st.Folders().ReplaceTree(ctx, []store.Folder{
+	if err := st.Spaces().ReplaceAll(ctx, []store.Space{{ID: demo.SpacePlatform, Title: "Platform"}, {ID: demo.SpaceMobile, Title: "Mobile"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Folders().ReplaceTree(ctx, []store.Folder{
 		{ID: demo.SpacePlatform, Title: "Platform", Space: true, ChildIDs: []string{demo.ProjectAPI}},
 		{ID: demo.ProjectAPI, Title: "API", Project: &store.Project{Status: "Green"}},
 		{ID: demo.SpaceMobile, Title: "Mobile", Space: true},
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	tm.Send(ui.StoreChangedMsg{Entities: []string{"spaces", "folders"}})
 	waitFor(t, tm, "Platform")
 	// The store lists spaces by title, so the rows are My tasks (locked), Mobile, Platform and the API project under it.
 	press(tm, "j", "j", "space", "enter")
 
 	waitFor(t, tm, "Syncing")
-	scopes, _ := st.Scopes().Followed(ctx)
+	scopes, err := st.Scopes().Followed(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var ids []string
 	for _, sc := range scopes {
 		ids = append(ids, sc.ID)
@@ -60,7 +67,9 @@ func TestFirstRunFlow(t *testing.T) {
 		t.Fatalf("followed = %v", ids)
 	}
 
-	_ = st.Tasks().ApplyPage(ctx, demo.SpacePlatform, nil, "2026-09-03T12:00:00Z")
+	if err := st.Tasks().ApplyPage(ctx, demo.SpacePlatform, nil, "2026-09-03T12:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
 	tm.Send(ui.StoreChangedMsg{Entities: []string{"tasks"}})
 	waitFor(t, tm, "v Platform") // ASCII completed glyph marks a synced scope
 	press(tm, "enter")

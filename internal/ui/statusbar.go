@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type statusModel struct {
@@ -70,18 +71,25 @@ func (s statusModel) View(th Theme, width int, hints string, now time.Time) stri
 	if s.failed > 0 {
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(fmt.Sprintf("  %d failed", s.failed)))
 	}
-	right := muted.Render(hints)
-	if s.toast != "" {
+	// What is left after the state, the leading space and a one cell gap. A hint cut in half reads as a glitch, so hints are all or nothing.
+	leftText := left.String()
+	available := width - lipgloss.Width(leftText) - 3
+	right := ""
+	switch {
+	case s.toast != "" && available > 0:
 		style := lipgloss.NewStyle().Foreground(th.Text)
 		if s.toastErr {
 			style = style.Foreground(th.Error)
 		}
-		right = style.Render(s.toast)
+		// A toast answers something the user just did, so it is cut down rather than dropped.
+		right = style.Render(ansi.Truncate(s.toast, available, "..."))
+	case s.toast == "" && hints != "" && lipgloss.Width(hints) <= available:
+		right = muted.Render(hints)
 	}
-	gap := width - lipgloss.Width(left.String()) - lipgloss.Width(right) - 2
+	gap := width - lipgloss.Width(leftText) - lipgloss.Width(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
-	line := " " + left.String() + strings.Repeat(" ", gap) + right
+	line := " " + leftText + strings.Repeat(" ", gap) + right
 	return lipgloss.NewStyle().MaxWidth(width).Render(line) + strings.Repeat(" ", max(0, width-lipgloss.Width(line)))
 }

@@ -1,6 +1,11 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func TestDefaultKeyMapGroupsCoverExpectedActions(t *testing.T) {
 	k := defaultKeyMap()
@@ -12,5 +17,22 @@ func TestDefaultKeyMapGroupsCoverExpectedActions(t *testing.T) {
 	}
 	if !k.Down.Enabled() {
 		t.Error("down binding should be enabled by default")
+	}
+}
+
+func TestDefaultKeyMapMatchesTheKeysItAdvertises(t *testing.T) {
+	k := defaultKeyMap()
+	for _, tc := range []struct {
+		name string
+		msg  tea.KeyMsg
+		want key.Binding
+	}{
+		{"q quits", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}, k.Quit},
+		{"ctrl+c quits", tea.KeyMsg{Type: tea.KeyCtrlC}, k.Quit},
+		{"? opens help", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")}, k.Help},
+	} {
+		if !key.Matches(tc.msg, tc.want) {
+			t.Errorf("%s: %v did not match", tc.name, tc.msg)
+		}
 	}
 }

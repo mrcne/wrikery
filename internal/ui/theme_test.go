@@ -63,6 +63,23 @@ func TestBoxHoldsHeightAtMinimum(t *testing.T) {
 	}
 }
 
+func TestBoxClipsLongLines(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	out := th.box("T", "a\n"+strings.Repeat("x", 92)+"\nb", 40, 5, false)
+	lines := strings.Split(out, "\n")
+	if len(lines) != 5 {
+		t.Fatalf("height = %d, want 5:\n%s", len(lines), out)
+	}
+	for i, l := range lines {
+		if w := lipgloss.Width(l); w != 40 {
+			t.Errorf("line %d width = %d, want 40: %q", i, w, l)
+		}
+	}
+	if n := strings.Count(lines[2], "x"); n != 38 {
+		t.Errorf("long line kept %d of the x, want the 38 that fit inside the border: %q", n, lines[2])
+	}
+}
+
 func TestStatusColorFallsBackToGroup(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark"})
 	if th.StatusColor(store.CustomStatus{Color: "NoSuchColor", Group: "Completed"}) != th.Success {
