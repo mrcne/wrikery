@@ -217,3 +217,44 @@ func TestEngineWakeDrainsPromptly(t *testing.T) {
 		t.Fatalf("calls = %v, the wake must trigger a drain without waiting for the poll", fc.callLog())
 	}
 }
+
+func TestEngineSkipsRejectedScope(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"F1", "F2"} {
+		if err := st.Scopes().Upsert(ctx, store.Scope{ID: id, Kind: store.ScopeKindProject,
+			Title: id, Followed: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Not returned by any scope. The sweep must not prune it while one scope is unreadable.
+	seedTask(t, st, "T9", "cached before access was lost")
+
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		switch p.FolderID {
+		case "F1":
+			return wrike.TasksPage{}, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+		case "F2":
+			return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T2", Title: "still readable", Status: "Active",
+				UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
+		}
+		return wrike.TasksPage{}, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: time.Hour})
+
+	waitFor(t, e, "idle despite the rejected scope", func(ev Event) bool {
+		if ev.Kind == EventStateChanged && ev.State == StateOffline {
+			t.Fatal("the engine went offline over one rejected scope")
+		}
+		return ev.Kind == EventStateChanged && ev.State == StateIdle
+	})
+	if _, err := st.Tasks().Get(ctx, "T2"); err != nil {
+		t.Errorf("the readable scope was not pulled: %v", err)
+	}
+	if sc, err := st.Scopes().Get(ctx, "F2"); err != nil || sc.Cursor == "" {
+		t.Errorf("scope F2 = %+v, %v, want a cursor", sc, err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T9"); err != nil {
+		t.Errorf("T9 was pruned from a partial union: %v", err)
+	}
+}

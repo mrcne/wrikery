@@ -226,20 +226,29 @@ func (e *Engine) cycle(ctx context.Context, manual bool) error {
 	if err != nil {
 		return err
 	}
+	partial := false
 	for _, sc := range scopes {
-		if err := pullScope(ctx, e.client, e.st, sc, meID); err != nil {
+		err := pullScope(ctx, e.client, e.st, sc, meID)
+		if err == nil {
+			continue
+		}
+		if classify(err) != failPermanent {
 			return err
 		}
+		// Access revoked or the folder deleted. Waiting will not help, and one scope must not stop the others.
+		e.log.Warn("scope pull rejected", "scope", sc.ID, "error", err)
+		partial = true
 	}
 	e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
 
-	if manual {
+	// The sweep prunes with the union of every scope. Without the rejected one it would delete that scope's tasks.
+	if manual && !partial {
 		if err := sweep(ctx, e.client, e.st, scopes, meID); err != nil {
 			return err
 		}
 	}
 
-	if err := refreshThreads(ctx, e.client, e.st, e.cfg.ThreadWindow, e.cfg.ThreadLimit); err != nil {
+	if err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit); err != nil {
 		return err
 	}
 	e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindComments, KindTimelogs}})

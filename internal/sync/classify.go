@@ -13,11 +13,15 @@ const (
 	failTransient failureClass = iota
 	// failAuth pauses the engine until the user refreshes the token.
 	failAuth
-	// failPermanent rejections will not succeed by waiting, the row or cycle that caused them must surface to the user.
+	// failPermanent rejections will not succeed by waiting. An outbox row goes to the failed state,
+	// a scope or a task thread is skipped for the cycle with a log line.
 	failPermanent
 )
 
 func classify(err error) failureClass {
+	if errors.Is(err, errCorruptRow) {
+		return failPermanent
+	}
 	var apiErr *wrike.APIError
 	if !errors.As(err, &apiErr) {
 		// Network trouble or a malformed response.
@@ -34,4 +38,9 @@ func classify(err error) failureClass {
 	default:
 		return failPermanent
 	}
+}
+
+func isNotFound(err error) bool {
+	var apiErr *wrike.APIError
+	return errors.As(err, &apiErr) && apiErr.IsNotFound()
 }

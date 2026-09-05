@@ -2,8 +2,8 @@ package sync
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -120,35 +120,42 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 }
 
 // refreshThreads pulls comments and timelogs for recently opened tasks.
-// A 404 means the task is gone on the server, drop it and move on.
-func refreshThreads(ctx context.Context, c Client, st *store.Store, window time.Duration, limit int) error {
-	since := time.Now().UTC().Add(-window).Format(time.RFC3339)
+// A 404 means the task is gone on the server, drop it. Any other rejection skips the task,
+// it stays in the window for days and must not block the other threads for that long.
+func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) error {
+	since := rfc3339(time.Now().Add(-window))
 	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, since, limit)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		comments, err := c.TaskComments(ctx, id)
-		if err != nil {
-			var apiErr *wrike.APIError
-			if errors.As(err, &apiErr) && apiErr.IsNotFound() {
-				if err := st.Tasks().Delete(ctx, id); err != nil {
-					return err
-				}
-				continue
+		err := refreshThread(ctx, c, st, id)
+		switch {
+		case err == nil:
+		case isNotFound(err):
+			if err := st.Tasks().Delete(ctx, id); err != nil {
+				return err
 			}
-			return err
-		}
-		if err := st.Comments().ReplaceForTask(ctx, id, commentsFromWrike(comments)); err != nil {
-			return err
-		}
-		logs, err := c.TaskTimelogs(ctx, id)
-		if err != nil {
-			return err
-		}
-		if err := st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs)); err != nil {
+		case classify(err) == failPermanent:
+			log.Warn("thread refresh rejected", "task", id, "error", err)
+		default:
 			return err
 		}
 	}
 	return nil
+}
+
+func refreshThread(ctx context.Context, c Client, st *store.Store, id string) error {
+	comments, err := c.TaskComments(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := st.Comments().ReplaceForTask(ctx, id, commentsFromWrike(comments)); err != nil {
+		return err
+	}
+	logs, err := c.TaskTimelogs(ctx, id)
+	if err != nil {
+		return err
+	}
+	return st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs))
 }

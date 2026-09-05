@@ -31,6 +31,7 @@ const (
 
 // Event is a refresh hint for the UI, never a delta. Receivers re-read what they show from the store.
 // The engine drops events when the buffer is full, so nothing may depend on seeing every one.
+// That includes the outbox counts below: they are the numbers at emit time, the store has the current ones.
 type Event struct {
 	Kind     EventKind
 	Entities []EntityKind // for store_changed, which caches were touched

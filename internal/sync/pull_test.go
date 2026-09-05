@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -180,7 +181,7 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 				UpdatedDate: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)}}, nil
 		},
 	}
-	if err := refreshThreads(ctx, fc, st, 7*24*time.Hour, 50); err != nil {
+	if err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,5 +232,46 @@ func TestPullReferenceReplacesAll(t *testing.T) {
 	}
 	if ws, err := st.Workflows().List(ctx); err != nil || len(ws) != 1 || len(ws[0].CustomStatuses) != 1 {
 		t.Errorf("workflows = %+v, %v", ws, err)
+	}
+}
+
+func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, id := range []string{"T1", "T2", "T3"} {
+		seedTask(t, st, id, id)
+		if err := st.Tasks().MarkOpened(ctx, id, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	fc := &fakeClient{
+		taskComments: func(taskID string) ([]wrike.Comment, error) {
+			if taskID == "T1" {
+				return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+			}
+			return []wrike.Comment{{ID: "C-" + taskID, TaskID: taskID, AuthorID: "U1", Text: "hi",
+				CreatedDate: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)}}, nil
+		},
+		taskTimelogs: func(taskID string) ([]wrike.Timelog, error) {
+			if taskID == "T2" {
+				// Deleted between the two calls.
+				return nil, &wrike.APIError{StatusCode: 404, Code: "resource_not_found"}
+			}
+			return nil, nil
+		},
+	}
+	if err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+		t.Fatalf("one rejected thread must not fail the refresh: %v", err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T1"); err != nil {
+		t.Errorf("T1 must survive a 403, it may still be readable later: %v", err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
+		t.Error("T2 must be deleted after the 404 on its timelogs")
+	}
+	if comments, err := st.Comments().ListForTask(ctx, "T3"); err != nil || len(comments) != 1 {
+		t.Errorf("comments for T3 = %+v, %v, the task after the rejected one must still refresh", comments, err)
 	}
 }

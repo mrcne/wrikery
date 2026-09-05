@@ -2,6 +2,8 @@ package sync
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -198,5 +200,76 @@ func TestDrainEmptyQueueIsQuiet(t *testing.T) {
 	}
 	if len(fc.callLog()) != 0 {
 		t.Errorf("calls = %v", fc.callLog())
+	}
+}
+
+func TestDrainCorruptRowFailsAndContinues(t *testing.T) {
+	// The path is needed to reach behind the store, so this test opens its own database.
+	path := filepath.Join(t.TempDir(), "wrike.db")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+
+	badID, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "will be corrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "fine"); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.ExecContext(ctx, `UPDATE outbox SET payload = 'not json' WHERE id = ?`, badID); err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeClient{}
+	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	if err != nil || !changed {
+		t.Fatalf("drain = %v, %v, a corrupt row must not stop the drain", changed, err)
+	}
+	if got := fc.callLog(); len(got) != 1 || got[0] != "CreateComment T1" {
+		t.Fatalf("calls = %v, want only the good row sent", got)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 1 {
+		t.Fatalf("counts = %d, %d, %v, want the corrupt row failed and the rest drained", pending, failed, err)
+	}
+	rows, err := st.Outbox().ListFailed(ctx)
+	if err != nil || len(rows) != 1 || rows[0].ID != badID || rows[0].LastError == "" {
+		t.Fatalf("failed rows = %+v, %v", rows, err)
+	}
+}
+
+func TestDrainAuthFailureLeavesRowDue(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "waiting for a token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
+		return wrike.Comment{}, &wrike.APIError{StatusCode: 401, Code: "not_authorized"}
+	}}
+	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	if classify(err) != failAuth || changed {
+		t.Fatalf("drain = %v, %v, want the auth error back and nothing changed", changed, err)
+	}
+	// The row must be pending and due right now, with no backoff and no attempt counted against it.
+	row, err := st.Outbox().NextDue(ctx, rfc3339(time.Now()))
+	if err != nil || row.ID != id || row.Attempts != 0 || row.State != store.StatePending {
+		t.Fatalf("row = %+v, %v, want it back in the queue untouched", row, err)
+	}
+	if row.NextAttemptAt != "" {
+		t.Fatalf("next attempt = %q, want none", row.NextAttemptAt)
 	}
 }
