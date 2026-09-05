@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -75,6 +76,17 @@ type OutboxRepo interface {
 	EnqueueTimelogUpdate(ctx context.Context, timelogID string, p TimelogUpdatePayload) (int64, error)
 	EnqueueTimelogDelete(ctx context.Context, timelogID string) (int64, error)
 	Counts(ctx context.Context) (pending, failed int, err error)
+	NextDue(ctx context.Context, now string) (OutboxRow, error)
+	MarkInflight(ctx context.Context, id int64) error
+	Complete(ctx context.Context, id int64) error
+	CompleteComment(ctx context.Context, id int64, real Comment) error
+	CompleteTimelog(ctx context.Context, id int64, real Timelog) error
+	Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error
+	Fail(ctx context.Context, id int64, errText string) error
+	Retry(ctx context.Context, id int64) error
+	Discard(ctx context.Context, id int64) error
+	ListFailed(ctx context.Context) ([]OutboxRow, error)
+	ResetInflight(ctx context.Context) (int64, error)
 }
 
 func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader} }
@@ -246,4 +258,198 @@ func (o outboxRepo) Counts(ctx context.Context) (pending, failed int, err error)
 			COUNT(*) FILTER (WHERE state = 'failed')
 		FROM outbox`).Scan(&pending, &failed)
 	return pending, failed, err
+}
+
+const outboxColumns = `id, kind, entity_id, payload, state, attempts, last_error,
+	COALESCE(next_attempt_at, ''), created_at`
+
+func scanOutboxRow(row interface{ Scan(...any) error }) (OutboxRow, error) {
+	var r OutboxRow
+	var kind, state, payload string
+	err := row.Scan(&r.ID, &kind, &r.EntityID, &payload, &state, &r.Attempts,
+		&r.LastError, &r.NextAttemptAt, &r.CreatedAt)
+	if err != nil {
+		return OutboxRow{}, err
+	}
+	r.Kind, r.State, r.Payload = OutboxKind(kind), OutboxState(state), []byte(payload)
+	return r, nil
+}
+
+func (o outboxRepo) NextDue(ctx context.Context, now string) (OutboxRow, error) {
+	r, err := scanOutboxRow(o.r.QueryRowContext(ctx, `
+		SELECT `+outboxColumns+` FROM outbox
+		WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+		ORDER BY id LIMIT 1`, now))
+	if errors.Is(err, sql.ErrNoRows) {
+		return OutboxRow{}, ErrNotFound
+	}
+	return r, err
+}
+
+func (o outboxRepo) MarkInflight(ctx context.Context, id int64) error {
+	return o.expectOne(ctx,
+		`UPDATE outbox SET state = 'inflight' WHERE id = ? AND state = 'pending'`, id)
+}
+
+func (o outboxRepo) expectOne(ctx context.Context, query string, args ...any) error {
+	res, err := o.w.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (o outboxRepo) Complete(ctx context.Context, id int64) error {
+	return o.expectOne(ctx, `DELETE FROM outbox WHERE id = ?`, id)
+}
+
+func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment) error {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`,
+		fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO comments (id, task_id, author_id, text, created_date)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET author_id = excluded.author_id,
+			text = excluded.text, created_date = excluded.created_date`,
+		real.ID, real.TaskID, real.AuthorID, real.Text, real.CreatedDate); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog) error {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`,
+		fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO timelogs (id, task_id, user_id, category_id, tracked_date,
+			comment, hours, lock_status, approval_status, created_date, updated_date)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id,
+			user_id = excluded.user_id, category_id = excluded.category_id,
+			tracked_date = excluded.tracked_date, comment = excluded.comment,
+			hours = excluded.hours, lock_status = excluded.lock_status,
+			approval_status = excluded.approval_status,
+			created_date = excluded.created_date, updated_date = excluded.updated_date`,
+		real.ID, real.TaskID, real.UserID, real.CategoryID, real.TrackedDate,
+		real.Comment, real.Hours, real.LockStatus, real.ApprovalStatus,
+		real.CreatedDate, real.UpdatedDate); err != nil {
+		return err
+	}
+	// An edit or delete queued while the create was still pending points at
+	// the local id. Point it at the confirmed id so it can drain.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE outbox SET entity_id = ? WHERE entity_id = ?`,
+		real.ID, fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (o outboxRepo) Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'pending', attempts = attempts + 1,
+			last_error = ?, next_attempt_at = ?
+		WHERE id = ?`, errText, nextAttemptAt, id)
+}
+
+func (o outboxRepo) Fail(ctx context.Context, id int64, errText string) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'failed', attempts = attempts + 1,
+			last_error = ?, next_attempt_at = NULL
+		WHERE id = ?`, errText, id)
+}
+
+func (o outboxRepo) Retry(ctx context.Context, id int64) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'pending', attempts = 0, last_error = '',
+			next_attempt_at = NULL
+		WHERE id = ? AND state = 'failed'`, id)
+}
+
+// Discard drops a queued write.
+// For creates the optimistic cache row goes with it.
+// A discarded update leaves the cache ahead of the server until the next pull corrects it, which the spec accepts.
+func (o outboxRepo) Discard(ctx context.Context, id int64) error {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var kind string
+	err = tx.QueryRowContext(ctx, `SELECT kind FROM outbox WHERE id = ?`, id).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	localID := fmt.Sprintf("%s%d", LocalIDPrefix, id)
+	switch OutboxKind(kind) {
+	case KindCommentCreate:
+		if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`, localID); err != nil {
+			return err
+		}
+	case KindTimelogCreate:
+		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`, localID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (o outboxRepo) ListFailed(ctx context.Context) ([]OutboxRow, error) {
+	rows, err := o.r.QueryContext(ctx,
+		`SELECT `+outboxColumns+` FROM outbox WHERE state = 'failed' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []OutboxRow
+	for rows.Next() {
+		r, err := scanOutboxRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (o outboxRepo) ResetInflight(ctx context.Context) (int64, error) {
+	res, err := o.w.ExecContext(ctx,
+		`UPDATE outbox SET state = 'pending' WHERE state = 'inflight'`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
