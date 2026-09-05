@@ -2,10 +2,14 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 
 	_ "modernc.org/sqlite"
 )
+
+var ErrNotFound = errors.New("store: not found")
 
 type Store struct {
 	writer *sql.DB
@@ -45,4 +49,21 @@ func (s *Store) Close() error {
 		return werr
 	}
 	return rerr
+}
+
+func (s *Store) GetMeta(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.reader.QueryRowContext(ctx,
+		`SELECT value FROM meta WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return v, err
+}
+
+func (s *Store) SetMeta(ctx context.Context, key, value string) error {
+	_, err := s.writer.ExecContext(ctx,
+		`INSERT INTO meta (key, value) VALUES (?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
 }
