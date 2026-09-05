@@ -80,7 +80,7 @@ func (f *fakeClient) FolderTree(ctx context.Context) ([]wrike.Folder, error) {
 }
 
 func (f *fakeClient) Tasks(ctx context.Context, p wrike.TaskParams) (wrike.TasksPage, error) {
-	f.record("Tasks " + p.FolderID)
+	f.record("Tasks " + p.FolderID + p.SpaceID)
 	if f.tasks == nil {
 		return wrike.TasksPage{}, nil
 	}

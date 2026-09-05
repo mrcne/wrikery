@@ -44,9 +44,13 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 
 func scopeParams(sc store.Scope, meID string) wrike.TaskParams {
 	p := wrike.TaskParams{PageSize: 1000}
-	if sc.Kind == store.ScopeKindMe {
+	switch sc.Kind {
+	case store.ScopeKindMe:
 		p.Responsibles = []string{meID}
-	} else {
+	case store.ScopeKindSpace:
+		p.SpaceID = sc.ID
+		p.Descendants = true
+	default:
 		p.FolderID = sc.ID
 		p.Descendants = true
 	}

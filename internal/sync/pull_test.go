@@ -100,6 +100,23 @@ func TestPullScopeMeUsesResponsibles(t *testing.T) {
 	}
 }
 
+func TestPullScopeSpaceUsesSpaceEndpoint(t *testing.T) {
+	st := newTestStore(t)
+	sc := mustScope(t, st, "S1", store.ScopeKindSpace)
+
+	var got wrike.TaskParams
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		got = p
+		return wrike.TasksPage{}, nil
+	}}
+	if err := pullScope(context.Background(), fc, st, sc, "U1"); err != nil {
+		t.Fatal(err)
+	}
+	if got.SpaceID != "S1" || got.FolderID != "" || !got.Descendants {
+		t.Errorf("params = %+v, a space is not a folder and must go through the space endpoint", got)
+	}
+}
+
 func TestPullScopeEmptyInitialStampsCursor(t *testing.T) {
 	st := newTestStore(t)
 	sc := mustScope(t, st, "F1", store.ScopeKindProject)
