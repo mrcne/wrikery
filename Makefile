@@ -6,7 +6,7 @@ build:
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) ./cmd/wrikery
 
 test:
-	go test ./...
+	CGO_ENABLED=0 go test ./...
 
 lint:
 	golangci-lint run
