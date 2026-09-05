@@ -27,10 +27,10 @@ func Test429HonorsRetryAfter(t *testing.T) {
 		if calls <= 2 {
 			w.Header().Set("Retry-After", "7")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`)) //nolint:errcheck
+			_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`))
 			return
 		}
-		w.Write([]byte(`{"kind":"things","data":[]}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
 	}))
 
 	if _, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
@@ -51,10 +51,10 @@ func Test429WithoutHeaderUsesBackoff(t *testing.T) {
 		calls++
 		if calls <= 2 {
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`)) //nolint:errcheck
+			_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`))
 			return
 		}
-		w.Write([]byte(`{"kind":"things","data":[]}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
 	}))
 
 	if _, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
@@ -72,10 +72,10 @@ func TestServerErrorsAreRetried(t *testing.T) {
 		calls++
 		if calls == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"server_error","errorDescription":"oops"}`)) //nolint:errcheck
+			_, _ = w.Write([]byte(`{"error":"server_error","errorDescription":"oops"}`))
 			return
 		}
-		w.Write([]byte(`{"kind":"things","data":[]}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
 	}))
 
 	if _, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
@@ -91,7 +91,7 @@ func TestClientErrorsAreNotRetried(t *testing.T) {
 	c, slept := retryTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid_parameter","errorDescription":"bad"}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"error":"invalid_parameter","errorDescription":"bad"}`))
 	}))
 
 	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
@@ -109,7 +109,7 @@ func TestRetriesExhaustedReturnsLastError(t *testing.T) {
 	c, slept := retryTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`))
 	}))
 
 	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
@@ -129,7 +129,7 @@ func TestRetriesExhaustedReturnsLastError(t *testing.T) {
 func TestSleepErrorAbortsRetry(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"error":"rate_limit_exceeded","errorDescription":"slow down"}`))
 	}))
 	c.sleep = func(ctx context.Context, d time.Duration) error {
 		return context.Canceled

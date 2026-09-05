@@ -30,7 +30,7 @@ func TestDoSendsAuthAndDecodesData(t *testing.T) {
 		if got := r.URL.Query().Get("pageSize"); got != "2" {
 			t.Errorf("pageSize = %q, want 2", got)
 		}
-		w.Write([]byte(`{"kind":"things","nextPageToken":"tok123","data":[{"id":"A"},{"id":"B"}]}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"kind":"things","nextPageToken":"tok123","data":[{"id":"A"},{"id":"B"}]}`))
 	}))
 
 	var out []struct {
@@ -64,7 +64,7 @@ func TestDoFormEncodesBody(t *testing.T) {
 		if got := r.PostForm.Get("title"); got != "new title" {
 			t.Errorf("title = %q, want new title", got)
 		}
-		w.Write([]byte(`{"kind":"things","data":[]}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
 	}))
 
 	form := url.Values{}
@@ -77,7 +77,7 @@ func TestDoFormEncodesBody(t *testing.T) {
 func TestDoReturnsTypedAPIError(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"errorDescription":"Token is invalid","error":"not_authorized"}`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`{"errorDescription":"Token is invalid","error":"not_authorized"}`))
 	}))
 
 	_, err := c.do(context.Background(), http.MethodGet, "/contacts", nil, nil, nil)
@@ -99,7 +99,7 @@ func TestDoReturnsTypedAPIError(t *testing.T) {
 func TestDoAPIErrorWithUnparseableBody(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte(`upstream exploded`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`upstream exploded`))
 	}))
 
 	_, err := c.do(context.Background(), http.MethodGet, "/contacts", nil, nil, nil)
@@ -114,7 +114,7 @@ func TestDoAPIErrorWithUnparseableBody(t *testing.T) {
 
 func TestDoRejectsMalformedEnvelope(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`this is not json`)) //nolint:errcheck
+		_, _ = w.Write([]byte(`this is not json`))
 	}))
 
 	if _, err := c.do(context.Background(), http.MethodGet, "/contacts", nil, nil, nil); err == nil {
