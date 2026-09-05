@@ -179,6 +179,110 @@ func TestFailRetryDiscard(t *testing.T) {
 	}
 }
 
+func TestNextDueSkipsLocalTargets(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{
+		Hours: 1, TrackedDate: "2026-09-03",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := "local:" + strconv.FormatInt(createID, 10)
+	editID, err := st.Outbox().EnqueueTimelogUpdate(ctx, localID, TimelogUpdatePayload{Hours: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Push the create into the future, the dependent edit must not surface
+	// in its place even though it is due by time alone.
+	if err := st.Outbox().Reschedule(ctx, createID, "boom", "2026-09-03T12:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound while the create backs off", err)
+	}
+
+	real := Timelog{ID: "L9", TaskID: "T1", UserID: "U1", TrackedDate: "2026-09-03",
+		Hours: 1, CreatedDate: "2026-09-03T10:00:00Z", UpdatedDate: "2026-09-03T10:00:00Z"}
+	if err := st.Outbox().CompleteTimelog(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.ID != editID || row.EntityID != "L9" {
+		t.Fatalf("row = %+v, want the edit remapped to L9", row)
+	}
+}
+
+func TestDiscardCascadesToDependents(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{
+		Hours: 1, TrackedDate: "2026-09-03",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := "local:" + strconv.FormatInt(createID, 10)
+	if _, err := st.Outbox().EnqueueTimelogUpdate(ctx, localID, TimelogUpdatePayload{Hours: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTimelogDelete(ctx, localID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.Outbox().Fail(ctx, createID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 || failed != 0 {
+		t.Errorf("counts after discard = %d, %d, want 0, 0", pending, failed)
+	}
+	logs, err := st.Timelogs().ListForTask(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("timelogs after discard = %+v, the optimistic row must go", logs)
+	}
+}
+
+func TestDiscardRefusesInflight(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("error = %v, want ErrNotFound for an inflight row", err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 1 || failed != 0 {
+		t.Errorf("counts after refused discard = %d, %d, want 1, 0", pending, failed)
+	}
+}
+
 func TestMarkInflightAndReset(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

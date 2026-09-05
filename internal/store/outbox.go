@@ -276,10 +276,13 @@ func scanOutboxRow(row interface{ Scan(...any) error }) (OutboxRow, error) {
 }
 
 func (o outboxRepo) NextDue(ctx context.Context, now string) (OutboxRow, error) {
+	// A dependent edit or delete still targeting a local id waits for its create to drain and remap it,
+	// ordering by id alone is not enough once the create backs off and the dependent becomes due first.
 	r, err := scanOutboxRow(o.r.QueryRowContext(ctx, `
 		SELECT `+outboxColumns+` FROM outbox
 		WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-		ORDER BY id LIMIT 1`, now))
+			AND entity_id NOT LIKE ?
+		ORDER BY id LIMIT 1`, now, LocalIDPrefix+"%"))
 	if errors.Is(err, sql.ErrNoRows) {
 		return OutboxRow{}, ErrNotFound
 	}
@@ -402,8 +405,10 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// An inflight row belongs to the engine. API call may already be underway, so only a pending or failed row can be discarded.
 	var kind string
-	err = tx.QueryRowContext(ctx, `SELECT kind FROM outbox WHERE id = ?`, id).Scan(&kind)
+	err = tx.QueryRowContext(ctx,
+		`SELECT kind FROM outbox WHERE id = ? AND state IN ('pending', 'failed')`, id).Scan(&kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -418,6 +423,11 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		}
 	case KindTimelogCreate:
 		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`, localID); err != nil {
+			return err
+		}
+		// Edits queued against the create die with it,
+		// their target never existed on the server and would sit pending forever otherwise.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE entity_id = ?`, localID); err != nil {
 			return err
 		}
 	}
