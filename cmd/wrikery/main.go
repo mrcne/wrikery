@@ -20,8 +20,8 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// version is set through ldflags by the Makefile and goreleaser. A go install build has neither,
-// so buildVersion falls back to the module version the toolchain recorded.
+// version is set through ldflags by the Makefile.
+// A go install build has no ldflags, so buildVersion falls back to the module version the toolchain recorded.
 var version = "dev"
 
 func buildVersion() string {
