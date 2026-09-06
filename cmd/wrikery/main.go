@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/config"
@@ -20,9 +23,13 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// version is set through ldflags by the Makefile.
-// A go install build has no ldflags, so buildVersion falls back to the module version the toolchain recorded.
-var version = "dev"
+// version and commit are set through ldflags by the release build.
+// A go install build has no ldflags,
+// so buildVersion and buildCommit fall back to the build info the toolchain recorded.
+var (
+	version = "dev"
+	commit  = ""
+)
 
 func buildVersion() string {
 	if version != "dev" {
@@ -32,6 +39,33 @@ func buildVersion() string {
 		return info.Main.Version
 	}
 	return version
+}
+
+func buildCommit() string {
+	if commit != "" {
+		return commit
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key == "vcs.revision" {
+				return s.Value
+			}
+		}
+	}
+	return ""
+}
+
+// versionLine formats the --version output:
+// it shortens a full commit hash to seven characters and drops the parentheses when no commit is known.
+// A version from git describe on an untagged build already contains the short hash, so the parentheses go too.
+func versionLine(version, commit, goVersion string) string {
+	if len(commit) > 7 {
+		commit = commit[:7]
+	}
+	if commit == "" || strings.Contains(version, commit) {
+		return fmt.Sprintf("wrikery %s %s", version, goVersion)
+	}
+	return fmt.Sprintf("wrikery %s (%s) %s", version, commit, goVersion)
 }
 
 const usage = `usage: wrikery [flags]
@@ -50,6 +84,8 @@ func main() {
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	demoMode := fs.Bool("demo", false, "run on built in sample data, no token and no network")
 	logout := fs.Bool("logout", false, "remove the stored token and exit")
+	configPath := fs.String("config", "", "read this config file instead of the default")
+	noColor := fs.Bool("no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
 
 	switch err := fs.Parse(os.Args[1:]); {
 	case errors.Is(err, flag.ErrHelp):
@@ -63,19 +99,29 @@ func main() {
 		os.Exit(2)
 	}
 	if *showVersion {
-		fmt.Println("wrikery " + buildVersion())
+		fmt.Println(versionLine(buildVersion(), buildCommit(), runtime.Version()))
 		return
 	}
-	if err := run(*demoMode, *logout); err != nil {
+	if err := run(*demoMode, *logout, *configPath, *noColor); err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(demoMode, logout bool) error {
+func run(demoMode, logout bool, configPath string, noColor bool) error {
+	if noColor {
+		lipgloss.SetColorProfile(termenv.Ascii)
+	}
 	paths, err := config.DefaultPaths()
 	if err != nil {
 		return err
+	}
+	if configPath != "" {
+		// The default path may be missing and then the defaults apply, a path given by hand is a typo when it is missing.
+		if _, err := os.Stat(configPath); err != nil {
+			return fmt.Errorf("reading the config file: %w", err)
+		}
+		paths.ConfigFile = configPath
 	}
 	if err := paths.EnsureDirs(); err != nil {
 		return err
@@ -93,8 +139,11 @@ func run(demoMode, logout bool) error {
 		return nil
 	}
 
+	if err := rotateLog(paths.LogFile); err != nil {
+		return err
+	}
 	logFile, err := os.OpenFile(paths.LogFile,
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
