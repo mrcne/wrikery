@@ -15,3 +15,8 @@ indent_size = 2
 
 [Makefile]
 indent_style = tab
+
+# Golden files are compared byte for byte, an editor must not touch their trailing spaces or add a final newline.
+[*.golden]
+insert_final_newline = false
+trim_trailing_whitespace = false

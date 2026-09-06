@@ -28,7 +28,7 @@ func BaseURL(host string) string {
 }
 
 // Client talks to the Wrike REST API v4 over HTTP.
-// A rate limited request is always retried with backoff, using the Retry-After value when Wrike sends one.
+// A rate limited request is retried up to three times with backoff, using the Retry-After value when Wrike sends one.
 // A server error or a network failure is retried the same way, but only for an idempotent method,
 // since a POST that failed on the server side may already be applied and retrying it could duplicate the write.
 type Client struct {
