@@ -27,6 +27,11 @@ func BaseURL(host string) string {
 	return "https://" + host + "/api/v4"
 }
 
+// Client talks to the Wrike REST API v4 over HTTP.
+// A rate limited request is always retried with backoff, using the Retry-After value when
+// Wrike sends one. A server error or a network failure is retried the same way, but only for
+// an idempotent method, since a POST that failed on the server side may already be applied and
+// retrying it could duplicate the write.
 type Client struct {
 	baseURL    string
 	token      string
@@ -35,16 +40,21 @@ type Client struct {
 	sleep      func(ctx context.Context, d time.Duration) error
 }
 
+// Option configures a Client constructed by New.
 type Option func(*Client)
 
+// WithBaseURL points the client at a base URL other than the default host, such as EUHost's.
 func WithBaseURL(u string) Option {
 	return func(c *Client) { c.baseURL = strings.TrimRight(u, "/") }
 }
 
+// WithHTTPClient replaces the default HTTP client, for a custom timeout or transport.
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.httpClient = h }
 }
 
+// New creates a Client for the given API token, defaulting to DefaultHost until an Option
+// such as WithBaseURL points it elsewhere.
 func New(token string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    BaseURL(DefaultHost),

@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+// Workflow is a Wrike workflow, the set of custom statuses a task can move through.
 type Workflow struct {
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
@@ -13,6 +14,7 @@ type Workflow struct {
 	CustomStatuses []CustomStatus `json:"customStatuses"`
 }
 
+// CustomStatus is one status a task can hold within its workflow, referenced by Task.CustomStatusID.
 type CustomStatus struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -23,6 +25,7 @@ type CustomStatus struct {
 	Hidden       bool   `json:"hidden"`
 }
 
+// Workflows lists the workflows defined for the account, including their custom statuses.
 func (c *Client) Workflows(ctx context.Context) ([]Workflow, error) {
 	var out []Workflow
 	if _, err := c.do(ctx, http.MethodGet, "/workflows", nil, nil, &out); err != nil {
