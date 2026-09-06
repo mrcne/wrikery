@@ -237,6 +237,42 @@ func TestListInFolderWalksDescendantsAndSorts(t *testing.T) {
 	}
 }
 
+// A Backlog task carries a dates block with a type and nothing else, see https://developers.wrike.com/api/v4/tasks/.
+// Stored as an empty string it would sort ahead of every real due date, so the empty ends have to reach the column as NULL.
+func TestBacklogTaskKeepsItsTypeAndSortsWithTheUndated(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{
+		{ID: "backlog", Title: "Backlog", Status: "Active", ParentIDs: []string{"F1"},
+			Dates: &TaskDates{Type: "Backlog"}, UpdatedDate: "2026-09-04T00:00:00Z"},
+		{ID: "planned", Title: "Planned", Status: "Active", ParentIDs: []string{"F1"},
+			Dates: &TaskDates{Type: "Planned", Due: "2026-09-07"}, UpdatedDate: "2026-09-01T00:00:00Z"},
+		{ID: "nodates", Title: "No dates block", Status: "Active", ParentIDs: []string{"F1"},
+			UpdatedDate: "2026-09-03T00:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().ListInFolder(ctx, "F1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, task := range got {
+		ids = append(ids, task.ID)
+	}
+	want := []string{"planned", "backlog", "nodates"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("order = %v, want %v, the dated task first and the undated ones after it", ids, want)
+	}
+	one, err := st.Tasks().Get(ctx, "backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.Dates == nil || one.Dates.Type != "Backlog" || one.Dates.Start != "" || one.Dates.Due != "" {
+		t.Errorf("dates = %+v, want type Backlog with no start and no due", one.Dates)
+	}
+}
+
 func TestListForResponsible(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

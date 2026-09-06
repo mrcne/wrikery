@@ -28,12 +28,22 @@ type taskRepo struct {
 	w, r *sql.DB
 }
 
+// A Backlog task has a dates block with a type and no dates at all, see https://developers.wrike.com/api/v4/tasks/.
+// Written as an empty string a missing due date would sort ahead of every real one, so an empty end reaches the column as NULL.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 	for _, t := range tasks {
 		var dType, dStart, dDue any
 		var dDur any
 		if t.Dates != nil {
-			dType, dDur, dStart, dDue = t.Dates.Type, t.Dates.Duration, t.Dates.Start, t.Dates.Due
+			dDur = t.Dates.Duration
+			dType, dStart, dDue = nullIfEmpty(t.Dates.Type), nullIfEmpty(t.Dates.Start), nullIfEmpty(t.Dates.Due)
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, description, description_plain, status,
@@ -284,8 +294,9 @@ const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importan
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), '')`
 
 // Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
+// NULLIF covers a database written before the empty due date became a NULL, where the column still holds ”.
 const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
-	t.dates_due IS NULL, t.dates_due, t.updated_date DESC`
+	NULLIF(t.dates_due, '') IS NULL, NULLIF(t.dates_due, ''), t.updated_date DESC`
 
 func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
 	return t.list(ctx, `
