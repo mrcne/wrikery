@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,8 @@ type TaskRepo interface {
 	MarkOpened(ctx context.Context, id, openedAt string) error
 	RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error)
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
+	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
+	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
 }
 
 func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader} }
@@ -272,4 +275,63 @@ func (t taskRepo) Search(ctx context.Context, query string, limit int) ([]Task, 
 		out = append(out, task)
 	}
 	return out, nil
+}
+
+// The list queries skip the description columns on purpose: a folder can hold thousands of tasks and the list never shows them.
+const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importance, t.permalink,
+	t.dates_type, t.dates_duration, t.dates_start, t.dates_due, t.created_date, t.updated_date,
+	COALESCE(t.last_opened_at, ''),
+	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), '')`
+
+// Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
+const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
+	t.dates_due IS NULL, t.dates_due, t.updated_date DESC`
+
+func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
+	return t.list(ctx, `
+		WITH RECURSIVE tree(id) AS (
+			SELECT ?
+			UNION
+			SELECT fc.child_id FROM folder_children fc JOIN tree ON fc.parent_id = tree.id
+		)
+		SELECT DISTINCT `+taskListColumns+` FROM tasks t
+		JOIN task_parents tp ON tp.task_id = t.id
+		JOIN tree ON tree.id = tp.folder_id
+		`+taskListOrder, folderID)
+}
+
+func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]Task, error) {
+	return t.list(ctx, `
+		SELECT `+taskListColumns+` FROM tasks t
+		JOIN task_responsibles tr ON tr.task_id = t.id
+		WHERE tr.contact_id = ? `+taskListOrder, contactID)
+}
+
+func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, error) {
+	rows, err := t.r.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Task
+	for rows.Next() {
+		var task Task
+		var dType, dStart, dDue sql.NullString
+		var dDur sql.NullInt64
+		var resp string
+		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
+			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
+			&task.LastOpenedAt, &resp); err != nil {
+			return nil, err
+		}
+		if dType.Valid {
+			task.Dates = &TaskDates{Type: dType.String, Duration: int(dDur.Int64), Start: dStart.String, Due: dDue.String}
+		}
+		if resp != "" {
+			task.ResponsibleIDs = strings.Split(resp, ",")
+			sort.Strings(task.ResponsibleIDs)
+		}
+		out = append(out, task)
+	}
+	return out, rows.Err()
 }

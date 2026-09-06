@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -191,5 +192,68 @@ func TestRecentlyOpenedIDs(t *testing.T) {
 	}
 	if len(ids) != 1 || ids[0] != "T2" {
 		t.Errorf("ids = %v, want [T2] after the since filter", ids)
+	}
+}
+
+func TestListInFolderWalksDescendantsAndSorts(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Folders().ReplaceTree(ctx, []Folder{
+		{ID: "S1", Title: "Space", Space: true, ChildIDs: []string{"F1"}},
+		{ID: "F1", Title: "Proj", ChildIDs: []string{"F2"}},
+		{ID: "F2", Title: "Sub"},
+		{ID: "X", Title: "Other"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := []Task{
+		{ID: "done", Title: "Done", Status: "Completed", ParentIDs: []string{"F1"}, Dates: &TaskDates{Type: "Planned", Due: "2026-09-01"}, UpdatedDate: "2026-09-05T00:00:00Z", Description: "<p>hidden</p>"},
+		{ID: "late", Title: "Late", Status: "Active", ParentIDs: []string{"F2"}, Dates: &TaskDates{Type: "Planned", Due: "2026-09-02"}, UpdatedDate: "2026-09-01T00:00:00Z", ResponsibleIDs: []string{"U2", "U1"}},
+		{ID: "soon", Title: "Soon", Status: "Active", ParentIDs: []string{"F1"}, Dates: &TaskDates{Type: "Planned", Due: "2026-09-09"}, UpdatedDate: "2026-09-04T00:00:00Z"},
+		{ID: "nodate", Title: "No date", Status: "Active", ParentIDs: []string{"F1"}, UpdatedDate: "2026-09-03T00:00:00Z"},
+		{ID: "both", Title: "In two folders", Status: "Active", ParentIDs: []string{"F1", "F2"}, UpdatedDate: "2026-09-02T00:00:00Z"},
+		{ID: "out", Title: "Elsewhere", Status: "Active", ParentIDs: []string{"X"}},
+	}
+	if err := st.Tasks().Upsert(ctx, tasks); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().ListInFolder(ctx, "S1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, task := range got {
+		ids = append(ids, task.ID)
+	}
+	want := []string{"late", "soon", "nodate", "both", "done"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("order = %v, want %v", ids, want)
+	}
+	if got[0].ResponsibleIDs == nil || len(got[0].ResponsibleIDs) != 2 {
+		t.Errorf("responsibles not loaded: %+v", got[0])
+	}
+	if got[4].Description != "" {
+		t.Error("list query must not load descriptions")
+	}
+}
+
+func TestListForResponsible(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{
+		{ID: "mine", Title: "Mine", Status: "Active", ResponsibleIDs: []string{"ME"}},
+		{ID: "shared", Title: "Shared", Status: "Active", ResponsibleIDs: []string{"ME", "U2"}},
+		{ID: "theirs", Title: "Theirs", Status: "Active", ResponsibleIDs: []string{"U2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().ListForResponsible(ctx, "ME")
+	if err != nil || len(got) != 2 {
+		t.Fatalf("got %d tasks, %v", len(got), err)
+	}
+	for _, task := range got {
+		if task.ID == "theirs" {
+			t.Error("theirs listed")
+		}
 	}
 }
