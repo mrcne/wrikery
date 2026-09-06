@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -68,5 +70,30 @@ func TestStatusBarDropsHintsAndTruncatesToastWhenNarrow(t *testing.T) {
 	}
 	if !strings.Contains(out, "...") || !strings.Contains(out, "the comment") {
 		t.Errorf("a toast too long for the bar should be truncated, not dropped: %q", out)
+	}
+}
+
+// The root uses fitHints to shrink the hint list to whatever the status bar has room for, rather than letting statusModel.View drop the whole thing the way it still does for a caller that hands it a hint string wider than the bar.
+// See TestStatusBarDropsHintsAndTruncatesToastWhenNarrow for that older, all-or-nothing behavior.
+func TestFitHintsShrinksFromTheRight(t *testing.T) {
+	k := defaultKeyMap()
+	bindings := []key.Binding{k.NextPane, k.Search, k.Help, k.Quit}
+	h := help.New()
+
+	// Wide enough for the first binding alone, not for a second one.
+	out := fitHints(h, bindings, 15)
+	if !strings.Contains(out, "next pane") {
+		t.Errorf("fitHints(%v, 15) = %q, want the first binding kept", bindings, out)
+	}
+	if strings.Contains(out, "quit") || strings.Contains(out, "search") || strings.Contains(out, "help") {
+		t.Errorf("fitHints(%v, 15) = %q, want the later bindings dropped, not the first", bindings, out)
+	}
+	if w := lipgloss.Width(out); w > 15 {
+		t.Errorf("fitHints(%v, 15) = %q, width %d exceeds the available cells", bindings, out, w)
+	}
+
+	// Nothing at all fits, not even the first binding: fitHints gives up rather than cut it.
+	if out := fitHints(h, bindings, 3); out != "" {
+		t.Errorf("fitHints(%v, 3) = %q, want an empty string when even the first binding does not fit", bindings, out)
 	}
 }

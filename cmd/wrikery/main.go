@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/config"
@@ -87,6 +88,15 @@ func run(demoMode, logout bool) error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
 		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
 
+	// Resolving the auto theme queries the terminal, which is too slow for the render path, so it happens here and once.
+	if cfg.UI.Theme == "auto" {
+		if lipgloss.HasDarkBackground() {
+			cfg.UI.Theme = "dark"
+		} else {
+			cfg.UI.Theme = "light"
+		}
+	}
+
 	if demoMode {
 		st, _, cleanup, err := openDemoStore(time.Now())
 		if err != nil {
@@ -95,7 +105,7 @@ func run(demoMode, logout bool) error {
 		defer cleanup()
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: version, Store: st, Config: cfg.UI, Demo: true,
-			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		_, err = p.Run()
 		return err

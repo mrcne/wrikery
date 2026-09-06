@@ -10,6 +10,9 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
+// Theme carries the colors and glyphs one frame is drawn with.
+// Its ASCII flag covers the glyphs and borders drawn here and the decorations glamour puts around a description.
+// The words themselves keep their letters, a description written in Polish still reads as Polish.
 type Theme struct {
 	Accent, Text, Muted, Border, Error, Warn, Success lipgloss.TerminalColor
 	ASCII                                             bool

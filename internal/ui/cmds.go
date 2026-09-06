@@ -3,6 +3,9 @@ package ui
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,6 +96,185 @@ func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
 			return errMsg{err}
 		}
 		return scopesLoadedMsg{scopes: scopes}
+	}
+}
+
+// loadTree builds the sidebar from the followed scopes: My tasks first,
+// then each followed space's subtree, then followed projects that are not inside a followed space.
+func (m Model) loadTree() tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	return func() tea.Msg {
+		ctx := context.Background()
+		scopes, err := st.Scopes().Followed(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		statuses := m.ref.statuses
+		var nodes []treeNode
+		covered := map[string]bool{}
+		open := 0
+		if meID != "" {
+			mine, err := st.Tasks().ListForResponsible(ctx, meID)
+			if err != nil {
+				return errMsg{err}
+			}
+			for _, t := range mine {
+				if !isDone(t) {
+					open++
+				}
+			}
+		}
+		nodes = append(nodes, treeNode{id: store.ScopeKindMe, title: "My tasks", kind: nodeMe, count: open})
+		addSubtree := func(rootID string, rootKind nodeKind) error {
+			folders, err := st.Folders().Subtree(ctx, rootID)
+			if err != nil {
+				return err
+			}
+			if len(folders) == 0 {
+				// A followed space whose id is not also a folder id has no tree to draw, and dropping it silently looks like a sync bug.
+				slog.Warn("followed scope has no folder tree", "scope", rootID)
+				return nil
+			}
+			byID := map[string]store.Folder{}
+			for _, f := range folders {
+				byID[f.ID] = f
+				covered[f.ID] = true
+			}
+			var add func(f store.Folder, depth int) int
+			add = func(f store.Folder, depth int) int {
+				idx := len(nodes)
+				n := treeNode{id: f.ID, title: f.Title, kind: nodeFolder, depth: depth}
+				if depth == 0 {
+					n.kind, n.expanded = rootKind, true
+				}
+				if f.Project != nil {
+					n.kind = nodeProject
+					n.statusGroup = statuses[f.Project.CustomStatusID].Group
+				}
+				nodes = append(nodes, n)
+				children := make([]store.Folder, 0, len(f.ChildIDs))
+				for _, cid := range f.ChildIDs {
+					if c, ok := byID[cid]; ok {
+						children = append(children, c)
+					}
+				}
+				sort.Slice(children, func(i, j int) bool { return children[i].Title < children[j].Title })
+				for _, c := range children {
+					// nodes grows while we recurse, so index by idx and never hold a pointer into the slice.
+					nodes[idx].children = append(nodes[idx].children, add(c, depth+1))
+				}
+				return idx
+			}
+			add(folders[0], 0)
+			return nil
+		}
+		for _, sc := range scopes {
+			if sc.Kind == store.ScopeKindSpace {
+				// The space root folder id is assumed equal to the space id, the demo data is built that way.
+				if err := addSubtree(sc.ID, nodeSpace); err != nil {
+					return errMsg{err}
+				}
+			}
+		}
+		for _, sc := range scopes {
+			if sc.Kind == store.ScopeKindProject && !covered[sc.ID] {
+				if err := addSubtree(sc.ID, nodeProject); err != nil {
+					return errMsg{err}
+				}
+			}
+		}
+		return treeLoadedMsg{nodes: nodes}
+	}
+}
+
+func isDone(t store.Task) bool { return t.Status == "Completed" || t.Status == "Cancelled" }
+
+func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	return func() tea.Msg {
+		ctx := context.Background()
+		var tasks []store.Task
+		var err error
+		if node.kind == nodeMe {
+			tasks, err = st.Tasks().ListForResponsible(ctx, meID)
+		} else {
+			tasks, err = st.Tasks().ListInFolder(ctx, node.id)
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		states, err := st.Outbox().StatesByEntity(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states}
+	}
+}
+
+// loadTask reads one task and its thread. It runs on every cursor move, so it only reads.
+// Recording that a task was opened is markOpened's job.
+func (m Model) loadTask(id string) tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		ctx := context.Background()
+		task, err := st.Tasks().Get(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		comments, err := st.Comments().ListForTask(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		logs, err := st.Timelogs().ListForTask(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		states, err := st.Outbox().StatesByEntity(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		// A task can sit in more than one folder, the detail names them all.
+		var crumbs []string
+		for _, pid := range task.ParentIDs {
+			if f, err := st.Folders().Get(ctx, pid); err == nil {
+				crumbs = append(crumbs, f.Title)
+			}
+		}
+		return taskLoadedMsg{task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
+	}
+}
+
+// markOpened records that the reader opened the task, which is what puts it on the syncer's list of threads to refresh.
+// It runs on the deliberate open, not on the cursor preview, or walking a folder would queue a refresh for every task in it.
+// Nothing on screen waits for it, so a failure is logged and never shown.
+func (m Model) markOpened(id string) tea.Cmd {
+	st, now := m.opts.Store, m.opts.Now
+	return func() tea.Msg {
+		if err := st.Tasks().MarkOpened(context.Background(), id, now().UTC().Format(time.RFC3339)); err != nil {
+			slog.Warn("mark opened", "task", id, "error", err)
+		}
+		return nil
+	}
+}
+
+// runSearch reads the crumb for each hit's first parent, the same folder title the list pane shows.
+func (m Model) runSearch(seq int, query string) tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		ctx := context.Background()
+		tasks, err := st.Tasks().Search(ctx, query, 30)
+		if err != nil {
+			return errMsg{err}
+		}
+		crumbs := map[string]string{}
+		for _, t := range tasks {
+			if len(t.ParentIDs) > 0 {
+				if f, err := st.Folders().Get(ctx, t.ParentIDs[0]); err == nil {
+					crumbs[t.ID] = f.Title
+				}
+			}
+		}
+		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
 	}
 }
 

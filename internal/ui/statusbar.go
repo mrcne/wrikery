@@ -45,7 +45,9 @@ func ago(d time.Duration) string {
 	return fmt.Sprintf("%d d ago", int(d.Hours()/24))
 }
 
-func (s statusModel) View(th Theme, width int, hints string, now time.Time) string {
+// leftText renders the state, the demo marker and the pending/failed counts, the part of the bar that never shrinks.
+// Shared by View and leftWidth so the two never drift apart.
+func (s statusModel) leftText(th Theme, now time.Time) string {
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	var left strings.Builder
 	if s.demo {
@@ -71,8 +73,19 @@ func (s statusModel) View(th Theme, width int, hints string, now time.Time) stri
 	if s.failed > 0 {
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(fmt.Sprintf("  %d failed", s.failed)))
 	}
+	return left.String()
+}
+
+// leftWidth is what the root needs to know how much room is left for hints, before it has a finished hints string to measure itself.
+// Shrinking the hint list to fit takes this as a starting point.
+func (s statusModel) leftWidth(th Theme, now time.Time) int {
+	return lipgloss.Width(s.leftText(th, now))
+}
+
+func (s statusModel) View(th Theme, width int, hints string, now time.Time) string {
+	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	// What is left after the state, the leading space and a one cell gap. A hint cut in half reads as a glitch, so hints are all or nothing.
-	leftText := left.String()
+	leftText := s.leftText(th, now)
 	available := width - lipgloss.Width(leftText) - 3
 	right := ""
 	switch {

@@ -92,6 +92,8 @@ func (a *app) hooks() ui.Hooks {
 			}
 		},
 		VerifyToken: a.verifyToken,
+		OpenURL:     openURL,
+		Copy:        copyText,
 	}
 }
 

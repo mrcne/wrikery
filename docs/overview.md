@@ -31,14 +31,16 @@ The tool does not try to replace the web application for heavy project managemen
 ### Layout
 
 Three panes: a sidebar with the followed spaces and projects, a task list and a detail pane for the selected task.
-On a narrow terminal the panes collapse into one column and you go one level deeper at a time instead,
-so the app stays usable in a small tmux split.
+A wide terminal shows all three panes, a medium one shows two, and a terminal narrower than eighty columns shows one, so the app stays usable in a small tmux split.
+The visible panes always include the one in focus, so moving focus can slide the window forward or back by one pane.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
 
 ### Keys
 
 Vim style keys (j, k, h, l, g, G) and arrow keys both work. `?` shows a help overlay with every binding for the current screen.
 `/` filters the current list as you type. Tab cycles through the panes, Enter goes one level deeper, Esc goes back.
+On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
+`z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
 
 ### Search
 
@@ -51,6 +53,7 @@ The description comes from Wrike as HTML. It is converted to markdown and render
 Below it come the metadata and the comment thread. Single key actions on the selected task:
 `c` comment, `t` log time, `s` status, `a` assignee, `d` dates.
 An action changes the local view at once and is sent to Wrike in the background.
+A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.
 
 ### Timesheet
 
@@ -66,3 +69,11 @@ The goal is less than a minute from install to a working app.
 ### Demo mode
 
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.
+
+### Config
+
+The config file lives at `~/.config/wrikery/config.toml`.
+`log_level` sets how much the app logs: debug, info, warn or error.
+`poll_interval` sets how often the sync engine checks Wrike for changes.
+The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
+`branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.

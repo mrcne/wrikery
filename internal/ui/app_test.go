@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest"
 
@@ -43,6 +45,18 @@ func testOptions(st *store.Store) ui.Options {
 		Now:    func() time.Time { return fixedNow },
 		Hooks:  ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
 	}
+}
+
+// testOptionsWithCopy adds a Copy hook that records what it was asked to copy, so a test can
+// assert on the text without a real clipboard.
+func testOptionsWithCopy(st *store.Store) (ui.Options, *[]string) {
+	var copied []string
+	o := testOptions(st)
+	o.Hooks.Copy = func(text string) error {
+		copied = append(copied, text)
+		return nil
+	}
+	return o, &copied
 }
 
 func press(tm *teatest.TestModel, keys ...string) {
@@ -126,27 +140,121 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
 			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
-			waitFor(t, tm, "Tasks")
+			// The frame is captured as it stands, so the wait has to be for something only the finished reads draw.
+			// The detail pane is in the window from 120 columns up, below that the list title is the last thing to land.
+			loaded := "Tasks: My tasks ("
+			if w >= 120 {
+				loaded = "-- Comments ("
+			}
+			waitFor(t, tm, loaded)
 			golden.RequireEqual(t, []byte(finalView(t, tm)))
 		})
+	}
+}
+
+func TestSidebarShowsFollowedSpaces(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
+	waitFor(t, tm, "Platform")
+	waitFor(t, tm, "Mobile")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "Design system") {
+		t.Errorf("sidebar should list Design system under Platform:\n%s", view)
 	}
 }
 
 func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "tab") // list -> detail, at 100 columns the sidebar leaves the window
+	waitFor(t, tm, "-- Comments (")
 	view := finalView(t, tm)
-	if strings.Contains(view, "Spaces") || !strings.Contains(view, "Task ") {
+	// Only the detail pane draws the comment divider, so it stands for that pane being on screen.
+	if strings.Contains(view, "Spaces") || !strings.Contains(view, "-- Comments (") {
 		t.Errorf("after tab at 100 cols the window should show list+detail:\n%s", view)
+	}
+}
+
+func TestDetailShowsTheSelectedTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	// The detail follows the list cursor.
+	// The demo task with a queued comment sits far down the list, so the filter is the short way to it.
+	press(tm, "/")
+	press(tm, "fix auth")
+	waitFor(t, tm, "#1200000")
+	waitFor(t, tm, "Comments (")
+	waitFor(t, tm, "Queued while offline.") // the comment the demo data leaves in the outbox
+	press(tm, "enter")                      // leave the filter input, the filter itself stays
+	press(tm, "tab")                        // focus the detail pane
+	press(tm, "j", "j", "j")
+	view := finalView(t, tm)
+	for _, want := range []string{"#1200000", "Fix auth retry loop", "Time ("} {
+		if !strings.Contains(view, want) {
+			t.Errorf("after scrolling the detail should still show %q:\n%s", want, view)
+		}
+	}
+}
+
+// permalinkNumber reads the numeric task id off the end of a demo permalink,
+// the same number the detail pane's title shows as "#<id>".
+func permalinkNumber(t *testing.T, permalink string) string {
+	t.Helper()
+	const marker = "id="
+	i := strings.LastIndex(permalink, marker)
+	if i < 0 {
+		t.Fatalf("permalink %q has no id", permalink)
+	}
+	return permalink[i+len(marker):]
+}
+
+// Opening a task tells the syncer to refresh its thread, so it must follow a deliberate enter and not the cursor.
+func TestOpeningATaskMarksItOpened(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	tasks, err := st.Tasks().ListForResponsible(ctx, demo.MeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewed, opened := tasks[0], tasks[1]
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	from := mark(t, tm)
+	press(tm, "j") // move the cursor onto the second task, which only previews it
+	// Wait for the detail pane to actually show the preview before the deliberate enter,
+	// or a slow repaint could let enter race ahead of the cursor move and open the still previewed task.
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, opened.Permalink))
+	press(tm, "enter") // and open that one
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		t2, err := st.Tasks().Get(ctx, opened.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if t2.LastOpenedAt != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("enter should have marked %s opened", opened.ID)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = finalView(t, tm)
+	t1, err := st.Tasks().Get(ctx, previewed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if t1.LastOpenedAt != "" {
+		t.Errorf("the cursor passing over %s should not open it, last opened %q", previewed.ID, t1.LastOpenedAt)
 	}
 }
 
 func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 1})
 	waitFor(t, tm, "2 pending")
 	waitFor(t, tm, "1 failed")
@@ -160,7 +268,7 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
 			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
-			waitFor(t, tm, "Tasks")
+			waitFor(t, tm, "Tasks: My tasks (")
 			press(tm, "?")
 			waitFor(t, tm, "esc or ? to close")
 			for _, r := range seenOutput(t, tm).String() {
@@ -174,15 +282,140 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 	}
 }
 
+func TestTaskListFiltersAndFollowsTheSidebar(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks (")
+	// The list follows the sidebar cursor.
+	// This runs first because the filter has to be the last thing on screen, only the frame the program ends on can be read row by row.
+	press(tm, "shift+tab")
+	press(tm, "j")
+	waitFor(t, tm, "Tasks: Mobile")
+	from := mark(t, tm)
+	press(tm, "k")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
+	press(tm, "tab")
+	from = mark(t, tm)
+	press(tm, "/")
+	press(tm, "a", "u", "t", "h")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
+	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= 30 {
+		t.Fatalf("filtering by 'auth' should narrow the list below 30, title count is %d", n)
+	}
+	press(tm, "enter") // leave the filter input, the filter itself stays
+	view := finalView(t, tm)
+	rows := taskListRows(view)
+	if len(rows) == 0 {
+		t.Fatalf("the filtered list should still hold rows:\n%s", view)
+	}
+	for _, row := range rows {
+		if !strings.Contains(strings.ToLower(row), "auth") {
+			t.Errorf("row %q is on screen although the filter is auth:\n%s", strings.TrimSpace(row), view)
+		}
+	}
+}
+
+// taskListRows cuts the task rows out of a full frame.
+// The panes are drawn next to each other, so a line is split on the pane borders and the list is the second box,
+// and a row is told from a blank filler or the filter input by the status glyph that follows the cursor column.
+func taskListRows(view string) []string {
+	var rows []string
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 || len(cells[3]) < 3 || !strings.ContainsRune("ovzx", rune(cells[3][2])) {
+			continue
+		}
+		rows = append(rows, cells[3])
+	}
+	return rows
+}
+
+// taskListTitleCount reads the "(N)" count off the last "Tasks: My tasks (" title drawn in the given output.
+func taskListTitleCount(t *testing.T, output string) int {
+	t.Helper()
+	idx := strings.LastIndex(output, "Tasks: My tasks (")
+	if idx < 0 {
+		t.Fatalf("no task list title found in:\n%s", output)
+	}
+	rest := output[idx+len("Tasks: My tasks ("):]
+	end := strings.IndexByte(rest, ')')
+	if end < 0 {
+		t.Fatalf("unterminated task list title in:\n%s", output)
+	}
+	n, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		t.Fatalf("task list title count %q: %v", rest[:end], err)
+	}
+	return n
+}
+
 func TestHelpOverlayListsBindings(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "?")
 	waitFor(t, tm, "sync issues")
 	press(tm, "esc")
 	view := finalView(t, tm)
 	if strings.Contains(view, "esc or ? to close") {
 		t.Error("help still open after esc")
+	}
+}
+
+func TestQuickSearchJumpsToTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	// #1200033 is whatever the demo's My tasks list preselects, not the task the search will find.
+	// Asserting it changes is what proves enter actually jumped, "#12000" alone is a prefix every demo task shares.
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "fix auth retry") // the only task matching all three words is IEAATASK00, Fix auth retry loop
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	// A permalink is on screen from the very first task the detail pane ever showed, so the wait needs a fresh mark:
+	// only a frame drawn after enter proves the overlay actually closed.
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "#1200000") || strings.Contains(view, "#1200033") || strings.Contains(view, "Search") {
+		t.Errorf("enter should close the search and show the matched task:\n%s", view)
+	}
+}
+
+func TestCopyBindingsCopyTheRightText(t *testing.T) {
+	st := seededStore(t)
+	opts, copied := testOptionsWithCopy(st)
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "Y")
+	waitAfter(t, tm, from, "Copied")
+	if want := "1200000-fix-auth-retry-loop"; len(*copied) != 1 || (*copied)[0] != want {
+		t.Fatalf("copy branch: got %v, want [%q]", *copied, want)
+	}
+
+	from = mark(t, tm)
+	press(tm, "i")
+	waitAfter(t, tm, from, "Copied")
+	if want := "IEAATASK00"; len(*copied) != 2 || (*copied)[1] != want {
+		t.Fatalf("copy id: got %v, want id %q at index 1", *copied, want)
+	}
+
+	from = mark(t, tm)
+	press(tm, "y")
+	waitAfter(t, tm, from, "Copied")
+	if want := "https://www.wrike.com/open.htm?id=1200000"; len(*copied) != 3 || (*copied)[2] != want {
+		t.Fatalf("copy permalink: got %v, want permalink %q at index 2", *copied, want)
 	}
 }

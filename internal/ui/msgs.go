@@ -13,6 +13,13 @@ type OutboxChangedMsg struct{ Pending, Failed int }
 
 type errMsg struct{ err error }
 
+// toastMsg reports the result of work the update loop handed to a command, such as a clipboard write.
+// The root turns it into a status bar toast.
+type toastMsg struct {
+	text  string
+	isErr bool
+}
+
 type refData struct {
 	meID      string
 	contacts  map[string]store.Contact
@@ -22,6 +29,22 @@ type refData struct {
 
 type refLoadedMsg struct{ ref refData }
 type scopesLoadedMsg struct{ scopes []store.Scope }
+type treeLoadedMsg struct{ nodes []treeNode }
+type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
+type focusMsg struct{ pane pane }            // intent: move focus
+type tasksLoadedMsg struct {
+	nodeID, crumb string
+	tasks         []store.Task
+	states        map[string]store.OutboxState
+}
+type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
+type taskLoadedMsg struct {
+	task     store.Task
+	comments []store.Comment
+	logs     []store.Timelog
+	states   map[string]store.OutboxState
+	crumb    string
+}
 type pickerLoadedMsg struct {
 	spaces   []store.Space
 	projects map[string][]store.Folder // per space id, projects directly under the root
@@ -29,6 +52,16 @@ type pickerLoadedMsg struct {
 type tokenVerifiedMsg struct {
 	name string
 	err  error
+}
+type searchResultsMsg struct {
+	seq    int
+	tasks  []store.Task
+	crumbs map[string]string
+}
+type searchOpenMsg struct{ task store.Task } // intent: close the search overlay and jump to this task
+type runSearchMsg struct {
+	seq   int
+	query string
 }
 
 // Intents from the first run child. The root turns them into commands.
