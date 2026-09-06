@@ -243,6 +243,40 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 	}
 }
 
+func TestTimelogWindow(t *testing.T) {
+	from, to := timelogWindow(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)) // Thursday
+	if from != "2026-07-06" || to != "2026-09-06" {
+		t.Errorf("window = %s..%s", from, to)
+	}
+	from, to = timelogWindow(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)) // Sunday belongs to the same week
+	if from != "2026-07-06" || to != "2026-09-06" {
+		t.Errorf("sunday window = %s..%s", from, to)
+	}
+}
+
+func TestPullMyTimelogsPagesAndReplaces(t *testing.T) {
+	st := newTestStore(t)
+	var seen []wrike.TimelogParams
+	fc := &fakeClient{timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+		seen = append(seen, p)
+		if p.PageToken == "" {
+			return wrike.TimelogsPage{Timelogs: []wrike.Timelog{{ID: "L1", TaskID: "T", UserID: "U1", TrackedDate: "2026-09-01", Hours: 1}}, NextPageToken: "p2"}, nil
+		}
+		return wrike.TimelogsPage{Timelogs: []wrike.Timelog{{ID: "L2", TaskID: "T", UserID: "U1", TrackedDate: "2026-09-02", Hours: 2}}}, nil
+	}}
+	changed, err := pullMyTimelogs(context.Background(), fc, st, "U1", time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+	if err != nil || !changed {
+		t.Fatalf("changed = %v, %v", changed, err)
+	}
+	if len(seen) != 2 || !seen[0].Me || seen[0].TrackedFrom != "2026-07-06" || seen[0].TrackedTo != "2026-09-06" || seen[1].PageToken != "p2" {
+		t.Errorf("params = %+v", seen)
+	}
+	logs, _ := st.Timelogs().ListForUser(context.Background(), "U1", "2026-07-06", "2026-09-06")
+	if len(logs) != 2 {
+		t.Errorf("stored %d logs", len(logs))
+	}
+}
+
 func TestPullReferenceReplacesAll(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

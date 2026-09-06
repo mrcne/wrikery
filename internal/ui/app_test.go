@@ -691,6 +691,24 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 	}
 }
 
+// TestTimesheetLogsTimeFromGrid covers the add path from the grid itself:
+// the cursor starts on the first row and Monday,
+// so n there opens the dialog for that task and day directly, with no search step.
+// fixedNow is Thursday 2026-09-03, so this week's Monday is 2026-08-31.
+func TestTimesheetLogsTimeFromGrid(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks:")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "n") // first row, Monday
+	waitFor(t, tm, "Log time on")
+	press(tm, "2h", "enter")
+	waitFor(t, tm, "Logged 2.0 h")
+	waitFor(t, tm, "~")
+	golden.RequireEqual(t, []byte(finalView(t, tm)))
+}
+
 // TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
 // (here s for the status dialog) does nothing on the issues screen, since there is no task pane
 // underneath it to act on and the key would otherwise reach whatever task was selected before.

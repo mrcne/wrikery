@@ -70,6 +70,13 @@ Both take quick words instead of a full date: an ISO date, `today`, `tomorrow`, 
 An empty field clears that date. Tab moves between the two fields, enter saves, esc cancels.
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
+`t` opens a box with hours, date and note fields.
+Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h` or `2h30m`.
+The date takes the same quick words as the dates dialog and defaults to today.
+The note is optional.
+Tab moves between the fields, enter saves, esc cancels.
+Editing an entry cannot clear a note that is already there.
+
 ### Sync issues
 
 `!` opens the list of writes the sync engine could not send.
@@ -79,8 +86,23 @@ Discarding a task update does not roll back the change already applied to the lo
 
 ### Timesheet
 
-A separate view (key T) shows the current week as a grid of your time entries with totals per day and per week.
-Arrow keys move between days, one key adds an entry. The view exists to answer one question quickly: did I log everything this week.
+A separate view (key T) shows the current week as a grid: tasks as rows, Monday to Sunday as columns.
+A cell is the hours logged on that task on that day, one decimal, or a dash when there is nothing.
+Each row carries a total for the task, each column a total for the day, and the grid ends with a total for the week.
+The last row, `+ new task`, is for logging time on a task that has no row yet.
+
+`h` and `l` move between days, `j` and `k` move between rows.
+`[` and `]` go one week back and forward, `.` jumps back to the current week.
+`n` logs time on the row's task for the selected day.
+On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
+`e` or enter edits the entry under the cursor, and when a cell holds more than one entry a small list asks which one first.
+`x` deletes an entry after a confirmation, again through that list when the cell holds several.
+
+The sync engine keeps the current week and the eight weeks before it, so the grid stays empty for anything older.
+A cell with a write still queued shows the pending marker in front of the hours.
+
+An entry that sits in a locked or approved timesheet is shown dimmed.
+Editing or deleting it is refused with a message instead, nothing is queued for it.
 
 ### First run
 

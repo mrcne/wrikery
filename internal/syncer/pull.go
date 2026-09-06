@@ -167,6 +167,38 @@ func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Lo
 	return touched, nil
 }
 
+// timelogWindow is the current week plus the eight before it, Monday to Sunday.
+// Older weeks are not shown in the timesheet.
+func timelogWindow(now time.Time) (from, to string) {
+	wd := int(now.Weekday())
+	if wd == 0 {
+		wd = 7
+	}
+	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(wd - 1))
+	return monday.AddDate(0, 0, -7*8).Format("2006-01-02"), monday.AddDate(0, 0, 6).Format("2006-01-02")
+}
+
+// pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
+// The page size is the documented maximum (https://developers.wrike.com/api/v4/timelogs/),
+// so the window is usually one request.
+func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string, now time.Time) (bool, error) {
+	from, to := timelogWindow(now)
+	p := wrike.TimelogParams{Me: true, TrackedFrom: from, TrackedTo: to, PageSize: 1000}
+	var all []wrike.Timelog
+	for {
+		page, err := c.Timelogs(ctx, p)
+		if err != nil {
+			return false, err
+		}
+		all = append(all, page.Timelogs...)
+		if page.NextPageToken == "" {
+			break
+		}
+		p.PageToken = page.NextPageToken
+	}
+	return st.Timelogs().ReplaceForUserRange(ctx, meID, from, to, timelogsFromWrike(all))
+}
+
 func refreshThread(ctx context.Context, c Client, st *store.Store, id string) error {
 	comments, err := c.TaskComments(ctx, id)
 	if err != nil {

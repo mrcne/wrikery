@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,17 +61,27 @@ func TestEngineFirstCycleDrainsAndSyncs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
-		if p.FolderID == "F1" {
-			return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T2", Title: "pulled", Status: "Active",
-				UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
-		}
-		return wrike.TasksPage{}, nil
-	}}
+	fc := &fakeClient{
+		tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+			if p.FolderID == "F1" {
+				return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T2", Title: "pulled", Status: "Active",
+					UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
+			}
+			return wrike.TasksPage{}, nil
+		},
+		timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+			return wrike.TimelogsPage{Timelogs: []wrike.Timelog{
+				{ID: "L1", TaskID: "T2", UserID: "U1", TrackedDate: "2026-09-03", Hours: 1},
+			}}, nil
+		},
+	}
 	e := startEngine(t, fc, st, Config{PollInterval: time.Hour})
 
 	waitFor(t, e, "outbox drained", func(ev Event) bool {
 		return ev.Kind == EventOutboxChanged && ev.Pending == 0 && ev.Failed == 0
+	})
+	waitFor(t, e, "timelogs synced", func(ev Event) bool {
+		return ev.Kind == EventStoreChanged && slices.Contains(ev.Entities, KindTimelogs)
 	})
 	waitFor(t, e, "idle after first cycle", isState(StateIdle))
 

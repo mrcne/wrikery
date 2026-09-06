@@ -10,8 +10,11 @@ import (
 	"time"
 )
 
-// Timelog is one time entry. LockStatus is Locked or Unlocked, ApprovalStatus is NotSubmitted, Pending, Approved or Rejected.
-// A locked or approved entry rejects edits and deletes, so callers should check both before queueing a write.
+// Timelog is one time entry.
+// LockStatus is Locked or Unlocked, ApprovalStatus is Draft, NotRequired, Approved, Rejected,
+// Cancelled or Pending (https://developers.wrike.com/api/v4/timelogs/).
+// The page does not say which of these reject an edit.
+// This app treats a locked or an approved entry as read only.
 type Timelog struct {
 	ID             string    `json:"id"`
 	TaskID         string    `json:"taskId"`

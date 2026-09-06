@@ -13,12 +13,13 @@ import (
 )
 
 type searchModel struct {
-	input   textinput.Model
-	results []store.Task
-	crumbs  map[string]string
-	cursor  int
-	seq     int
-	keys    KeyMap
+	input    textinput.Model
+	results  []store.Task
+	crumbs   map[string]string
+	cursor   int
+	seq      int
+	keys     KeyMap
+	pickMode bool // true while search stands in for the timesheet's task picker
 }
 
 func newSearch(keys KeyMap) searchModel {
@@ -32,6 +33,8 @@ func newSearch(keys KeyMap) searchModel {
 func (s *searchModel) reset() tea.Cmd {
 	s.input.SetValue("")
 	s.results, s.cursor = nil, 0
+	// Cleared here, not just where a pick starts, so a plain ctrl+f after a cancelled pick opens tasks again.
+	s.pickMode = false
 	return s.input.Focus()
 }
 
@@ -77,6 +80,9 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 			return s, nil
 		case msg.Type == tea.KeyEnter:
 			if s.cursor < len(s.results) {
+				if s.pickMode {
+					return s, intent(searchPickMsg{task: s.results[s.cursor]})
+				}
 				return s, intent(searchOpenMsg{task: s.results[s.cursor]})
 			}
 			return s, nil
@@ -119,5 +125,9 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 		label := glyph + " " + t.Title + "  " + muted.Render(s.crumbs[t.ID])
 		b.WriteString(rowLine(th, label, width-2, i == s.cursor, true) + "\n")
 	}
-	return th.box("Search", b.String(), width, lipgloss.Height(b.String())+2, true)
+	title := "Search"
+	if s.pickMode {
+		title = "Pick a task"
+	}
+	return th.box(title, b.String(), width, lipgloss.Height(b.String())+2, true)
 }

@@ -32,3 +32,31 @@ func TestParseDate(t *testing.T) {
 		}
 	}
 }
+
+func TestParseHours(t *testing.T) {
+	for in, want := range map[string]float64{"1.5": 1.5, "1,5": 1.5, "1:30": 1.5, "90m": 1.5, "2h": 2, "2h30m": 2.5, "0.25": 0.25} {
+		got, err := parseHours(in)
+		if err != nil || got != want {
+			t.Errorf("parseHours(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "0", "-1", "25", "abc", "1:75"} {
+		if _, err := parseHours(bad); err == nil {
+			t.Errorf("parseHours(%q) accepted", bad)
+		}
+	}
+}
+
+func TestFormatHoursRoundTripsThroughParseHours(t *testing.T) {
+	cases := map[float64]string{2: "2", 1.5: "1:30", 1.0 + 20.0/60.0: "1:20"}
+	for h, want := range cases {
+		got := formatHours(h)
+		if got != want {
+			t.Errorf("formatHours(%v) = %q, want %q", h, got, want)
+		}
+		back, err := parseHours(got)
+		if err != nil || back != h {
+			t.Errorf("parseHours(formatHours(%v)) = %v, %v; want %v", h, back, err, h)
+		}
+	}
+}

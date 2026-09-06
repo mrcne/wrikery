@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -37,6 +38,29 @@ func TestSearchBlurStopsTheCursor(t *testing.T) {
 	s.blur()
 	if s.input.Focused() {
 		t.Error("blur should leave the input unfocused")
+	}
+}
+
+// Pick mode is how the timesheet's "+ new task" row reuses search to choose a task instead of
+// opening it, so enter has to hand the pick back rather than jump the screen to the task.
+func TestSearchPickModeEmitsSearchPickMsg(t *testing.T) {
+	s := newSearch(defaultKeyMap())
+	s.pickMode = true
+	s.results = []store.Task{{ID: "IEAATASK00", Title: "Fix auth retry loop"}}
+
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("enter in pick mode should emit exactly one message: %#v", msgs)
+	}
+	pick, ok := msgs[0].(searchPickMsg)
+	if !ok || pick.task.ID != "IEAATASK00" {
+		t.Errorf("got %#v, want a searchPickMsg for IEAATASK00, not a searchOpenMsg", msgs[0])
+	}
+
+	_ = s.reset()
+	if s.pickMode {
+		t.Error("reset should clear pickMode, or a plain search after a cancelled pick would stay in pick mode")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 type TimelogRepo interface {
@@ -11,6 +12,8 @@ type TimelogRepo interface {
 	ReplaceForTask(ctx context.Context, taskID string, logs []Timelog) error
 	ListForTask(ctx context.Context, taskID string) ([]Timelog, error)
 	Get(ctx context.Context, id string) (Timelog, error)
+	ListForUser(ctx context.Context, userID, from, to string) ([]Timelog, error)
+	ReplaceForUserRange(ctx context.Context, userID, from, to string, logs []Timelog) (bool, error)
 }
 
 func (s *Store) Timelogs() TimelogRepo { return timelogRepo{w: s.writer, r: s.reader} }
@@ -38,8 +41,8 @@ func upsertTimelogsTx(ctx context.Context, tx *sql.Tx, logs []Timelog) error {
 	return nil
 }
 
-// Upsert is a plain upsert by id, used by the account wide me pull which is
-// not scoped to a single task.
+// Upsert is a plain upsert by id, not scoped to a single task or user.
+// The demo seed and the tests are its only callers.
 func (t timelogRepo) Upsert(ctx context.Context, logs []Timelog) error {
 	tx, err := t.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -70,7 +73,7 @@ func (t timelogRepo) ReplaceForTask(ctx context.Context, taskID string, logs []T
 	return tx.Commit()
 }
 
-// timelogColumns is shared by ListForTask and Get so the two queries cannot drift apart.
+// timelogColumns is shared by the list queries and Get so they cannot drift apart.
 const timelogColumns = `id, task_id, user_id, category_id, tracked_date, comment, hours,
 	lock_status, approval_status, created_date, updated_date`
 
@@ -82,14 +85,7 @@ func scanTimelog(row interface{ Scan(...any) error }) (Timelog, error) {
 	return l, err
 }
 
-func (t timelogRepo) ListForTask(ctx context.Context, taskID string) ([]Timelog, error) {
-	rows, err := t.r.QueryContext(ctx, `
-		SELECT `+timelogColumns+` FROM timelogs
-		WHERE task_id = ? ORDER BY created_date, id`, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
+func scanTimelogs(rows *sql.Rows) ([]Timelog, error) {
 	var out []Timelog
 	for rows.Next() {
 		l, err := scanTimelog(rows)
@@ -99,6 +95,29 @@ func (t timelogRepo) ListForTask(ctx context.Context, taskID string) ([]Timelog,
 		out = append(out, l)
 	}
 	return out, rows.Err()
+}
+
+func (t timelogRepo) ListForTask(ctx context.Context, taskID string) ([]Timelog, error) {
+	rows, err := t.r.QueryContext(ctx, `
+		SELECT `+timelogColumns+` FROM timelogs
+		WHERE task_id = ? ORDER BY created_date, id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanTimelogs(rows)
+}
+
+func (t timelogRepo) ListForUser(ctx context.Context, userID, from, to string) ([]Timelog, error) {
+	rows, err := t.r.QueryContext(ctx, `
+		SELECT `+timelogColumns+` FROM timelogs
+		WHERE user_id = ? AND tracked_date >= ? AND tracked_date <= ?
+		ORDER BY tracked_date, created_date, id`, userID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	return scanTimelogs(rows)
 }
 
 func (t timelogRepo) Get(ctx context.Context, id string) (Timelog, error) {
@@ -111,4 +130,45 @@ func (t timelogRepo) Get(ctx context.Context, id string) (Timelog, error) {
 		return Timelog{}, err
 	}
 	return l, nil
+}
+
+// ReplaceForUserRange swaps the server rows in a date window and says whether anything differs afterwards.
+// The fingerprint is cheap on purpose: count, latest update and total hours catch every edit the API can make.
+// Only a queued create is protected by the local id prefix, the same rule ReplaceForTask follows.
+// A row with a queued update or delete has no such protection,
+// so the grid can show the server value until that write lands.
+// The write itself is never lost, only its display lags.
+func (t timelogRepo) ReplaceForUserRange(ctx context.Context, userID, from, to string, logs []Timelog) (bool, error) {
+	tx, err := t.w.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	fingerprint := func() (string, error) {
+		var n int
+		var latest string
+		var hours float64
+		err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*), COALESCE(MAX(updated_date), ''), COALESCE(SUM(hours), 0) FROM timelogs
+			WHERE user_id = ? AND tracked_date >= ? AND tracked_date <= ? AND id NOT LIKE ?`,
+			userID, from, to, LocalIDPrefix+"%").Scan(&n, &latest, &hours)
+		return fmt.Sprintf("%d|%s|%.4f", n, latest, hours), err
+	}
+	before, err := fingerprint()
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM timelogs WHERE user_id = ? AND tracked_date >= ? AND tracked_date <= ? AND id NOT LIKE ?`,
+		userID, from, to, LocalIDPrefix+"%"); err != nil {
+		return false, err
+	}
+	if err := upsertTimelogsTx(ctx, tx, logs); err != nil {
+		return false, err
+	}
+	after, err := fingerprint()
+	if err != nil {
+		return false, err
+	}
+	return before != after, tx.Commit()
 }
