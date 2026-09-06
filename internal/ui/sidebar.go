@@ -35,6 +35,7 @@ type sidebarModel struct {
 	visible []int
 	cursor  int
 	offset  int
+	height  int // set by the root from the computed layout, View cannot remember it on its own
 	keys    KeyMap
 }
 
@@ -57,6 +58,21 @@ func (s *sidebarModel) setNodes(nodes []treeNode) {
 	s.rebuild()
 	if !s.selectByID(prev) {
 		s.cursor = 0
+	}
+	s.scroll()
+}
+
+// scroll clamps offset so the cursor row stays inside the pane. View has a value receiver, so
+// it cannot persist the offset it would otherwise compute itself, this is done here instead.
+func (s *sidebarModel) scroll() {
+	if s.height <= 0 {
+		return
+	}
+	if s.cursor < s.offset {
+		s.offset = s.cursor
+	}
+	if s.cursor >= s.offset+s.height {
+		s.offset = s.cursor - s.height + 1
 	}
 }
 
@@ -155,6 +171,7 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 		if len(n.children) > 0 && !n.expanded {
 			s.nodes[idx].expanded = true
 			s.rebuild()
+			s.scroll()
 			return s, nil
 		}
 		return s, intent(focusMsg{pane: paneList})
@@ -162,6 +179,7 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 		if n.expanded {
 			s.nodes[idx].expanded = false
 			s.rebuild()
+			s.scroll()
 			return s, nil
 		}
 		if p := s.parentOf(idx); p >= 0 {
@@ -172,6 +190,7 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 	default:
 		return s, nil
 	}
+	s.scroll()
 	// Moving the cursor previews the node in the list, the same way lazygit follows the cursor.
 	if cur, ok := s.current(); ok && cur.id != n.id {
 		return s, intent(nodeSelectedMsg{node: cur})
@@ -194,33 +213,38 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 	if height <= 0 {
 		return ""
 	}
-	// Keep the cursor row inside the pane.
-	if s.cursor < s.offset {
-		s.offset = s.cursor
-	}
-	if s.cursor >= s.offset+height {
-		s.offset = s.cursor - height + 1
+	// offset lives on the model and is advanced by scroll(), this only guards against it landing
+	// past the end, for example right after the node list shrinks.
+	offset := s.offset
+	if last := len(s.visible) - 1; offset > last {
+		offset = max(0, last)
 	}
 	var b strings.Builder
-	for row := 0; row < height && s.offset+row < len(s.visible); row++ {
-		vi := s.offset + row
+	for row := 0; row < height && offset+row < len(s.visible); row++ {
+		vi := offset + row
 		n := s.nodes[s.visible[vi]]
-		// My tasks carries no chevron, a project shows its status glyph instead of expand state,
-		// everything else (space, folder) shows the expand/collapse chevron even with no children yet.
-		var marker string
+		// My tasks carries no chevron. A project shows its status glyph instead of expand state.
+		// A space or folder shows the expand/collapse chevron only when it actually has children,
+		// everything else gets a blank space so titles still line up.
+		var label string
 		switch n.kind {
 		case nodeMe:
-		case nodeProject:
-			glyph := lipgloss.NewStyle().Foreground(th.StatusColor(store.CustomStatus{Group: n.statusGroup})).Render(th.StatusGlyph(n.statusGroup))
-			marker = glyph + " "
+			label = strings.Repeat("  ", n.depth) + n.title
 		default:
-			g := th.Glyphs.Collapsed
-			if n.expanded {
-				g = th.Glyphs.Expanded
+			var marker string
+			switch {
+			case n.kind == nodeProject:
+				marker = lipgloss.NewStyle().Foreground(th.StatusColor(store.CustomStatus{Group: n.statusGroup})).Render(th.StatusGlyph(n.statusGroup))
+			case len(n.children) > 0:
+				marker = th.Glyphs.Collapsed
+				if n.expanded {
+					marker = th.Glyphs.Expanded
+				}
+			default:
+				marker = " "
 			}
-			marker = g + " "
+			label = strings.Repeat("  ", n.depth) + marker + " " + n.title
 		}
-		label := strings.Repeat("  ", n.depth) + marker + n.title
 		if n.kind == nodeMe {
 			count := fmt.Sprintf("%d", n.count)
 			pad := width - lipgloss.Width(label) - lipgloss.Width(count) - 3
@@ -236,8 +260,7 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 	return b.String()
 }
 
-// rowLine renders one list row: cursor glyph on the selected row, accent background when the pane has focus.
-// Shared with the task list and other lists that come later.
+// rowLine renders one list row and is shared by every list in the package.
 func rowLine(th Theme, label string, width int, selected, focused bool) string {
 	prefix := "  "
 	if selected {

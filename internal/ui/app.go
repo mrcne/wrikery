@@ -105,6 +105,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.syncPaneSizes()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -129,12 +130,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadTree()
 	case treeLoadedMsg:
 		m.sidebar.setNodes(msg.nodes)
+		m.syncPaneSizes()
 		if n, ok := m.sidebar.current(); ok {
 			return m, intent(nodeSelectedMsg{node: n})
 		}
 		return m, nil
 	case focusMsg:
 		m.focus = msg.pane
+		m.syncPaneSizes()
 		return m, nil
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
@@ -249,6 +252,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus--
 		}
 	}
+	m.syncPaneSizes()
 	switch m.focus {
 	case paneSidebar:
 		var cmd tea.Cmd
@@ -279,6 +283,15 @@ func (m Model) View() string {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	return out
+}
+
+// syncPaneSizes pushes the computed pane heights down to the child models. A View method takes
+// its size as a plain argument each frame and has no way to remember it between calls on its own.
+func (m *Model) syncPaneSizes() {
+	lay := computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	if r, ok := lay.rects[paneSidebar]; ok {
+		m.sidebar.height = r.h - 2
+	}
 }
 
 func (m Model) viewMain(height int) string {
