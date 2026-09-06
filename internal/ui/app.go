@@ -226,6 +226,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{CustomStatusID: msg.statusID, Status: msg.group})
 			return err
 		}, "Status set to "+msg.name)
+	case submitAssigneesMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddResponsibles: msg.add, RemoveResponsibles: msg.remove})
+			return err
+		}, "Assignees updated")
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -437,6 +443,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.withTask(func(t store.Task) tea.Cmd {
 			m.openDialog(newStatusDialog(t, m.ref, m.keys))
 			return nil
+		})
+	case key.Matches(msg, m.keys.Assignee):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
+			m.openDialog(d)
+			return cmd
 		})
 	}
 	opened := m.openedOnFocus(prevFocus)

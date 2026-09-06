@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -483,5 +484,29 @@ func TestStatusDialogQueuesAndMarks(t *testing.T) {
 	}
 	if task.CustomStatusID != "IEAAST15" || task.Status != "Completed" {
 		t.Errorf("task after status change = %+v, want IEAAST15/Completed", task)
+	}
+}
+
+func TestAssigneeDialogAddsAResponsible(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	// IEAATASK33, the demo's My tasks preselection, starts out responsible to Ada (me) and Celina.
+	// "dawid" narrows the contact list to Dawid Mroz alone.
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "a")
+	waitAfter(t, tm, from, "Assignees")
+
+	from = mark(t, tm)
+	press(tm, "dawid", "space", "enter")
+	waitAfter(t, tm, from, "Assignees updated")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK33")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(task.ResponsibleIDs, "KUAAAAD1") {
+		t.Errorf("responsibles after assignee change = %v, want KUAAAAD1 added", task.ResponsibleIDs)
 	}
 }
