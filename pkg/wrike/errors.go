@@ -19,6 +19,11 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	if e.Code == "" {
+		if e.StatusCode == http.StatusMultipleChoices {
+			// The docs do not describe this response, this wording is from observing it:
+			// Wrike answers 300 with an empty body when the token's account lives in another data center.
+			return "wrike: http 300, the account is served by another data center"
+		}
 		return fmt.Sprintf("wrike: http %d", e.StatusCode)
 	}
 	return fmt.Sprintf("wrike: %s (http %d): %s", e.Code, e.StatusCode, e.Description)
@@ -27,6 +32,10 @@ func (e *APIError) Error() string {
 func (e *APIError) IsAuth() bool      { return e.StatusCode == http.StatusUnauthorized }
 func (e *APIError) IsRateLimit() bool { return e.StatusCode == http.StatusTooManyRequests }
 func (e *APIError) IsNotFound() bool  { return e.StatusCode == http.StatusNotFound }
+
+// IsWrongHost is true when the token's account lives in a different Wrike data center than the host this client used,
+// see the observation cited on Error above.
+func (e *APIError) IsWrongHost() bool { return e.StatusCode == http.StatusMultipleChoices }
 
 func parseAPIError(status int, header http.Header, body []byte) *APIError {
 	apiErr := &APIError{StatusCode: status}

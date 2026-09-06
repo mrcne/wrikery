@@ -35,14 +35,15 @@ type app struct {
 // startEngine holds the lock for its whole body, the stop of the old engine included.
 // verifyToken runs on a UI command goroutine, so without that a token arriving during shutdown could start an engine against a closing store.
 // Waiting under the lock is safe because only startEngine and shutdown ever take it, and neither runs while holding an engine.
-func (a *app) startEngine(token string) {
+func (a *app) startEngine(token, host string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
 		return
 	}
 	a.stopLocked()
-	eng := syncer.New(wrike.New(token), a.st, syncer.Config{PollInterval: a.cfg.PollInterval}, slog.Default())
+	client := wrike.New(token, wrike.WithBaseURL(wrike.BaseURL(host)))
+	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	a.engine, a.cancel, a.done = eng, cancel, done
@@ -99,18 +100,37 @@ func (a *app) hooks() ui.Hooks {
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
 // keep it, then (re)start the engine with it.
+// A configured host is probed alone, an empty one tries every known data center.
+// The answer is remembered in the store so later runs do not probe again.
 func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
-	me, err := wrike.New(token).Me(ctx)
+	hosts := apiHosts
+	if a.cfg.Host != "" {
+		hosts = []string{a.cfg.Host}
+	}
+	host, me, err := probeHost(ctx, token, hosts, nil)
 	if err != nil {
 		var apiErr *wrike.APIError
-		if errors.As(err, &apiErr) && apiErr.IsAuth() {
+		switch {
+		case errors.As(err, &apiErr) && apiErr.IsAuth():
 			return "", errors.New("token rejected by Wrike")
+		case errors.Is(err, errNoDataCenter) && a.cfg.Host != "":
+			return "", fmt.Errorf("host %s from the config file does not serve this account", a.cfg.Host)
+		case errors.Is(err, errNoDataCenter):
+			return "", errors.New("no Wrike data center accepted this token, set host in the config file")
+		default:
+			return "", fmt.Errorf("could not reach Wrike: %w", err)
 		}
-		return "", fmt.Errorf("could not reach Wrike: %w", err)
+	}
+	if a.cfg.Host == "" {
+		// A failed write here only means the next start probes again,
+		// the token Wrike already accepted must not be thrown away over it.
+		if err := a.st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
+			slog.Warn("could not store the detected Wrike host", "error", err)
+		}
 	}
 	if err := a.tokens.Save(token); err != nil {
 		return "", err
 	}
-	a.startEngine(token)
+	a.startEngine(token, host)
 	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
 }

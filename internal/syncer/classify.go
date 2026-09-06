@@ -30,6 +30,10 @@ func classify(err error) failureClass {
 	switch {
 	case apiErr.IsAuth():
 		return failAuth
+	case apiErr.IsWrongHost():
+		// The engine pauses and the UI shows the re-auth screen,
+		// where verifyToken probes the hosts again and repairs the stored host.
+		return failAuth
 	case apiErr.IsRateLimit():
 		return failTransient
 	case apiErr.StatusCode >= 500:

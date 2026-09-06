@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 type quietModel struct{}
@@ -27,7 +28,7 @@ func TestStartEngineDoesNothingAfterShutdown(t *testing.T) {
 	a.shutdown()
 
 	// verifyToken runs on a command goroutine, so a token can land after the program returned and the store is closing.
-	a.startEngine("x")
+	a.startEngine("x", wrike.DefaultHost)
 	if e := a.current(); e != nil {
 		t.Fatalf("an engine was started after shutdown: %#v", e)
 	}

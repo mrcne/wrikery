@@ -313,7 +313,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	case "auth_required":
 		if m.screen != screenFirstRun {
 			m.screen = screenFirstRun
-			m.firstRun = newFirstRun(stepToken, "Wrike rejected the token. Paste a new one to continue.", m.keys)
+			m.firstRun = newFirstRun(stepToken, "Wrike did not accept the stored token. Paste it again to continue.", m.keys)
 			m.firstRun.reauth = true
 		}
 	}

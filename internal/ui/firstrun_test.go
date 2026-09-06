@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
 	"github.com/mrcne/wrikery/internal/demo"
@@ -79,6 +80,34 @@ func TestFirstRunFlow(t *testing.T) {
 }
 
 // The box clips each body line, so an instruction wider than the inner width silently loses its tail.
+func TestFirstRunKeepsALongTokenWhole(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	// A permanent token is a JWT well over 300 characters, this one is shaped like a real one.
+	token := "eyJ0dCI6InAiLCJhbGciOiJIUzI1NiIsInR2IjoiMiJ9." + strings.Repeat("ab", 140) + "." + strings.Repeat("c", 43)
+	verified := make(chan string, 1)
+	opts := testOptions(st)
+	opts.Demo = false
+	opts.FirstRun = true
+	opts.Hooks.VerifyToken = func(_ context.Context, got string) (string, error) {
+		verified <- got
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Paste a permanent access token")
+	press(tm, token, "enter")
+	if got := <-verified; got != token {
+		t.Fatalf("verified %d characters, want %d: the input cut the token", len(got), len(token))
+	}
+	waitFor(t, tm, "Hello Ada Nowak")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
+}
+
 func TestFirstRunShowsTheTokenLink(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "link.db"))
 	if err != nil {
@@ -103,7 +132,7 @@ func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
-	waitFor(t, tm, "Wrike rejected the token")
+	waitFor(t, tm, "Wrike did not accept the stored token")
 
 	// The pane titles were on screen before the box covered them, so only the frames drawn from here on prove the main screen is back.
 	from := mark(t, tm)

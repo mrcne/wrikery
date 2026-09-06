@@ -46,8 +46,8 @@ func newFirstRun(step firstRunStep, notice string, keys KeyMap) firstRunModel {
 	in := textinput.New()
 	in.Placeholder = "paste the token here"
 	in.EchoMode = textinput.EchoPassword
-	in.CharLimit = 200
-	// A permanent token is longer than the box, the input scrolls it instead of wrapping out of the border.
+	// A permanent token is a JWT of several hundred characters and a character limit would cut it without a word,
+	// so the input takes any length and scrolls it instead of wrapping out of the border.
 	in.Width = 60
 	in.Focus()
 	sp := spinner.New(spinner.WithSpinner(spinner.Line))

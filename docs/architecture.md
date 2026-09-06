@@ -30,6 +30,8 @@ Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 It loads the token through `internal/auth`, builds the client and the engine, starts the bubbletea program and forwards engine events into it as messages.
 The UI gets a few callbacks (refresh, wake the outbox, verify a token), so it never imports the client or the engine.
 A new token rebuilds the client and the engine, because the client holds the token.
+Wrike serves accounts from more than one data center under a different host, so the first run probes the known hosts and keeps the one that accepted the token in the store meta table.
+Later runs read that host back instead of probing again, and the `host` config key overrides both when set.
 
 ## What gets cached
 

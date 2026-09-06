@@ -128,3 +128,29 @@ func TestWithBaseURLTrimsTrailingSlash(t *testing.T) {
 		t.Errorf("baseURL = %q", c.baseURL)
 	}
 }
+
+func TestBaseURLBuildsFromHost(t *testing.T) {
+	if got := BaseURL(EUHost); got != "https://app-eu.wrike.com/api/v4" {
+		t.Errorf("BaseURL(EUHost) = %q, want https://app-eu.wrike.com/api/v4", got)
+	}
+}
+
+func TestDo300WithEmptyBodyIsWrongHostErrorAndNotRetried(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusMultipleChoices)
+	}))
+
+	_, err := c.do(context.Background(), http.MethodGet, "/contacts", nil, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("want *APIError, got %T: %v", err, err)
+	}
+	if !apiErr.IsWrongHost() {
+		t.Errorf("IsWrongHost() = false, want true: %+v", apiErr)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1: a 300 must not be retried", calls)
+	}
+}

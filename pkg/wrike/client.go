@@ -14,7 +14,18 @@ import (
 	"time"
 )
 
-const DefaultBaseURL = "https://www.wrike.com/api/v4"
+// DefaultHost and EUHost are the two hosts Wrike serves API traffic from.
+// Which one accepts a token depends on the data center the account lives in, see https://developers.wrike.com/docs/faq:
+// "The web host for API endpoints differ depending on the datacenter that contains user's data".
+const (
+	DefaultHost = "www.wrike.com"
+	EUHost      = "app-eu.wrike.com"
+)
+
+// BaseURL builds the API v4 base URL for a host, such as DefaultHost or EUHost.
+func BaseURL(host string) string {
+	return "https://" + host + "/api/v4"
+}
 
 type Client struct {
 	baseURL    string
@@ -36,7 +47,7 @@ func WithHTTPClient(h *http.Client) Option {
 
 func New(token string, opts ...Option) *Client {
 	c := &Client{
-		baseURL:    DefaultBaseURL,
+		baseURL:    BaseURL(DefaultHost),
 		token:      token,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		maxRetries: 3,
@@ -83,7 +94,11 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return "", err
 	}
-	if resp.StatusCode >= 400 {
+	// The http client follows real redirects itself,
+	// so a 3xx that reaches this code is an answer, not a redirect in progress.
+	// Wrike answers 300 with an empty body when the token's account lives in another data center,
+	// observed on GET /contacts?me=true, so treat any 3xx as an API error too.
+	if resp.StatusCode >= 300 {
 		return "", parseAPIError(resp.StatusCode, resp.Header, raw)
 	}
 	var env envelope

@@ -17,6 +17,7 @@ func TestClassify(t *testing.T) {
 		{"network error", errors.New("dial tcp: connection refused"), failTransient},
 		{"wrapped network error", fmt.Errorf("get: %w", errors.New("timeout")), failTransient},
 		{"401", &wrike.APIError{StatusCode: 401, Code: "not_authorized"}, failAuth},
+		{"300 wrong host", &wrike.APIError{StatusCode: 300}, failAuth},
 		{"429", &wrike.APIError{StatusCode: 429, Code: "rate_limit_exceeded"}, failTransient},
 		{"500", &wrike.APIError{StatusCode: 500, Code: "server_error"}, failTransient},
 		{"400", &wrike.APIError{StatusCode: 400, Code: "invalid_request"}, failPermanent},
