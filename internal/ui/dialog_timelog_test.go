@@ -31,10 +31,10 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	}
 }
 
-// A closeDialogMsg batched alongside editEntryMsg or deleteEntryMsg would race with the dialog
-// either of those opens: tea.Batch runs its commands in separate goroutines, so a close landing
-// second would wipe the dialog the other message just opened. The picker leaves closing to
-// openDialog instead, which is why enter here must produce exactly one message, not two.
+// A closeDialogMsg batched alongside editEntryMsg or deleteEntryMsg would race with the dialog either of those opens:
+// tea.Batch runs its commands in separate goroutines,
+// so a close landing second would wipe the dialog the other message just opened.
+// The picker leaves closing to openDialog instead, which is why enter here must produce exactly one message, not two.
 func TestEntryPickerEmitsOneMessageForTheRowUnderTheCursor(t *testing.T) {
 	logs := []store.Timelog{
 		{ID: "a", Hours: 1, TrackedDate: "2026-09-01"},

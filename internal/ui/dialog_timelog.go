@@ -121,9 +121,9 @@ func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 			return d, nil
 		}
 		l := d.logs[d.cursor]
-		// No closeDialogMsg here: tea.Batch runs its commands in separate goroutines and
-		// delivers them in any order, so batching it with a message that opens its own dialog
-		// (editEntryMsg, deleteEntryMsg) could let the close land second and wipe that dialog.
+		// No closeDialogMsg here: tea.Batch runs its commands in separate goroutines and delivers them in any order.
+		// Batched with a message that opens its own dialog (editEntryMsg, deleteEntryMsg),
+		// the close could land second and wipe that dialog.
 		// openDialog overwrites m.dialog on its own, which replaces this picker deterministically.
 		if d.forDelete {
 			return d, intent(deleteEntryMsg{log: l})
