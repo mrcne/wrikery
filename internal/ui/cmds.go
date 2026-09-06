@@ -3,7 +3,9 @@ package ui
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -204,6 +206,42 @@ func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
 			return errMsg{err}
 		}
 		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states}
+	}
+}
+
+// loadTask reads one task and its thread, and marks it opened so the syncer refreshes comments and time entries for it.
+func (m Model) loadTask(id string) tea.Cmd {
+	st, now := m.opts.Store, m.opts.Now
+	return func() tea.Msg {
+		ctx := context.Background()
+		task, err := st.Tasks().Get(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		comments, err := st.Comments().ListForTask(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		logs, err := st.Timelogs().ListForTask(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		states, err := st.Outbox().StatesByEntity(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		// A task can sit in more than one folder, the detail names them all.
+		var crumbs []string
+		for _, pid := range task.ParentIDs {
+			if f, err := st.Folders().Get(ctx, pid); err == nil {
+				crumbs = append(crumbs, f.Title)
+			}
+		}
+		// Opening a task is a hint for the syncer, not something the reader waits for, so a failure only gets logged.
+		if err := st.Tasks().MarkOpened(ctx, id, now().UTC().Format(time.RFC3339)); err != nil {
+			slog.Warn("mark opened", "task", id, "error", err)
+		}
+		return taskLoadedMsg{task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
 	}
 }
 

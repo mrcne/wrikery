@@ -150,8 +150,30 @@ func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 	waitFor(t, tm, "Tasks")
 	press(tm, "tab") // list -> detail, at 100 columns the sidebar leaves the window
 	view := finalView(t, tm)
-	if strings.Contains(view, "Spaces") || !strings.Contains(view, "Task ") {
+	// Only the detail pane draws the comment divider, so it stands for that pane being on screen.
+	if strings.Contains(view, "Spaces") || !strings.Contains(view, "-- Comments (") {
 		t.Errorf("after tab at 100 cols the window should show list+detail:\n%s", view)
+	}
+}
+
+func TestDetailShowsTheSelectedTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	// The detail follows the list cursor.
+	// The demo task with a queued comment sits far down the list, so the filter is the short way to it.
+	press(tm, "/")
+	press(tm, "fix auth")
+	waitFor(t, tm, "#1200000")
+	waitFor(t, tm, "Comments (")
+	press(tm, "enter") // leave the filter input, the filter itself stays
+	press(tm, "tab")   // focus the detail pane
+	press(tm, "j", "j", "j")
+	view := finalView(t, tm)
+	for _, want := range []string{"#1200000", "Fix auth retry loop"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("after scrolling the detail should still show %q:\n%s", want, view)
+		}
 	}
 }
 

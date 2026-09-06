@@ -240,7 +240,9 @@ func initials(ids []string, contacts map[string]store.Contact, meID string) stri
 	return strings.ToUpper(s)
 }
 
-// firstRune takes the first character by rune, not by byte, a name may start with a non ASCII letter.
+// firstRune takes the first character by rune, not by byte.
+
+// A name may start with a non ASCII letter.
 func firstRune(s string) string {
 	if s == "" {
 		return ""

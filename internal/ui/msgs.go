@@ -31,6 +31,13 @@ type tasksLoadedMsg struct {
 	states        map[string]store.OutboxState
 }
 type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
+type taskLoadedMsg struct {
+	task     store.Task
+	comments []store.Comment
+	logs     []store.Timelog
+	states   map[string]store.OutboxState
+	crumb    string
+}
 type pickerLoadedMsg struct {
 	spaces   []store.Space
 	projects map[string][]store.Folder // per space id, projects directly under the root

@@ -71,6 +71,7 @@ type Model struct {
 	ref      refData
 	sidebar  sidebarModel
 	list     taskListModel
+	detail   taskDetailModel
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -84,6 +85,7 @@ func New(o Options) Model {
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
 	m.sidebar.keys = m.keys
 	m.list = newTaskList(m.keys)
+	m.detail.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -119,8 +121,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
-		// The pending and failed markers live on the task row, so a queue change needs the list reread too.
-		return m, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode))
+		// The pending and failed markers live on the task row and on the detail header, so a queue change rereads both.
+		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)), m.reloadTask())
 	case toastExpiredMsg:
 		if msg.seq == m.status.toastSeq {
 			m.status.toast = ""
@@ -159,6 +161,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case taskSelectedMsg:
 		m.selectedTaskID = msg.id
+		return m, m.loadTask(msg.id)
+	case taskLoadedMsg:
+		m.detail.set(msg)
+		m.syncPaneSizes()
 		return m, nil
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
@@ -221,6 +227,9 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "tasks") {
 		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
 	}
+	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
+		cmds = append(cmds, m.reloadTask())
+	}
 	if m.screen == screenFirstRun {
 		if m.firstRun.step == stepScopes && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
 			cmds = append(cmds, m.loadPicker())
@@ -230,6 +239,15 @@ func (m Model) reload(entities []string) tea.Cmd {
 		}
 	}
 	return tea.Batch(cmds...)
+}
+
+// reloadTask re-reads the task the detail pane is showing.
+// Nothing is open before the first selection, hence the guard.
+func (m Model) reloadTask() tea.Cmd {
+	if m.selectedTaskID == "" {
+		return nil
+	}
+	return m.loadTask(m.selectedTaskID)
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -289,6 +307,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
+	case paneDetail:
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -326,6 +348,9 @@ func (m *Model) syncPaneSizes() {
 	if r, ok := lay.rects[paneList]; ok {
 		m.list.height = r.h - 2
 	}
+	if r, ok := lay.rects[paneDetail]; ok {
+		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
+	}
 }
 
 func (m Model) viewMain(height int) string {
@@ -345,10 +370,9 @@ func (m Model) paneTitle(p pane) string {
 	case paneList:
 		return m.list.title()
 	}
-	return "Task"
+	return m.detail.title()
 }
 
-// paneBody draws the sidebar and the task list from their models. Detail still has no content.
 func (m Model) paneBody(p pane, r rect) string {
 	switch p {
 	case paneSidebar:
@@ -356,7 +380,8 @@ func (m Model) paneBody(p pane, r rect) string {
 	case paneList:
 		return m.list.View(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.focus == paneList)
 	}
-	return ""
+	// The detail pane laid itself out in Update, View only reads the viewport.
+	return m.detail.View()
 }
 
 // Only the keys that already do something, the overlay lists the whole map.
@@ -364,6 +389,9 @@ func (m Model) hintBindings() []key.Binding {
 	base := []key.Binding{m.keys.NextPane, m.keys.Help, m.keys.Quit}
 	if m.focus == paneList {
 		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
+	}
+	if m.focus == paneDetail {
+		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
 	}
 	return base
 }
