@@ -117,6 +117,7 @@ The goal is less than a minute from install to a working app.
 ### Config
 
 The config file lives at `~/.config/wrikery/config.toml`.
+`--config PATH` reads another file instead.
 `log_level` sets how much the app logs: debug, info, warn or error.
 `poll_interval` sets how often the sync engine checks Wrike for changes.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
