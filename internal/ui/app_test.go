@@ -166,14 +166,52 @@ func TestDetailShowsTheSelectedTask(t *testing.T) {
 	press(tm, "fix auth")
 	waitFor(t, tm, "#1200000")
 	waitFor(t, tm, "Comments (")
-	press(tm, "enter") // leave the filter input, the filter itself stays
-	press(tm, "tab")   // focus the detail pane
+	waitFor(t, tm, "Queued while offline.") // the comment the demo data leaves in the outbox
+	press(tm, "enter")                      // leave the filter input, the filter itself stays
+	press(tm, "tab")                        // focus the detail pane
 	press(tm, "j", "j", "j")
 	view := finalView(t, tm)
-	for _, want := range []string{"#1200000", "Fix auth retry loop"} {
+	for _, want := range []string{"#1200000", "Fix auth retry loop", "Time ("} {
 		if !strings.Contains(view, want) {
 			t.Errorf("after scrolling the detail should still show %q:\n%s", want, view)
 		}
+	}
+}
+
+// Opening a task tells the syncer to refresh its thread, so it must follow a deliberate enter and not the cursor.
+func TestOpeningATaskMarksItOpened(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	tasks, err := st.Tasks().ListForResponsible(ctx, demo.MeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewed, opened := tasks[0], tasks[1]
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	press(tm, "j")     // move the cursor onto the second task, which only previews it
+	press(tm, "enter") // and open that one
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		t2, err := st.Tasks().Get(ctx, opened.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if t2.LastOpenedAt != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("enter should have marked %s opened", opened.ID)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = finalView(t, tm)
+	t1, err := st.Tasks().Get(ctx, previewed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if t1.LastOpenedAt != "" {
+		t.Errorf("the cursor passing over %s should not open it, last opened %q", previewed.ID, t1.LastOpenedAt)
 	}
 }
 

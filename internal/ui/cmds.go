@@ -3,7 +3,6 @@ package ui
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -209,9 +208,10 @@ func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
 	}
 }
 
-// loadTask reads one task and its thread, and marks it opened so the syncer refreshes comments and time entries for it.
+// loadTask reads one task and its thread. It runs on every cursor move, so it only reads.
+// Recording that a task was opened is markOpened's job.
 func (m Model) loadTask(id string) tea.Cmd {
-	st, now := m.opts.Store, m.opts.Now
+	st := m.opts.Store
 	return func() tea.Msg {
 		ctx := context.Background()
 		task, err := st.Tasks().Get(ctx, id)
@@ -237,11 +237,19 @@ func (m Model) loadTask(id string) tea.Cmd {
 				crumbs = append(crumbs, f.Title)
 			}
 		}
-		// Opening a task is a hint for the syncer, not something the reader waits for, so a failure only gets logged.
-		if err := st.Tasks().MarkOpened(ctx, id, now().UTC().Format(time.RFC3339)); err != nil {
-			slog.Warn("mark opened", "task", id, "error", err)
-		}
 		return taskLoadedMsg{task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
+	}
+}
+
+// markOpened records that the reader opened the task, which is what puts it on the syncer's list of threads to refresh.
+// It runs on the deliberate open, not on the cursor preview, or walking a folder would queue a refresh for every task in it.
+func (m Model) markOpened(id string) tea.Cmd {
+	st, now := m.opts.Store, m.opts.Now
+	return func() tea.Msg {
+		if err := st.Tasks().MarkOpened(context.Background(), id, now().UTC().Format(time.RFC3339)); err != nil {
+			return errMsg{err}
+		}
+		return nil
 	}
 }
 

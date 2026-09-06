@@ -91,14 +91,16 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	b.WriteString(label("Assignees") + strings.Join(names, ", ") + "\n")
 	if dt := d.task.Dates; dt != nil && (dt.Start != "" || dt.Due != "") {
-		b.WriteString(label("Dates") + shortDate(dt.Start) + " -> " + shortDate(dt.Due) + "\n")
+		b.WriteString(label("Dates") + dateRange(dt.Start, dt.Due) + "\n")
 	}
 	if d.task.Importance != "" && d.task.Importance != "Normal" {
 		b.WriteString(label("Importance") + d.task.Importance + "\n")
 	}
 	b.WriteString(label("Updated") + relTime(d.task.UpdatedDate, now) + "\n\n")
 
-	b.WriteString(d.rendered + "\n\n")
+	if strings.TrimSpace(d.rendered) != "" {
+		b.WriteString(d.rendered + "\n\n")
+	}
 
 	divider := func(s string) string {
 		return muted.Render("-- " + s + " " + strings.Repeat("-", max(0, width-len(s)-4)))
@@ -164,6 +166,17 @@ func contactName(id string, ref refData) string {
 	return strings.TrimSpace(c.FirstName + " " + c.LastName)
 }
 
+// dateRange writes the arrow only when a task has both ends, so a single date does not trail off into nothing.
+func dateRange(start, due string) string {
+	switch {
+	case start == "":
+		return shortDate(due)
+	case due == "":
+		return shortDate(start)
+	}
+	return shortDate(start) + " -> " + shortDate(due)
+}
+
 func shortDate(s string) string {
 	if len(s) < 10 {
 		return s
@@ -175,16 +188,21 @@ func shortDate(s string) string {
 	return fmt.Sprintf("%d %s", t.Day(), t.Month().String()[:3])
 }
 
+// relTime compares calendar days rather than elapsed hours.
+// Counting hours calls a stamp from two days back "yesterday" as long as it is less than 48 hours old.
 func relTime(rfc string, now time.Time) string {
 	t, err := time.Parse(time.RFC3339, rfc)
 	if err != nil {
 		return rfc
 	}
-	d := now.Sub(t)
+	t = t.In(now.Location())
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	switch {
-	case d < 24*time.Hour && t.Day() == now.Day():
-		return ago(d)
-	case d < 48*time.Hour:
+	case day.Equal(today):
+		// A stamp a little ahead of this machine is clock skew against the server, not something that happens later.
+		return ago(max(now.Sub(t), 0))
+	case day.Equal(today.AddDate(0, 0, -1)):
 		return "yesterday"
 	}
 	return shortDate(t.Format("2006-01-02"))

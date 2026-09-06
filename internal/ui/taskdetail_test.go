@@ -14,6 +14,8 @@ func TestRelTime(t *testing.T) {
 	for in, want := range map[string]string{
 		"2026-09-03T10:00:00Z": "2 h ago",
 		"2026-09-02T15:00:00Z": "yesterday",
+		"2026-09-01T20:00:00Z": "1 Sep",   // forty hours back, two calendar days, so not yesterday
+		"2026-09-03T13:00:00Z": "0 s ago", // a stamp ahead of this machine's clock
 		"2026-08-20T15:00:00Z": "20 Aug",
 		"bad":                  "bad",
 	} {
@@ -49,5 +51,28 @@ func TestDetailShowsMetadataCommentsAndMarkers(t *testing.T) {
 	}
 	if d.title() != "#1200001" {
 		t.Errorf("title = %q", d.title())
+	}
+}
+
+func TestDetailMarksAQueuedTask(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task:   store.Task{ID: "T1", Title: "Fix auth retry", UpdatedDate: "2026-09-03T10:00:00Z"},
+		states: map[string]store.OutboxState{"T1": store.StatePending},
+	})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 60, 30, "dark")
+	if out := d.View(); !strings.Contains(out, "Fix auth retry (sending)") {
+		t.Errorf("a queued task should say so on the title:\n%s", out)
+	}
+}
+
+// A read runs while the cursor is free to move, so the answer can arrive for a task nobody is looking at any more.
+func TestDetailIgnoresALateLoadForAnotherTask(t *testing.T) {
+	m := New(Options{Config: config.UIConfig{Theme: "dark", ASCII: true}})
+	m.selectedTaskID = "B"
+	next, _ := m.Update(taskLoadedMsg{task: store.Task{ID: "A", Title: "Late answer"}})
+	if got := next.(Model).detail.task.ID; got == "A" {
+		t.Errorf("a load for A landed while B is selected, detail task = %q", got)
 	}
 }

@@ -29,9 +29,12 @@ func TestRenderDescriptionFallsBackToPlain(t *testing.T) {
 }
 
 // The ascii mode is for terminals that cannot draw the theme glyphs.
-// glamour's own ascii style still prefixes list items with a bullet, so the substitution is worth pinning.
+// glamour's own ascii style reaches past 127 for list bullets, table rules and the image arrow, so the whole output is pinned.
 func TestRenderDescriptionStaysASCII(t *testing.T) {
-	out := renderDescription(`<p>Steps</p><ul><li>stop after the first 401</li></ul>`, "", 40, "ascii")
+	html := `<p>Steps</p><ul><li>stop after the first 401</li></ul>` +
+		`<table><tr><th>Code</th><th>Meaning</th></tr><tr><td>429</td><td>rate limit</td></tr></table>` +
+		`<p><img alt="diagram" src="x"></p>`
+	out := renderDescription(html, "", 40, "ascii")
 	for _, r := range out {
 		if r > 127 {
 			t.Fatalf("ascii mode rendered %q:\n%s", r, out)

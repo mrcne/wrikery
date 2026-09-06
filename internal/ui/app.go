@@ -133,6 +133,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
+		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
 		return m, m.loadTree()
 	case treeLoadedMsg:
@@ -143,9 +145,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case focusMsg:
+		prev := m.focus
 		m.focus = msg.pane
 		m.syncPaneSizes()
-		return m, nil
+		return m, m.openedOnFocus(prev)
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
 		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node))
@@ -163,6 +166,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedTaskID = msg.id
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:
+		// The cursor is free to move while the read runs, so an answer for a task nobody is on any more is dropped.
+		if msg.task.ID != m.selectedTaskID {
+			return m, nil
+		}
 		m.detail.set(msg)
 		m.syncPaneSizes()
 		return m, nil
@@ -241,6 +248,14 @@ func (m Model) reload(entities []string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// openedOnFocus marks the selected task opened when focus has just arrived at the detail pane, and does nothing otherwise.
+func (m Model) openedOnFocus(prev pane) tea.Cmd {
+	if m.focus != paneDetail || prev == paneDetail || m.selectedTaskID == "" {
+		return nil
+	}
+	return m.markOpened(m.selectedTaskID)
+}
+
 // reloadTask re-reads the task the detail pane is showing.
 // Nothing is open before the first selection, hence the guard.
 func (m Model) reloadTask() tea.Cmd {
@@ -275,6 +290,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
 	}
+	prevFocus := m.focus
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -298,21 +314,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.syncPaneSizes()
+	opened := m.openedOnFocus(prevFocus)
 	switch m.focus {
 	case paneSidebar:
 		var cmd tea.Cmd
 		m.sidebar, cmd = m.sidebar.Update(msg)
-		return m, cmd
+		return m, tea.Batch(opened, cmd)
 	case paneList:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
-		return m, cmd
+		return m, tea.Batch(opened, cmd)
 	case paneDetail:
 		var cmd tea.Cmd
 		m.detail, cmd = m.detail.Update(msg)
-		return m, cmd
+		return m, tea.Batch(opened, cmd)
 	}
-	return m, nil
+	return m, opened
 }
 
 func (m Model) View() string {
