@@ -174,7 +174,8 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 			body.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(f.notice) + "\n\n")
 		}
 		body.WriteString("Paste a permanent access token.\n")
-		body.WriteString(muted.Render("Create one in Wrike: App Console (https://www.wrike.com/appconsole.htm?#/api), Get token. Wrike shows it only once.") + "\n\n")
+		body.WriteString(muted.Render("Create one in the Wrike App Console (Get token). Wrike shows it once.") + "\n")
+		body.WriteString(muted.Render("https://www.wrike.com/appconsole.htm?#/api") + "\n\n")
 		body.WriteString(f.input.View() + "\n\n")
 		switch {
 		case f.verifying:
@@ -186,7 +187,8 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 		}
 	case stepScopes:
 		body.WriteString("Hello " + f.name + ". Pick the spaces and projects to follow.\n")
-		body.WriteString(muted.Render("Only these are synced and searchable. Your own tasks are always included.") + "\n\n")
+		body.WriteString(muted.Render("Only these are synced and searchable.") + "\n")
+		body.WriteString(muted.Render("Your own tasks are always included.") + "\n\n")
 		if len(f.items) == 0 {
 			body.WriteString(f.spinner.View() + " loading spaces")
 		}

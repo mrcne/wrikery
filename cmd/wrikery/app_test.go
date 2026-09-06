@@ -34,7 +34,7 @@ func TestStartEngineDoesNothingAfterShutdown(t *testing.T) {
 }
 
 // A running engine would need the network, so the fields a real one leaves behind are set by hand.
-func TestShutdownCancelsAndWaitsOnceForConcurrentCallers(t *testing.T) {
+func TestConcurrentShutdownDoesNotHangAndClearsTheEngine(t *testing.T) {
 	a := &app{}
 	cancelled, done := make(chan struct{}), make(chan struct{})
 	a.cancel = func() { close(cancelled) }
@@ -55,10 +55,9 @@ func TestShutdownCancelsAndWaitsOnceForConcurrentCallers(t *testing.T) {
 		select {
 		case <-returned:
 		case <-time.After(3 * time.Second):
-			t.Fatal("shutdown did not return, a second caller waited on a nil done channel")
+			t.Fatal("shutdown did not return")
 		}
 	}
-	// The point of the lock: every caller returns only once the engine goroutine is really finished.
 	select {
 	case <-done:
 	default:

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/exp/teatest"
 
@@ -75,6 +76,24 @@ func TestFirstRunFlow(t *testing.T) {
 	press(tm, "enter")
 	waitFor(t, tm, "Tasks")
 	_ = finalView(t, tm)
+}
+
+// The box clips each body line, so an instruction wider than the inner width silently loses its tail.
+func TestFirstRunShowsTheTokenLink(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "link.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	opts := testOptions(st)
+	opts.Demo = false
+	opts.FirstRun = true
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "appconsole.htm?#/api")
+	if err := tm.Quit(); err != nil {
+		t.Fatal(err)
+	}
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 }
 
 func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
