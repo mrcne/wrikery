@@ -15,18 +15,21 @@ import (
 // clipboardTool picks the tool that fits the session instead of the first one installed.
 // A desktop box often has both wl-copy and xclip on it, and the one that does not match the session fails,
 // which used to report a failed copy even though OSC 52 had already put the text on the clipboard.
+// The session decides the candidates and PATH decides which of them is there,
+// so a session whose tool is not installed gets nothing and the OSC 52 copy stands on its own.
 func clipboardTool(goos string, env func(string) string) []string {
-	if goos == "darwin" {
-		return []string{"pbcopy"}
+	var candidates [][]string
+	switch {
+	case goos == "darwin":
+		candidates = [][]string{{"pbcopy"}}
+	case env("WAYLAND_DISPLAY") != "":
+		candidates = [][]string{{"wl-copy"}}
+	case env("DISPLAY") != "":
+		candidates = [][]string{{"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}}
 	}
-	if env("WAYLAND_DISPLAY") != "" {
-		return []string{"wl-copy"}
-	}
-	if env("DISPLAY") != "" {
-		for _, tool := range [][]string{{"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}} {
-			if _, err := exec.LookPath(tool[0]); err == nil {
-				return tool
-			}
+	for _, tool := range candidates {
+		if _, err := exec.LookPath(tool[0]); err == nil {
+			return tool
 		}
 	}
 	return nil

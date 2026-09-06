@@ -248,7 +248,8 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "folders") || slices.Contains(entities, "spaces") || slices.Contains(entities, "tasks") {
 		cmds = append(cmds, m.loadTree())
 	}
-	if slices.Contains(entities, "tasks") {
+	// The first sync writes tasks before the tree is on screen, and the zero node would read as My tasks.
+	if slices.Contains(entities, "tasks") && m.selectedNode.kind != nodeNone {
 		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
 	}
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
