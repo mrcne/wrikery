@@ -11,8 +11,8 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// hostRouter sends a request to srv1 or srv2 depending on which host the client built its
-// request for, so probeHost's per host lookups land on two independent test servers.
+// hostRouter sends a request to srv1 or srv2 depending on which host the client built its request for,
+// so probeHost's per host lookups land on two independent test servers.
 type hostRouter struct {
 	srv1, srv2 *httptest.Server
 }

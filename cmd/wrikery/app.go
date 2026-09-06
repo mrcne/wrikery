@@ -100,8 +100,8 @@ func (a *app) hooks() ui.Hooks {
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
 // keep it, then (re)start the engine with it.
-// A configured host is probed alone, an empty one tries every known data center and the
-// answer is remembered in the store so later runs do not probe again.
+// A configured host is probed alone, an empty one tries every known data center.
+// The answer is remembered in the store so later runs do not probe again.
 func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 	hosts := apiHosts
 	if a.cfg.Host != "" {
@@ -113,6 +113,8 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 		switch {
 		case errors.As(err, &apiErr) && apiErr.IsAuth():
 			return "", errors.New("token rejected by Wrike")
+		case errors.Is(err, errNoDataCenter) && a.cfg.Host != "":
+			return "", fmt.Errorf("host %s from the config file does not serve this account", a.cfg.Host)
 		case errors.Is(err, errNoDataCenter):
 			return "", errors.New("no Wrike data center accepted this token, set host in the config file")
 		default:
@@ -120,8 +122,10 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 		}
 	}
 	if a.cfg.Host == "" {
+		// A failed write here only means the next start probes again,
+		// the token Wrike already accepted must not be thrown away over it.
 		if err := a.st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
-			return "", err
+			slog.Warn("could not store the detected Wrike host", "error", err)
 		}
 	}
 	if err := a.tokens.Save(token); err != nil {

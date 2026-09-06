@@ -130,17 +130,21 @@ func run(demoMode, logout bool) error {
 		Version: version, Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if !firstRun {
-		// The config wins, then the host remembered from a previous probe, and only when
-		// both are empty is the network touched, once, before the program starts.
+		// The config wins, then the host remembered from a previous probe.
+		// Only when both are empty is the network touched, once, before the program starts.
 		host := cfg.Host
 		if host == "" {
 			host, _ = st.GetMeta(context.Background(), store.MetaKeyHost)
 		}
 		if host == "" {
-			probed, _, err := probeHost(context.Background(), token, apiHosts, nil)
+			// The app must open on the cache when offline, the engine reports the network trouble later,
+			// so the probe gets a hard deadline instead of the client's full retry budget.
+			// A GET retries a network failure three times with backoff, on top of the 30s client timeout,
+			// which could otherwise hold the TUI from painting for over a minute.
+			probeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			probed, _, err := probeHost(probeCtx, token, apiHosts, nil)
+			cancel()
 			if err != nil {
-				// The cache still opens and the engine reports the failure the way it
-				// always does, startup must not block or fail on a probe.
 				slog.Warn("could not detect the Wrike data center", "error", err)
 				host = wrike.DefaultHost
 			} else {

@@ -103,7 +103,7 @@ func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
-	waitFor(t, tm, "Wrike rejected the token")
+	waitFor(t, tm, "Wrike did not accept the stored token")
 
 	// The pane titles were on screen before the box covered them, so only the frames drawn from here on prove the main screen is back.
 	from := mark(t, tm)

@@ -15,8 +15,7 @@ import (
 )
 
 // DefaultHost and EUHost are the two hosts Wrike serves API traffic from.
-// Which one accepts a token depends on the data center the account lives in, see
-// https://developers.wrike.com/docs/faq:
+// Which one accepts a token depends on the data center the account lives in, see https://developers.wrike.com/docs/faq:
 // "The web host for API endpoints differ depending on the datacenter that contains user's data".
 const (
 	DefaultHost = "www.wrike.com"
@@ -95,10 +94,10 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return "", err
 	}
-	// The http client follows real redirects itself, so a 3xx that reaches this code is an
-	// answer, not a redirect in progress.
-	// Wrike answers 300 with an empty body when the token's account lives in another data
-	// center, observed on GET /contacts?me=true, so treat any 3xx as an API error too.
+	// The http client follows real redirects itself,
+	// so a 3xx that reaches this code is an answer, not a redirect in progress.
+	// Wrike answers 300 with an empty body when the token's account lives in another data center,
+	// observed on GET /contacts?me=true, so treat any 3xx as an API error too.
 	if resp.StatusCode >= 300 {
 		return "", parseAPIError(resp.StatusCode, resp.Header, raw)
 	}
