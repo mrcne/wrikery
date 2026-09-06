@@ -77,6 +77,40 @@ func TestEnqueueTaskUpdateAppliesStatusGroup(t *testing.T) {
 	}
 }
 
+// A Backlog update clears start and due the same way the task upsert path does, or an empty
+// string in the column would sort the task ahead of every task with a real due date.
+func TestEnqueueTaskUpdateBacklogClearsDates(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.Dates = &TaskDates{Type: "Planned", Start: "2026-09-01", Due: "2026-09-02"}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Dates: &TaskDates{Type: "Backlog"}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().Get(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Dates == nil || got.Dates.Type != "Backlog" || got.Dates.Start != "" || got.Dates.Due != "" {
+		t.Errorf("task after backlog update = %+v, want empty start and due", got.Dates)
+	}
+	// sql.NullString.String reads back "" whether the column is NULL or the literal empty
+	// string, so the read above cannot tell the two apart, only a direct NULL check can.
+	var startNull, dueNull bool
+	if err := st.reader.QueryRow(
+		`SELECT dates_start IS NULL, dates_due IS NULL FROM tasks WHERE id = ?`, "T1",
+	).Scan(&startNull, &dueNull); err != nil {
+		t.Fatal(err)
+	}
+	if !startNull || !dueNull {
+		t.Errorf("dates_start/dates_due not NULL after backlog update")
+	}
+}
+
 func TestEnqueueCommentCreatesLocalRow(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

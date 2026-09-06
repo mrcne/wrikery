@@ -510,3 +510,36 @@ func TestAssigneeDialogAddsAResponsible(t *testing.T) {
 		t.Errorf("responsibles after assignee change = %v, want KUAAAAD1 added", task.ResponsibleIDs)
 	}
 }
+
+func TestDatesDialogSetsDue(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	// "Fix auth retry loop" is IEAATASK00, the same task the comment flow test picks, and it
+	// starts with no dates block, so typing straight into the due field needs no clearing first.
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "d")
+	waitAfter(t, tm, from, "Dates")
+
+	from = mark(t, tm)
+	press(tm, "tab", "tomorrow", "enter")
+	waitAfter(t, tm, from, "Dates updated")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := testOptions(st).Now().AddDate(0, 0, 1).Format("2006-01-02")
+	if task.Dates == nil || task.Dates.Due != want {
+		t.Errorf("dates after edit = %+v, want due %s", task.Dates, want)
+	}
+}

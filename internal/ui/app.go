@@ -232,6 +232,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddResponsibles: msg.add, RemoveResponsibles: msg.remove})
 			return err
 		}, "Assignees updated")
+	case submitDatesMsg:
+		st := m.opts.Store
+		dates := msg.dates
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
+			return err
+		}, "Dates updated")
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -447,6 +454,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Assignee):
 		return m, m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
+			m.openDialog(d)
+			return cmd
+		})
+	case key.Matches(msg, m.keys.Dates):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newDatesDialog(t, m.opts.Now())
 			m.openDialog(d)
 			return cmd
 		})
