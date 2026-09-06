@@ -59,6 +59,24 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 	}
 }
 
+// The group rides along with the status id, so the list treats the task as done immediately,
+// not waiting on the server round trip that derives the group from the status.
+func TestEnqueueTaskUpdateAppliesStatusGroup(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{CustomStatusID: "S9", Status: "Completed"}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.Tasks().Get(ctx, "T1")
+	if err != nil || task.Status != "Completed" || task.CustomStatusID != "S9" {
+		t.Errorf("task after enqueue = %+v, %v", task, err)
+	}
+}
+
 func TestEnqueueCommentCreatesLocalRow(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

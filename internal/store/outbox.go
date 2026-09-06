@@ -51,6 +51,11 @@ type TaskUpdatePayload struct {
 	AddResponsibles    []string   `json:"addResponsibles,omitempty"`
 	RemoveResponsibles []string   `json:"removeResponsibles,omitempty"`
 	Dates              *TaskDates `json:"dates,omitempty"`
+	// Status is the custom status's group.
+	// It is applied to the cache row so the list sorts and filters the task as done right away.
+	// The drain does not send it, Wrike derives the group from the custom status id, and rejects
+	// an update that carries a group name of its own.
+	Status string `json:"status,omitempty"`
 }
 
 type CommentCreatePayload struct {
@@ -132,6 +137,12 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	if p.CustomStatusID != "" {
 		set = append(set, "custom_status_id = ?")
 		args = append(args, p.CustomStatusID)
+	}
+	if p.Status != "" {
+		// The group is derived by Wrike from the custom status. It is applied locally so the list filters
+		// and sorts the task as done right away, the server version overwrites it on completion.
+		set = append(set, "status = ?")
+		args = append(args, p.Status)
 	}
 	if p.Dates != nil {
 		set = append(set, "dates_type = ?", "dates_duration = ?", "dates_start = ?", "dates_due = ?")

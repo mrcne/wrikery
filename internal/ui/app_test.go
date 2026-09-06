@@ -460,3 +460,28 @@ func TestCommentDialogQueuesAndMarks(t *testing.T) {
 		t.Error("comment not queued as a local row")
 	}
 }
+
+func TestStatusDialogQueuesAndMarks(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	// #1200033 (IEAATASK33) is whatever the demo's My tasks list preselects, currently Blocked
+	// in the Engineering workflow. j moves the cursor down one row, to Done, the next status in
+	// workflow order.
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "s")
+	waitAfter(t, tm, from, "Status")
+
+	from = mark(t, tm)
+	press(tm, "j", "enter")
+	waitAfter(t, tm, from, "Status set to Done")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK33")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CustomStatusID != "IEAAST15" || task.Status != "Completed" {
+		t.Errorf("task after status change = %+v, want IEAAST15/Completed", task)
+	}
+}

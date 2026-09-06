@@ -220,6 +220,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueComment(ctx, msg.taskID, meID, msg.text)
 			return err
 		}, "Comment queued")
+	case submitStatusMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{CustomStatusID: msg.statusID, Status: msg.group})
+			return err
+		}, "Status set to "+msg.name)
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -298,8 +304,8 @@ func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
 		n, _ := m.sidebar.current()
-		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store
-		// change) reloads the node the search left behind instead of the one now on screen.
+		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
+		// reloads the node the search left behind instead of the one now on screen.
 		m.selectedNode = n
 		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
 		m.pendingSelect = t.ID
@@ -318,9 +324,9 @@ func (m Model) reloadTask() tea.Cmd {
 	return m.loadTask(m.selectedTaskID)
 }
 
-// openDialog opens a dialog and switches the overlay to it. status.show mutates the status model
-// elsewhere in this file, but this setter only touches the two dialog fields, so a pointer receiver
-// is enough and callers keep working on their own local copy of m.
+// openDialog opens a dialog and switches the overlay to it.
+// status.show mutates the status model elsewhere in this file, but this setter only touches the two dialog fields,
+// so a pointer receiver is enough and callers keep working on their own local copy of m.
 func (m *Model) openDialog(d dialog) {
 	m.dialog = d
 	m.overlay = overlayDialog
@@ -426,6 +432,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
 			m.openDialog(d)
 			return cmd
+		})
+	case key.Matches(msg, m.keys.Status):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			m.openDialog(newStatusDialog(t, m.ref, m.keys))
+			return nil
 		})
 	}
 	opened := m.openedOnFocus(prevFocus)
