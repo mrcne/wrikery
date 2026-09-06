@@ -40,11 +40,13 @@ type TimelogParams struct {
 	PageToken   string
 }
 
+// TimelogsPage is one page of a Timelogs query, with the token to fetch the next one.
 type TimelogsPage struct {
 	Timelogs      []Timelog
 	NextPageToken string
 }
 
+// Timelogs lists time entries across the whole account, filtered and paged by TimelogParams.
 func (c *Client) Timelogs(ctx context.Context, p TimelogParams) (TimelogsPage, error) {
 	q := url.Values{}
 	if p.Me {
@@ -78,6 +80,7 @@ func (c *Client) Timelogs(ctx context.Context, p TimelogParams) (TimelogsPage, e
 	return TimelogsPage{Timelogs: out, NextPageToken: next}, nil
 }
 
+// TaskTimelogs lists the time entries logged against one task.
 func (c *Client) TaskTimelogs(ctx context.Context, taskID string) ([]Timelog, error) {
 	if taskID == "" {
 		return nil, errors.New("wrike: task id is required")
@@ -89,6 +92,7 @@ func (c *Client) TaskTimelogs(ctx context.Context, taskID string) ([]Timelog, er
 	return out, nil
 }
 
+// CreateTimelog logs hours worked on a task on a given date and returns the entry as Wrike stored it.
 func (c *Client) CreateTimelog(ctx context.Context, taskID string, hours float64, trackedDate, comment string) (Timelog, error) {
 	if taskID == "" {
 		return Timelog{}, errors.New("wrike: task id is required")
@@ -122,6 +126,7 @@ type TimelogUpdate struct {
 	Comment     string
 }
 
+// UpdateTimelog applies a partial update to one time entry and returns it as Wrike stored it.
 func (c *Client) UpdateTimelog(ctx context.Context, timelogID string, u TimelogUpdate) (Timelog, error) {
 	if timelogID == "" {
 		return Timelog{}, errors.New("wrike: timelog id is required")
@@ -146,6 +151,7 @@ func (c *Client) UpdateTimelog(ctx context.Context, timelogID string, u TimelogU
 	return out[0], nil
 }
 
+// DeleteTimelog removes one time entry.
 func (c *Client) DeleteTimelog(ctx context.Context, timelogID string) error {
 	if timelogID == "" {
 		return errors.New("wrike: timelog id is required")

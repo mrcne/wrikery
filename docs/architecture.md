@@ -8,7 +8,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 The code is split into four parts with strict boundaries, plus a small config package:
 
-- `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, paging, retries and rate limits.
+- `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
   After a server or network error only GET, PUT and DELETE are retried, never a POST.
   The server may have applied the POST already, and a second attempt would create a duplicate comment or timelog.
@@ -138,6 +138,7 @@ Each module is tested on its own, along the boundaries above:
 The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.
 One more test drives the real client against a local fixture server end to end.
 
-CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, always with cgo disabled.
+CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, with cgo disabled like the build.
+The same job checks that go.mod and go.sum are tidy, and two more jobs run the tests under the race detector with cgo on and run govulncheck.
 Releases are single static binaries for Linux and macOS on amd64 and arm64.
 `make cross` builds all four.

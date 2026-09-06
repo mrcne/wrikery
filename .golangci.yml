@@ -4,6 +4,12 @@ linters:
   default: standard
   enable:
     - depguard
+    - errorlint
+    - bodyclose
+    - sqlclosecheck
+    - rowserrcheck
+    - misspell
+    - revive
   settings:
     depguard:
       rules:
@@ -14,3 +20,17 @@ linters:
           allow:
             - $gostd
             - github.com/mrcne/wrikery/pkg/wrike
+    revive:
+      rules:
+        - name: exported
+  exclusions:
+    rules:
+      # The client is the public package, the rest of the app is not.
+      - path-except: ^pkg/wrike/
+        linters:
+          - revive
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

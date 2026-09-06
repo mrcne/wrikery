@@ -18,6 +18,17 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
+// newClient builds a Wrike client for host, with the app's own version in the User-Agent.
+// That lets Wrike support tell wrikery traffic apart from other API clients.
+func newClient(token, host string, opts ...wrike.Option) *wrike.Client {
+	all := []wrike.Option{
+		wrike.WithBaseURL(wrike.BaseURL(host)),
+		wrike.WithUserAgent("wrikery/" + buildVersion() + " (+https://github.com/mrcne/wrikery)"),
+	}
+	all = append(all, opts...)
+	return wrike.New(token, all...)
+}
+
 // app owns the engine lifecycle. The engine is rebuilt when the token changes, because the client holds the token.
 type app struct {
 	cfg    config.Config
@@ -42,7 +53,7 @@ func (a *app) startEngine(token, host string) {
 		return
 	}
 	a.stopLocked()
-	client := wrike.New(token, wrike.WithBaseURL(wrike.BaseURL(host)))
+	client := newClient(token, host)
 	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

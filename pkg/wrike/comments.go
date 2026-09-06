@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Comment is a comment posted on a Wrike task.
 type Comment struct {
 	ID          string    `json:"id"`
 	AuthorID    string    `json:"authorId"`
@@ -16,7 +17,7 @@ type Comment struct {
 	CreatedDate time.Time `json:"createdDate"`
 }
 
-// TaskComments always asks for plain text.
+// TaskComments lists the comments on a task, always as plain text.
 // The API returns HTML otherwise and rendering happens far away from this package.
 func (c *Client) TaskComments(ctx context.Context, taskID string) ([]Comment, error) {
 	if taskID == "" {
@@ -31,6 +32,7 @@ func (c *Client) TaskComments(ctx context.Context, taskID string) ([]Comment, er
 	return out, nil
 }
 
+// CreateComment posts a plain text comment on a task and returns the comment as Wrike stored it.
 func (c *Client) CreateComment(ctx context.Context, taskID, text string) (Comment, error) {
 	if taskID == "" {
 		return Comment{}, errors.New("wrike: task id is required")

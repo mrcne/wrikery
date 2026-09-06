@@ -6,6 +6,7 @@ import (
 	"net/http"
 )
 
+// Folder is a Wrike folder, project or space root, folders and spaces share this representation.
 type Folder struct {
 	ID       string   `json:"id"`
 	Title    string   `json:"title"`
@@ -26,6 +27,7 @@ type Project struct {
 	EndDate        string   `json:"endDate"`
 }
 
+// FolderTree lists every folder the token's account can see, flat, use ChildIDs to build the tree.
 func (c *Client) FolderTree(ctx context.Context) ([]Folder, error) {
 	var out []Folder
 	if _, err := c.do(ctx, http.MethodGet, "/folders", nil, nil, &out); err != nil {
@@ -34,6 +36,7 @@ func (c *Client) FolderTree(ctx context.Context) ([]Folder, error) {
 	return out, nil
 }
 
+// SpaceFolders lists the folders that live directly under one space.
 func (c *Client) SpaceFolders(ctx context.Context, spaceID string) ([]Folder, error) {
 	if spaceID == "" {
 		return nil, errors.New("wrike: space id is required")

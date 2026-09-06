@@ -7,6 +7,7 @@ import (
 	"net/url"
 )
 
+// Contact is a Wrike user, the account a task, comment or timelog is attributed to.
 type Contact struct {
 	ID           string `json:"id"`
 	FirstName    string `json:"firstName"`
@@ -35,6 +36,7 @@ func (c *Client) Me(ctx context.Context) (Contact, error) {
 	return out[0], nil
 }
 
+// Contacts lists every contact the token's account can see.
 func (c *Client) Contacts(ctx context.Context) ([]Contact, error) {
 	var out []Contact
 	if _, err := c.do(ctx, http.MethodGet, "/contacts", nil, nil, &out); err != nil {

@@ -17,6 +17,8 @@ type APIError struct {
 	RetryAfter  time.Duration
 }
 
+// Error renders the API's own error code and description when the response body carried them,
+// or a generic message keyed off the status code otherwise.
 func (e *APIError) Error() string {
 	if e.Code == "" {
 		if e.StatusCode == http.StatusMultipleChoices {
@@ -29,9 +31,14 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("wrike: %s (http %d): %s", e.Code, e.StatusCode, e.Description)
 }
 
-func (e *APIError) IsAuth() bool      { return e.StatusCode == http.StatusUnauthorized }
+// IsAuth is true when the token was rejected as invalid or expired.
+func (e *APIError) IsAuth() bool { return e.StatusCode == http.StatusUnauthorized }
+
+// IsRateLimit is true when Wrike throttled the request, see RetryAfter for how long to wait.
 func (e *APIError) IsRateLimit() bool { return e.StatusCode == http.StatusTooManyRequests }
-func (e *APIError) IsNotFound() bool  { return e.StatusCode == http.StatusNotFound }
+
+// IsNotFound is true when the requested entity does not exist or is not visible to the token.
+func (e *APIError) IsNotFound() bool { return e.StatusCode == http.StatusNotFound }
 
 // IsWrongHost is true when the token's account lives in a different Wrike data center than the host this client used,
 // see the observation cited on Error above.

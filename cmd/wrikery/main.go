@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,8 +20,19 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// TODO: version will be set at build time through ldflags, see the Makefile.
+// version is set through ldflags by the Makefile.
+// A go install build has no ldflags, so buildVersion falls back to the module version the toolchain recorded.
 var version = "dev"
+
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return version
+}
 
 const usage = `usage: wrikery [flags]
 
@@ -51,7 +63,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *showVersion {
-		fmt.Println("wrikery " + version)
+		fmt.Println("wrikery " + buildVersion())
 		return
 	}
 	if err := run(*demoMode, *logout); err != nil {
@@ -106,7 +118,7 @@ func run(demoMode, logout bool) error {
 		}
 		defer cleanup()
 		p := tea.NewProgram(ui.New(ui.Options{
-			Version: version, Store: st, Config: cfg.UI, Demo: true,
+			Version: buildVersion(), Store: st, Config: cfg.UI, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		_, err = p.Run()
@@ -118,7 +130,7 @@ func run(demoMode, logout bool) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	slog.Info("started", "version", version, "db", paths.DBFile)
+	slog.Info("started", "version", buildVersion(), "db", paths.DBFile)
 
 	a := &app{cfg: cfg, st: st, tokens: tokens}
 	token, err := tokens.Load()
@@ -127,7 +139,7 @@ func run(demoMode, logout bool) error {
 		return err
 	}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: version, Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
+		Version: buildVersion(), Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if !firstRun {
 		// The config wins, then the host remembered from a previous probe.

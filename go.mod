@@ -1,6 +1,6 @@
 module github.com/mrcne/wrikery
 
-go 1.26.7
+go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20260830003929-9f48cc723c1c
 	github.com/muesli/termenv v0.16.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/text v0.37.0
+	golang.org/x/text v0.41.0
 	modernc.org/sqlite v1.57.0
 )
 

@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Task is a Wrike task, the unit of work assignees, dates and statuses attach to.
 type Task struct {
 	ID             string     `json:"id"`
 	Title          string     `json:"title"`
@@ -36,29 +37,37 @@ type TaskDates struct {
 	Due      string `json:"due,omitempty"`
 }
 
-// TaskParams narrows a task query. FolderID and SpaceID each select their own endpoint,
-// GET /folders/{folderId}/tasks and GET /spaces/{spaceId}/tasks, the reference names both
-// under the descendants parameter. Descendants only applies together with one of them.
-// Without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
-// which is not what "follow a project" means.
+// TaskParams narrows a task query, see https://developers.wrike.com/api/v4/tasks/ for the reference.
 type TaskParams struct {
-	FolderID     string
-	SpaceID      string
-	Descendants  bool
+	// FolderID selects GET /folders/{folderId}/tasks over the plain /tasks endpoint.
+	FolderID string
+	// SpaceID selects GET /spaces/{spaceId}/tasks over the plain /tasks endpoint.
+	SpaceID string
+	// Descendants maps to the descendants parameter, it adds all descendant folders to the search scope.
+	// It only applies together with FolderID or SpaceID,
+	// without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
+	// which is not what "follow a project" means.
+	Descendants bool
+	// UpdatedAfter maps to the updatedDate parameter's start, a range filter on the last update time.
 	UpdatedAfter time.Time
-	Fields       []string
-	PageSize     int
-	PageToken    string
-	// Responsibles narrows the search to tasks assigned to any of the given contact ids.
+	// Fields names the optional response fields to include, maps to the fields parameter.
+	Fields []string
+	// PageSize maps to the pageSize parameter, Wrike allows up to 1000 items per page.
+	PageSize int
+	// PageToken maps to the nextPageToken parameter, it continues a paged query.
+	PageToken string
+	// Responsibles maps to the responsibles parameter, an assignees filter matching any of the given contact ids.
 	// The reference sends it as a JSON array.
 	Responsibles []string
 }
 
+// TasksPage is one page of a Tasks query, with the token to fetch the next one.
 type TasksPage struct {
 	Tasks         []Task
 	NextPageToken string
 }
 
+// Tasks queries tasks from /tasks, or from /folders/{id}/tasks or /spaces/{id}/tasks when FolderID or SpaceID is set.
 func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	path := "/tasks"
 	switch {
@@ -94,6 +103,7 @@ func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	return TasksPage{Tasks: out, NextPageToken: next}, nil
 }
 
+// TasksByIDs fetches up to 1000 tasks by id in one request.
 func (c *Client) TasksByIDs(ctx context.Context, ids []string, fields []string) ([]Task, error) {
 	if len(ids) == 0 {
 		return nil, errors.New("wrike: at least one task id is required")
@@ -122,6 +132,7 @@ type TaskUpdate struct {
 	Dates              *TaskDates
 }
 
+// UpdateTask applies a partial update to one task and returns it as Wrike stored it.
 func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (Task, error) {
 	if taskID == "" {
 		return Task{}, errors.New("wrike: task id is required")
