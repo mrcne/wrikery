@@ -294,7 +294,7 @@ const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importan
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), '')`
 
 // Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
-// NULLIF covers a database written before the empty due date became a NULL, where the column still holds ”.
+// NULLIF covers a database written before the empty due date became a NULL, where the column still holds an empty string.
 const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
 	NULLIF(t.dates_due, '') IS NULL, NULLIF(t.dates_due, ''), t.updated_date DESC`
 

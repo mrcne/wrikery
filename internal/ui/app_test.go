@@ -286,8 +286,8 @@ func TestTaskListFiltersAndFollowsTheSidebar(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "Tasks: My tasks (")
-	// The list follows the sidebar cursor. This runs first because the filter has to be the last thing on screen,
-	// only the frame the program ends on can be read row by row.
+	// The list follows the sidebar cursor.
+	// This runs first because the filter has to be the last thing on screen, only the frame the program ends on can be read row by row.
 	press(tm, "shift+tab")
 	press(tm, "j")
 	waitFor(t, tm, "Tasks: Mobile")
