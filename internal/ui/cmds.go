@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -95,6 +96,94 @@ func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
 		return scopesLoadedMsg{scopes: scopes}
 	}
 }
+
+// loadTree builds the sidebar from the followed scopes: My tasks first, then each followed space's
+// subtree, then followed projects that are not inside a followed space.
+func (m Model) loadTree() tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	return func() tea.Msg {
+		ctx := context.Background()
+		scopes, err := st.Scopes().Followed(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		statuses := m.ref.statuses
+		var nodes []treeNode
+		covered := map[string]bool{}
+		open := 0
+		if meID != "" {
+			mine, err := st.Tasks().ListForResponsible(ctx, meID)
+			if err != nil {
+				return errMsg{err}
+			}
+			for _, t := range mine {
+				if !isDone(t) {
+					open++
+				}
+			}
+		}
+		nodes = append(nodes, treeNode{id: store.ScopeKindMe, title: "My tasks", kind: nodeMe, count: open})
+		addSubtree := func(rootID string, rootKind nodeKind) error {
+			folders, err := st.Folders().Subtree(ctx, rootID)
+			if err != nil {
+				return err
+			}
+			if len(folders) == 0 {
+				return nil
+			}
+			byID := map[string]store.Folder{}
+			for _, f := range folders {
+				byID[f.ID] = f
+				covered[f.ID] = true
+			}
+			var add func(f store.Folder, depth int) int
+			add = func(f store.Folder, depth int) int {
+				idx := len(nodes)
+				n := treeNode{id: f.ID, title: f.Title, kind: nodeFolder, depth: depth}
+				if depth == 0 {
+					n.kind, n.expanded = rootKind, true
+				}
+				if f.Project != nil {
+					n.kind = nodeProject
+					n.statusGroup = statuses[f.Project.CustomStatusID].Group
+				}
+				nodes = append(nodes, n)
+				children := make([]store.Folder, 0, len(f.ChildIDs))
+				for _, cid := range f.ChildIDs {
+					if c, ok := byID[cid]; ok {
+						children = append(children, c)
+					}
+				}
+				sort.Slice(children, func(i, j int) bool { return children[i].Title < children[j].Title })
+				for _, c := range children {
+					// nodes grows while we recurse, so index by idx and never hold a pointer into the slice.
+					nodes[idx].children = append(nodes[idx].children, add(c, depth+1))
+				}
+				return idx
+			}
+			add(folders[0], 0)
+			return nil
+		}
+		for _, sc := range scopes {
+			if sc.Kind == store.ScopeKindSpace {
+				// The space root folder id is assumed equal to the space id, the demo data is built that way.
+				if err := addSubtree(sc.ID, nodeSpace); err != nil {
+					return errMsg{err}
+				}
+			}
+		}
+		for _, sc := range scopes {
+			if sc.Kind == store.ScopeKindProject && !covered[sc.ID] {
+				if err := addSubtree(sc.ID, nodeProject); err != nil {
+					return errMsg{err}
+				}
+			}
+		}
+		return treeLoadedMsg{nodes: nodes}
+	}
+}
+
+func isDone(t store.Task) bool { return t.Status == "Completed" || t.Status == "Cancelled" }
 
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken

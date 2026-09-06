@@ -69,6 +69,9 @@ type Model struct {
 	status   statusModel
 	firstRun firstRunModel
 	ref      refData
+	sidebar  sidebarModel
+
+	selectedNode treeNode
 }
 
 func New(o Options) Model {
@@ -76,6 +79,7 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
+	m.sidebar.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -121,6 +125,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
+		return m, m.loadTree()
+	case treeLoadedMsg:
+		m.sidebar.setNodes(msg.nodes)
+		if n, ok := m.sidebar.current(); ok {
+			return m, intent(nodeSelectedMsg{node: n})
+		}
+		return m, nil
+	case focusMsg:
+		m.focus = msg.pane
+		return m, nil
+	case nodeSelectedMsg:
+		m.selectedNode = msg.node
 		return m, nil
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
@@ -177,6 +194,9 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") {
 		cmds = append(cmds, m.loadRef())
 	}
+	if slices.Contains(entities, "folders") || slices.Contains(entities, "spaces") || slices.Contains(entities, "tasks") {
+		cmds = append(cmds, m.loadTree())
+	}
 	if m.screen == screenFirstRun {
 		if m.firstRun.step == stepScopes && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
 			cmds = append(cmds, m.loadPicker())
@@ -229,6 +249,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus--
 		}
 	}
+	switch m.focus {
+	case paneSidebar:
+		var cmd tea.Cmd
+		m.sidebar, cmd = m.sidebar.Update(msg)
+		return m, cmd
+	}
 	return m, nil
 }
 
@@ -256,7 +282,7 @@ func (m Model) View() string {
 }
 
 func (m Model) viewMain(height int) string {
-	lay := computeLayout(m.width, height, m.focus, 28)
+	lay := computeLayout(m.width, height, m.focus, m.sidebar.width())
 	parts := make([]string, 0, len(lay.visible))
 	for _, p := range lay.visible {
 		r := lay.rects[p]
@@ -275,8 +301,13 @@ func (m Model) paneTitle(p pane) string {
 	return "Task"
 }
 
-// paneBody has no content yet, the child models fill it.
-func (m Model) paneBody(p pane, r rect) string { return "" }
+// paneBody draws the sidebar from its model. List and detail still have no content.
+func (m Model) paneBody(p pane, r rect) string {
+	if p == paneSidebar {
+		return m.sidebar.View(m.theme, r.w-2, r.h-2, m.focus == paneSidebar)
+	}
+	return ""
+}
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {

@@ -22,6 +22,9 @@ type refData struct {
 
 type refLoadedMsg struct{ ref refData }
 type scopesLoadedMsg struct{ scopes []store.Scope }
+type treeLoadedMsg struct{ nodes []treeNode }
+type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
+type focusMsg struct{ pane pane }            // intent: move focus
 type pickerLoadedMsg struct {
 	spaces   []store.Space
 	projects map[string][]store.Folder // per space id, projects directly under the root

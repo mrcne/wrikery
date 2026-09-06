@@ -132,6 +132,17 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 	}
 }
 
+func TestSidebarShowsFollowedSpaces(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
+	waitFor(t, tm, "Platform")
+	waitFor(t, tm, "Mobile")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "Design system") {
+		t.Errorf("sidebar should list Design system under Platform:\n%s", view)
+	}
+}
+
 func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
