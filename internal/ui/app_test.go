@@ -293,6 +293,17 @@ func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	waitFor(t, tm, "offline since")
 }
 
+// TestStatusBarShowsSeededCountsOnFirstFrame covers the demo store's outbox counts reaching the
+// status bar on load, before any OutboxChangedMsg from a sync engine that demo mode never runs.
+// The demo seed leaves one pending comment and two failed writes, see internal/demo/seed.go.
+func TestStatusBarShowsSeededCountsOnFirstFrame(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks: My tasks (")
+	waitFor(t, tm, "1 pending")
+	waitFor(t, tm, "2 failed")
+}
+
 // The short hints are in the goldens, the overlay is not, and bubbles reaches for a bullet and an ellipsis of its own.
 func TestHelpOverlayStaysASCII(t *testing.T) {
 	for _, w := range []int{160, 120, 70} {
@@ -415,6 +426,29 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 	}
 }
 
+// TestQuickSearchFromIssuesScreenJumpsToMain covers a search opened while the sync issues screen
+// is up: the match still has to switch the screen back to main, or the issues list stays on top
+// of the task the search just loaded.
+func TestQuickSearchFromIssuesScreenJumpsToMain(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "!")
+	waitFor(t, tm, "Sync issues (")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Sync issues (") || !strings.Contains(view, "#1200000") {
+		t.Errorf("enter from a search opened on the issues screen should land on main with the task:\n%s", view)
+	}
+}
+
 func TestCopyBindingsCopyTheRightText(t *testing.T) {
 	st := seededStore(t)
 	opts, copied := testOptionsWithCopy(st)
@@ -507,6 +541,9 @@ func TestStatusDialogQueuesAndMarks(t *testing.T) {
 	from = mark(t, tm)
 	press(tm, "j", "enter")
 	waitAfter(t, tm, from, "Status set to Done")
+	// The demo seed already leaves one comment pending, so a second write makes two, read straight
+	// off the outbox in the same command rather than waiting for a sync engine event that never comes here.
+	waitAfter(t, tm, from, "2 pending")
 
 	task, err := st.Tasks().Get(context.Background(), "IEAATASK33")
 	if err != nil {

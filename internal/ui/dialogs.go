@@ -15,7 +15,13 @@ type dialog interface {
 }
 
 type closeDialogMsg struct{}
-type writeQueuedMsg struct{ toast string }
+
+// writeQueuedMsg reports a write that reached the outbox. pending and failed are the fresh counts
+// read right after, so the status bar updates without waiting for the sync engine's own event.
+type writeQueuedMsg struct {
+	toast           string
+	pending, failed int
+}
 type submitCommentMsg struct{ taskID, text string }
 
 type commentDialog struct {

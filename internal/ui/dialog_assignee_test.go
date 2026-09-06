@@ -25,14 +25,16 @@ func TestAssigneeDialogFiltersTogglesAndDiffs(t *testing.T) {
 		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // toggles Celina
-	for _, r := range "\b\b\b" {
-		_ = r
+	for range 3 {
 		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyDown})  // to Bartek
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // untoggles Bartek
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
+	if len(msgs) == 0 {
+		t.Fatalf("Update on enter emitted nothing, want submitAssigneesMsg")
+	}
 	got, ok := msgs[0].(submitAssigneesMsg)
 	if !ok || !reflect.DeepEqual(got.add, []string{"C"}) || !reflect.DeepEqual(got.remove, []string{"B"}) {
 		t.Errorf("diff = %#v", msgs)

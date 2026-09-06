@@ -15,6 +15,8 @@ type editorDoneMsg struct {
 	err    error
 }
 
+// editorArgv splits editor on whitespace,
+// so a path to the editor binary itself that contains a space needs a small wrapper script on PATH instead.
 func editorArgv(editor, path string) []string {
 	return append(strings.Fields(editor), path)
 }

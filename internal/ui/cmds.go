@@ -279,16 +279,37 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 }
 
 // enqueue runs one outbox call, wakes the engine and reports back. Every write in the UI goes through here.
+// The counts are read right after, so the status bar reflects the new row without waiting for the
+// next OutboxChangedMsg from the sync engine.
 func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd {
-	hooks := m.opts.Hooks
+	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
-		if err := op(context.Background()); err != nil {
+		ctx := context.Background()
+		if err := op(ctx); err != nil {
 			return errMsg{err}
 		}
 		if hooks.WakeOutbox != nil {
 			hooks.WakeOutbox()
 		}
-		return writeQueuedMsg{toast: toast}
+		pending, failed, err := st.Outbox().Counts(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return writeQueuedMsg{toast: toast, pending: pending, failed: failed}
+	}
+}
+
+// loadCounts reads the outbox pending and failed counts once at startup.
+// Without this, a demo store's seeded failures only reach the status bar on the first OutboxChangedMsg,
+// which never comes in demo mode, so the bar would start blank instead of showing what was seeded.
+func (m Model) loadCounts() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		pending, failed, err := st.Outbox().Counts(context.Background())
+		if err != nil {
+			return errMsg{err}
+		}
+		return OutboxChangedMsg{Pending: pending, Failed: failed}
 	}
 }
 
@@ -346,9 +367,10 @@ func (m Model) loadIssues() tea.Cmd {
 // already took the row inflight or somebody else cleared it, which is not a failure worth an
 // error toast, just a sign the list is stale and needs another read.
 func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
-	hooks := m.opts.Hooks
+	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
-		err := op(context.Background())
+		ctx := context.Background()
+		err := op(ctx)
 		if errors.Is(err, store.ErrNotFound) {
 			return writeQueuedMsg{toast: "already being sent, list refreshed"}
 		}
@@ -358,7 +380,11 @@ func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast stri
 		if hooks.WakeOutbox != nil {
 			hooks.WakeOutbox()
 		}
-		return writeQueuedMsg{toast: doneToast}
+		pending, failed, err := st.Outbox().Counts(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return writeQueuedMsg{toast: doneToast, pending: pending, failed: failed}
 	}
 }
 

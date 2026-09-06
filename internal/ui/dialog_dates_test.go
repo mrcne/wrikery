@@ -39,6 +39,32 @@ func TestDatesDialogSubmitsQuickWord(t *testing.T) {
 	}
 }
 
+// TestDatesDialogPrefillsTimedDatesAsDateOnly covers a task whose dates carry a time part, which
+// parseDate rejects, so prefilling the raw stored value would block a save until both fields are retyped.
+func TestDatesDialogPrefillsTimedDatesAsDateOnly(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	task := store.Task{ID: "T1", Dates: &store.TaskDates{
+		Type: "Planned", Start: "2026-09-02T09:00:00", Due: "2026-09-02T09:00:00",
+	}}
+	d, _ := newDatesDialog(task, now)
+	if got := d.inputs[0].Value(); got != "2026-09-02" {
+		t.Errorf("start prefill = %q, want 2026-09-02", got)
+	}
+	if got := d.inputs[1].Value(); got != "2026-09-02" {
+		t.Errorf("due prefill = %q, want 2026-09-02", got)
+	}
+	var dl dialog = d
+	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if len(msgs) == 0 {
+		t.Fatalf("Update on enter emitted nothing, want submitDatesMsg")
+	}
+	got, ok := msgs[0].(submitDatesMsg)
+	if !ok || got.dates.Start != "2026-09-02" || got.dates.Due != "2026-09-02" {
+		t.Errorf("submit = %#v, want a same-day Planned range with the time part dropped", msgs)
+	}
+}
+
 func TestDatesDialogRejectsDueBeforeStart(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	task := store.Task{ID: "T1", Dates: &store.TaskDates{Type: "Planned", Start: "2026-09-01", Due: "2026-09-02"}}

@@ -30,19 +30,27 @@ type assigneeDialog struct {
 func newAssigneeDialog(task store.Task, ref refData, keys KeyMap) (assigneeDialog, tea.Cmd) {
 	d := assigneeDialog{taskID: task.ID, checked: map[string]bool{}, original: map[string]bool{}, keys: keys}
 	for _, c := range ref.contacts {
-		// Wrike contacts come in Person and Group, and a group cannot be a task responsible
-		// (https://developers.wrike.com/api/v4/contacts/).
+		// A Wrike contact's type is Person or Group (https://developers.wrike.com/api/v4/contacts/).
+		// The picker offers people only, so a group here is skipped along with a deleted contact.
 		if c.Deleted || c.Type == "Group" {
 			continue
 		}
 		d.contacts = append(d.contacts, c)
 	}
-	sort.Slice(d.contacts, func(i, j int) bool {
+	sort.SliceStable(d.contacts, func(i, j int) bool {
 		a, b := d.contacts[i], d.contacts[j]
 		if (a.ID == ref.meID) != (b.ID == ref.meID) {
 			return a.ID == ref.meID
 		}
-		return a.FirstName+a.LastName < b.FirstName+b.LastName
+		if a.FirstName != b.FirstName {
+			return a.FirstName < b.FirstName
+		}
+		if a.LastName != b.LastName {
+			return a.LastName < b.LastName
+		}
+		// The map iteration order over ref.contacts is random, so a tie on both names needs its own
+		// tie-break or the picker's order would still vary between runs.
+		return a.ID < b.ID
 	})
 	for _, id := range task.ResponsibleIDs {
 		d.checked[id], d.original[id] = true, true

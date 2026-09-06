@@ -113,7 +113,7 @@ func New(o Options) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadRef(), m.loadScopes())
+	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -247,6 +247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case writeQueuedMsg:
+		m.status.pending, m.status.failed = msg.pending, msg.failed
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
 		if m.screen == screenIssues {
 			cmds = append(cmds, m.loadIssues())
@@ -362,6 +363,7 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 // below marks the right task and a task whose folder is outside the tree still reaches the detail pane.
 func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
+	m.screen = screenMain
 	m.overlay = overlayNone
 	m.search.blur()
 	m.focus = paneDetail
@@ -390,8 +392,8 @@ func (m Model) reloadTask() tea.Cmd {
 }
 
 // openDialog opens a dialog and switches the overlay to it.
-// status.show mutates the status model elsewhere in this file, but this setter only touches the two dialog fields,
-// so a pointer receiver is enough and callers keep working on their own local copy of m.
+// The pointer receiver mutates the caller's m in place, and the caller returns that same m afterward,
+// so a caller must not also read m in the same statement, the order between the two is unspecified.
 func (m *Model) openDialog(d dialog) {
 	m.dialog = d
 	m.overlay = overlayDialog
@@ -497,7 +499,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus--
 		}
 	case key.Matches(msg, m.keys.Open):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			open := m.opts.Hooks.OpenURL
 			if open == nil {
 				return m.status.show("browser not available", true)
@@ -513,46 +515,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return toastMsg{text: "Opened in browser"}
 			}
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyLink):
-		return m, m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyBranch):
-		return m, m.copy(func(t store.Task) (string, string) {
+		cmd := m.copy(func(t store.Task) (string, string) {
 			name := branchName(m.opts.Config.BranchTemplate, t)
 			return name, "Copied " + name
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyID):
-		return m, m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		return m, cmd
 	case key.Matches(msg, m.keys.Comment):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
 			m.openDialog(d)
 			return cmd
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.CommentEditor):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			cmd, err := openEditor(t.ID)
 			if err != nil {
 				return m.status.show(err.Error(), true)
 			}
 			return cmd
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.Status):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			m.openDialog(newStatusDialog(t, m.ref, m.keys))
 			return nil
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.Assignee):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
 			m.openDialog(d)
 			return cmd
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.Dates):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newDatesDialog(t, m.opts.Now())
 			m.openDialog(d)
 			return cmd
 		})
+		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before:

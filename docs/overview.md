@@ -68,6 +68,7 @@ Space toggles a contact on or off, enter applies the change, esc cancels without
 `d` shows a start and a due field.
 Both take quick words instead of a full date: an ISO date, `today`, `tomorrow`, `yesterday`, a weekday name for the next one, `+Nd` or `-Nd` for a relative day, or a day and month such as `12 sep` for a day this year.
 An empty field clears that date. Tab moves between the two fields, enter saves, esc cancels.
+Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
 ### Sync issues
 

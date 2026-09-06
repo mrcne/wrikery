@@ -32,7 +32,12 @@ func newDatesDialog(task store.Task, now time.Time) (datesDialog, tea.Cmd) {
 		in.Placeholder = "2026-09-12, fri, +3d, today, empty clears"
 		in.CharLimit = 20
 		if task.Dates != nil {
-			in.SetValue([]string{task.Dates.Start, task.Dates.Due}[i])
+			v := []string{task.Dates.Start, task.Dates.Due}[i]
+			if len(v) > 10 {
+				// This dialog edits the day, not the time, and Wrike accepts the date alone.
+				v = v[:10]
+			}
+			in.SetValue(v)
 		}
 		d.inputs[i] = in
 	}

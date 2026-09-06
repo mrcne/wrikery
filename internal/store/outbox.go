@@ -139,8 +139,7 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		args = append(args, p.CustomStatusID)
 	}
 	if p.Status != "" {
-		// The group is derived by Wrike from the custom status. It is applied locally so the list filters
-		// and sorts the task as done right away, the server version overwrites it on completion.
+		// See the Status field's doc comment on TaskUpdatePayload for why this is local only.
 		set = append(set, "status = ?")
 		args = append(args, p.Status)
 	}
