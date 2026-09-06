@@ -131,6 +131,8 @@ func (m Model) loadTree() tea.Cmd {
 				return err
 			}
 			if len(folders) == 0 {
+				// A followed space whose id is not also a folder id has no tree to draw, and dropping it silently looks like a sync bug.
+				slog.Warn("followed scope has no folder tree", "scope", rootID)
 				return nil
 			}
 			byID := map[string]store.Folder{}

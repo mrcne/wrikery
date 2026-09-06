@@ -13,6 +13,13 @@ type OutboxChangedMsg struct{ Pending, Failed int }
 
 type errMsg struct{ err error }
 
+// toastMsg reports the result of work the update loop handed to a command, such as a clipboard write.
+// The root turns it into a status bar toast.
+type toastMsg struct {
+	text  string
+	isErr bool
+}
+
 type refData struct {
 	meID      string
 	contacts  map[string]store.Contact

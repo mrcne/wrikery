@@ -14,7 +14,9 @@ import (
 type nodeKind int
 
 const (
-	nodeMe nodeKind = iota
+	// A treeNode nobody has selected yet has to differ from My tasks, or the root would read a zero value as a real selection.
+	nodeNone nodeKind = iota
+	nodeMe
 	nodeSpace
 	nodeProject
 	nodeFolder

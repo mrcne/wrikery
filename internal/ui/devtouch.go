@@ -17,9 +17,9 @@ var (
 
 // transliterations holds the letters that NFD does not split into a base letter plus a combining mark,
 // so they would otherwise fall through to the nonSlug collapse and vanish from the branch name.
+// Only the lowercase forms are listed, the title is lowercased before it gets here.
 var transliterations = map[rune]string{
 	'ł': "l",  // l with stroke
-	'Ł': "l",  // L with stroke
 	'ß': "ss", // sharp s
 	'ø': "o",  // o with stroke
 	'æ': "ae", // ae
@@ -37,7 +37,8 @@ func taskNumber(permalink string) string {
 }
 
 func slugify(title string, limit int) string {
-	s := nonSlug.ReplaceAllString(strings.ToLower(transliterate(title)), "-")
+	// Lowercasing first is what covers the uppercase forms of the transliterated letters, NFD does not decompose them either.
+	s := nonSlug.ReplaceAllString(transliterate(strings.ToLower(title)), "-")
 	s = strings.Trim(s, "-")
 	if len(s) > limit {
 		s = strings.Trim(s[:limit], "-")

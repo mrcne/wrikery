@@ -124,8 +124,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
+		if m.selectedNode.kind == nodeNone {
+			// The queue can change before the tree lands, and there is no list to reread until a node is picked.
+			return m, m.reloadTask()
+		}
 		// The pending and failed markers live on the task row and on the detail header, so a queue change rereads both.
 		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)), m.reloadTask())
+	case toastMsg:
+		return m, m.status.show(msg.text, msg.isErr)
 	case toastExpiredMsg:
 		if msg.seq == m.status.toastSeq {
 			m.status.toast = ""
@@ -276,10 +282,11 @@ func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	m.search.blur()
 	m.focus = paneDetail
 	m.selectedTaskID = t.ID
-	m.pendingSelect = t.ID
 	var cmds []tea.Cmd
 	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
 		n, _ := m.sidebar.current()
+		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
+		m.pendingSelect = t.ID
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
 	}
 	cmds = append(cmds, m.loadTask(t.ID), m.openedOnFocus(prevFocus))
@@ -357,13 +364,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case key.Matches(msg, m.keys.Open):
 		return m, m.withTask(func(t store.Task) tea.Cmd {
-			if m.opts.Hooks.OpenURL == nil {
+			open := m.opts.Hooks.OpenURL
+			if open == nil {
 				return m.status.show("browser not available", true)
 			}
-			if err := m.opts.Hooks.OpenURL(t.Permalink); err != nil {
-				return m.status.show("could not open browser: "+err.Error(), true)
+			if t.Permalink == "" {
+				return m.status.show(noPermalink, true)
 			}
-			return m.status.show("Opened in browser", false)
+			// Starting a browser can block, so it runs as a command and reports back instead of stalling the key handler.
+			return func() tea.Msg {
+				if err := open(t.Permalink); err != nil {
+					return toastMsg{text: "could not open browser: " + err.Error(), isErr: true}
+				}
+				return toastMsg{text: "Opened in browser"}
+			}
 		})
 	case key.Matches(msg, m.keys.CopyLink):
 		return m, m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
@@ -375,22 +389,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.CopyID):
 		return m, m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
 	}
-	m.syncPaneSizes()
 	opened := m.openedOnFocus(prevFocus)
+	// The sizes are computed after the child handled the key, not before:
+	// expanding a sidebar node widens the sidebar, and the detail would otherwise be laid out for the previous width.
 	switch m.focus {
 	case paneSidebar:
 		var cmd tea.Cmd
 		m.sidebar, cmd = m.sidebar.Update(msg)
+		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	case paneList:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	case paneDetail:
 		var cmd tea.Cmd
 		m.detail, cmd = m.detail.Update(msg)
+		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	}
+	m.syncPaneSizes()
 	return m, opened
 }
 
@@ -417,16 +436,27 @@ func (m *Model) withTask(f func(store.Task) tea.Cmd) tea.Cmd {
 	return f(t)
 }
 
+const noPermalink = "this task has no permalink yet"
+
 func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
 	return m.withTask(func(t store.Task) tea.Cmd {
-		if m.opts.Hooks.Copy == nil {
+		cp := m.opts.Hooks.Copy
+		if cp == nil {
 			return m.status.show("clipboard not available", true)
 		}
 		text, toast := pick(t)
-		if err := m.opts.Hooks.Copy(text); err != nil {
-			return m.status.show("copy failed: "+err.Error(), true)
+		if text == "" {
+			// The permalink is the only one of the three that can be missing, the id and the branch name are always there.
+			return m.status.show(noPermalink, true)
 		}
-		return m.status.show(toast, false)
+		// The hook writes to the terminal and runs a clipboard tool, so it goes into a command rather than into the update loop.
+		return func() tea.Msg {
+			if err := cp(text); err != nil {
+				// The error says what did and did not reach the clipboard, so it is shown as it is.
+				return toastMsg{text: err.Error(), isErr: true}
+			}
+			return toastMsg{text: toast}
+		}
 	})
 }
 

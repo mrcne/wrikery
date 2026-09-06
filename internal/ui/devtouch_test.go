@@ -37,6 +37,11 @@ func TestSlugifyTransliteratesNonASCII(t *testing.T) {
 	if got := slugify(french, 40); got != "cafe-zurich" {
 		t.Errorf("got %q", got)
 	}
+	// "Oresund bridge" with the Danish O with stroke, an uppercase letter NFD does not decompose.
+	danish := "\u00d8resund bridge"
+	if got := slugify(danish, 40); got != "oresund-bridge" {
+		t.Errorf("got %q", got)
+	}
 }
 
 func TestBranchNameWithSymbolOnlyTitle(t *testing.T) {
