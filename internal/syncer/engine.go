@@ -255,6 +255,14 @@ func (e *Engine) cycle(ctx context.Context, manual bool) error {
 		}
 	}
 
+	changedLogs, err := pullMyTimelogs(ctx, e.client, e.st, meID, time.Now())
+	if err != nil {
+		return err
+	}
+	if changedLogs {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
+	}
+
 	touched, err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
 	if err != nil {
 		return err

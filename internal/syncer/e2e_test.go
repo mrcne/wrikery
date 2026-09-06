@@ -96,6 +96,12 @@ func TestEndToEndSync(t *testing.T) {
 	mux.HandleFunc("/tasks/T1/timelogs", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"timelogs","data":[]}`)
 	})
+	mux.HandleFunc("/timelogs", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("me") != "true" {
+			t.Errorf("account wide timelog query me = %q", r.URL.Query().Get("me"))
+		}
+		writeJSON(w, `{"kind":"timelogs","data":[]}`)
+	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 

@@ -69,7 +69,9 @@ The first sync fetches everything in the followed scopes.
 After that the engine polls, every 60 seconds by default, and there is a key for a manual refresh.
 A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
-Comments and timelogs are synced only for tasks the user recently viewed or touched, not for the whole account.
+Comments are synced only for tasks the user recently viewed or touched, not for the whole account.
+Every cycle also pulls the user's own timelogs for the current week and the eight weeks before it.
+The store rows in that range are replaced as a whole, so a deleted or moved entry disappears too.
 
 ## Sending changes back
 
