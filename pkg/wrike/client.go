@@ -28,13 +28,13 @@ func BaseURL(host string) string {
 }
 
 // Client talks to the Wrike REST API v4 over HTTP.
-// A rate limited request is always retried with backoff, using the Retry-After value when
-// Wrike sends one. A server error or a network failure is retried the same way, but only for
-// an idempotent method, since a POST that failed on the server side may already be applied and
-// retrying it could duplicate the write.
+// A rate limited request is always retried with backoff, using the Retry-After value when Wrike sends one.
+// A server error or a network failure is retried the same way, but only for an idempotent method,
+// since a POST that failed on the server side may already be applied and retrying it could duplicate the write.
 type Client struct {
 	baseURL    string
 	token      string
+	userAgent  string
 	httpClient *http.Client
 	maxRetries int
 	sleep      func(ctx context.Context, d time.Duration) error
@@ -53,12 +53,19 @@ func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.httpClient = h }
 }
 
-// New creates a Client for the given API token, defaulting to DefaultHost until an Option
-// such as WithBaseURL points it elsewhere.
+// WithUserAgent sets the User-Agent header sent with every request, so Wrike can identify the caller.
+// The app passes its own version string here instead of the package default.
+func WithUserAgent(ua string) Option {
+	return func(c *Client) { c.userAgent = ua }
+}
+
+// New creates a Client for the given API token,
+// defaulting to DefaultHost until an Option such as WithBaseURL points it elsewhere.
 func New(token string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    BaseURL(DefaultHost),
 		token:      token,
+		userAgent:  "wrikery (+https://github.com/mrcne/wrikery)",
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		maxRetries: 3,
 		sleep:      sleepContext,
@@ -92,6 +99,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("User-Agent", c.userAgent)
 	if len(form) > 0 {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}

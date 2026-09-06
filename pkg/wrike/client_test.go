@@ -135,6 +135,40 @@ func TestBaseURLBuildsFromHost(t *testing.T) {
 	}
 }
 
+func TestDoSendsDefaultUserAgent(t *testing.T) {
+	var got string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
+	}))
+
+	if _, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := "wrikery (+https://github.com/mrcne/wrikery)"; got != want {
+		t.Errorf("User-Agent = %q, want %q", got, want)
+	}
+}
+
+func TestWithUserAgentOverridesDefault(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(`{"kind":"things","data":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New("test-token", WithBaseURL(srv.URL), WithUserAgent("wrikery/1.2.3 (+https://github.com/mrcne/wrikery)"))
+	c.sleep = func(ctx context.Context, d time.Duration) error { return nil }
+
+	if _, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if want := "wrikery/1.2.3 (+https://github.com/mrcne/wrikery)"; got != want {
+		t.Errorf("User-Agent = %q, want %q", got, want)
+	}
+}
+
 func TestDo300WithEmptyBodyIsWrongHostErrorAndNotRetried(t *testing.T) {
 	calls := 0
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

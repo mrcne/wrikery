@@ -53,7 +53,7 @@ func TestOpenIsIdempotent(t *testing.T) {
 	}
 	defer func() { _ = rows.Close() }()
 	if err := rows.Err(); err != nil {
-		t.Fatalf("space column missing after reopen: %v", err)
+		t.Fatalf("reading the space column probe: %v", err)
 	}
 }
 

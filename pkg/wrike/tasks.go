@@ -43,10 +43,10 @@ type TaskParams struct {
 	FolderID string
 	// SpaceID selects GET /spaces/{spaceId}/tasks over the plain /tasks endpoint.
 	SpaceID string
-	// Descendants maps to the descendants parameter, it adds all descendant folders to the
-	// search scope. It only applies together with FolderID or SpaceID, without it Wrike
-	// returns the tasks placed directly in the folder and skips every subfolder, which is
-	// not what "follow a project" means.
+	// Descendants maps to the descendants parameter, it adds all descendant folders to the search scope.
+	// It only applies together with FolderID or SpaceID,
+	// without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
+	// which is not what "follow a project" means.
 	Descendants bool
 	// UpdatedAfter maps to the updatedDate parameter's start, a range filter on the last update time.
 	UpdatedAfter time.Time
@@ -56,8 +56,8 @@ type TaskParams struct {
 	PageSize int
 	// PageToken maps to the nextPageToken parameter, it continues a paged query.
 	PageToken string
-	// Responsibles maps to the responsibles parameter, an assignees filter matching any of
-	// the given contact ids. The reference sends it as a JSON array.
+	// Responsibles maps to the responsibles parameter, an assignees filter matching any of the given contact ids.
+	// The reference sends it as a JSON array.
 	Responsibles []string
 }
 
@@ -67,8 +67,7 @@ type TasksPage struct {
 	NextPageToken string
 }
 
-// Tasks queries tasks from /tasks, or from /folders/{id}/tasks or /spaces/{id}/tasks when
-// FolderID or SpaceID is set.
+// Tasks queries tasks from /tasks, or from /folders/{id}/tasks or /spaces/{id}/tasks when FolderID or SpaceID is set.
 func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	path := "/tasks"
 	switch {

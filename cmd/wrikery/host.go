@@ -24,11 +24,11 @@ var errNoDataCenter = errors.New("no Wrike data center accepted this token")
 // it says something about the token, not about the host, and trying another host would not change it.
 func probeHost(ctx context.Context, token string, hosts []string, hc *http.Client) (string, wrike.Contact, error) {
 	for _, host := range hosts {
-		opts := []wrike.Option{wrike.WithBaseURL(wrike.BaseURL(host))}
+		var opts []wrike.Option
 		if hc != nil {
 			opts = append(opts, wrike.WithHTTPClient(hc))
 		}
-		me, err := wrike.New(token, opts...).Me(ctx)
+		me, err := newClient(token, host, opts...).Me(ctx)
 		if err == nil {
 			return host, me, nil
 		}
