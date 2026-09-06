@@ -46,6 +46,16 @@ type tokenVerifiedMsg struct {
 	name string
 	err  error
 }
+type searchResultsMsg struct {
+	seq    int
+	tasks  []store.Task
+	crumbs map[string]string
+}
+type searchOpenMsg struct{ task store.Task } // intent: close the search overlay and jump to this task
+type runSearchMsg struct {
+	seq   int
+	query string
+}
 
 // Intents from the first run child. The root turns them into commands.
 type firstRunSubmitTokenMsg struct{ token string }

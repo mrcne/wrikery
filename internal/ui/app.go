@@ -72,6 +72,7 @@ type Model struct {
 	sidebar  sidebarModel
 	list     taskListModel
 	detail   taskDetailModel
+	search   searchModel
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -86,6 +87,7 @@ func New(o Options) Model {
 	m.sidebar.keys = m.keys
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
+	m.search = newSearch(m.keys)
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -191,6 +193,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, m.loadPicker(), m.firstRun.spinner.Tick)
 		}
 		return m, cmd
+	case runSearchMsg:
+		return m, m.runSearch(msg.seq, msg.query)
+	case searchResultsMsg:
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(msg)
+		return m, cmd
+	case searchOpenMsg:
+		return m.openFromSearch(msg.task)
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -256,6 +266,24 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 	return m.markOpened(m.selectedTaskID)
 }
 
+// openFromSearch closes the search overlay and jumps straight to the chosen task.
+// selectedTaskID is set here rather than waiting for the sidebar/list round trip, so openedOnFocus
+// below marks the right task and a task whose folder is outside the tree still reaches the detail pane.
+func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
+	prevFocus := m.focus
+	m.overlay = overlayNone
+	m.focus = paneDetail
+	m.selectedTaskID = t.ID
+	m.pendingSelect = t.ID
+	var cmds []tea.Cmd
+	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
+		n, _ := m.sidebar.current()
+		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
+	}
+	cmds = append(cmds, m.loadTask(t.ID), m.openedOnFocus(prevFocus))
+	return m, tea.Batch(cmds...)
+}
+
 // reloadTask re-reads the task the detail pane is showing.
 // Nothing is open before the first selection, hence the guard.
 func (m Model) reloadTask() tea.Cmd {
@@ -274,6 +302,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 		}
 		return m, nil
+	}
+	if m.overlay == overlaySearch {
+		if key.Matches(msg, m.keys.Back) {
+			m.overlay = overlayNone
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.search, cmd = m.search.Update(msg)
+		return m, cmd
 	}
 	if m.screen == screenFirstRun {
 		// A token may contain a q, so only the step with the input swallows it.
@@ -296,6 +333,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case key.Matches(msg, m.keys.Help):
 		m.overlay = overlayHelp
+	case key.Matches(msg, m.keys.Search):
+		m.overlay = overlaySearch
+		return m, m.search.reset()
 	case key.Matches(msg, m.keys.Refresh):
 		if m.opts.Hooks.Refresh == nil {
 			return m, m.status.show("refresh is not available", true)
@@ -351,6 +391,9 @@ func (m Model) View() string {
 	out := body + "\n" + m.status.View(m.theme, m.width, hints, m.opts.Now())
 	if m.overlay == overlayHelp {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
+	}
+	if m.overlay == overlaySearch {
+		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80)), m.width, m.height)
 	}
 	return out
 }

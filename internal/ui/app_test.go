@@ -294,3 +294,23 @@ func TestHelpOverlayListsBindings(t *testing.T) {
 		t.Error("help still open after esc")
 	}
 }
+
+func TestQuickSearchJumpsToTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks:")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "rotate sign")
+	waitAfter(t, tm, from, "Rotate signing keys")
+	// A permalink is on screen from the very first task the detail pane ever showed, so the wait
+	// needs a fresh mark: only a frame drawn after enter proves the overlay actually closed.
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#12000")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "#12000") || strings.Contains(view, "Search") {
+		t.Errorf("enter should close the search and show the task:\n%s", view)
+	}
+}

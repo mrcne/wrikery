@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -243,13 +244,36 @@ func (m Model) loadTask(id string) tea.Cmd {
 
 // markOpened records that the reader opened the task, which is what puts it on the syncer's list of threads to refresh.
 // It runs on the deliberate open, not on the cursor preview, or walking a folder would queue a refresh for every task in it.
+// markOpened is a hint for the syncer, which refreshes the threads of recently opened tasks.
+// Nothing on screen waits for it, so a failure is logged and never shown.
 func (m Model) markOpened(id string) tea.Cmd {
 	st, now := m.opts.Store, m.opts.Now
 	return func() tea.Msg {
 		if err := st.Tasks().MarkOpened(context.Background(), id, now().UTC().Format(time.RFC3339)); err != nil {
-			return errMsg{err}
+			slog.Warn("mark opened", "task", id, "error", err)
 		}
 		return nil
+	}
+}
+
+// runSearch reads the crumb for each hit's first parent, the same folder title the list pane shows.
+func (m Model) runSearch(seq int, query string) tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		ctx := context.Background()
+		tasks, err := st.Tasks().Search(ctx, query, 30)
+		if err != nil {
+			return errMsg{err}
+		}
+		crumbs := map[string]string{}
+		for _, t := range tasks {
+			if len(t.ParentIDs) > 0 {
+				if f, err := st.Folders().Get(ctx, t.ParentIDs[0]); err == nil {
+					crumbs[t.ID] = f.Title
+				}
+			}
+		}
+		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
 	}
 }
 
