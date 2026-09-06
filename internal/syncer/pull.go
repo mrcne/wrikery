@@ -178,10 +178,9 @@ func timelogWindow(now time.Time) (from, to string) {
 	return monday.AddDate(0, 0, -7*8).Format("2006-01-02"), monday.AddDate(0, 0, 6).Format("2006-01-02")
 }
 
-// pullMyTimelogs replaces the store's rows for the window as a whole,
-// so a deleted or moved entry disappears too.
-// The page size is the documented maximum, see
-// https://developers.wrike.com/api/v4/timelogs/, so the window is usually one request.
+// pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
+// The page size is the documented maximum (https://developers.wrike.com/api/v4/timelogs/),
+// so the window is usually one request.
 func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string, now time.Time) (bool, error) {
 	from, to := timelogWindow(now)
 	p := wrike.TimelogParams{Me: true, TrackedFrom: from, TrackedTo: to, PageSize: 1000}

@@ -292,6 +292,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitTimelogMsg:
+		st, meID := m.opts.Store, m.ref.meID
+		if msg.timelogID == "" {
+			return m, m.enqueue(func(ctx context.Context) error {
+				_, err := st.Outbox().EnqueueTimelogCreate(ctx, msg.taskID, meID, store.TimelogCreatePayload{Hours: msg.hours, TrackedDate: msg.date, Comment: msg.comment})
+				return err
+			}, fmt.Sprintf("Logged %.1f h", msg.hours))
+		}
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTimelogUpdate(ctx, msg.timelogID, store.TimelogUpdatePayload{Hours: msg.hours, TrackedDate: msg.date, Comment: msg.comment})
+			return err
+		}, "Time entry updated")
+	case deleteTimelogMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTimelogDelete(ctx, msg.id)
+			return err
+		}, "Time entry deleted")
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -548,6 +566,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			m.openDialog(newStatusDialog(t, m.ref, m.keys))
 			return nil
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.LogTime):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newTimelogDialog(t.ID, t.Title, nil, "", m.opts.Now())
+			m.openDialog(d)
+			return cmd
 		})
 		return m, cmd
 	case key.Matches(msg, m.keys.Assignee):

@@ -56,3 +56,49 @@ func parseDate(s string, now time.Time) (string, error) {
 	}
 	return "", errors.New("could not read the date, try 2026-09-12, fri, +3d or today")
 }
+
+// parseHours reads 1.5, 1,5, 1:30, 90m, 2h and 2h30m. Wrike stores hours as a decimal, the API rejects zero and negative values.
+func parseHours(s string) (float64, error) {
+	s = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), ",", "."))
+	if s == "" {
+		return 0, errors.New("hours are required")
+	}
+	var hours float64
+	switch {
+	case strings.Contains(s, ":"):
+		parts := strings.SplitN(s, ":", 2)
+		h, err1 := strconv.Atoi(parts[0])
+		m, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || m < 0 || m >= 60 {
+			return 0, fmt.Errorf("could not read %q as h:mm", s)
+		}
+		hours = float64(h) + float64(m)/60
+	case strings.HasSuffix(s, "m") || strings.Contains(s, "h"):
+		rest := s
+		if i := strings.Index(rest, "h"); i >= 0 {
+			h, err := strconv.Atoi(rest[:i])
+			if err != nil {
+				return 0, fmt.Errorf("could not read %q", s)
+			}
+			hours += float64(h)
+			rest = rest[i+1:]
+		}
+		if rest != "" {
+			m, err := strconv.Atoi(strings.TrimSuffix(rest, "m"))
+			if err != nil {
+				return 0, fmt.Errorf("could not read %q", s)
+			}
+			hours += float64(m) / 60
+		}
+	default:
+		v, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return 0, fmt.Errorf("could not read %q as hours", s)
+		}
+		hours = v
+	}
+	if hours <= 0 || hours > 24 {
+		return 0, errors.New("hours must be between 0 and 24")
+	}
+	return hours, nil
+}
