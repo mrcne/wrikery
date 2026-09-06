@@ -68,14 +68,15 @@ func (d datesDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, cmd
 }
 
-// datesFrom maps two dates to a Wrike dates block, see the Update Task reference,
-// https://developers.wrike.com/reference/puttaskssingle: dates.type is Backlog, Milestone or
-// Planned, and duration is optional for a Planned task, Wrike computes it itself (one Wrike day
-// is 480 minutes), so datesFrom leaves it unset. A start date has to travel with a due date or a
-// duration, and a due date sent alone turns the task into a Milestone, so a Planned task here
-// always carries both start and due. Dates are yyyy-MM-dd with an optional time part.
-// No dates is a Backlog task. One date makes a one day Planned task, which is what the web app
-// does when you set only a due date. Milestones are not created here.
+// datesFrom maps two dates to a Wrike dates block, see the Update Task reference at https://developers.wrike.com/reference/puttaskssingle.
+// dates.type is Backlog, Milestone or Planned.
+// duration is optional for a Planned task and Wrike computes it itself (one Wrike day is 480 minutes), so datesFrom leaves it unset.
+// A start date has to travel with a due date or a duration, and a due date sent alone turns the task into a Milestone,
+// so a Planned task here always carries both start and due.
+// Dates are yyyy-MM-dd with an optional time part.
+// No dates is a Backlog task.
+// One date makes a one day Planned task, which is what the web app does when you set only a due date.
+// Milestones are not created here.
 func datesFrom(start, due string) store.TaskDates {
 	if start == "" && due == "" {
 		return store.TaskDates{Type: "Backlog"}

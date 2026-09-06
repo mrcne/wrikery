@@ -5,7 +5,9 @@ package ui
 import (
 	"context"
 	"log/slog"
+	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -214,6 +216,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case writeQueuedMsg:
 		return m, tea.Batch(m.status.show(msg.toast, false), m.reloadCurrent())
+	case editorDoneMsg:
+		// The temp file is a small OS side effect local to this handler, the comment itself still
+		// goes through submitCommentMsg so it reaches the outbox by the same path as the dialog.
+		text, _ := os.ReadFile(msg.path)
+		_ = os.Remove(msg.path)
+		if msg.err != nil {
+			return m, m.status.show("editor failed: "+msg.err.Error(), true)
+		}
+		trimmed := strings.TrimSpace(string(text))
+		if trimmed == "" {
+			return m, m.status.show("empty comment, nothing sent", false)
+		}
+		return m, intent(submitCommentMsg{taskID: msg.taskID, text: trimmed})
 	case submitCommentMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -444,6 +459,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
 			m.openDialog(d)
+			return cmd
+		})
+	case key.Matches(msg, m.keys.CommentEditor):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			cmd, err := openEditor(t.ID)
+			if err != nil {
+				return m.status.show(err.Error(), true)
+			}
 			return cmd
 		})
 	case key.Matches(msg, m.keys.Status):

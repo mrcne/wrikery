@@ -145,8 +145,8 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		args = append(args, p.Status)
 	}
 	if p.Dates != nil {
-		// A Backlog write carries no start or due, and an empty string would sort ahead of every
-		// real date, the same reason the task upsert path in tasks.go stores them as NULL.
+		// A Backlog write carries no start or due, and an empty string would sort ahead of every real date,
+		// the same reason the task upsert path in tasks.go stores them as NULL.
 		set = append(set, "dates_type = ?", "dates_duration = ?", "dates_start = ?", "dates_due = ?")
 		args = append(args, p.Dates.Type, p.Dates.Duration, nullIfEmpty(p.Dates.Start), nullIfEmpty(p.Dates.Due))
 	}
