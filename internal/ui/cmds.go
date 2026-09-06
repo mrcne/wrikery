@@ -278,6 +278,116 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 	}
 }
 
+// enqueue runs one outbox call, wakes the engine and reports back. Every write in the UI goes through here.
+// The counts are read right after, so the status bar reflects the new row without waiting for the
+// next OutboxChangedMsg from the sync engine.
+func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd {
+	st, hooks := m.opts.Store, m.opts.Hooks
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := op(ctx); err != nil {
+			return errMsg{err}
+		}
+		if hooks.WakeOutbox != nil {
+			hooks.WakeOutbox()
+		}
+		pending, failed, err := st.Outbox().Counts(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return writeQueuedMsg{toast: toast, pending: pending, failed: failed}
+	}
+}
+
+// loadCounts reads the outbox pending and failed counts once at startup.
+// Without this, a demo store's seeded failures only reach the status bar on the first OutboxChangedMsg,
+// which never comes in demo mode, so the bar would start blank instead of showing what was seeded.
+func (m Model) loadCounts() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		pending, failed, err := st.Outbox().Counts(context.Background())
+		if err != nil {
+			return errMsg{err}
+		}
+		return OutboxChangedMsg{Pending: pending, Failed: failed}
+	}
+}
+
+// reloadCurrent re-reads the task and the list a write may have changed the outbox state of.
+// The zero node has no folder to list, the same guard reload and OutboxChangedMsg use before the first selection.
+func (m Model) reloadCurrent() tea.Cmd {
+	cmds := []tea.Cmd{m.reloadTask()}
+	if m.selectedNode.kind != nodeNone {
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
+	}
+	return tea.Batch(cmds...)
+}
+
+// loadIssues reads the failed outbox rows for the sync issues screen.
+// A timelog edit or delete names the timelog as its entity, so its task is looked up through the
+// cached row, which is only there while nothing has evicted it yet.
+func (m Model) loadIssues() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		ctx := context.Background()
+		failed, err := st.Outbox().ListFailed(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		var rows []issueRow
+		for _, r := range failed {
+			ir := issueRow{row: r, summary: summarize(r)}
+			switch r.Kind {
+			case store.KindTimelogUpdate, store.KindTimelogDelete:
+				if l, err := st.Timelogs().Get(ctx, r.EntityID); err == nil {
+					ir.taskID = l.TaskID
+				}
+			default:
+				ir.taskID = r.EntityID
+			}
+			if ir.taskID != "" {
+				if t, err := st.Tasks().Get(ctx, ir.taskID); err == nil {
+					ir.title = t.Title
+					if len(t.ParentIDs) > 0 {
+						ir.parentID = t.ParentIDs[0]
+					}
+				} else {
+					ir.title = "(task " + ir.taskID + ")"
+				}
+			} else {
+				ir.title = "(time entry " + r.EntityID + ")"
+			}
+			rows = append(rows, ir)
+		}
+		return issuesLoadedMsg{rows: rows}
+	}
+}
+
+// enqueueIssueOp runs a retry or discard for the issues screen. ErrNotFound means the engine
+// already took the row inflight or somebody else cleared it, which is not a failure worth an
+// error toast, just a sign the list is stale and needs another read.
+func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
+	st, hooks := m.opts.Store, m.opts.Hooks
+	return func() tea.Msg {
+		ctx := context.Background()
+		err := op(ctx)
+		if errors.Is(err, store.ErrNotFound) {
+			return writeQueuedMsg{toast: "already being sent, list refreshed"}
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		if hooks.WakeOutbox != nil {
+			hooks.WakeOutbox()
+		}
+		pending, failed, err := st.Outbox().Counts(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return writeQueuedMsg{toast: doneToast, pending: pending, failed: failed}
+	}
+}
+
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {

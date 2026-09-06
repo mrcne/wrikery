@@ -76,6 +76,8 @@ The row and the matching change to the local cache are written in one transactio
 The UI shows the change at once, and the queue can never disagree with the cache.
 The engine sends rows in order.
 When a write succeeds, the temporary local row is swapped for the version the server returned, again in one transaction.
+A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
+The drain sends Wrike only the custom status id and lets it derive the group.
 
 After a network error the engine waits before the next attempt, and the wait grows with every failure.
 A 429 response, meaning the rate limit was hit, is treated the same way.

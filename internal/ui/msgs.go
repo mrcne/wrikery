@@ -64,6 +64,12 @@ type runSearchMsg struct {
 	query string
 }
 
+// openConfirmMsg is an intent from a child screen: the root opens a confirmDialog from it.
+type openConfirmMsg struct {
+	prompt string
+	onYes  tea.Msg
+}
+
 // Intents from the first run child. The root turns them into commands.
 type firstRunSubmitTokenMsg struct{ token string }
 type firstRunConfirmScopesMsg struct{ scopes []store.Scope }

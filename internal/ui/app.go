@@ -4,8 +4,11 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -74,6 +77,8 @@ type Model struct {
 	list     taskListModel
 	detail   taskDetailModel
 	search   searchModel
+	issues   issuesModel
+	dialog   dialog
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -89,6 +94,7 @@ func New(o Options) Model {
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
+	m.issues.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -107,7 +113,7 @@ func New(o Options) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadRef(), m.loadScopes())
+	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -124,6 +130,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
+		if m.screen == screenIssues {
+			return m, m.loadIssues()
+		}
 		if m.selectedNode.kind == nodeNone {
 			// The queue can change before the tree lands, and there is no list to reread until a node is picked.
 			return m, m.reloadTask()
@@ -208,6 +217,81 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case searchOpenMsg:
 		return m.openFromSearch(msg.task)
+	case closeDialogMsg:
+		m.overlay, m.dialog = overlayNone, nil
+		return m, nil
+	case openConfirmMsg:
+		m.openDialog(confirmDialog(msg))
+		return m, nil
+	case issuesLoadedMsg:
+		m.issues.set(msg.rows)
+		return m, nil
+	case retryIssueMsg:
+		st := m.opts.Store
+		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
+	case discardIssueMsg:
+		st := m.opts.Store
+		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
+	case openTaskMsg:
+		// selectedTaskID is set here, not left for the pendingSelect round trip through tasksLoadedMsg:
+		// taskLoadedMsg drops any answer for a task nobody is on yet, and nothing else is on this one.
+		// The rest mirrors openFromSearch: the parent folder becomes the selected node so a later
+		// list reload finds this task again, and pendingSelect is only set where a load is issued.
+		m.screen, m.focus, m.selectedTaskID = screenMain, paneDetail, msg.id
+		cmds := []tea.Cmd{m.loadTask(msg.id)}
+		if msg.parentID != "" && m.sidebar.selectByID(msg.parentID) {
+			n, _ := m.sidebar.current()
+			m.selectedNode = n
+			m.pendingSelect = msg.id
+			cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
+		}
+		return m, tea.Batch(cmds...)
+	case writeQueuedMsg:
+		m.status.pending, m.status.failed = msg.pending, msg.failed
+		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
+		if m.screen == screenIssues {
+			cmds = append(cmds, m.loadIssues())
+		}
+		return m, tea.Batch(cmds...)
+	case editorDoneMsg:
+		// The temp file is a small OS side effect local to this handler,
+		// the comment itself still goes through submitCommentMsg so it reaches the outbox by the same path as the dialog.
+		// A file that cannot be read is treated as an empty comment, there is nothing better to send.
+		text, _ := os.ReadFile(msg.path)
+		_ = os.Remove(msg.path)
+		if msg.err != nil {
+			return m, m.status.show("editor failed: "+msg.err.Error(), true)
+		}
+		trimmed := strings.TrimSpace(string(text))
+		if trimmed == "" {
+			return m, m.status.show("empty comment, nothing sent", false)
+		}
+		return m, intent(submitCommentMsg{taskID: msg.taskID, text: trimmed})
+	case submitCommentMsg:
+		st, meID := m.opts.Store, m.ref.meID
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueComment(ctx, msg.taskID, meID, msg.text)
+			return err
+		}, "Comment queued")
+	case submitStatusMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{CustomStatusID: msg.statusID, Status: msg.group})
+			return err
+		}, "Status set to "+msg.name)
+	case submitAssigneesMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddResponsibles: msg.add, RemoveResponsibles: msg.remove})
+			return err
+		}, "Assignees updated")
+	case submitDatesMsg:
+		st := m.opts.Store
+		dates := msg.dates
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
+			return err
+		}, "Dates updated")
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -279,6 +363,7 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 // below marks the right task and a task whose folder is outside the tree still reaches the detail pane.
 func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
+	m.screen = screenMain
 	m.overlay = overlayNone
 	m.search.blur()
 	m.focus = paneDetail
@@ -286,6 +371,9 @@ func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
 		n, _ := m.sidebar.current()
+		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
+		// reloads the node the search left behind instead of the one now on screen.
+		m.selectedNode = n
 		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
 		m.pendingSelect = t.ID
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
@@ -303,9 +391,26 @@ func (m Model) reloadTask() tea.Cmd {
 	return m.loadTask(m.selectedTaskID)
 }
 
+// openDialog opens a dialog and switches the overlay to it.
+// The pointer receiver mutates the caller's m in place, and the caller returns that same m afterward,
+// so a caller must not also read m in the same statement, the order between the two is unspecified.
+func (m *Model) openDialog(d dialog) {
+	m.dialog = d
+	m.overlay = overlayDialog
+}
+
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		return m, tea.Quit
+	}
+	if m.overlay == overlayDialog && m.dialog != nil {
+		if msg.Type == tea.KeyEsc {
+			m.overlay, m.dialog = overlayNone, nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.dialog, cmd = m.dialog.Update(msg)
+		return m, cmd
 	}
 	if m.overlay == overlayHelp {
 		if key.Matches(msg, m.keys.Help, m.keys.Back, m.keys.Quit) {
@@ -338,6 +443,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
 	}
+	if m.screen == screenIssues {
+		// Only the keys that make sense with no task on screen fall through, everything else
+		// (including the task action keys below) would otherwise act on whatever task the main
+		// screen last had selected, underneath the box this screen is showing instead.
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
+		case key.Matches(msg, m.keys.Help):
+			m.overlay = overlayHelp
+			return m, nil
+		case key.Matches(msg, m.keys.Search):
+			m.overlay = overlaySearch
+			return m, m.search.reset()
+		case key.Matches(msg, m.keys.Refresh):
+			if m.opts.Hooks.Refresh == nil {
+				return m, m.status.show("refresh is not available", true)
+			}
+			m.opts.Hooks.Refresh()
+			return m, m.status.show("refreshing", false)
+		case key.Matches(msg, m.keys.Back):
+			m.screen = screenMain
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.issues, cmd = m.issues.Update(msg)
+		return m, cmd
+	}
 	prevFocus := m.focus
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -353,6 +485,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.opts.Hooks.Refresh()
 		return m, m.status.show("refreshing", false)
+	case key.Matches(msg, m.keys.Issues):
+		m.screen = screenIssues
+		return m, m.loadIssues()
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = (m.focus + 1) % 3
 	case key.Matches(msg, m.keys.PrevPane):
@@ -364,7 +499,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus--
 		}
 	case key.Matches(msg, m.keys.Open):
-		return m, m.withTask(func(t store.Task) tea.Cmd {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			open := m.opts.Hooks.OpenURL
 			if open == nil {
 				return m.status.show("browser not available", true)
@@ -380,15 +515,55 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return toastMsg{text: "Opened in browser"}
 			}
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyLink):
-		return m, m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyBranch):
-		return m, m.copy(func(t store.Task) (string, string) {
+		cmd := m.copy(func(t store.Task) (string, string) {
 			name := branchName(m.opts.Config.BranchTemplate, t)
 			return name, "Copied " + name
 		})
+		return m, cmd
 	case key.Matches(msg, m.keys.CopyID):
-		return m, m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		return m, cmd
+	case key.Matches(msg, m.keys.Comment):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.CommentEditor):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			cmd, err := openEditor(t.ID)
+			if err != nil {
+				return m.status.show(err.Error(), true)
+			}
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Status):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			m.openDialog(newStatusDialog(t, m.ref, m.keys))
+			return nil
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Assignee):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Dates):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newDatesDialog(t, m.opts.Now())
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before:
@@ -470,6 +645,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenFirstRun:
 		body = m.firstRun.View(m.theme, m.width, bodyHeight)
+	case screenIssues:
+		body = m.viewIssues(bodyHeight)
 	default:
 		body = m.viewMain(bodyHeight)
 	}
@@ -484,6 +661,9 @@ func (m Model) View() string {
 	}
 	if m.overlay == overlaySearch {
 		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
+	}
+	if m.overlay == overlayDialog && m.dialog != nil {
+		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80)), m.width, m.height)
 	}
 	return out
 }
@@ -501,6 +681,15 @@ func (m *Model) syncPaneSizes() {
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
 	}
+	// The issues screen replaces the whole body with one box, its inner height mirrors what viewIssues gives its View.
+	m.issues.height = max(0, m.height-3)
+}
+
+// viewIssues fills the whole body with one box, there is no sidebar or detail pane to share it with.
+func (m Model) viewIssues(height int) string {
+	title := fmt.Sprintf("Sync issues (%d)", len(m.issues.rows))
+	body := m.issues.View(m.theme, m.opts.Now(), m.width-2, height-2)
+	return m.theme.box(title, body, m.width, height, true)
 }
 
 func (m Model) viewMain(height int) string {
@@ -536,6 +725,9 @@ func (m Model) paneBody(p pane, r rect) string {
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
+	if m.screen == screenIssues {
+		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
+	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.focus == paneList {
 		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
@@ -547,5 +739,8 @@ func (m Model) hintBindings() []key.Binding {
 }
 
 func (m Model) helpGroups() [][]key.Binding {
+	if m.screen == screenIssues {
+		return [][]key.Binding{m.keys.global(), m.keys.issues()}
+	}
 	return [][]key.Binding{m.keys.global(), m.keys.list(), m.keys.task()}
 }

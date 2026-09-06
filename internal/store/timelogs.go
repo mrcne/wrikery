@@ -3,12 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 type TimelogRepo interface {
 	Upsert(ctx context.Context, logs []Timelog) error
 	ReplaceForTask(ctx context.Context, taskID string, logs []Timelog) error
 	ListForTask(ctx context.Context, taskID string) ([]Timelog, error)
+	Get(ctx context.Context, id string) (Timelog, error)
 }
 
 func (s *Store) Timelogs() TimelogRepo { return timelogRepo{w: s.writer, r: s.reader} }
@@ -68,10 +70,21 @@ func (t timelogRepo) ReplaceForTask(ctx context.Context, taskID string, logs []T
 	return tx.Commit()
 }
 
+// timelogColumns is shared by ListForTask and Get so the two queries cannot drift apart.
+const timelogColumns = `id, task_id, user_id, category_id, tracked_date, comment, hours,
+	lock_status, approval_status, created_date, updated_date`
+
+func scanTimelog(row interface{ Scan(...any) error }) (Timelog, error) {
+	var l Timelog
+	err := row.Scan(&l.ID, &l.TaskID, &l.UserID, &l.CategoryID, &l.TrackedDate,
+		&l.Comment, &l.Hours, &l.LockStatus, &l.ApprovalStatus, &l.CreatedDate,
+		&l.UpdatedDate)
+	return l, err
+}
+
 func (t timelogRepo) ListForTask(ctx context.Context, taskID string) ([]Timelog, error) {
 	rows, err := t.r.QueryContext(ctx, `
-		SELECT id, task_id, user_id, category_id, tracked_date, comment, hours,
-			lock_status, approval_status, created_date, updated_date FROM timelogs
+		SELECT `+timelogColumns+` FROM timelogs
 		WHERE task_id = ? ORDER BY created_date, id`, taskID)
 	if err != nil {
 		return nil, err
@@ -79,13 +92,23 @@ func (t timelogRepo) ListForTask(ctx context.Context, taskID string) ([]Timelog,
 	defer func() { _ = rows.Close() }()
 	var out []Timelog
 	for rows.Next() {
-		var l Timelog
-		if err := rows.Scan(&l.ID, &l.TaskID, &l.UserID, &l.CategoryID, &l.TrackedDate,
-			&l.Comment, &l.Hours, &l.LockStatus, &l.ApprovalStatus, &l.CreatedDate,
-			&l.UpdatedDate); err != nil {
+		l, err := scanTimelog(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, l)
 	}
 	return out, rows.Err()
+}
+
+func (t timelogRepo) Get(ctx context.Context, id string) (Timelog, error) {
+	l, err := scanTimelog(t.r.QueryRowContext(ctx,
+		`SELECT `+timelogColumns+` FROM timelogs WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Timelog{}, ErrNotFound
+	}
+	if err != nil {
+		return Timelog{}, err
+	}
+	return l, nil
 }

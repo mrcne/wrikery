@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,6 +153,36 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 	}
 }
 
+// TestTaskActionGoldens covers the status dialog and the sync issues screen at 120 columns,
+// the width where the detail pane enters the window (see TestShellGoldenAtThreeWidths).
+// Both cases wait for "-- Comments (" first, the same loaded signal that test uses at 120
+// columns and up, so the dialog or the issues screen is captured over a fully drawn frame
+// and not one still mid-load.
+func TestTaskActionGoldens(t *testing.T) {
+	t.Run("status", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "s")
+		waitAfter(t, tm, from, "Status")
+		// finalView's "q" would reach the dialog instead of quitting, a dialog owns every key but
+		// esc and ctrl+c, so the program is stopped with ctrl+c here to capture it still open.
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+	})
+	t.Run("issues", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "!")
+		waitAfter(t, tm, from, "Sync issues (2)")
+		golden.RequireEqual(t, []byte(finalView(t, tm)))
+	})
+}
+
 func TestSidebarShowsFollowedSpaces(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
@@ -260,6 +291,17 @@ func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	waitFor(t, tm, "1 failed")
 	tm.Send(ui.SyncStateMsg{State: "offline"})
 	waitFor(t, tm, "offline since")
+}
+
+// TestStatusBarShowsSeededCountsOnFirstFrame covers the demo store's outbox counts reaching the
+// status bar on load, before any OutboxChangedMsg from a sync engine that demo mode never runs.
+// The demo seed leaves one pending comment and two failed writes, see internal/demo/seed.go.
+func TestStatusBarShowsSeededCountsOnFirstFrame(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks: My tasks (")
+	waitFor(t, tm, "1 pending")
+	waitFor(t, tm, "2 failed")
 }
 
 // The short hints are in the goldens, the overlay is not, and bubbles reaches for a bullet and an ellipsis of its own.
@@ -384,6 +426,29 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 	}
 }
 
+// TestQuickSearchFromIssuesScreenJumpsToMain covers a search opened while the sync issues screen
+// is up: the match still has to switch the screen back to main, or the issues list stays on top
+// of the task the search just loaded.
+func TestQuickSearchFromIssuesScreenJumpsToMain(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "!")
+	waitFor(t, tm, "Sync issues (")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Sync issues (") || !strings.Contains(view, "#1200000") {
+		t.Errorf("enter from a search opened on the issues screen should land on main with the task:\n%s", view)
+	}
+}
+
 func TestCopyBindingsCopyTheRightText(t *testing.T) {
 	st := seededStore(t)
 	opts, copied := testOptionsWithCopy(st)
@@ -417,5 +482,235 @@ func TestCopyBindingsCopyTheRightText(t *testing.T) {
 	waitAfter(t, tm, from, "Copied")
 	if want := "https://www.wrike.com/open.htm?id=1200000"; len(*copied) != 3 || (*copied)[2] != want {
 		t.Fatalf("copy permalink: got %v, want permalink %q at index 2", *copied, want)
+	}
+}
+
+func TestCommentDialogQueuesAndMarks(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	// "Fix auth retry loop" is IEAATASK00 and the only task matching all three words, so the search lands on it.
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "c")
+	waitAfter(t, tm, from, "Comment on")
+
+	from = mark(t, tm)
+	press(tm, "hello from the test")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
+	waitAfter(t, tm, from, "Comment queued")
+	waitAfter(t, tm, from, "(sending)")
+
+	view := finalView(t, tm)
+	if !strings.Contains(view, "hello from the test") {
+		t.Errorf("new comment not in the detail pane:\n%s", view)
+	}
+	comments, err := st.Comments().ListForTask(context.Background(), "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range comments {
+		found = found || (c.Text == "hello from the test" && strings.HasPrefix(c.ID, store.LocalIDPrefix))
+	}
+	if !found {
+		t.Error("comment not queued as a local row")
+	}
+}
+
+func TestStatusDialogQueuesAndMarks(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	// #1200033 (IEAATASK33) is whatever the demo's My tasks list preselects, currently Blocked
+	// in the Engineering workflow. j moves the cursor down one row, to Done, the next status in
+	// workflow order.
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "s")
+	waitAfter(t, tm, from, "Status")
+
+	from = mark(t, tm)
+	press(tm, "j", "enter")
+	waitAfter(t, tm, from, "Status set to Done")
+	// The demo seed already leaves one comment pending, so a second write makes two, read straight
+	// off the outbox in the same command rather than waiting for a sync engine event that never comes here.
+	waitAfter(t, tm, from, "2 pending")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK33")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.CustomStatusID != "IEAAST15" || task.Status != "Completed" {
+		t.Errorf("task after status change = %+v, want IEAAST15/Completed", task)
+	}
+}
+
+func TestAssigneeDialogAddsAResponsible(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	// IEAATASK33, the demo's My tasks preselection, starts out responsible to Ada (me) and Celina.
+	// "dawid" narrows the contact list to Dawid Mroz alone.
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "a")
+	waitAfter(t, tm, from, "Assignees")
+
+	from = mark(t, tm)
+	press(tm, "dawid", "space", "enter")
+	waitAfter(t, tm, from, "Assignees updated")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK33")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(task.ResponsibleIDs, "KUAAAAD1") {
+		t.Errorf("responsibles after assignee change = %v, want KUAAAAD1 added", task.ResponsibleIDs)
+	}
+}
+
+func TestDatesDialogSetsDue(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	// "Fix auth retry loop" is IEAATASK00, the same task the comment flow test picks, and it
+	// starts with no dates block, so typing straight into the due field needs no clearing first.
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "d")
+	waitAfter(t, tm, from, "Dates")
+
+	from = mark(t, tm)
+	press(tm, "tab", "tomorrow", "enter")
+	waitAfter(t, tm, from, "Dates updated")
+
+	task, err := st.Tasks().Get(context.Background(), "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := testOptions(st).Now().AddDate(0, 0, 1).Format("2006-01-02")
+	if task.Dates == nil || task.Dates.Due != want {
+		t.Errorf("dates after edit = %+v, want due %s", task.Dates, want)
+	}
+}
+
+func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+	waitAfter(t, tm, from, "Task not found")
+
+	// Move to the second failure and confirm it is listed too, before acting on it.
+	from = mark(t, tm)
+	press(tm, "j")
+	waitAfter(t, tm, from, "Timesheet is locked")
+
+	from = mark(t, tm)
+	press(tm, "x")
+	waitAfter(t, tm, from, "Discard this write?")
+
+	from = mark(t, tm)
+	press(tm, "y")
+	waitAfter(t, tm, from, "Sync issues (1)")
+
+	from = mark(t, tm)
+	press(tm, "r")
+	waitAfter(t, tm, from, "Sync issues (0)")
+
+	pending, failed, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 2 || failed != 0 {
+		t.Errorf("outbox counts after retry = pending %d, failed %d, want 2, 0", pending, failed)
+	}
+}
+
+func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	// Put the sidebar's selected node on IEAATASK00's folder (ProjectAPI), which is not
+	// IEAATASK01's folder (Web), so a reload keyed off a stale selection cannot find IEAATASK01
+	// by coincidence and the assertions below actually exercise the fix.
+	from := mark(t, tm)
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+
+	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200001")
+
+	// A later reload (any outbox or store change) must not knock the detail off the task just
+	// opened: openTaskMsg has to put its parent folder (Web) in the sidebar's selected node, the
+	// same way openFromSearch does, or the list reload keyed off the stale API selection fires a
+	// taskSelectedMsg for whatever row is there instead. A fixed sleep, not a wait for specific
+	// text, is used here: with the fix the reload is idempotent and repaints nothing new to wait
+	// for, so the only reliable way to let its goroutine settle before the assertion is to wait.
+	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 0})
+	time.Sleep(150 * time.Millisecond)
+
+	view := finalView(t, tm)
+	if strings.Contains(view, "Sync issues") {
+		t.Errorf("enter should leave the issues screen for the task detail:\n%s", view)
+	}
+	if !strings.Contains(view, "#1200001") {
+		t.Errorf("the opened task should still be selected after the outbox message:\n%s", view)
+	}
+}
+
+// TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
+// (here s for the status dialog) does nothing on the issues screen, since there is no task pane
+// underneath it to act on and the key would otherwise reach whatever task was selected before.
+func TestSyncIssuesRoutesKeysToTheScreen(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+
+	press(tm, "s")
+	// Give a stray Update a moment to land before asserting nothing happened.
+	time.Sleep(50 * time.Millisecond)
+
+	view := finalView(t, tm)
+	// Nothing on the issues screen itself says "Status", the detail pane label of the same
+	// name is part of the main screen this box replaces, so its presence means the dialog opened.
+	if strings.Contains(view, "Status") || !strings.Contains(view, "Sync issues") {
+		t.Errorf("s should not open the status dialog on the issues screen:\n%s", view)
 	}
 }

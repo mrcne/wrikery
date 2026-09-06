@@ -51,6 +51,11 @@ type TaskUpdatePayload struct {
 	AddResponsibles    []string   `json:"addResponsibles,omitempty"`
 	RemoveResponsibles []string   `json:"removeResponsibles,omitempty"`
 	Dates              *TaskDates `json:"dates,omitempty"`
+	// Status is the custom status's group.
+	// It is applied to the cache row so the list sorts and filters the task as done right away.
+	// The drain does not send it, Wrike derives the group from the custom status id, and rejects
+	// an update that carries a group name of its own.
+	Status string `json:"status,omitempty"`
 }
 
 type CommentCreatePayload struct {
@@ -133,9 +138,16 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		set = append(set, "custom_status_id = ?")
 		args = append(args, p.CustomStatusID)
 	}
+	if p.Status != "" {
+		// See the Status field's doc comment on TaskUpdatePayload for why this is local only.
+		set = append(set, "status = ?")
+		args = append(args, p.Status)
+	}
 	if p.Dates != nil {
+		// A Backlog write carries no start or due, and an empty string would sort ahead of every real date,
+		// the same reason the task upsert path in tasks.go stores them as NULL.
 		set = append(set, "dates_type = ?", "dates_duration = ?", "dates_start = ?", "dates_due = ?")
-		args = append(args, p.Dates.Type, p.Dates.Duration, p.Dates.Start, p.Dates.Due)
+		args = append(args, p.Dates.Type, p.Dates.Duration, nullIfEmpty(p.Dates.Start), nullIfEmpty(p.Dates.Due))
 	}
 	if len(set) > 0 {
 		args = append(args, taskID)
