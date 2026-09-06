@@ -1,5 +1,7 @@
 version: 2
 
+project_name: wrikery
+
 builds:
   - main: ./cmd/wrikery
     binary: wrikery
@@ -10,7 +12,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}}
+      - -s -w -X main.version={{.Tag}} -X main.commit={{.ShortCommit}}
 
 archives:
   - formats: [tar.gz]

@@ -31,6 +31,13 @@ func TestVersionLine(t *testing.T) {
 			goVer:   "go1.26",
 			want:    "wrikery v0.1.0 (abc12) go1.26",
 		},
+		{
+			name:    "a git describe version that already holds the short hash drops the parentheses",
+			version: "v0.1.0-3-gabc1234-dirty",
+			commit:  "abc1234def",
+			goVer:   "go1.26",
+			want:    "wrikery v0.1.0-3-gabc1234-dirty go1.26",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,12 +57,13 @@ func buildCommit() string {
 
 // versionLine formats the --version output:
 // it shortens a full commit hash to seven characters and drops the parentheses when no commit is known.
+// A version from git describe on an untagged build already contains the short hash, so the parentheses go too.
 func versionLine(version, commit, goVersion string) string {
-	if commit == "" {
-		return fmt.Sprintf("wrikery %s %s", version, goVersion)
-	}
 	if len(commit) > 7 {
 		commit = commit[:7]
+	}
+	if commit == "" || strings.Contains(version, commit) {
+		return fmt.Sprintf("wrikery %s %s", version, goVersion)
 	}
 	return fmt.Sprintf("wrikery %s (%s) %s", version, commit, goVersion)
 }
@@ -115,6 +117,10 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		return err
 	}
 	if configPath != "" {
+		// The default path may be missing and then the defaults apply, a path given by hand is a typo when it is missing.
+		if _, err := os.Stat(configPath); err != nil {
+			return fmt.Errorf("reading the config file: %w", err)
+		}
 		paths.ConfigFile = configPath
 	}
 	if err := paths.EnsureDirs(); err != nil {
