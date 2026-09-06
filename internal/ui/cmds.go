@@ -246,7 +246,6 @@ func (m Model) loadTask(id string) tea.Cmd {
 
 // markOpened records that the reader opened the task, which is what puts it on the syncer's list of threads to refresh.
 // It runs on the deliberate open, not on the cursor preview, or walking a folder would queue a refresh for every task in it.
-// markOpened is a hint for the syncer, which refreshes the threads of recently opened tasks.
 // Nothing on screen waits for it, so a failure is logged and never shown.
 func (m Model) markOpened(id string) tea.Cmd {
 	st, now := m.opts.Store, m.opts.Now

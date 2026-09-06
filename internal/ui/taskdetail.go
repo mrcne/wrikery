@@ -55,6 +55,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		// A terminal that cannot draw the theme glyphs cannot draw glamour's bullets and rules either.
 		mode = "ascii"
 	}
+	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
 	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
 	if renderKey != d.renderKey {
 		d.rendered = renderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)

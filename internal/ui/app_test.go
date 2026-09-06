@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest"
 
@@ -139,7 +140,13 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
 			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
-			waitFor(t, tm, "Tasks")
+			// The frame is captured as it stands, so the wait has to be for something only the finished reads draw.
+			// The detail pane is in the window from 120 columns up, below that the list title is the last thing to land.
+			loaded := "Tasks: My tasks ("
+			if w >= 120 {
+				loaded = "-- Comments ("
+			}
+			waitFor(t, tm, loaded)
 			golden.RequireEqual(t, []byte(finalView(t, tm)))
 		})
 	}
@@ -159,8 +166,9 @@ func TestSidebarShowsFollowedSpaces(t *testing.T) {
 func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "tab") // list -> detail, at 100 columns the sidebar leaves the window
+	waitFor(t, tm, "-- Comments (")
 	view := finalView(t, tm)
 	// Only the detail pane draws the comment divider, so it stands for that pane being on screen.
 	if strings.Contains(view, "Spaces") || !strings.Contains(view, "-- Comments (") {
@@ -246,7 +254,7 @@ func TestOpeningATaskMarksItOpened(t *testing.T) {
 func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 1})
 	waitFor(t, tm, "2 pending")
 	waitFor(t, tm, "1 failed")
@@ -260,7 +268,7 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
 			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
-			waitFor(t, tm, "Tasks")
+			waitFor(t, tm, "Tasks: My tasks (")
 			press(tm, "?")
 			waitFor(t, tm, "esc or ? to close")
 			for _, r := range seenOutput(t, tm).String() {
@@ -277,18 +285,49 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 func TestTaskListFiltersAndFollowsTheSidebar(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
-	waitFor(t, tm, "Tasks: My tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
+	// The list follows the sidebar cursor. This runs first because the filter has to be the last thing on screen,
+	// only the frame the program ends on can be read row by row.
+	press(tm, "shift+tab")
+	press(tm, "j")
+	waitFor(t, tm, "Tasks: Mobile")
 	from := mark(t, tm)
+	press(tm, "k")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
+	press(tm, "tab")
+	from = mark(t, tm)
 	press(tm, "/")
 	press(tm, "a", "u", "t", "h")
 	waitAfter(t, tm, from, "Tasks: My tasks (")
 	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= 30 {
 		t.Fatalf("filtering by 'auth' should narrow the list below 30, title count is %d", n)
 	}
-	press(tm, "esc")
-	press(tm, "shift+tab")
-	press(tm, "j")
-	waitFor(t, tm, "Tasks: Mobile")
+	press(tm, "enter") // leave the filter input, the filter itself stays
+	view := finalView(t, tm)
+	rows := taskListRows(view)
+	if len(rows) == 0 {
+		t.Fatalf("the filtered list should still hold rows:\n%s", view)
+	}
+	for _, row := range rows {
+		if !strings.Contains(strings.ToLower(row), "auth") {
+			t.Errorf("row %q is on screen although the filter is auth:\n%s", strings.TrimSpace(row), view)
+		}
+	}
+}
+
+// taskListRows cuts the task rows out of a full frame.
+// The panes are drawn next to each other, so a line is split on the pane borders and the list is the second box,
+// and a row is told from a blank filler or the filter input by the status glyph that follows the cursor column.
+func taskListRows(view string) []string {
+	var rows []string
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 || len(cells[3]) < 3 || !strings.ContainsRune("ovzx", rune(cells[3][2])) {
+			continue
+		}
+		rows = append(rows, cells[3])
+	}
+	return rows
 }
 
 // taskListTitleCount reads the "(N)" count off the last "Tasks: My tasks (" title drawn in the given output.
@@ -313,7 +352,7 @@ func taskListTitleCount(t *testing.T, output string) int {
 func TestHelpOverlayListsBindings(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
-	waitFor(t, tm, "Tasks")
+	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "?")
 	waitFor(t, tm, "sync issues")
 	press(tm, "esc")

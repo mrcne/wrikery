@@ -128,7 +128,7 @@ func (s sidebarModel) parentOf(idx int) int {
 	return -1
 }
 
-// crumb joins a node's ancestors with the root first, for the list pane title.
+// The list pane title shows the path from the space down to the selected node.
 func (s sidebarModel) crumb(n treeNode) string {
 	var titles []string
 	idx := -1
