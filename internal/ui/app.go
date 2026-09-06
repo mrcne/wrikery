@@ -70,8 +70,11 @@ type Model struct {
 	firstRun firstRunModel
 	ref      refData
 	sidebar  sidebarModel
+	list     taskListModel
 
-	selectedNode treeNode
+	selectedNode   treeNode
+	selectedTaskID string
+	pendingSelect  string // task id to reselect once the next tasksLoadedMsg lands, set by reload after an outbox or task change
 }
 
 func New(o Options) Model {
@@ -80,6 +83,7 @@ func New(o Options) Model {
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
 	m.sidebar.keys = m.keys
+	m.list = newTaskList(m.keys)
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -115,7 +119,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
-		return m, nil
+		// The pending and failed markers live on the task row, so a queue change needs the list reread too.
+		return m, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode))
 	case toastExpiredMsg:
 		if msg.seq == m.status.toastSeq {
 			m.status.toast = ""
@@ -141,6 +146,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
+		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node))
+	case tasksLoadedMsg:
+		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
+			m.list.cursor = 0
+		}
+		m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
+		m.pendingSelect = ""
+		if cur, ok := m.list.current(); ok {
+			return m, intent(taskSelectedMsg{id: cur.task.ID})
+		}
+		return m, nil
+	case taskSelectedMsg:
+		m.selectedTaskID = msg.id
 		return m, nil
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
@@ -200,6 +218,9 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "folders") || slices.Contains(entities, "spaces") || slices.Contains(entities, "tasks") {
 		cmds = append(cmds, m.loadTree())
 	}
+	if slices.Contains(entities, "tasks") {
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
+	}
 	if m.screen == screenFirstRun {
 		if m.firstRun.step == stepScopes && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
 			cmds = append(cmds, m.loadPicker())
@@ -230,6 +251,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.firstRun, cmd = m.firstRun.Update(msg)
 		return m, cmd
 	}
+	if m.list.filtering {
+		// A filter query may contain any letter, including the ones bound to quit or the pane switches.
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
+	}
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		return m, tea.Quit
@@ -258,6 +285,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.sidebar, cmd = m.sidebar.Update(msg)
 		return m, cmd
+	case paneList:
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -285,12 +316,15 @@ func (m Model) View() string {
 	return out
 }
 
-// syncPaneSizes pushes the computed pane heights down to the child models. A View method takes
-// its size as a plain argument each frame and has no way to remember it between calls on its own.
+// syncPaneSizes pushes the computed pane heights down to the child models.
+// A View method takes its size as a plain argument each frame and has no way to remember it between calls on its own.
 func (m *Model) syncPaneSizes() {
 	lay := computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
 	if r, ok := lay.rects[paneSidebar]; ok {
 		m.sidebar.height = r.h - 2
+	}
+	if r, ok := lay.rects[paneList]; ok {
+		m.list.height = r.h - 2
 	}
 }
 
@@ -309,22 +343,29 @@ func (m Model) paneTitle(p pane) string {
 	case paneSidebar:
 		return "Spaces"
 	case paneList:
-		return "Tasks"
+		return m.list.title()
 	}
 	return "Task"
 }
 
-// paneBody draws the sidebar from its model. List and detail still have no content.
+// paneBody draws the sidebar and the task list from their models. Detail still has no content.
 func (m Model) paneBody(p pane, r rect) string {
-	if p == paneSidebar {
+	switch p {
+	case paneSidebar:
 		return m.sidebar.View(m.theme, r.w-2, r.h-2, m.focus == paneSidebar)
+	case paneList:
+		return m.list.View(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.focus == paneList)
 	}
 	return ""
 }
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
-	return []key.Binding{m.keys.NextPane, m.keys.Help, m.keys.Quit}
+	base := []key.Binding{m.keys.NextPane, m.keys.Help, m.keys.Quit}
+	if m.focus == paneList {
+		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
+	}
+	return base
 }
 
 func (m Model) helpGroups() [][]key.Binding {

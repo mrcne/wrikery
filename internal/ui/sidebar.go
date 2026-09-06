@@ -62,8 +62,8 @@ func (s *sidebarModel) setNodes(nodes []treeNode) {
 	s.scroll()
 }
 
-// scroll clamps offset so the cursor row stays inside the pane. View has a value receiver, so
-// it cannot persist the offset it would otherwise compute itself, this is done here instead.
+// scroll clamps offset so the cursor row stays inside the pane.
+// View has a value receiver, so it cannot persist the offset it would otherwise compute itself, this is done here instead.
 func (s *sidebarModel) scroll() {
 	if s.height <= 0 {
 		return
@@ -213,8 +213,8 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 	if height <= 0 {
 		return ""
 	}
-	// offset lives on the model and is advanced by scroll(), this only guards against it landing
-	// past the end, for example right after the node list shrinks.
+	// offset lives on the model and is advanced by scroll().
+	// This only guards against it landing past the end, for example right after the node list shrinks.
 	offset := s.offset
 	if last := len(s.visible) - 1; offset > last {
 		offset = max(0, last)

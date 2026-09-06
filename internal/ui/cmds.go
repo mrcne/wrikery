@@ -97,8 +97,8 @@ func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
 	}
 }
 
-// loadTree builds the sidebar from the followed scopes: My tasks first, then each followed space's
-// subtree, then followed projects that are not inside a followed space.
+// loadTree builds the sidebar from the followed scopes: My tasks first,
+// then each followed space's subtree, then followed projects that are not inside a followed space.
 func (m Model) loadTree() tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	return func() tea.Msg {
@@ -184,6 +184,28 @@ func (m Model) loadTree() tea.Cmd {
 }
 
 func isDone(t store.Task) bool { return t.Status == "Completed" || t.Status == "Cancelled" }
+
+func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	return func() tea.Msg {
+		ctx := context.Background()
+		var tasks []store.Task
+		var err error
+		if node.kind == nodeMe {
+			tasks, err = st.Tasks().ListForResponsible(ctx, meID)
+		} else {
+			tasks, err = st.Tasks().ListInFolder(ctx, node.id)
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		states, err := st.Outbox().StatesByEntity(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states}
+	}
+}
 
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken

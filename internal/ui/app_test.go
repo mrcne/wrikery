@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -183,6 +184,42 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 			_ = finalView(t, tm)
 		})
 	}
+}
+
+func TestTaskListFiltersAndFollowsTheSidebar(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	from := mark(t, tm)
+	press(tm, "/")
+	press(tm, "a", "u", "t", "h")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
+	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= 30 {
+		t.Fatalf("filtering by 'auth' should narrow the list below 30, title count is %d", n)
+	}
+	press(tm, "esc")
+	press(tm, "shift+tab")
+	press(tm, "j")
+	waitFor(t, tm, "Tasks: Mobile")
+}
+
+// taskListTitleCount reads the "(N)" count off the last "Tasks: My tasks (" title drawn in the given output.
+func taskListTitleCount(t *testing.T, output string) int {
+	t.Helper()
+	idx := strings.LastIndex(output, "Tasks: My tasks (")
+	if idx < 0 {
+		t.Fatalf("no task list title found in:\n%s", output)
+	}
+	rest := output[idx+len("Tasks: My tasks ("):]
+	end := strings.IndexByte(rest, ')')
+	if end < 0 {
+		t.Fatalf("unterminated task list title in:\n%s", output)
+	}
+	n, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		t.Fatalf("task list title count %q: %v", rest[:end], err)
+	}
+	return n
 }
 
 func TestHelpOverlayListsBindings(t *testing.T) {

@@ -1,30 +1,30 @@
-+- Tasks ------------------------------------------------------------+
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
++- Tasks: My tasks (30) ---------------------------------------------+
+|> o Document auth retry loop                              CW+ 29 Aug|
+|  o Refactor signing keys                                 CW+ 29 Aug|
+|  o Remove rate limit test                                CW+ 29 Aug|
+|  o Rotate signing keys                                   CW+  2 Sep|
+|  o Document rate limit test                              CW+  2 Sep|
+|  o Refactor error codes                                  CW+  2 Sep|
+|  o Remove sync cursor                                    CW+  2 Sep|
+|  o Bump legacy config loader                             CW+  2 Sep|
+|  o Investigate dependencies                              CW+  2 Sep|
+|  o Remove auth retry loop                                AN   today|
+|  o Bump signing keys                                     AN   today|
+|  o Investigate rate limit test                           AN   today|
+|  o Design error codes                                    AN   today|
+|  o Write tests for sync cursor                           AN   today|
+|  z Bump error codes                                      AN     Mon|
+|  z Investigate sync cursor                               AN     Mon|
+|  z Design legacy config loader                           AN     Mon|
+|  z Write tests for dependencies                          AN     Mon|
+|  z Fix onboarding flow                                   AN     Mon|
+|  z Add search ranking                                    AN     Mon|
+|  o Fix search ranking                                    CW+    Wed|
+|  o Add timesheet export                                  CW+    Wed|
+|  o Rotate dark theme                                     CW+    Wed|
+|  o Refactor dark theme                                   AN  14 Sep|
+|  o Fix auth retry loop                                 ~ AN      --|
+|  o Add signing keys                                    ! AN      --|
+|  o Rotate rate limit test                              ! AN      --|
 +--------------------------------------------------------------------+
- demo  * synced 0 s ago                 tab next pane  ? help  q quit 
+ demo  * synced 0 s ago                                               
