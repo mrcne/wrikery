@@ -17,7 +17,7 @@ This tool stores a local copy of tasks, so browsing and searching is instant, an
 - instant full text search for everything cached
 - add comments, change status, assignee and dates
 - log time and review week in a timesheet view
-- offline mode: reads come from the local cache, writes are queued and synced later
+- offline mode: reads come from the local cache, writes are queued and synced later, a sync issues screen lists any that failed for a retry or a discard
 
 ## Docs
 

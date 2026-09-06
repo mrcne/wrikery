@@ -153,6 +153,36 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 	}
 }
 
+// TestTaskActionGoldens covers the status dialog and the sync issues screen at 120 columns,
+// the width where the detail pane enters the window (see TestShellGoldenAtThreeWidths).
+// Both cases wait for "-- Comments (" first, the same loaded signal that test uses at 120
+// columns and up, so the dialog or the issues screen is captured over a fully drawn frame
+// and not one still mid-load.
+func TestTaskActionGoldens(t *testing.T) {
+	t.Run("status", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "s")
+		waitAfter(t, tm, from, "Status")
+		// finalView's "q" would reach the dialog instead of quitting, a dialog owns every key but
+		// esc and ctrl+c, so the program is stopped with ctrl+c here to capture it still open.
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+	})
+	t.Run("issues", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "!")
+		waitAfter(t, tm, from, "Sync issues (2)")
+		golden.RequireEqual(t, []byte(finalView(t, tm)))
+	})
+}
+
 func TestSidebarShowsFollowedSpaces(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))

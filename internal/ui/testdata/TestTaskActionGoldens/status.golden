@@ -1,0 +1,40 @@
++- Spaces -------------++- Tasks: My tasks (30) ----------------------------++- #1200033 ------------------------------+
+|> My tasks         30 ||> o Document auth retry loop             AN+ 29 Aug||Document auth retry loop                 |
+|  v Mobile            ||  o Refactor signing keys                AN+ 29 Aug||#1200033  Infra                          |
+|    o iOS app         ||  o Remove rate limit test               AN+ 29 Aug||                                         |
+|  v Platform          ||  o Rotate signing keys                  AN+  2 Sep||Status     o Blocked                     |
+|    o API             ||  o Document rate limit test             AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak       |
+|      Design system   ||  o Refactor error codes                 AN+  2 Sep||Dates      28 Aug -> 29 Aug              |
+|    > Infra           ||  o Remove sync cursor                   AN+  2 Sep||Updated    25 Aug                        |
+|    o Web             ||  o Bump legacy config loader            AN+  2 Sep||                                         |
+|                      ||  o Investigate dependencies             AN+  2 Sep||  Plain paragraph, nothing fancy. Long   |
+|                      ||  o Remove auth retry loop               AN   today||  enough to wrap in a narrow detail      |
+|                      ||  o Bump signing keys                    AN   today||  pane so the wrapping code gets         |
+|                      ||  o Invest+- Status ---------------------------------------+ised too.                         |
+|                      ||  o Design|Active                                          |                                  |
+|                      ||  o Write |  o Backlog                                     |ents (0) -------------------------|
+|                      ||  z Bump e|  o In progress                                 |                                  |
+|                      ||  z Invest|  o In review                                   | (0) -----------------------------|
+|                      ||  z Design|> o Blocked                                     |                                  |
+|                      ||  z Write |                                                |                                  |
+|                      ||  z Fix on|Completed                                       |                                  |
+|                      ||  z Add se|  v Done                                        |                                  |
+|                      ||  o Fix se|                                                |                                  |
+|                      ||  o Add ti|Deferred                                        |                                  |
+|                      ||  o Rotate|  z Later                                       |                                  |
+|                      ||  o Refact|                                                |                                  |
+|                      ||  o Fix au|Cancelled                                       |                                  |
+|                      ||  o Add si|  x Dropped                                     |                                  |
+|                      ||  o Rotate+------------------------------------------------+                                  |
+|                      ||  o Document error codes                 AN      --||                                         |
+|                      ||  o Refactor sync cursor                 AN      --||                                         |
+|                      ||  o Remove legacy config loader          AN      --||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
++----------------------++---------------------------------------------------++-----------------------------------------+
+ demo  * synced 0 s ago            enter open  / filter  z show completed  tab next pane  ctrl+f search  ? help  q quit 

@@ -51,9 +51,30 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Below it come the metadata and the comment thread. Single key actions on the selected task:
-`c` comment, `t` log time, `s` status, `a` assignee, `d` dates.
+`c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.
+
+`c` opens a small text box, ctrl+s or ctrl+d sends the comment and closes the box, esc cancels.
+`C` hands the terminal to `$VISUAL` or `$EDITOR` on a temporary file instead, for a longer comment.
+Saving and quitting the editor sends the file as the comment, an empty file sends nothing.
+
+`s` lists the statuses of the task's workflow, grouped the way Wrike groups them.
+Moving the cursor and pressing enter applies the highlighted status.
+
+`a` lists the contacts, narrowed as you type a name.
+Space toggles a contact on or off, enter applies the change, esc cancels without one.
+
+`d` shows a start and a due field.
+Both take quick words instead of a full date: an ISO date, `today`, `tomorrow`, `yesterday`, a weekday name for the next one, `+Nd` or `-Nd` for a relative day, or a day and month such as `12 sep` for a day this year.
+An empty field clears that date. Tab moves between the two fields, enter saves, esc cancels.
+
+### Sync issues
+
+`!` opens the list of writes the sync engine could not send.
+Each row shows the task title, a short summary of the write (a comment, a status, assignee or dates change, a time entry) and the error Wrike returned.
+`r` retries the highlighted row, `x` asks for confirmation and then discards it, enter opens the task, esc goes back to the previous screen.
+Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
 
 ### Timesheet
 
