@@ -691,9 +691,10 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 	}
 }
 
-// TestTimesheetLogsTimeFromGrid covers the add path from the grid itself: the cursor starts on
-// the first row and Monday, so n there opens the dialog for that task and day directly, with no
-// search step. fixedNow is Thursday 2026-09-03, so this week's Monday is 2026-08-31.
+// TestTimesheetLogsTimeFromGrid covers the add path from the grid itself:
+// the cursor starts on the first row and Monday,
+// so n there opens the dialog for that task and day directly, with no search step.
+// fixedNow is Thursday 2026-09-03, so this week's Monday is 2026-08-31.
 func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))

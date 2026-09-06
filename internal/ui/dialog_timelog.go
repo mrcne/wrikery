@@ -121,11 +121,14 @@ func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 			return d, nil
 		}
 		l := d.logs[d.cursor]
+		// No closeDialogMsg here: tea.Batch runs its commands in separate goroutines and
+		// delivers them in any order, so batching it with a message that opens its own dialog
+		// (editEntryMsg, deleteEntryMsg) could let the close land second and wipe that dialog.
+		// openDialog overwrites m.dialog on its own, which replaces this picker deterministically.
 		if d.forDelete {
-			prompt := fmt.Sprintf("Delete %.1f h on %s?", l.Hours, l.TrackedDate)
-			return d, tea.Batch(intent(openConfirmMsg{prompt: prompt, onYes: deleteTimelogMsg{id: l.ID}}), intent(closeDialogMsg{}))
+			return d, intent(deleteEntryMsg{log: l})
 		}
-		return d, tea.Batch(intent(editEntryMsg{log: l}), intent(closeDialogMsg{}))
+		return d, intent(editEntryMsg{log: l})
 	}
 	return d, nil
 }

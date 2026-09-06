@@ -31,6 +31,38 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	}
 }
 
+// A closeDialogMsg batched alongside editEntryMsg or deleteEntryMsg would race with the dialog
+// either of those opens: tea.Batch runs its commands in separate goroutines, so a close landing
+// second would wipe the dialog the other message just opened. The picker leaves closing to
+// openDialog instead, which is why enter here must produce exactly one message, not two.
+func TestEntryPickerEmitsOneMessageForTheRowUnderTheCursor(t *testing.T) {
+	logs := []store.Timelog{
+		{ID: "a", Hours: 1, TrackedDate: "2026-09-01"},
+		{ID: "b", Hours: 2, TrackedDate: "2026-09-02"},
+	}
+	d := dialog(newEntryPicker(logs, false))
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("edit mode enter should emit exactly one message: %#v", msgs)
+	}
+	if got, ok := msgs[0].(editEntryMsg); !ok || got.log.ID != "b" {
+		t.Errorf("got %#v, want editEntryMsg for b", msgs[0])
+	}
+
+	d = dialog(newEntryPicker(logs, true))
+	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	_, cmd = d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs = collect(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("delete mode enter should emit exactly one message: %#v", msgs)
+	}
+	if got, ok := msgs[0].(deleteEntryMsg); !ok || got.log.ID != "b" {
+		t.Errorf("got %#v, want deleteEntryMsg for b", msgs[0])
+	}
+}
+
 // timelogLocked has no caller yet.
 // The timesheet grid wires it to the edit and delete actions.
 // This test keeps it from being flagged as unused in the meantime.

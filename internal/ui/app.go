@@ -222,6 +222,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.openFromSearch(msg.task)
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
+		m.search.blur()
 		d, cmd := newTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate, m.opts.Now())
 		m.openDialog(d)
 		return m, cmd
@@ -247,17 +248,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.pickMode = true
 			return m, cmd
 		}
-		title := m.timesheet.rows[m.timesheet.cursorRow].title
-		d, cmd := newTimelogDialog(msg.taskID, title, nil, msg.date, m.opts.Now())
+		d, cmd := newTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date, m.opts.Now())
 		m.openDialog(d)
 		return m, cmd
 	case editEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
 		}
-		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.rows[m.timesheet.cursorRow].title, &msg.log, "", m.opts.Now())
+		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "", m.opts.Now())
 		m.openDialog(d)
 		return m, cmd
+	case deleteEntryMsg:
+		if timelogLocked(msg.log) {
+			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
+		}
+		prompt := fmt.Sprintf("Delete %.1f h on %s?", msg.log.Hours, msg.log.TrackedDate)
+		m.openDialog(confirmDialog{prompt: prompt, onYes: deleteTimelogMsg{id: msg.log.ID}})
+		return m, nil
 	case pickEntryMsg:
 		m.openDialog(newEntryPicker(msg.logs, msg.forDelete))
 		return m, nil
@@ -503,9 +510,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.screen == screenIssues {
-		// Only the keys that make sense with no task on screen fall through, everything else
-		// (including the task action keys below) would otherwise act on whatever task the main
-		// screen last had selected, underneath the box this screen is showing instead.
+		// Only the keys that make sense with no task on screen fall through:
+		// everything else would otherwise reach whatever task the main screen had last selected,
+		// underneath the box this screen is showing instead, the task action keys below included.
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -533,9 +540,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.screen == screenTimesheet {
-		// Same reasoning as the issues screen above: only the keys that make sense with no task
-		// on screen fall through, everything else would otherwise act on whatever task the main
-		// screen last had selected, underneath the box this screen is showing instead.
+		// Same reasoning as the issues screen above: only the keys that make sense with no task on screen fall through,
+		// everything else would otherwise reach whatever task the main screen had last selected,
+		// underneath the box this screen is showing instead.
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit

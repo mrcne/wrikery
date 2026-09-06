@@ -388,8 +388,8 @@ func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast stri
 	}
 }
 
-// loadWeek reads the current user's timelogs for the seven days starting at start, along with
-// the title of each task involved and the outbox state of each entry, for the pending marker.
+// loadWeek reads the current user's timelogs for the seven days starting at start,
+// along with the title of each task involved and the outbox state of each entry, for the pending marker.
 // A zero start means the week the clock is in right now.
 func (m Model) loadWeek(start time.Time) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID

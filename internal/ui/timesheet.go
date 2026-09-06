@@ -45,6 +45,7 @@ type weekLoadedMsg struct {
 type loadWeekMsg struct{ start time.Time }
 type newEntryMsg struct{ taskID, date string }
 type editEntryMsg struct{ log store.Timelog }
+type deleteEntryMsg struct{ log store.Timelog }
 type pickEntryMsg struct {
 	logs      []store.Timelog
 	forDelete bool
@@ -83,7 +84,8 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 	for _, id := range order {
 		t.rows = append(t.rows, *byTask[id])
 	}
-	// Start on the first task row. With no rows the only row is the "+ new task" one at index 0.
+	// Start on the first task row.
+	// With no rows the only row is the "+ new task" one at index 0.
 	t.cursorRow = 0
 	for i, r := range t.rows {
 		if r.taskID == prevTask {
@@ -106,6 +108,18 @@ func (t timesheetModel) cell() []store.Timelog {
 		return nil
 	}
 	return t.rows[t.cursorRow].cells[t.cursorDay]
+}
+
+// titleFor looks up the title of the row holding taskID, by id rather than by cursor position,
+// since a weekLoadedMsg can move the cursor or drop rows between an intent being sent and handled.
+// It returns "" when the row is gone.
+func (t timesheetModel) titleFor(taskID string) string {
+	for _, r := range t.rows {
+		if r.taskID == taskID {
+			return r.title
+		}
+	}
+	return ""
 }
 
 func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
@@ -152,7 +166,7 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 		case 0:
 			return t, nil
 		case 1:
-			return t, intent(openConfirmMsg{prompt: fmt.Sprintf("Delete %.1f h on %s?", logs[0].Hours, logs[0].TrackedDate), onYes: deleteTimelogMsg{id: logs[0].ID}})
+			return t, intent(deleteEntryMsg{log: logs[0]})
 		default:
 			return t, intent(pickEntryMsg{logs: logs, forDelete: true})
 		}
@@ -216,11 +230,12 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 		b.WriteString(line + "\n")
 	}
 	// The empty row: n here logs time on a task picked through search.
-	addLabel := muted.Render("+ new task")
+	const newTaskLabel = "+ new task"
+	addLabel := muted.Render(newTaskLabel)
 	if t.cursorRow == len(t.rows) {
-		addLabel = lipgloss.NewStyle().Foreground(th.Accent).Render("+ new task")
+		addLabel = lipgloss.NewStyle().Foreground(th.Accent).Render(newTaskLabel)
 	}
-	b.WriteString(addLabel + strings.Repeat(" ", titleW+2-10))
+	b.WriteString(addLabel + strings.Repeat(" ", titleW+2-ansi.StringWidth(newTaskLabel)))
 	for di := 0; di < 7; di++ {
 		text := fmt.Sprintf("%*s", cellW, "")
 		if t.cursorRow == len(t.rows) && di == t.cursorDay {
