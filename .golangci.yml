@@ -4,6 +4,9 @@ linters:
   default: standard
   enable:
     - depguard
+    - errorlint
+    - bodyclose
+    - misspell
   settings:
     depguard:
       rules:
@@ -14,3 +17,8 @@ linters:
           allow:
             - $gostd
             - github.com/mrcne/wrikery/pkg/wrike
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
