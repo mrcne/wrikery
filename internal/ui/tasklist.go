@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -193,6 +194,9 @@ func dueLabel(t store.Task, now time.Time) (string, bool) {
 	if t.Dates == nil || t.Dates.Due == "" {
 		return "--", false
 	}
+	if len(t.Dates.Due) < 10 {
+		return t.Dates.Due, false
+	}
 	due, err := time.Parse("2006-01-02", t.Dates.Due[:10])
 	if err != nil {
 		return t.Dates.Due, false
@@ -210,18 +214,23 @@ func dueLabel(t store.Task, now time.Time) (string, bool) {
 	return fmt.Sprintf("%d %s", due.Day(), due.Month().String()[:3]), false
 }
 
-func initials(ids []string, contacts map[string]store.Contact) string {
+// initials shows the current user first when they are among the responsibles.
+// That way a My tasks row reads as mine rather than a colleague's, whichever contact the API listed first.
+func initials(ids []string, contacts map[string]store.Contact, meID string) string {
 	if len(ids) == 0 {
 		return "--"
 	}
-	c := contacts[ids[0]]
-	s := ""
-	if c.FirstName != "" {
-		s += c.FirstName[:1]
+	id := ids[0]
+	if meID != "" {
+		for _, i := range ids {
+			if i == meID {
+				id = meID
+				break
+			}
+		}
 	}
-	if c.LastName != "" {
-		s += c.LastName[:1]
-	}
+	c := contacts[id]
+	s := firstRune(c.FirstName) + firstRune(c.LastName)
 	if s == "" {
 		s = "??"
 	}
@@ -229,6 +238,15 @@ func initials(ids []string, contacts map[string]store.Contact) string {
 		s += "+"
 	}
 	return strings.ToUpper(s)
+}
+
+// firstRune takes the first character by rune, not by byte, a name may start with a non ASCII letter.
+func firstRune(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, _ := utf8.DecodeRuneInString(s)
+	return string(r)
 }
 
 func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height int, focused bool) string {
@@ -266,7 +284,7 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		if overdue {
 			dueStyle = lipgloss.NewStyle().Foreground(th.Error)
 		}
-		who := muted.Render(fmt.Sprintf("%-3s", initials(r.task.ResponsibleIDs, ref.contacts)))
+		who := muted.Render(fmt.Sprintf("%-3s", initials(r.task.ResponsibleIDs, ref.contacts, ref.meID)))
 		mark := " "
 		switch r.state {
 		case store.StatePending:

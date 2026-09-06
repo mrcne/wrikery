@@ -153,7 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
 		m.pendingSelect = ""
-		if cur, ok := m.list.current(); ok {
+		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
 		return m, nil

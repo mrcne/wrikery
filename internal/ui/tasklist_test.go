@@ -25,6 +25,7 @@ func TestDueLabel(t *testing.T) {
 		{"2026-09-12", "Active", "12 Sep", false},
 		{"2026-09-01", "Active", "1 Sep", true},
 		{"2026-09-01", "Completed", "done", false},
+		{"2026-09", "Active", "2026-09", false},
 	}
 	for _, c := range cases {
 		task := store.Task{Status: c.status}
@@ -68,6 +69,50 @@ func TestTaskListFilterAndDoneToggle(t *testing.T) {
 	}
 	if !strings.Contains(l.title(), "Platform / API") || !strings.Contains(l.title(), "3") {
 		t.Errorf("title = %q", l.title())
+	}
+}
+
+func TestInitials(t *testing.T) {
+	// Written as \u escapes so the file stays plain ASCII.
+	// U+0141 and U+017B are the capital L-stroke and Z-dot-above letters that open the Polish first and last name below.
+	contacts := map[string]store.Contact{
+		"C1": {FirstName: "Celina", LastName: "Wrona"},
+		"ME": {FirstName: "Ada", LastName: "Nowak"},
+		"X1": {FirstName: "\u0141ukasz", LastName: "\u017Buk"},
+	}
+	if want, got := "\u0141\u017B", initials([]string{"X1"}, contacts, ""); got != want {
+		t.Errorf("initials(X1) = %q, want %q", got, want)
+	}
+	if got := initials([]string{"C1", "ME"}, contacts, "ME"); got != "AN+" {
+		t.Errorf("initials(C1, ME with meID=ME) = %q, want %q", got, "AN+")
+	}
+}
+
+func TestTasksLoadedMsgSkipsReselectWhenCursorDidNotMove(t *testing.T) {
+	m := Model{keys: defaultKeyMap()}
+	m.list = newTaskList(m.keys)
+	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
+	m.selectedTaskID = "1"
+	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
+	if cmd != nil {
+		if msg, ok := cmd().(taskSelectedMsg); ok {
+			t.Errorf("reselected task %s though the cursor stayed on the already selected task", msg.id)
+		}
+	}
+}
+
+func TestTasksLoadedMsgReselectsWhenCursorMoved(t *testing.T) {
+	m := Model{keys: defaultKeyMap()}
+	m.list = newTaskList(m.keys)
+	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
+	m.selectedTaskID = "9"
+	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
+	if cmd == nil {
+		t.Fatal("expected a command reselecting the new task")
+	}
+	msg, ok := cmd().(taskSelectedMsg)
+	if !ok || msg.id != "1" {
+		t.Errorf("Update() cmd = %#v, want taskSelectedMsg{id: \"1\"}", cmd())
 	}
 }
 
