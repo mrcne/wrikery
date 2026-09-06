@@ -1,24 +1,188 @@
 package ui_test
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/exp/golden"
 	"github.com/charmbracelet/x/exp/teatest"
 
+	"github.com/mrcne/wrikery/internal/config"
+	"github.com/mrcne/wrikery/internal/demo"
+	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
-func TestAppShowsTitleAndQuitsOnQ(t *testing.T) {
-	tm := teatest.NewTestModel(t, ui.New("test"),
-		teatest.WithInitialTermSize(80, 24))
+var fixedNow = time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 
-	teatest.WaitFor(t, tm.Output(), func(b []byte) bool {
-		return strings.Contains(string(b), "wrikery test")
-	}, teatest.WithDuration(2*time.Second))
+func seededStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "ui.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := demo.Seed(context.Background(), st, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
 
-	tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(2*time.Second))
+func testOptions(st *store.Store) ui.Options {
+	return ui.Options{
+		Version: "test", Store: st, Demo: true,
+		Config: config.UIConfig{Theme: "dark", ASCII: true, BranchTemplate: "{id}-{slug}"},
+		Now:    func() time.Time { return fixedNow },
+		Hooks:  ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+	}
+}
+
+func press(tm *teatest.TestModel, keys ...string) {
+	for _, k := range keys {
+		switch k {
+		case "enter":
+			tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+		case "esc":
+			tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+		case "tab":
+			tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+		case "shift+tab":
+			tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
+		case "space":
+			tm.Send(tea.KeyMsg{Type: tea.KeySpace})
+		case "ctrl+f":
+			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlF})
+		default:
+			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		}
+	}
+}
+
+// Reading teatest's output drains it, and bubbletea only repaints the lines that changed.
+// Two waits for text drawn in the same frame would then see only the first one, so every model keeps the frames it has produced so far and each wait searches that whole history.
+var frames sync.Map // *teatest.TestModel -> *bytes.Buffer
+
+func seenOutput(t *testing.T, tm *teatest.TestModel) *bytes.Buffer {
+	t.Helper()
+	v, loaded := frames.LoadOrStore(tm, &bytes.Buffer{})
+	if !loaded {
+		t.Cleanup(func() { frames.Delete(tm) })
+	}
+	return v.(*bytes.Buffer)
+}
+
+func waitFor(t *testing.T, tm *teatest.TestModel, want string) {
+	t.Helper()
+	waitAfter(t, tm, 0, want)
+}
+
+// mark reads what has been drawn so far and returns its length.
+// Text that was already on screen once, such as a pane title the first run box covered, needs it to prove the frame was drawn again.
+func mark(t *testing.T, tm *teatest.TestModel) int {
+	t.Helper()
+	seen := seenOutput(t, tm)
+	if _, err := io.Copy(seen, tm.Output()); err != nil {
+		t.Fatalf("reading the program output: %v", err)
+	}
+	return seen.Len()
+}
+
+func waitAfter(t *testing.T, tm *teatest.TestModel, from int, want string) {
+	t.Helper()
+	seen := seenOutput(t, tm)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := io.Copy(seen, tm.Output()); err != nil {
+			t.Fatalf("reading the program output: %v", err)
+		}
+		if strings.Contains(seen.String()[from:], want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiting for %q, output so far:\n%s", want, seen.String()[from:])
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// finalView quits the program and returns the last full frame, without cursor sequences, for goldens.
+func finalView(t *testing.T, tm *teatest.TestModel) string {
+	t.Helper()
+	press(tm, "q")
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+	return tm.FinalModel(t).(ui.Model).View()
+}
+
+func TestShellGoldenAtThreeWidths(t *testing.T) {
+	for _, w := range []int{160, 100, 70} {
+		t.Run(fmt.Sprint(w), func(t *testing.T) {
+			st := seededStore(t)
+			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
+			waitFor(t, tm, "Tasks")
+			golden.RequireEqual(t, []byte(finalView(t, tm)))
+		})
+	}
+}
+
+func TestTabMovesFocusAndWindowSlides(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	waitFor(t, tm, "Tasks")
+	press(tm, "tab") // list -> detail, at 100 columns the sidebar leaves the window
+	view := finalView(t, tm)
+	if strings.Contains(view, "Spaces") || !strings.Contains(view, "Task ") {
+		t.Errorf("after tab at 100 cols the window should show list+detail:\n%s", view)
+	}
+}
+
+func TestStatusBarReactsToEngineMessages(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks")
+	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 1})
+	waitFor(t, tm, "2 pending")
+	waitFor(t, tm, "1 failed")
+	tm.Send(ui.SyncStateMsg{State: "offline"})
+	waitFor(t, tm, "offline since")
+}
+
+// The short hints are in the goldens, the overlay is not, and bubbles reaches for a bullet and an ellipsis of its own.
+func TestHelpOverlayStaysASCII(t *testing.T) {
+	for _, w := range []int{160, 120, 70} {
+		t.Run(fmt.Sprint(w), func(t *testing.T) {
+			st := seededStore(t)
+			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
+			waitFor(t, tm, "Tasks")
+			press(tm, "?")
+			waitFor(t, tm, "esc or ? to close")
+			for _, r := range seenOutput(t, tm).String() {
+				if r > 127 {
+					t.Fatalf("ASCII mode drew %q", r)
+				}
+			}
+			press(tm, "esc")
+			_ = finalView(t, tm)
+		})
+	}
+}
+
+func TestHelpOverlayListsBindings(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks")
+	press(tm, "?")
+	waitFor(t, tm, "sync issues")
+	press(tm, "esc")
+	view := finalView(t, tm)
+	if strings.Contains(view, "esc or ? to close") {
+		t.Error("help still open after esc")
+	}
 }

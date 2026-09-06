@@ -26,6 +26,11 @@ The code is split into four parts with strict boundaries, plus a small config pa
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
+`cmd/wrikery` wires the parts together.
+It loads the token through `internal/auth`, builds the client and the engine, starts the bubbletea program and forwards engine events into it as messages.
+The UI gets a few callbacks (refresh, wake the outbox, verify a token), so it never imports the client or the engine.
+A new token rebuilds the client and the engine, because the client holds the token.
+
 ## What gets cached
 
 On the first run the user picks which spaces and projects to follow.
@@ -112,7 +117,8 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 - config: `~/.config/wrikery/config.toml`
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
 - logs: `~/.local/state/wrikery/wrikery.log`
-- API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to a file with restricted permissions on machines without one
+- API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to `~/.config/wrikery/token` (mode 0600) on machines without one
+- `WRIKERY_TOKEN` in the environment overrides the stored token, keychain and file both
 
 ## Testing
 
