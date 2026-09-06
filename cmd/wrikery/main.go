@@ -105,7 +105,7 @@ func run(demoMode, logout bool) error {
 		defer cleanup()
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: version, Store: st, Config: cfg.UI, Demo: true,
-			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		_, err = p.Run()
 		return err

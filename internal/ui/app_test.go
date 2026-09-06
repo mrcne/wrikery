@@ -46,6 +46,18 @@ func testOptions(st *store.Store) ui.Options {
 	}
 }
 
+// testOptionsWithCopy adds a Copy hook that records what it was asked to copy, so a test can
+// assert on the text without a real clipboard.
+func testOptionsWithCopy(st *store.Store) (ui.Options, *[]string) {
+	var copied []string
+	o := testOptions(st)
+	o.Hooks.Copy = func(text string) error {
+		copied = append(copied, text)
+		return nil
+	}
+	return o, &copied
+}
+
 func press(tm *teatest.TestModel, keys ...string) {
 	for _, k := range keys {
 		switch k {
@@ -314,5 +326,41 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 	view := finalView(t, tm)
 	if !strings.Contains(view, "#1200000") || strings.Contains(view, "#1200033") || strings.Contains(view, "Search") {
 		t.Errorf("enter should close the search and show the matched task:\n%s", view)
+	}
+}
+
+func TestCopyBindingsCopyTheRightText(t *testing.T) {
+	st := seededStore(t)
+	opts, copied := testOptionsWithCopy(st)
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "Y")
+	waitAfter(t, tm, from, "Copied")
+	if want := "1200000-fix-auth-retry-loop"; len(*copied) != 1 || (*copied)[0] != want {
+		t.Fatalf("copy branch: got %v, want [%q]", *copied, want)
+	}
+
+	from = mark(t, tm)
+	press(tm, "i")
+	waitAfter(t, tm, from, "Copied")
+	if want := "IEAATASK00"; len(*copied) != 2 || (*copied)[1] != want {
+		t.Fatalf("copy id: got %v, want id %q at index 1", *copied, want)
+	}
+
+	from = mark(t, tm)
+	press(tm, "y")
+	waitAfter(t, tm, from, "Copied")
+	if want := "https://www.wrike.com/open.htm?id=1200000"; len(*copied) != 3 || (*copied)[2] != want {
+		t.Fatalf("copy permalink: got %v, want permalink %q at index 2", *copied, want)
 	}
 }

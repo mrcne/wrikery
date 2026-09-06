@@ -354,6 +354,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
 		}
+	case key.Matches(msg, m.keys.Open):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			if m.opts.Hooks.OpenURL == nil {
+				return m.status.show("browser not available", true)
+			}
+			if err := m.opts.Hooks.OpenURL(t.Permalink); err != nil {
+				return m.status.show("could not open browser: "+err.Error(), true)
+			}
+			return m.status.show("Opened in browser", false)
+		})
+	case key.Matches(msg, m.keys.CopyLink):
+		return m, m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+	case key.Matches(msg, m.keys.CopyBranch):
+		return m, m.copy(func(t store.Task) (string, string) {
+			name := branchName(m.opts.Config.BranchTemplate, t)
+			return name, "Copied " + name
+		})
+	case key.Matches(msg, m.keys.CopyID):
+		return m, m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
 	}
 	m.syncPaneSizes()
 	opened := m.openedOnFocus(prevFocus)
@@ -372,6 +391,41 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(opened, cmd)
 	}
 	return m, opened
+}
+
+// selectedTask is the task the open/copy bindings act on: the detail's task when the detail pane has focus and finished loading, otherwise the list's current row.
+func (m Model) selectedTask() (store.Task, bool) {
+	if m.focus == paneDetail && m.detail.loaded {
+		return m.detail.task, true
+	}
+	if row, ok := m.list.current(); ok {
+		return row.task, true
+	}
+	return store.Task{}, false
+}
+
+// withTask runs f on the selected task, or reports there is none.
+// status.show mutates the status model, so this takes a pointer receiver.
+// handleKey has a value receiver, so it calls this on its own local copy of m and returns that copy.
+func (m *Model) withTask(f func(store.Task) tea.Cmd) tea.Cmd {
+	t, ok := m.selectedTask()
+	if !ok {
+		return m.status.show("no task selected", true)
+	}
+	return f(t)
+}
+
+func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
+	return m.withTask(func(t store.Task) tea.Cmd {
+		if m.opts.Hooks.Copy == nil {
+			return m.status.show("clipboard not available", true)
+		}
+		text, toast := pick(t)
+		if err := m.opts.Hooks.Copy(text); err != nil {
+			return m.status.show("copy failed: "+err.Error(), true)
+		}
+		return m.status.show(toast, false)
+	})
 }
 
 func (m Model) View() string {
