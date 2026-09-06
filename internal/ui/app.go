@@ -74,6 +74,7 @@ type Model struct {
 	list     taskListModel
 	detail   taskDetailModel
 	search   searchModel
+	dialog   dialog
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -208,6 +209,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case searchOpenMsg:
 		return m.openFromSearch(msg.task)
+	case closeDialogMsg:
+		m.overlay, m.dialog = overlayNone, nil
+		return m, nil
+	case writeQueuedMsg:
+		return m, tea.Batch(m.status.show(msg.toast, false), m.reloadCurrent())
+	case submitCommentMsg:
+		st, meID := m.opts.Store, m.ref.meID
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueComment(ctx, msg.taskID, meID, msg.text)
+			return err
+		}, "Comment queued")
 	}
 	if m.screen == screenFirstRun {
 		var cmd tea.Cmd
@@ -286,6 +298,9 @@ func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
 		n, _ := m.sidebar.current()
+		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store
+		// change) reloads the node the search left behind instead of the one now on screen.
+		m.selectedNode = n
 		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
 		m.pendingSelect = t.ID
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
@@ -303,9 +318,26 @@ func (m Model) reloadTask() tea.Cmd {
 	return m.loadTask(m.selectedTaskID)
 }
 
+// openDialog opens a dialog and switches the overlay to it. status.show mutates the status model
+// elsewhere in this file, but this setter only touches the two dialog fields, so a pointer receiver
+// is enough and callers keep working on their own local copy of m.
+func (m *Model) openDialog(d dialog) {
+	m.dialog = d
+	m.overlay = overlayDialog
+}
+
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		return m, tea.Quit
+	}
+	if m.overlay == overlayDialog && m.dialog != nil {
+		if msg.Type == tea.KeyEsc {
+			m.overlay, m.dialog = overlayNone, nil
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.dialog, cmd = m.dialog.Update(msg)
+		return m, cmd
 	}
 	if m.overlay == overlayHelp {
 		if key.Matches(msg, m.keys.Help, m.keys.Back, m.keys.Quit) {
@@ -389,6 +421,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		})
 	case key.Matches(msg, m.keys.CopyID):
 		return m, m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+	case key.Matches(msg, m.keys.Comment):
+		return m, m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
+			m.openDialog(d)
+			return cmd
+		})
 	}
 	opened := m.openedOnFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before:
@@ -484,6 +522,9 @@ func (m Model) View() string {
 	}
 	if m.overlay == overlaySearch {
 		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
+	}
+	if m.overlay == overlayDialog && m.dialog != nil {
+		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80)), m.width, m.height)
 	}
 	return out
 }

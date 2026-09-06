@@ -278,6 +278,30 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 	}
 }
 
+// enqueue runs one outbox call, wakes the engine and reports back. Every write in the UI goes through here.
+func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd {
+	hooks := m.opts.Hooks
+	return func() tea.Msg {
+		if err := op(context.Background()); err != nil {
+			return errMsg{err}
+		}
+		if hooks.WakeOutbox != nil {
+			hooks.WakeOutbox()
+		}
+		return writeQueuedMsg{toast: toast}
+	}
+}
+
+// reloadCurrent re-reads the task and the list a write may have changed the outbox state of.
+// The zero node has no folder to list, the same guard reload and OutboxChangedMsg use before the first selection.
+func (m Model) reloadCurrent() tea.Cmd {
+	cmds := []tea.Cmd{m.reloadTask()}
+	if m.selectedNode.kind != nodeNone {
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
+	}
+	return tea.Batch(cmds...)
+}
+
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {

@@ -419,3 +419,44 @@ func TestCopyBindingsCopyTheRightText(t *testing.T) {
 		t.Fatalf("copy permalink: got %v, want permalink %q at index 2", *copied, want)
 	}
 }
+
+func TestCommentDialogQueuesAndMarks(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	// "Fix auth retry loop" is IEAATASK00 and the only task matching all three words, so the search lands on it.
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
+	press(tm, "c")
+	waitAfter(t, tm, from, "Comment on")
+
+	from = mark(t, tm)
+	press(tm, "hello from the test")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
+	waitAfter(t, tm, from, "Comment queued")
+	waitAfter(t, tm, from, "(sending)")
+
+	view := finalView(t, tm)
+	if !strings.Contains(view, "hello from the test") {
+		t.Errorf("new comment not in the detail pane:\n%s", view)
+	}
+	comments, err := st.Comments().ListForTask(context.Background(), "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range comments {
+		found = found || (c.Text == "hello from the test" && strings.HasPrefix(c.ID, store.LocalIDPrefix))
+	}
+	if !found {
+		t.Error("comment not queued as a local row")
+	}
+}
