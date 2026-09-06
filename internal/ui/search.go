@@ -35,6 +35,11 @@ func (s *searchModel) reset() tea.Cmd {
 	return s.input.Focus()
 }
 
+// blur stops the cursor from blinking once the overlay is no longer on screen.
+func (s *searchModel) blur() {
+	s.input.Blur()
+}
+
 func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case searchResultsMsg:
@@ -84,7 +89,13 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	return s, nil
 }
 
-func (s searchModel) View(th Theme, ref refData, width int) string {
+// searchMaxRows caps the visible result rows so the overlay still fits a short terminal,
+// leaving room for the input line, the blank line under it and the box border.
+func searchMaxRows(height int) int {
+	return min(12, max(3, height-8))
+}
+
+func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 	var b strings.Builder
 	b.WriteString(s.input.View() + "\n\n")
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
@@ -96,8 +107,8 @@ func (s searchModel) View(th Theme, ref refData, width int) string {
 		}
 	}
 	for i, t := range s.results {
-		if i >= 12 {
-			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-12)))
+		if i >= maxRows {
+			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-maxRows)))
 			break
 		}
 		cs := ref.statuses[t.CustomStatusID]

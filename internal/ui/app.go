@@ -272,6 +272,7 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
 	m.overlay = overlayNone
+	m.search.blur()
 	m.focus = paneDetail
 	m.selectedTaskID = t.ID
 	m.pendingSelect = t.ID
@@ -306,6 +307,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == overlaySearch {
 		if key.Matches(msg, m.keys.Back) {
 			m.overlay = overlayNone
+			m.search.blur()
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -386,14 +388,15 @@ func (m Model) View() string {
 	}
 	hints := ""
 	if m.height >= 20 {
-		hints = m.help.ShortHelpView(m.hintBindings())
+		available := m.width - m.status.leftWidth(m.theme, m.opts.Now()) - 3
+		hints = fitHints(m.help, m.hintBindings(), available)
 	}
 	out := body + "\n" + m.status.View(m.theme, m.width, hints, m.opts.Now())
 	if m.overlay == overlayHelp {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	if m.overlay == overlaySearch {
-		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80)), m.width, m.height)
+		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
 	}
 	return out
 }
@@ -446,7 +449,7 @@ func (m Model) paneBody(p pane, r rect) string {
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
-	base := []key.Binding{m.keys.NextPane, m.keys.Help, m.keys.Quit}
+	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.focus == paneList {
 		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
 	}

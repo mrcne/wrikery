@@ -298,19 +298,21 @@ func TestHelpOverlayListsBindings(t *testing.T) {
 func TestQuickSearchJumpsToTask(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
-	waitFor(t, tm, "Tasks:")
+	// #1200033 is whatever the demo's My tasks list preselects, not the task the search will find.
+	// Asserting it changes is what proves enter actually jumped, "#12000" alone is a prefix every demo task shares.
+	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
-	press(tm, "rotate sign")
-	waitAfter(t, tm, from, "Rotate signing keys")
-	// A permalink is on screen from the very first task the detail pane ever showed, so the wait
-	// needs a fresh mark: only a frame drawn after enter proves the overlay actually closed.
+	press(tm, "fix auth retry") // the only task matching all three words is IEAATASK00, Fix auth retry loop
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	// A permalink is on screen from the very first task the detail pane ever showed, so the wait needs a fresh mark:
+	// only a frame drawn after enter proves the overlay actually closed.
 	from = mark(t, tm)
 	press(tm, "enter")
-	waitAfter(t, tm, from, "#12000")
+	waitAfter(t, tm, from, "#1200000")
 	view := finalView(t, tm)
-	if !strings.Contains(view, "#12000") || strings.Contains(view, "Search") {
-		t.Errorf("enter should close the search and show the task:\n%s", view)
+	if !strings.Contains(view, "#1200000") || strings.Contains(view, "#1200033") || strings.Contains(view, "Search") {
+		t.Errorf("enter should close the search and show the matched task:\n%s", view)
 	}
 }
