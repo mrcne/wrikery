@@ -113,3 +113,6 @@ type Scope struct {
 
 // MetaKeyMe is the meta row holding the current user's contact id. The syncer writes it, the UI reads it.
 const MetaKeyMe = "me_contact_id"
+
+// MetaKeyHost is the host the token probe found, written by cmd/wrikery, empty means not probed yet.
+const MetaKeyHost = "api_host"

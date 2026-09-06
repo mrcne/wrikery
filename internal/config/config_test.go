@@ -175,6 +175,25 @@ func TestLoadRejectsBadThemeAndShortPoll(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsHost(t *testing.T) {
+	path := writeConfig(t, `host = "app-eu.wrike.com"`)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Host != "app-eu.wrike.com" {
+		t.Errorf("Host = %q, want app-eu.wrike.com", cfg.Host)
+	}
+}
+
+func TestLoadRejectsHostWithSchemeOrSlash(t *testing.T) {
+	for _, host := range []string{"https://app-eu.wrike.com", "app-eu.wrike.com/", "app-eu.wrike.com/api/v4"} {
+		if _, err := config.Load(writeConfig(t, `host = "`+host+`"`)); err == nil {
+			t.Errorf("Load(host=%q) succeeded, want error", host)
+		}
+	}
+}
+
 func TestDefaultPathsHasTokenFile(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
 	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")

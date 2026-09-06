@@ -15,7 +15,10 @@ import (
 type Config struct {
 	LogLevel     string        `toml:"log_level"`
 	PollInterval time.Duration `toml:"poll_interval"`
-	UI           UIConfig      `toml:"ui"`
+	// Host is the Wrike API host to use, empty means detect it on first run and remember the
+	// answer, see cmd/wrikery for the probe.
+	Host string   `toml:"host"`
+	UI   UIConfig `toml:"ui"`
 }
 
 type UIConfig struct {
@@ -78,6 +81,11 @@ func Load(path string) (Config, error) {
 	// An empty template would produce no branch name at all, so it falls back instead of failing the load.
 	if cfg.UI.BranchTemplate == "" {
 		cfg.UI.BranchTemplate = defaultBranchTemplate
+	}
+	// A scheme or a path would silently break wrike.BaseURL, which only prefixes https:// and
+	// appends /api/v4, so reject anything that is not a bare host name up front.
+	if cfg.Host != "" && strings.Contains(cfg.Host, "/") {
+		return Config{}, fmt.Errorf("reading %s: host %q must be a host name such as app-eu.wrike.com", path, cfg.Host)
 	}
 	return cfg, nil
 }

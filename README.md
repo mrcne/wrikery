@@ -2,6 +2,7 @@
 
 Status: early development, no release yet.
 Build from source with `make build` and run `./wrikery`, or `./wrikery --demo` to look around without a Wrike account.
+The first run asks for a Wrike API token; accounts hosted in the EU data center are detected automatically.
 
 A fast terminal client for Wrike (Unofficial).
 Browse tasks, read descriptions, add comments, change statuses, log time and check your timesheet without leaving the terminal.

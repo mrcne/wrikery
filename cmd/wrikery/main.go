@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 // TODO: version will be set at build time through ldflags, see the Makefile.
@@ -128,7 +130,27 @@ func run(demoMode, logout bool) error {
 		Version: version, Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if !firstRun {
-		a.startEngine(token)
+		// The config wins, then the host remembered from a previous probe, and only when
+		// both are empty is the network touched, once, before the program starts.
+		host := cfg.Host
+		if host == "" {
+			host, _ = st.GetMeta(context.Background(), store.MetaKeyHost)
+		}
+		if host == "" {
+			probed, _, err := probeHost(context.Background(), token, apiHosts, nil)
+			if err != nil {
+				// The cache still opens and the engine reports the failure the way it
+				// always does, startup must not block or fail on a probe.
+				slog.Warn("could not detect the Wrike data center", "error", err)
+				host = wrike.DefaultHost
+			} else {
+				host = probed
+				if err := st.SetMeta(context.Background(), store.MetaKeyHost, host); err != nil {
+					slog.Warn("could not store the detected Wrike host", "error", err)
+				}
+			}
+		}
+		a.startEngine(token, host)
 	}
 	_, err = a.prog.Run()
 	a.shutdown()
