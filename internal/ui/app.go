@@ -228,15 +228,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case retryIssueMsg:
 		st := m.opts.Store
-		return m, m.enqueue(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
+		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
 	case discardIssueMsg:
 		st := m.opts.Store
-		return m, m.enqueue(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
+		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
 	case openTaskMsg:
-		// selectedTaskID has to be set here, not left for the pendingSelect round trip through
-		// tasksLoadedMsg: taskLoadedMsg drops any answer for a task nobody is on yet.
-		m.screen, m.focus, m.selectedTaskID, m.pendingSelect = screenMain, paneDetail, msg.id, msg.id
-		return m, m.loadTask(msg.id)
+		// selectedTaskID is set here, not left for the pendingSelect round trip through tasksLoadedMsg:
+		// taskLoadedMsg drops any answer for a task nobody is on yet, and nothing else is on this one.
+		// The rest mirrors openFromSearch: the parent folder becomes the selected node so a later
+		// list reload finds this task again, and pendingSelect is only set where a load is issued.
+		m.screen, m.focus, m.selectedTaskID = screenMain, paneDetail, msg.id
+		cmds := []tea.Cmd{m.loadTask(msg.id)}
+		if msg.parentID != "" && m.sidebar.selectByID(msg.parentID) {
+			n, _ := m.sidebar.current()
+			m.selectedNode = n
+			m.pendingSelect = msg.id
+			cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
+		}
+		return m, tea.Batch(cmds...)
 	case writeQueuedMsg:
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
 		if m.screen == screenIssues {
@@ -432,6 +441,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
 	}
+	if m.screen == screenIssues {
+		// Only the keys that make sense with no task on screen fall through, everything else
+		// (including the task action keys below) would otherwise act on whatever task the main
+		// screen last had selected, underneath the box this screen is showing instead.
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
+		case key.Matches(msg, m.keys.Help):
+			m.overlay = overlayHelp
+			return m, nil
+		case key.Matches(msg, m.keys.Search):
+			m.overlay = overlaySearch
+			return m, m.search.reset()
+		case key.Matches(msg, m.keys.Refresh):
+			if m.opts.Hooks.Refresh == nil {
+				return m, m.status.show("refresh is not available", true)
+			}
+			m.opts.Hooks.Refresh()
+			return m, m.status.show("refreshing", false)
+		case key.Matches(msg, m.keys.Back):
+			m.screen = screenMain
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.issues, cmd = m.issues.Update(msg)
+		return m, cmd
+	}
 	prevFocus := m.focus
 	switch {
 	case key.Matches(msg, m.keys.Quit):
@@ -517,12 +553,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openDialog(d)
 			return cmd
 		})
-	}
-	if m.screen == screenIssues {
-		// The issues screen has no panes of its own, its rows take every key the switch above did not.
-		var cmd tea.Cmd
-		m.issues, cmd = m.issues.Update(msg)
-		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before:
@@ -640,8 +670,7 @@ func (m *Model) syncPaneSizes() {
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
 	}
-	// The issues screen replaces the whole body with one box, its inner height mirrors
-	// what viewIssues gives its View.
+	// The issues screen replaces the whole body with one box, its inner height mirrors what viewIssues gives its View.
 	m.issues.height = max(0, m.height-3)
 }
 

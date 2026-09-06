@@ -15,10 +15,11 @@ import (
 )
 
 type issueRow struct {
-	row     store.OutboxRow
-	taskID  string
-	title   string
-	summary string
+	row      store.OutboxRow
+	taskID   string
+	parentID string // the task's first parent folder, empty if the task has none or is gone
+	title    string
+	summary  string
 }
 
 type issuesModel struct {
@@ -32,7 +33,7 @@ type issuesModel struct {
 type issuesLoadedMsg struct{ rows []issueRow }
 type retryIssueMsg struct{ id int64 }
 type discardIssueMsg struct{ id int64 }
-type openTaskMsg struct{ id string }
+type openTaskMsg struct{ id, parentID string }
 
 func summarize(row store.OutboxRow) string {
 	switch row.Kind {
@@ -52,9 +53,17 @@ func summarize(row store.OutboxRow) string {
 			return "dates change"
 		}
 		return "task change"
-	case store.KindTimelogCreate, store.KindTimelogUpdate:
+	case store.KindTimelogCreate:
 		var p store.TimelogCreatePayload
 		_ = json.Unmarshal(row.Payload, &p)
+		return fmt.Sprintf("time entry %.1f h on %s", p.Hours, p.TrackedDate)
+	case store.KindTimelogUpdate:
+		// TimelogUpdatePayload fields are all omitempty, a comment only edit carries neither.
+		var p store.TimelogUpdatePayload
+		_ = json.Unmarshal(row.Payload, &p)
+		if p.Hours == 0 && p.TrackedDate == "" {
+			return "time entry change"
+		}
 		return fmt.Sprintf("time entry %.1f h on %s", p.Hours, p.TrackedDate)
 	case store.KindTimelogDelete:
 		return "delete time entry"
@@ -70,16 +79,19 @@ func (s *issuesModel) set(rows []issueRow) {
 	s.scroll()
 }
 
-// scroll clamps offset so the cursor row stays inside the pane, the same pattern as the task list.
+// scroll clamps offset so the cursor row stays inside the pane, the same pattern as the task
+// list. The cursor's own row always costs an extra line for its error text, so the usable
+// capacity is one row less than the pane height, or the row scrolled to last would still overflow.
 func (s *issuesModel) scroll() {
-	if s.height <= 0 {
+	capacity := s.height - 1
+	if capacity <= 0 {
 		return
 	}
 	if s.cursor < s.offset {
 		s.offset = s.cursor
 	}
-	if s.cursor >= s.offset+s.height {
-		s.offset = s.cursor - s.height + 1
+	if s.cursor >= s.offset+capacity {
+		s.offset = s.cursor - capacity + 1
 	}
 }
 
@@ -102,15 +114,16 @@ func (s issuesModel) Update(msg tea.KeyMsg) (issuesModel, tea.Cmd) {
 	case key.Matches(msg, s.keys.Discard):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			// store.Outbox().Discard only rolls back the optimistic row for a create, a task update
-			// leaves the cache ahead of the server until the next pull corrects it, so the prompt makes
-			// no promise that does not hold for every kind.
+			// store.Outbox().Discard only rolls back the optimistic row for a create,
+			// a task update leaves the cache ahead of the server until the next pull corrects it,
+			// so the prompt makes no promise that does not hold for every kind.
 			prompt := "Discard this write? The next refresh brings back the server state.\n" + r.summary
 			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardIssueMsg{id: r.row.ID}})
 		}
 	case key.Matches(msg, s.keys.Enter):
 		if s.cursor < len(s.rows) && s.rows[s.cursor].taskID != "" {
-			return s, intent(openTaskMsg{id: s.rows[s.cursor].taskID})
+			r := s.rows[s.cursor]
+			return s, intent(openTaskMsg{id: r.taskID, parentID: r.parentID})
 		}
 	}
 	return s, nil
@@ -120,15 +133,13 @@ func (s issuesModel) View(th Theme, now time.Time, width, height int) string {
 	if len(s.rows) == 0 {
 		return lipgloss.NewStyle().Foreground(th.Muted).Render("No failed writes.")
 	}
-	// offset lives on the model and is advanced by scroll(), this only guards against it landing
-	// past the end, for example right after a discard shrinks the row count.
-	offset := s.offset
-	if last := len(s.rows) - 1; offset > last {
-		offset = max(0, last)
-	}
+	// The cursor's row always prints an extra line for its error text, so only height-1 rows are
+	// drawn here, the same capacity scroll() clamps offset against, or the cursor's own error
+	// line would be the one line the surrounding box trims off the end.
+	capacity := max(1, height-1)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	var b strings.Builder
-	for i := offset; i < len(s.rows) && i-offset < height; i++ {
+	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
 		when := relTime(r.row.CreatedAt, now)
 		label := fmt.Sprintf("%s  %s  %s", ansi.Truncate(r.title, 30, "..."), r.summary, muted.Render(when))

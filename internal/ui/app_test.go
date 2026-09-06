@@ -585,7 +585,19 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
 
+	// Put the sidebar's selected node on IEAATASK00's folder (ProjectAPI), which is not
+	// IEAATASK01's folder (Web), so a reload keyed off a stale selection cannot find IEAATASK01
+	// by coincidence and the assertions below actually exercise the fix.
 	from := mark(t, tm)
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+
+	from = mark(t, tm)
 	press(tm, "!")
 	waitAfter(t, tm, from, "Sync issues (2)")
 
@@ -594,8 +606,44 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200001")
 
+	// A later reload (any outbox or store change) must not knock the detail off the task just
+	// opened: openTaskMsg has to put its parent folder (Web) in the sidebar's selected node, the
+	// same way openFromSearch does, or the list reload keyed off the stale API selection fires a
+	// taskSelectedMsg for whatever row is there instead. A fixed sleep, not a wait for specific
+	// text, is used here: with the fix the reload is idempotent and repaints nothing new to wait
+	// for, so the only reliable way to let its goroutine settle before the assertion is to wait.
+	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 0})
+	time.Sleep(150 * time.Millisecond)
+
 	view := finalView(t, tm)
 	if strings.Contains(view, "Sync issues") {
 		t.Errorf("enter should leave the issues screen for the task detail:\n%s", view)
+	}
+	if !strings.Contains(view, "#1200001") {
+		t.Errorf("the opened task should still be selected after the outbox message:\n%s", view)
+	}
+}
+
+// TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
+// (here s for the status dialog) does nothing on the issues screen, since there is no task pane
+// underneath it to act on and the key would otherwise reach whatever task was selected before.
+func TestSyncIssuesRoutesKeysToTheScreen(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+
+	press(tm, "s")
+	// Give a stray Update a moment to land before asserting nothing happened.
+	time.Sleep(50 * time.Millisecond)
+
+	view := finalView(t, tm)
+	// Nothing on the issues screen itself says "Status", the detail pane label of the same
+	// name is part of the main screen this box replaces, so its presence means the dialog opened.
+	if strings.Contains(view, "Status") || !strings.Contains(view, "Sync issues") {
+		t.Errorf("s should not open the status dialog on the issues screen:\n%s", view)
 	}
 }

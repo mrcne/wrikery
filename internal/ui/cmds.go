@@ -303,8 +303,8 @@ func (m Model) reloadCurrent() tea.Cmd {
 }
 
 // loadIssues reads the failed outbox rows for the sync issues screen.
-// A timelog edit or delete names the timelog as its entity, so its task is looked up
-// through the cached row, which is only there while nothing has evicted it yet.
+// A timelog edit or delete names the timelog as its entity, so its task is looked up through the
+// cached row, which is only there while nothing has evicted it yet.
 func (m Model) loadIssues() tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
@@ -327,6 +327,9 @@ func (m Model) loadIssues() tea.Cmd {
 			if ir.taskID != "" {
 				if t, err := st.Tasks().Get(ctx, ir.taskID); err == nil {
 					ir.title = t.Title
+					if len(t.ParentIDs) > 0 {
+						ir.parentID = t.ParentIDs[0]
+					}
 				} else {
 					ir.title = "(task " + ir.taskID + ")"
 				}
@@ -336,6 +339,26 @@ func (m Model) loadIssues() tea.Cmd {
 			rows = append(rows, ir)
 		}
 		return issuesLoadedMsg{rows: rows}
+	}
+}
+
+// enqueueIssueOp runs a retry or discard for the issues screen. ErrNotFound means the engine
+// already took the row inflight or somebody else cleared it, which is not a failure worth an
+// error toast, just a sign the list is stale and needs another read.
+func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
+	hooks := m.opts.Hooks
+	return func() tea.Msg {
+		err := op(context.Background())
+		if errors.Is(err, store.ErrNotFound) {
+			return writeQueuedMsg{toast: "already being sent, list refreshed"}
+		}
+		if err != nil {
+			return errMsg{err}
+		}
+		if hooks.WakeOutbox != nil {
+			hooks.WakeOutbox()
+		}
+		return writeQueuedMsg{toast: doneToast}
 	}
 }
 
