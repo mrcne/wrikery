@@ -122,7 +122,7 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 
 - config: `~/.config/wrikery/config.toml`
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
-- logs: `~/.local/state/wrikery/wrikery.log`
+- logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`
 - API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to `~/.config/wrikery/token` (mode 0600) on machines without one
 - `WRIKERY_TOKEN` in the environment overrides the stored token, keychain and file both
 
