@@ -16,7 +16,7 @@ import (
 func renderDescription(html, plain string, width int, mode string) string {
 	out := renderMarkup(html, plain, width, mode)
 	if mode == "ascii" {
-		// ASCII mode is a promise about every character on screen, and neither glamour nor Wrike's own text keeps it.
+		// glamour's ascii style still draws a bullet and an arrow of its own, and a description body can carry drawing characters too.
 		out = toASCII(out)
 	}
 	return out
@@ -68,29 +68,22 @@ func newRenderer(width int, mode string) (*glamour.TermRenderer, error) {
 	return glamour.NewTermRenderer(style, glamour.WithWordWrap(width), glamour.WithColorProfile(lipgloss.ColorProfile()))
 }
 
-// asciiFallback maps the box drawing and punctuation glamour and lipgloss reach for onto plain equivalents.
+// asciiDrawing swaps the drawing characters glamour and lipgloss reach for, and touches nothing else.
 // The runes are escapes because this package keeps its own source ASCII.
-// In order: the two rules, the four corners, the five junctions, the bullet and the right arrow.
-var asciiFallback = map[rune]rune{
-	'\u2500': '-', '\u2502': '|',
-	'\u250c': '+', '\u2510': '+', '\u2514': '+', '\u2518': '+',
-	'\u253c': '+', '\u251c': '+', '\u2524': '+', '\u252c': '+', '\u2534': '+',
-	'\u2022': '*', '\u2192': '-',
-}
+// In order: the two rules, the four corners and the five junctions,
+// then the bullet, the right arrow, the ellipsis, the curly quotes and the long dashes.
+var asciiDrawing = strings.NewReplacer(
+	"\u2500", "-", "\u2502", "|",
+	"\u250c", "+", "\u2510", "+", "\u2514", "+", "\u2518", "+",
+	"\u253c", "+", "\u251c", "+", "\u2524", "+", "\u252c", "+", "\u2534", "+",
+	"\u2022", "*", "\u2192", "-", "\u2026", "...",
+	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`,
+	"\u2013", "-", "\u2014", "-",
+)
 
-// toASCII is the invariant behind the ascii setting, whatever a style or a description body turns out to contain.
-// A character with no sensible stand-in becomes a question mark, which is what a terminal without the glyph would show anyway.
-func toASCII(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r < 128:
-			return r
-		case asciiFallback[r] != 0:
-			return asciiFallback[r]
-		}
-		return '?'
-	}, s)
-}
+// toASCII replaces the symbols a font without box drawing cannot show, and leaves every letter where it is.
+// The ascii setting is about the frame, a description written in Polish still has to read as Polish.
+func toASCII(s string) string { return asciiDrawing.Replace(s) }
 
 // lipgloss breaks on word boundaries, which is what the plain text fallback wants.
 func wordWrap(s string, width int) string {

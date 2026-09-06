@@ -28,16 +28,30 @@ func TestRenderDescriptionFallsBackToPlain(t *testing.T) {
 	}
 }
 
-// The ascii mode is for terminals that cannot draw the theme glyphs.
-// glamour's own ascii style reaches past 127 for list bullets, table rules and the image arrow, so the whole output is pinned.
+// The ascii mode is for fonts without box drawing, bullets and arrows, and glamour reaches for all three.
 func TestRenderDescriptionStaysASCII(t *testing.T) {
 	html := `<p>Steps</p><ul><li>stop after the first 401</li></ul>` +
 		`<table><tr><th>Code</th><th>Meaning</th></tr><tr><td>429</td><td>rate limit</td></tr></table>` +
 		`<p><img alt="diagram" src="x"></p>`
 	out := renderDescription(html, "", 40, "ascii")
-	for _, r := range out {
-		if r > 127 {
-			t.Fatalf("ascii mode rendered %q:\n%s", r, out)
+	drawing := []rune{
+		'\u2500', '\u2502',
+		'\u250c', '\u2510', '\u2514', '\u2518',
+		'\u253c', '\u251c', '\u2524', '\u252c', '\u2534',
+		'\u2022', '\u2192',
+	}
+	for _, r := range drawing {
+		if strings.ContainsRune(out, r) {
+			t.Errorf("ascii mode drew %q:\n%s", r, out)
 		}
+	}
+}
+
+// A description is text from Wrike, not decoration, so the ascii setting has no business rewriting it.
+func TestRenderDescriptionKeepsLetters(t *testing.T) {
+	const city = "\u0142\u00f3d\u017a"
+	out := renderDescription("<p>Deploy in "+city+" on Friday</p>", "", 40, "ascii")
+	if !strings.Contains(out, city) {
+		t.Errorf("ascii mode should leave the words alone:\n%s", out)
 	}
 }
