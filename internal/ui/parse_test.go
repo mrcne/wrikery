@@ -46,3 +46,17 @@ func TestParseHours(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatHoursRoundTripsThroughParseHours(t *testing.T) {
+	cases := map[float64]string{2: "2", 1.5: "1:30", 1.0 + 20.0/60.0: "1:20"}
+	for h, want := range cases {
+		got := formatHours(h)
+		if got != want {
+			t.Errorf("formatHours(%v) = %q, want %q", h, got, want)
+		}
+		back, err := parseHours(got)
+		if err != nil || back != h {
+			t.Errorf("parseHours(formatHours(%v)) = %v, %v; want %v", h, back, err, h)
+		}
+	}
+}

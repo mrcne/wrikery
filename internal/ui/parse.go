@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -102,4 +103,21 @@ func parseHours(s string) (float64, error) {
 		return 0, errors.New("hours must be between 0 and 24")
 	}
 	return hours, nil
+}
+
+// formatHours prefills the hours field the way a person would type it:
+// a plain integer for a whole number of hours, h:mm otherwise.
+// Minutes are rounded rather than truncated,
+// so the result round trips back through parseHours instead of drifting a minute short on repeated edits.
+func formatHours(h float64) string {
+	whole := math.Trunc(h)
+	if h == whole {
+		return strconv.FormatFloat(h, 'f', -1, 64)
+	}
+	minutes := int(math.Round((h - whole) * 60))
+	if minutes == 60 {
+		whole++
+		minutes = 0
+	}
+	return fmt.Sprintf("%d:%02d", int(whole), minutes)
 }

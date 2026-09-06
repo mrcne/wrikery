@@ -32,6 +32,8 @@ type timesheetModel struct {
 	states    map[string]store.OutboxState
 	cursorRow int // len(rows) is the empty row for adding on a new task
 	cursorDay int
+	offset    int // first task row drawn, scrolls the rows to keep cursorRow in the visible window
+	height    int // set by the root from the computed layout, View cannot remember it on its own
 	keys      KeyMap
 	loaded    bool
 }
@@ -92,6 +94,24 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 			t.cursorRow = i
 		}
 	}
+	t.scroll()
+}
+
+// scroll clamps offset so cursorRow stays inside the visible window, the same pattern as the sync issues list.
+// Only the task rows scroll: the header, the "+ new task" row, the blank line and the totals line stay pinned,
+// so the window holds height minus those four fixed lines.
+// The pinned "+ new task" row (cursorRow == len(rows)) needs no row of its own brought into view.
+func (t *timesheetModel) scroll() {
+	if t.cursorRow >= len(t.rows) {
+		return
+	}
+	visible := max(1, t.height-4)
+	if t.cursorRow < t.offset {
+		t.offset = t.cursorRow
+	}
+	if t.cursorRow >= t.offset+visible {
+		t.offset = t.cursorRow - visible + 1
+	}
 }
 
 func (t timesheetModel) title() string {
@@ -123,6 +143,11 @@ func (t timesheetModel) titleFor(taskID string) string {
 }
 
 func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
+	if !t.loaded {
+		// Nothing to move a cursor over yet, and weekStart is still the zero time,
+		// so ] or [ here would jump to the week of year 1 instead of doing nothing.
+		return t, nil
+	}
 	switch {
 	case key.Matches(msg, t.keys.DayRight):
 		if t.cursorDay < 6 {
@@ -135,10 +160,12 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 	case key.Matches(msg, t.keys.Down):
 		if t.cursorRow < len(t.rows) {
 			t.cursorRow++
+			t.scroll()
 		}
 	case key.Matches(msg, t.keys.Up):
 		if t.cursorRow > 0 {
 			t.cursorRow--
+			t.scroll()
 		}
 	case key.Matches(msg, t.keys.WeekNext):
 		return t, intent(loadWeekMsg{start: t.weekStart.AddDate(0, 0, 7)})
@@ -195,6 +222,11 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	}
 	b.WriteString(muted.Render(fmt.Sprintf("%*s", cellW, "Total")) + "\n")
 
+	// height is the source of truth for how many task rows fit:
+	// the header, the "+ new task" row, the blank line and the totals line are pinned and always cost one line each,
+	// so only height-4 is left for the rows themselves.
+	// dayTotals still sums every row, visible or not.
+	visible := max(1, height-4)
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0
@@ -227,7 +259,9 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			line += style.Render(text)
 		}
 		line += muted.Render(fmt.Sprintf("%*.1f", cellW, rowTotal))
-		b.WriteString(line + "\n")
+		if ri >= t.offset && ri < t.offset+visible {
+			b.WriteString(line + "\n")
+		}
 	}
 	// The empty row: n here logs time on a task picked through search.
 	const newTaskLabel = "+ new task"

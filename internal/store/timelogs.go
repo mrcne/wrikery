@@ -41,8 +41,8 @@ func upsertTimelogsTx(ctx context.Context, tx *sql.Tx, logs []Timelog) error {
 	return nil
 }
 
-// Upsert is a plain upsert by id, used by the account wide me pull which is
-// not scoped to a single task.
+// Upsert is a plain upsert by id, not scoped to a single task or user.
+// The demo seed and the tests are its only callers.
 func (t timelogRepo) Upsert(ctx context.Context, logs []Timelog) error {
 	tx, err := t.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func (t timelogRepo) ReplaceForTask(ctx context.Context, taskID string, logs []T
 	return tx.Commit()
 }
 
-// timelogColumns is shared by ListForTask and Get so the two queries cannot drift apart.
+// timelogColumns is shared by the list queries and Get so they cannot drift apart.
 const timelogColumns = `id, task_id, user_id, category_id, tracked_date, comment, hours,
 	lock_status, approval_status, created_date, updated_date`
 
@@ -134,6 +134,10 @@ func (t timelogRepo) Get(ctx context.Context, id string) (Timelog, error) {
 
 // ReplaceForUserRange swaps the server rows in a date window and says whether anything differs afterwards.
 // The fingerprint is cheap on purpose: count, latest update and total hours catch every edit the API can make.
+// Only a queued create is protected by the local id prefix, the same rule ReplaceForTask follows.
+// A row with a queued update or delete has no such protection,
+// so the grid can show the server value until that write lands.
+// The write itself is never lost, only its display lags.
 func (t timelogRepo) ReplaceForUserRange(ctx context.Context, userID, from, to string, logs []Timelog) (bool, error) {
 	tx, err := t.w.BeginTx(ctx, nil)
 	if err != nil {

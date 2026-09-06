@@ -63,9 +63,8 @@ func TestEntryPickerEmitsOneMessageForTheRowUnderTheCursor(t *testing.T) {
 	}
 }
 
-// timelogLocked has no caller yet.
-// The timesheet grid wires it to the edit and delete actions.
-// This test keeps it from being flagged as unused in the meantime.
+// timelogLocked is the one rule both the edit and the delete refusal depend on,
+// so it earns its own test rather than only being exercised indirectly through theirs.
 func TestTimelogLocked(t *testing.T) {
 	if timelogLocked(store.Timelog{LockStatus: "Unlocked", ApprovalStatus: "Draft"}) {
 		t.Error("unlocked draft entry reported locked")

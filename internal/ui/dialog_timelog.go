@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,7 +36,7 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 	}
 	if existing != nil {
 		d.timelogID = existing.ID
-		values = []string{strconv.FormatFloat(existing.Hours, 'f', -1, 64), existing.TrackedDate, existing.Comment}
+		values = []string{formatHours(existing.Hours), existing.TrackedDate, existing.Comment}
 	}
 	for i := range d.inputs {
 		in := textinput.New()
