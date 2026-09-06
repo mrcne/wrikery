@@ -26,3 +26,22 @@ func TestTaskNumber(t *testing.T) {
 		t.Error("taskNumber")
 	}
 }
+
+func TestSlugifyTransliteratesNonASCII(t *testing.T) {
+	// Escaped so the file stays ASCII: "Zazolc gesla jazn" and "Cafe Zurich" with diacritics.
+	polish := "Za\u017c\u00f3\u0142\u0107 g\u0119\u015bl\u0105 ja\u017a\u0144"
+	if got := slugify(polish, 40); got != "zazolc-gesla-jazn" {
+		t.Errorf("got %q", got)
+	}
+	french := "Caf\u00e9 Z\u00fcrich"
+	if got := slugify(french, 40); got != "cafe-zurich" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestBranchNameWithSymbolOnlyTitle(t *testing.T) {
+	task := store.Task{ID: "X999", Title: "!!! ??? ###"}
+	if got := branchName("{id}-{slug}", task); got != "X999-" {
+		t.Errorf("got %q", got)
+	}
+}

@@ -190,6 +190,18 @@ func TestDetailShowsTheSelectedTask(t *testing.T) {
 	}
 }
 
+// permalinkNumber reads the numeric task id off the end of a demo permalink,
+// the same number the detail pane's title shows as "#<id>".
+func permalinkNumber(t *testing.T, permalink string) string {
+	t.Helper()
+	const marker = "id="
+	i := strings.LastIndex(permalink, marker)
+	if i < 0 {
+		t.Fatalf("permalink %q has no id", permalink)
+	}
+	return permalink[i+len(marker):]
+}
+
 // Opening a task tells the syncer to refresh its thread, so it must follow a deliberate enter and not the cursor.
 func TestOpeningATaskMarksItOpened(t *testing.T) {
 	st := seededStore(t)
@@ -201,9 +213,13 @@ func TestOpeningATaskMarksItOpened(t *testing.T) {
 	previewed, opened := tasks[0], tasks[1]
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "Tasks: My tasks")
-	press(tm, "j")     // move the cursor onto the second task, which only previews it
+	from := mark(t, tm)
+	press(tm, "j") // move the cursor onto the second task, which only previews it
+	// Wait for the detail pane to actually show the preview before the deliberate enter,
+	// or a slow repaint could let enter race ahead of the cursor move and open the still previewed task.
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, opened.Permalink))
 	press(tm, "enter") // and open that one
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		t2, err := st.Tasks().Get(ctx, opened.ID)
 		if err != nil {

@@ -17,7 +17,8 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// Hooks are the few things the UI needs from outside the store. Any of them may be nil, the UI then reports it instead of failing.
+// Hooks are the few things the UI needs from outside the store.
+// Any of them may be nil, the UI then reports it instead of failing.
 type Hooks struct {
 	Refresh     func()
 	WakeOutbox  func()
@@ -393,7 +394,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, opened
 }
 
-// selectedTask is the task the open/copy bindings act on: the detail's task when the detail pane has focus and finished loading, otherwise the list's current row.
+// selectedTask is the task the open/copy bindings act on:
+// the detail's task when the detail pane has focus and finished loading, otherwise the list's current row.
 func (m Model) selectedTask() (store.Task, bool) {
 	if m.focus == paneDetail && m.detail.loaded {
 		return m.detail.task, true
