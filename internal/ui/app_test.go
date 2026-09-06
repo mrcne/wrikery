@@ -543,3 +543,59 @@ func TestDatesDialogSetsDue(t *testing.T) {
 		t.Errorf("dates after edit = %+v, want due %s", task.Dates, want)
 	}
 }
+
+func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+	waitAfter(t, tm, from, "Task not found")
+
+	// Move to the second failure and confirm it is listed too, before acting on it.
+	from = mark(t, tm)
+	press(tm, "j")
+	waitAfter(t, tm, from, "Timesheet is locked")
+
+	from = mark(t, tm)
+	press(tm, "x")
+	waitAfter(t, tm, from, "Discard this write?")
+
+	from = mark(t, tm)
+	press(tm, "y")
+	waitAfter(t, tm, from, "Sync issues (1)")
+
+	from = mark(t, tm)
+	press(tm, "r")
+	waitAfter(t, tm, from, "Sync issues (0)")
+
+	pending, failed, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 2 || failed != 0 {
+		t.Errorf("outbox counts after retry = pending %d, failed %d, want 2, 0", pending, failed)
+	}
+}
+
+func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Sync issues (2)")
+
+	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200001")
+
+	view := finalView(t, tm)
+	if strings.Contains(view, "Sync issues") {
+		t.Errorf("enter should leave the issues screen for the task detail:\n%s", view)
+	}
+}

@@ -19,7 +19,8 @@ func editorArgv(editor, path string) []string {
 	return append(strings.Fields(editor), path)
 }
 
-// openEditor hands the terminal to $VISUAL or $EDITOR on a temp file. bubbletea restores the screen when it returns.
+// openEditor hands the terminal to $VISUAL or $EDITOR on a temp file.
+// bubbletea restores the screen when it returns.
 func openEditor(taskID string) (tea.Cmd, error) {
 	editor := os.Getenv("VISUAL")
 	if editor == "" {

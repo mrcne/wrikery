@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"slices"
@@ -76,6 +77,7 @@ type Model struct {
 	list     taskListModel
 	detail   taskDetailModel
 	search   searchModel
+	issues   issuesModel
 	dialog   dialog
 
 	selectedNode   treeNode
@@ -92,6 +94,7 @@ func New(o Options) Model {
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
+	m.issues.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -127,6 +130,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
+		if m.screen == screenIssues {
+			return m, m.loadIssues()
+		}
 		if m.selectedNode.kind == nodeNone {
 			// The queue can change before the tree lands, and there is no list to reread until a node is picked.
 			return m, m.reloadTask()
@@ -214,11 +220,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case closeDialogMsg:
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
+	case openConfirmMsg:
+		m.openDialog(confirmDialog(msg))
+		return m, nil
+	case issuesLoadedMsg:
+		m.issues.set(msg.rows)
+		return m, nil
+	case retryIssueMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
+	case discardIssueMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
+	case openTaskMsg:
+		// selectedTaskID has to be set here, not left for the pendingSelect round trip through
+		// tasksLoadedMsg: taskLoadedMsg drops any answer for a task nobody is on yet.
+		m.screen, m.focus, m.selectedTaskID, m.pendingSelect = screenMain, paneDetail, msg.id, msg.id
+		return m, m.loadTask(msg.id)
 	case writeQueuedMsg:
-		return m, tea.Batch(m.status.show(msg.toast, false), m.reloadCurrent())
+		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
+		if m.screen == screenIssues {
+			cmds = append(cmds, m.loadIssues())
+		}
+		return m, tea.Batch(cmds...)
 	case editorDoneMsg:
-		// The temp file is a small OS side effect local to this handler, the comment itself still
-		// goes through submitCommentMsg so it reaches the outbox by the same path as the dialog.
+		// The temp file is a small OS side effect local to this handler,
+		// the comment itself still goes through submitCommentMsg so it reaches the outbox by the same path as the dialog.
+		// A file that cannot be read is treated as an empty comment, there is nothing better to send.
 		text, _ := os.ReadFile(msg.path)
 		_ = os.Remove(msg.path)
 		if msg.err != nil {
@@ -419,6 +447,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.opts.Hooks.Refresh()
 		return m, m.status.show("refreshing", false)
+	case key.Matches(msg, m.keys.Issues):
+		m.screen = screenIssues
+		return m, m.loadIssues()
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = (m.focus + 1) % 3
 	case key.Matches(msg, m.keys.PrevPane):
@@ -486,6 +517,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openDialog(d)
 			return cmd
 		})
+	}
+	if m.screen == screenIssues {
+		// The issues screen has no panes of its own, its rows take every key the switch above did not.
+		var cmd tea.Cmd
+		m.issues, cmd = m.issues.Update(msg)
+		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before:
@@ -567,6 +604,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenFirstRun:
 		body = m.firstRun.View(m.theme, m.width, bodyHeight)
+	case screenIssues:
+		body = m.viewIssues(bodyHeight)
 	default:
 		body = m.viewMain(bodyHeight)
 	}
@@ -601,6 +640,16 @@ func (m *Model) syncPaneSizes() {
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
 	}
+	// The issues screen replaces the whole body with one box, its inner height mirrors
+	// what viewIssues gives its View.
+	m.issues.height = max(0, m.height-3)
+}
+
+// viewIssues fills the whole body with one box, there is no sidebar or detail pane to share it with.
+func (m Model) viewIssues(height int) string {
+	title := fmt.Sprintf("Sync issues (%d)", len(m.issues.rows))
+	body := m.issues.View(m.theme, m.opts.Now(), m.width-2, height-2)
+	return m.theme.box(title, body, m.width, height, true)
 }
 
 func (m Model) viewMain(height int) string {
@@ -636,6 +685,9 @@ func (m Model) paneBody(p pane, r rect) string {
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
+	if m.screen == screenIssues {
+		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
+	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.focus == paneList {
 		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
@@ -647,5 +699,8 @@ func (m Model) hintBindings() []key.Binding {
 }
 
 func (m Model) helpGroups() [][]key.Binding {
+	if m.screen == screenIssues {
+		return [][]key.Binding{m.keys.global(), m.keys.issues()}
+	}
 	return [][]key.Binding{m.keys.global(), m.keys.list(), m.keys.task()}
 }

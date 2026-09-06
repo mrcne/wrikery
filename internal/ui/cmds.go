@@ -302,6 +302,43 @@ func (m Model) reloadCurrent() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// loadIssues reads the failed outbox rows for the sync issues screen.
+// A timelog edit or delete names the timelog as its entity, so its task is looked up
+// through the cached row, which is only there while nothing has evicted it yet.
+func (m Model) loadIssues() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		ctx := context.Background()
+		failed, err := st.Outbox().ListFailed(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		var rows []issueRow
+		for _, r := range failed {
+			ir := issueRow{row: r, summary: summarize(r)}
+			switch r.Kind {
+			case store.KindTimelogUpdate, store.KindTimelogDelete:
+				if l, err := st.Timelogs().Get(ctx, r.EntityID); err == nil {
+					ir.taskID = l.TaskID
+				}
+			default:
+				ir.taskID = r.EntityID
+			}
+			if ir.taskID != "" {
+				if t, err := st.Tasks().Get(ctx, ir.taskID); err == nil {
+					ir.title = t.Title
+				} else {
+					ir.title = "(task " + ir.taskID + ")"
+				}
+			} else {
+				ir.title = "(time entry " + r.EntityID + ")"
+			}
+			rows = append(rows, ir)
+		}
+		return issuesLoadedMsg{rows: rows}
+	}
+}
+
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {

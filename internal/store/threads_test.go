@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -75,5 +76,28 @@ func TestTimelogUpsertAndReplace(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "L1" {
 		t.Fatalf("timelogs after replace = %+v, want [L1]", got)
+	}
+}
+
+func TestTimelogGet(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	log := Timelog{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: "2026-09-01", Hours: 2,
+		CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"}
+	if err := st.Timelogs().Upsert(ctx, []Timelog{log}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.Timelogs().Get(ctx, "L1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != log {
+		t.Fatalf("Get(L1) = %+v, want %+v", got, log)
+	}
+
+	if _, err := st.Timelogs().Get(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(missing) error = %v, want ErrNotFound", err)
 	}
 }
