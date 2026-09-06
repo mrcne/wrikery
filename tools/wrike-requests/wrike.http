@@ -1,0 +1,42 @@
+# Requests for checking a token, the data center host and the shape of a few responses by hand.
+# Made for the REST Client extension in VS Code (humao.rest-client), the syntax works in similar tools.
+# Copy .env.example to .env next to this file and put the host and the token there, .env stays out of git.
+# A 300 with an empty body means the account lives in the other data center, change WRIKE_HOST.
+@host = {{$dotenv WRIKE_HOST}}
+@token = {{$dotenv WRIKE_TOKEN}}
+
+### Who am I, the call the app uses to verify a token.
+# @name me
+GET https://{{host}}/api/v4/contacts?me=true
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Spaces the token can see.
+# @name spaces
+GET https://{{host}}/api/v4/spaces
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### The folder tree.
+# @name folders
+GET https://{{host}}/api/v4/folders
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Workflows and their custom statuses.
+# @name workflows
+GET https://{{host}}/api/v4/workflows
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Tasks, one page of twenty.
+# @name tasks
+GET https://{{host}}/api/v4/tasks?pageSize=20
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Contacts, the reference data the app caches.
+# @name contacts
+GET https://{{host}}/api/v4/contacts
+Accept: application/json
+Authorization: Bearer {{token}}
