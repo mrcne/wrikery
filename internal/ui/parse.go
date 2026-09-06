@@ -57,7 +57,8 @@ func parseDate(s string, now time.Time) (string, error) {
 	return "", errors.New("could not read the date, try 2026-09-12, fri, +3d or today")
 }
 
-// parseHours reads 1.5, 1,5, 1:30, 90m, 2h and 2h30m. Wrike stores hours as a decimal, the API rejects zero and negative values.
+// parseHours reads 1.5, 1,5, 1:30, 90m, 2h and 2h30m.
+// Wrike stores hours as a decimal, the API rejects zero and negative values.
 func parseHours(s string) (float64, error) {
 	s = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), ",", "."))
 	if s == "" {

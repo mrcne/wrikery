@@ -32,7 +32,7 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 }
 
 // timelogLocked has no caller yet.
-// The timesheet grid in the next task wires it to the edit and delete actions.
+// The timesheet grid wires it to the edit and delete actions.
 // This test keeps it from being flagged as unused in the meantime.
 func TestTimelogLocked(t *testing.T) {
 	if timelogLocked(store.Timelog{LockStatus: "Unlocked", ApprovalStatus: "Draft"}) {

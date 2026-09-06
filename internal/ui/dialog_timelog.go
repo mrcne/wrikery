@@ -95,6 +95,55 @@ func (d timelogDialog) View(th Theme, width int) string {
 	return th.box(title, body, min(width, 70), lipgloss.Height(body)+2, true)
 }
 
+// entryPicker asks which of several entries in one grid cell a key acted on, edit or delete.
+type entryPicker struct {
+	logs      []store.Timelog
+	forDelete bool
+	cursor    int
+}
+
+func newEntryPicker(logs []store.Timelog, forDelete bool) entryPicker {
+	return entryPicker{logs: logs, forDelete: forDelete}
+}
+
+func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if d.cursor < len(d.logs)-1 {
+			d.cursor++
+		}
+	case "k", "up":
+		if d.cursor > 0 {
+			d.cursor--
+		}
+	case "enter":
+		if d.cursor >= len(d.logs) {
+			return d, nil
+		}
+		l := d.logs[d.cursor]
+		if d.forDelete {
+			prompt := fmt.Sprintf("Delete %.1f h on %s?", l.Hours, l.TrackedDate)
+			return d, tea.Batch(intent(openConfirmMsg{prompt: prompt, onYes: deleteTimelogMsg{id: l.ID}}), intent(closeDialogMsg{}))
+		}
+		return d, tea.Batch(intent(editEntryMsg{log: l}), intent(closeDialogMsg{}))
+	}
+	return d, nil
+}
+
+func (d entryPicker) View(th Theme, width int) string {
+	var b strings.Builder
+	for i, l := range d.logs {
+		label := fmt.Sprintf("%.1f h  %s", l.Hours, l.Comment)
+		b.WriteString(rowLine(th, label, width-2, i == d.cursor, true) + "\n")
+	}
+	body := strings.TrimRight(b.String(), "\n")
+	title := "Edit which entry"
+	if d.forDelete {
+		title = "Delete which entry"
+	}
+	return th.box(title, body, min(width, 50), lipgloss.Height(body)+2, true)
+}
+
 // timelogLocked is true when Wrike would reject an edit: the entry sits in a locked or approved timesheet.
 // Values from https://developers.wrike.com/api/v4/timelogs/ (lockStatus is Locked or Unlocked,
 // approvalStatus is Draft, NotRequired, Approved, Rejected, Cancelled or Pending).

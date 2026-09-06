@@ -70,19 +70,21 @@ type Model struct {
 	overlay overlay
 	focus   pane
 
-	status   statusModel
-	firstRun firstRunModel
-	ref      refData
-	sidebar  sidebarModel
-	list     taskListModel
-	detail   taskDetailModel
-	search   searchModel
-	issues   issuesModel
-	dialog   dialog
+	status    statusModel
+	firstRun  firstRunModel
+	ref       refData
+	sidebar   sidebarModel
+	list      taskListModel
+	detail    taskDetailModel
+	search    searchModel
+	issues    issuesModel
+	timesheet timesheetModel
+	dialog    dialog
 
 	selectedNode   treeNode
 	selectedTaskID string
 	pendingSelect  string // task id to reselect once the next tasksLoadedMsg lands, set by reload after an outbox or task change
+	pendingDate    string // date a new timesheet entry is for, set while search stands in as its task picker
 }
 
 func New(o Options) Model {
@@ -95,6 +97,7 @@ func New(o Options) Model {
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
 	m.issues.keys = m.keys
+	m.timesheet.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -217,6 +220,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case searchOpenMsg:
 		return m.openFromSearch(msg.task)
+	case searchPickMsg:
+		m.overlay, m.search.pickMode = overlayNone, false
+		d, cmd := newTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate, m.opts.Now())
+		m.openDialog(d)
+		return m, cmd
 	case closeDialogMsg:
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
@@ -225,6 +233,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case issuesLoadedMsg:
 		m.issues.set(msg.rows)
+		return m, nil
+	case weekLoadedMsg:
+		m.timesheet.set(msg)
+		return m, nil
+	case loadWeekMsg:
+		return m, m.loadWeek(msg.start)
+	case newEntryMsg:
+		if msg.taskID == "" {
+			m.pendingDate = msg.date
+			m.overlay = overlaySearch
+			cmd := m.search.reset()
+			m.search.pickMode = true
+			return m, cmd
+		}
+		title := m.timesheet.rows[m.timesheet.cursorRow].title
+		d, cmd := newTimelogDialog(msg.taskID, title, nil, msg.date, m.opts.Now())
+		m.openDialog(d)
+		return m, cmd
+	case editEntryMsg:
+		if timelogLocked(msg.log) {
+			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
+		}
+		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.rows[m.timesheet.cursorRow].title, &msg.log, "", m.opts.Now())
+		m.openDialog(d)
+		return m, cmd
+	case pickEntryMsg:
+		m.openDialog(newEntryPicker(msg.logs, msg.forDelete))
 		return m, nil
 	case retryIssueMsg:
 		st := m.opts.Store
@@ -251,6 +286,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
 		if m.screen == screenIssues {
 			cmds = append(cmds, m.loadIssues())
+		}
+		if m.screen == screenTimesheet {
+			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
 		}
 		return m, tea.Batch(cmds...)
 	case editorDoneMsg:
@@ -356,6 +394,9 @@ func (m Model) reload(entities []string) tea.Cmd {
 	}
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
 		cmds = append(cmds, m.reloadTask())
+	}
+	if slices.Contains(entities, "timelogs") && m.screen == screenTimesheet {
+		cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
 	}
 	if m.screen == screenFirstRun {
 		if m.firstRun.step == stepScopes && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
@@ -480,12 +521,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.opts.Hooks.Refresh()
 			return m, m.status.show("refreshing", false)
+		case key.Matches(msg, m.keys.Timesheet):
+			m.screen = screenTimesheet
+			return m, m.loadWeek(time.Time{})
 		case key.Matches(msg, m.keys.Back):
 			m.screen = screenMain
 			return m, nil
 		}
 		var cmd tea.Cmd
 		m.issues, cmd = m.issues.Update(msg)
+		return m, cmd
+	}
+	if m.screen == screenTimesheet {
+		// Same reasoning as the issues screen above: only the keys that make sense with no task
+		// on screen fall through, everything else would otherwise act on whatever task the main
+		// screen last had selected, underneath the box this screen is showing instead.
+		switch {
+		case key.Matches(msg, m.keys.Quit):
+			return m, tea.Quit
+		case key.Matches(msg, m.keys.Help):
+			m.overlay = overlayHelp
+			return m, nil
+		case key.Matches(msg, m.keys.Search):
+			m.overlay = overlaySearch
+			return m, m.search.reset()
+		case key.Matches(msg, m.keys.Refresh):
+			if m.opts.Hooks.Refresh == nil {
+				return m, m.status.show("refresh is not available", true)
+			}
+			m.opts.Hooks.Refresh()
+			return m, m.status.show("refreshing", false)
+		case key.Matches(msg, m.keys.Issues):
+			m.screen = screenIssues
+			return m, m.loadIssues()
+		case key.Matches(msg, m.keys.Back):
+			m.screen = screenMain
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.timesheet, cmd = m.timesheet.Update(msg)
 		return m, cmd
 	}
 	prevFocus := m.focus
@@ -506,6 +580,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Issues):
 		m.screen = screenIssues
 		return m, m.loadIssues()
+	case key.Matches(msg, m.keys.Timesheet):
+		m.screen = screenTimesheet
+		return m, m.loadWeek(time.Time{})
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = (m.focus + 1) % 3
 	case key.Matches(msg, m.keys.PrevPane):
@@ -672,6 +749,8 @@ func (m Model) View() string {
 		body = m.firstRun.View(m.theme, m.width, bodyHeight)
 	case screenIssues:
 		body = m.viewIssues(bodyHeight)
+	case screenTimesheet:
+		body = m.viewTimesheet(bodyHeight)
 	default:
 		body = m.viewMain(bodyHeight)
 	}
@@ -717,6 +796,20 @@ func (m Model) viewIssues(height int) string {
 	return m.theme.box(title, body, m.width, height, true)
 }
 
+// viewTimesheet fills the whole body with one box, the same way viewIssues does.
+// Before the first weekLoadedMsg lands the box is titled plainly, with nothing in it yet.
+func (m Model) viewTimesheet(height int) string {
+	title := "Timesheet"
+	if m.timesheet.loaded {
+		title = m.timesheet.title()
+	}
+	body := ""
+	if m.timesheet.loaded {
+		body = m.timesheet.View(m.theme, m.width-2, height-2)
+	}
+	return m.theme.box(title, body, m.width, height, true)
+}
+
 func (m Model) viewMain(height int) string {
 	lay := computeLayout(m.width, height, m.focus, m.sidebar.width())
 	parts := make([]string, 0, len(lay.visible))
@@ -753,6 +846,9 @@ func (m Model) hintBindings() []key.Binding {
 	if m.screen == screenIssues {
 		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
 	}
+	if m.screen == screenTimesheet {
+		return []key.Binding{m.keys.DayLeft, m.keys.DayRight, m.keys.WeekPrev, m.keys.WeekNext, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Back}
+	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.focus == paneList {
 		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
@@ -766,6 +862,9 @@ func (m Model) hintBindings() []key.Binding {
 func (m Model) helpGroups() [][]key.Binding {
 	if m.screen == screenIssues {
 		return [][]key.Binding{m.keys.global(), m.keys.issues()}
+	}
+	if m.screen == screenTimesheet {
+		return [][]key.Binding{m.keys.global(), m.keys.timesheet()}
 	}
 	return [][]key.Binding{m.keys.global(), m.keys.list(), m.keys.task()}
 }

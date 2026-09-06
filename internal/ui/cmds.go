@@ -388,6 +388,40 @@ func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast stri
 	}
 }
 
+// loadWeek reads the current user's timelogs for the seven days starting at start, along with
+// the title of each task involved and the outbox state of each entry, for the pending marker.
+// A zero start means the week the clock is in right now.
+func (m Model) loadWeek(start time.Time) tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	if start.IsZero() {
+		start = weekOf(m.opts.Now())
+	}
+	return func() tea.Msg {
+		ctx := context.Background()
+		from, to := start.Format("2006-01-02"), start.AddDate(0, 0, 6).Format("2006-01-02")
+		logs, err := st.Timelogs().ListForUser(ctx, meID, from, to)
+		if err != nil {
+			return errMsg{err}
+		}
+		titles := map[string]string{}
+		for _, l := range logs {
+			if _, done := titles[l.TaskID]; done {
+				continue
+			}
+			if t, err := st.Tasks().Get(ctx, l.TaskID); err == nil {
+				titles[l.TaskID] = t.Title
+			} else {
+				titles[l.TaskID] = ""
+			}
+		}
+		states, err := st.Outbox().StatesByEntity(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return weekLoadedMsg{weekStart: start, logs: logs, titles: titles, states: states}
+	}
+}
+
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {
