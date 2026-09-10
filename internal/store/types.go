@@ -116,3 +116,7 @@ const MetaKeyMe = "me_contact_id"
 
 // MetaKeyHost is the host the token probe found, written by cmd/wrikery, empty means not probed yet.
 const MetaKeyHost = "api_host"
+
+// MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
+// The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
+const MetaKeyTimelogFrom = "timelog_window_from"

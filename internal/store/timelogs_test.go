@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestListForUserRange(t *testing.T) {
@@ -53,5 +54,16 @@ func TestReplaceForUserRangeKeepsLocalRowsAndReportsChange(t *testing.T) {
 	})
 	if err != nil || changed {
 		t.Errorf("same data again should report no change: %v, %v", changed, err)
+	}
+}
+
+func TestTimelogWindow(t *testing.T) {
+	from, to := TimelogWindow(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)) // Thursday
+	if from != "2026-07-06" || to != "2026-09-06" {
+		t.Errorf("window = %s..%s", from, to)
+	}
+	from, to = TimelogWindow(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)) // Sunday belongs to the same week
+	if from != "2026-07-06" || to != "2026-09-06" {
+		t.Errorf("sunday window = %s..%s", from, to)
 	}
 }

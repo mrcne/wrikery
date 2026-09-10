@@ -243,17 +243,6 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 	}
 }
 
-func TestTimelogWindow(t *testing.T) {
-	from, to := timelogWindow(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)) // Thursday
-	if from != "2026-07-06" || to != "2026-09-06" {
-		t.Errorf("window = %s..%s", from, to)
-	}
-	from, to = timelogWindow(time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)) // Sunday belongs to the same week
-	if from != "2026-07-06" || to != "2026-09-06" {
-		t.Errorf("sunday window = %s..%s", from, to)
-	}
-}
-
 func TestPullMyTimelogsPagesAndReplaces(t *testing.T) {
 	st := newTestStore(t)
 	var seen []wrike.TimelogParams
@@ -274,6 +263,9 @@ func TestPullMyTimelogsPagesAndReplaces(t *testing.T) {
 	logs, _ := st.Timelogs().ListForUser(context.Background(), "U1", "2026-07-06", "2026-09-06")
 	if len(logs) != 2 {
 		t.Errorf("stored %d logs", len(logs))
+	}
+	if from, _ := st.GetMeta(context.Background(), store.MetaKeyTimelogFrom); from != "2026-07-06" {
+		t.Errorf("meta window start = %q, want 2026-07-06", from)
 	}
 }
 

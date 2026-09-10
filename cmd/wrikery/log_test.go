@@ -49,3 +49,35 @@ func TestRotateLog(t *testing.T) {
 		t.Errorf("rotated content after second run = %q, want %q", got, "second run")
 	}
 }
+
+// A demo run gets its own log file next to the real one and leaves the real log and its rotated copy alone.
+func TestOpenLogKeepsDemoRunsOutOfTheRealLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wrikery.log")
+	if err := os.WriteFile(path, []byte("real run"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := openLog(path, true)
+	if err != nil {
+		t.Fatalf("openLog for a demo run: %v", err)
+	}
+	_ = f.Close()
+	if got, _ := os.ReadFile(path); string(got) != "real run" {
+		t.Errorf("real log after a demo run = %q, want it untouched", got)
+	}
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Errorf("a demo run rotated the real log")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "demo.log")); err != nil {
+		t.Errorf("demo.log missing: %v", err)
+	}
+
+	f, err = openLog(path, false)
+	if err != nil {
+		t.Fatalf("openLog for a real run: %v", err)
+	}
+	_ = f.Close()
+	if got, _ := os.ReadFile(path + ".1"); string(got) != "real run" {
+		t.Errorf("rotated log = %q, want the previous real run", got)
+	}
+}

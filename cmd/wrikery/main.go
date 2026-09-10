@@ -139,11 +139,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		return nil
 	}
 
-	if err := rotateLog(paths.LogFile); err != nil {
-		return err
-	}
-	logFile, err := os.OpenFile(paths.LogFile,
-		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	logFile, err := openLog(paths.LogFile, demoMode)
 	if err != nil {
 		return err
 	}

@@ -1,12 +1,12 @@
 +- Timesheet: 31 Aug - 6 Sep 2026 -------------------------------------------------------------------------------------+
 |                                                               Mon 31  Tue 1  Wed 2  Thu 3  Fri 4  Sat 5  Sun 6  Total|
-|Fix auth retry loop                                              ~3.5      -      -      -      -      -      -    3.5|
-|Add signing keys                                                  2.0      -      -      -      -      -      -    2.0|
-|Rotate rate limit test                                              -    0.5      -      -      -      -      -    0.5|
+|Add signing keys                                                 ~4.0      -      -      -      -      -      -    4.0|
+|Design flaky CI job                                                 -      -      -    0.5      -      -      -    0.5|
 |Document error codes                                                -    3.0      -      -      -      -      -    3.0|
+|Fix auth retry loop                                               1.5      -      -      -      -      -      -    1.5|
 |Refactor sync cursor                                                -      -    1.5      -      -      -      -    1.5|
 |Remove legacy config loader                                         -      -    2.0      -      -      -      -    2.0|
-|Design flaky CI job                                                 -      -      -    0.5      -      -      -    0.5|
+|Rotate rate limit test                                              -    0.5      -      -      -      -      -    0.5|
 |Write tests for onboarding flow                                     -      -      -    3.0      -      -      -    3.0|
 |+ new task                                                                                                            |
 |                                                                                                                      |

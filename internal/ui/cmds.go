@@ -398,6 +398,16 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 	}
 	return func() tea.Msg {
 		ctx := context.Background()
+		if meID == "" {
+			// T pressed before the reference data has loaded: the first sync wrote the id to meta already.
+			if id, err := st.GetMeta(ctx, store.MetaKeyMe); err == nil {
+				meID = id
+			}
+		}
+		var windowFrom time.Time
+		if from, err := st.GetMeta(ctx, store.MetaKeyTimelogFrom); err == nil {
+			windowFrom, _ = time.Parse("2006-01-02", from)
+		}
 		from, to := start.Format("2006-01-02"), start.AddDate(0, 0, 6).Format("2006-01-02")
 		logs, err := st.Timelogs().ListForUser(ctx, meID, from, to)
 		if err != nil {
@@ -418,7 +428,7 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return weekLoadedMsg{weekStart: start, logs: logs, titles: titles, states: states}
+		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, states: states}
 	}
 }
 

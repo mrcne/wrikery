@@ -85,6 +85,134 @@ func TestTimesheetGridTotalsAndCursor(t *testing.T) {
 	}
 }
 
+// Rows sort by title so a task keeps its place from week to week and a newly picked one does not land mid list.
+// The order the entries arrive in (by tracked date) is not a stable order for the user.
+func TestTimesheetRowsSortByTitle(t *testing.T) {
+	var ts timesheetModel
+	ts.keys = defaultKeyMap()
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs: []store.Timelog{
+			{ID: "a", TaskID: "T2", TrackedDate: "2026-08-31", Hours: 2},
+			{ID: "b", TaskID: "T1", TrackedDate: "2026-09-02", Hours: 1},
+			{ID: "c", TaskID: "T3", TrackedDate: "2026-09-04", Hours: 1},
+		},
+		titles: map[string]string{"T1": "fix auth retry loop", "T2": "Rotate signing keys", "T3": "Alpha release notes"},
+	})
+	var got []string
+	for _, r := range ts.rows {
+		got = append(got, r.taskID)
+	}
+	if strings.Join(got, ",") != "T3,T1,T2" {
+		t.Errorf("row order = %v, want T3,T1,T2 (by title, case insensitive)", got)
+	}
+}
+
+// Logging time on a task picked through search adds a row for it, and the cursor should land on that row
+// when the week reloads, not go back to the first row.
+func TestCursorFollowsTheTaskPickedForANewEntry(t *testing.T) {
+	m := New(rootTestOptions(t))
+	week := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	logs := []store.Timelog{
+		{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2},
+		{ID: "b", TaskID: "T2", TrackedDate: "2026-09-01", Hours: 1},
+	}
+	titles := map[string]string{"T1": "Alpha", "T2": "Beta", "T9": "Zeta"}
+	next, _ := m.Update(weekLoadedMsg{weekStart: week, logs: logs, titles: titles})
+	nm := next.(Model)
+	nm.screen = screenTimesheet
+	nm.timesheet.cursorRow = len(nm.timesheet.rows) // the "+ new task" row
+
+	next, _ = nm.Update(newEntryMsg{taskID: "", date: "2026-09-02"})
+	next, _ = next.(Model).Update(searchPickMsg{task: store.Task{ID: "T9", Title: "Zeta"}})
+	nm = next.(Model)
+	if _, ok := nm.dialog.(timelogDialog); !ok {
+		t.Fatalf("dialog = %T, want timelogDialog", nm.dialog)
+	}
+	// The save queues the entry and the week reloads with the new local row in it.
+	next, _ = nm.Update(submitTimelogMsg{taskID: "T9", hours: 1, date: "2026-09-02"})
+	logs = append(logs, store.Timelog{ID: "local:1", TaskID: "T9", TrackedDate: "2026-09-02", Hours: 1})
+	next, _ = next.(Model).Update(weekLoadedMsg{weekStart: week, logs: logs, titles: titles})
+	nm = next.(Model)
+	if nm.timesheet.cursorRow != 2 || nm.timesheet.rows[2].taskID != "T9" {
+		t.Errorf("cursorRow = %d (rows %v), want 2 on T9", nm.timesheet.cursorRow, nm.timesheet.rows)
+	}
+}
+
+// A pick that is cancelled in the log time box must not move the cursor on the next reload,
+// even when the picked task already has a row.
+func TestCancelledPickLeavesTheCursorAlone(t *testing.T) {
+	m := New(rootTestOptions(t))
+	week := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	logs := []store.Timelog{
+		{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2},
+		{ID: "b", TaskID: "T9", TrackedDate: "2026-09-01", Hours: 1},
+	}
+	titles := map[string]string{"T1": "Alpha", "T9": "Zeta"}
+	next, _ := m.Update(weekLoadedMsg{weekStart: week, logs: logs, titles: titles})
+	nm := next.(Model)
+	nm.screen = screenTimesheet
+	nm.timesheet.cursorRow = len(nm.timesheet.rows)
+
+	next, _ = nm.Update(newEntryMsg{taskID: "", date: "2026-09-02"})
+	next, _ = next.(Model).Update(searchPickMsg{task: store.Task{ID: "T9", Title: "Zeta"}})
+	next, _ = next.(Model).Update(closeDialogMsg{})
+	next, _ = next.(Model).Update(weekLoadedMsg{weekStart: week, logs: logs, titles: titles})
+	nm = next.(Model)
+	if nm.timesheet.cursorRow != 0 {
+		t.Errorf("cursorRow = %d after a cancelled pick, want 0 (the first row, as after any reload from the add row)", nm.timesheet.cursorRow)
+	}
+}
+
+// A week before the synced window is empty because nothing was pulled for it, not because nothing was logged.
+// The grid has to say so, or an old empty week reads like a week off.
+func TestTimesheetMarksAWeekOutsideTheSyncedWindow(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	var ts timesheetModel
+	ts.keys = defaultKeyMap()
+	windowFrom := time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)
+	ts.set(weekLoadedMsg{weekStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), windowFrom: windowFrom})
+	if out := ts.View(th, 100, 12); !strings.Contains(out, "not synced") {
+		t.Errorf("an unsynced week should say so:\n%s", out)
+	}
+	if !strings.Contains(ts.title(), "not synced") {
+		t.Errorf("title = %q, want a not synced marker", ts.title())
+	}
+	ts.set(weekLoadedMsg{weekStart: windowFrom, windowFrom: windowFrom})
+	if out := ts.View(th, 100, 12); strings.Contains(out, "not synced") || strings.Contains(ts.title(), "not synced") {
+		t.Errorf("the first synced week carries no marker:\n%s", out)
+	}
+}
+
+// T pressed before the reference data has loaded used to show an empty week,
+// since loadWeek took the user id from the model.
+// The meta table has the id as soon as the first sync wrote it, and the window start next to it.
+func TestLoadWeekReadsTheUserAndTheWindowFromMeta(t *testing.T) {
+	m := New(rootTestOptions(t))
+	st, ctx := m.opts.Store, context.Background()
+	for k, v := range map[string]string{store.MetaKeyMe: "U1", store.MetaKeyTimelogFrom: "2026-07-06"} {
+		if err := st.SetMeta(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "Alpha"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Timelogs().Upsert(ctx, []store.Timelog{{ID: "a", TaskID: "T1", UserID: "U1", TrackedDate: "2026-09-01", Hours: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if m.ref.meID != "" {
+		t.Fatalf("meID = %q before the reference data loaded", m.ref.meID)
+	}
+	week, ok := m.loadWeek(time.Time{})().(weekLoadedMsg)
+	if !ok || len(week.logs) != 1 {
+		t.Fatalf("loadWeek -> %#v, want one entry for the user named in meta", week)
+	}
+	if week.windowFrom.Format("2006-01-02") != "2026-07-06" {
+		t.Errorf("windowFrom = %v, want 2026-07-06 from meta", week.windowFrom)
+	}
+}
+
 // A box height of 12 leaves 8 lines for task rows (height minus the header, the "+ new task"
 // row, the blank line and the totals line), well under the 30 rows built here, so the grid has
 // to scroll the cursor into view rather than draw all 30 and let the surrounding box cut the

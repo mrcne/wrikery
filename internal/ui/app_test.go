@@ -707,7 +707,7 @@ func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	waitFor(t, tm, "Log time on")
 	press(tm, "2h", "enter")
 	waitFor(t, tm, "Logged 2.0 h")
-	waitFor(t, tm, "~3.5")
+	waitFor(t, tm, "~4.0")
 	golden.RequireEqual(t, []byte(finalView(t, tm)))
 }
 
