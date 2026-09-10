@@ -30,6 +30,9 @@ changelog:
     - title: Fixes
       regexp: "^fix"
       order: 1
+    - title: Build
+      regexp: "^build"
+      order: 2
     - title: Other
       order: 999
   filters:

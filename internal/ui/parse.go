@@ -78,11 +78,11 @@ func parseHours(s string) (float64, error) {
 	case strings.HasSuffix(s, "m") || strings.Contains(s, "h"):
 		rest := s
 		if i := strings.Index(rest, "h"); i >= 0 {
-			h, err := strconv.Atoi(rest[:i])
+			h, err := strconv.ParseFloat(rest[:i], 64)
 			if err != nil {
 				return 0, fmt.Errorf("could not read %q", s)
 			}
-			hours += float64(h)
+			hours += h
 			rest = rest[i+1:]
 		}
 		if rest != "" {

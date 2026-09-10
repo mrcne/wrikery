@@ -25,6 +25,10 @@ func TestSeedFillsEveryTable(t *testing.T) {
 	if me, _ := st.GetMeta(ctx, store.MetaKeyMe); me != MeID {
 		t.Errorf("meta me = %q", me)
 	}
+	// The demo has to look synced, or the timesheet would mark every week as not synced.
+	if from, _ := st.GetMeta(ctx, store.MetaKeyTimelogFrom); from != "2026-07-06" {
+		t.Errorf("meta timelog window start = %q, want 2026-07-06", from)
+	}
 	if spaces, _ := st.Spaces().List(ctx); len(spaces) != 2 {
 		t.Errorf("spaces = %d", len(spaces))
 	}

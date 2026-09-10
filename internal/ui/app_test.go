@@ -33,6 +33,8 @@ func seededStore(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	// The store stamps queued rows from its own clock, and the goldens that show a queued row need it frozen too.
+	st.Now = func() time.Time { return fixedNow }
 	if err := demo.Seed(context.Background(), st, fixedNow); err != nil {
 		t.Fatal(err)
 	}
@@ -705,7 +707,7 @@ func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	waitFor(t, tm, "Log time on")
 	press(tm, "2h", "enter")
 	waitFor(t, tm, "Logged 2.0 h")
-	waitFor(t, tm, "~3.5")
+	waitFor(t, tm, "~4.0")
 	golden.RequireEqual(t, []byte(finalView(t, tm)))
 }
 

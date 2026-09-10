@@ -5,7 +5,33 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 )
+
+// The queued time and the optimistic rows' dates come from the store's clock rather than SQLite's,
+// so the sync issues screen agrees with the app's own clock, and a golden that shows a queued row does not change with the calendar.
+func TestEnqueueStampsRowsFromTheStoreClock(t *testing.T) {
+	st := newTestStore(t)
+	st.Now = func() time.Time { return time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) }
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "task")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.CreatedAt != "2026-09-03T12:00:00Z" {
+		t.Errorf("outbox created_at = %q, want the store clock", row.CreatedAt)
+	}
+	comments, _ := st.Comments().ListForTask(ctx, "T1")
+	if len(comments) != 1 || comments[0].CreatedDate != "2026-09-03T12:00:00Z" {
+		t.Errorf("optimistic comment = %+v, want created at the store clock", comments)
+	}
+}
 
 func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 	st := newTestStore(t)

@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,22 +29,25 @@ type tsRow struct {
 }
 
 type timesheetModel struct {
-	weekStart time.Time
-	rows      []tsRow
-	states    map[string]store.OutboxState
-	cursorRow int // len(rows) is the empty row for adding on a new task
-	cursorDay int
-	offset    int // first task row drawn, scrolls the rows to keep cursorRow in the visible window
-	height    int // set by the root from the computed layout, View cannot remember it on its own
-	keys      KeyMap
-	loaded    bool
+	weekStart  time.Time
+	windowFrom time.Time // first day the sync engine keeps entries for, zero until the first pull
+	rows       []tsRow
+	states     map[string]store.OutboxState
+	cursorRow  int // len(rows) is the empty row for adding on a new task
+	cursorDay  int
+	offset     int    // first task row drawn, scrolls the rows to keep cursorRow in the visible window
+	height     int    // set by the root from the computed layout, View cannot remember it on its own
+	focusTask  string // task picked for a new entry, the next reload puts the cursor on its row
+	keys       KeyMap
+	loaded     bool
 }
 
 type weekLoadedMsg struct {
-	weekStart time.Time
-	logs      []store.Timelog
-	titles    map[string]string
-	states    map[string]store.OutboxState
+	weekStart  time.Time
+	windowFrom time.Time
+	logs       []store.Timelog
+	titles     map[string]string
+	states     map[string]store.OutboxState
 }
 type loadWeekMsg struct{ start time.Time }
 type newEntryMsg struct{ taskID, date string }
@@ -58,9 +63,8 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 	if t.cursorRow < len(t.rows) {
 		prevTask = t.rows[t.cursorRow].taskID
 	}
-	t.weekStart, t.states, t.loaded = msg.weekStart, msg.states, true
+	t.weekStart, t.windowFrom, t.states, t.loaded = msg.weekStart, msg.windowFrom, msg.states, true
 	byTask := map[string]*tsRow{}
-	var order []string
 	for _, l := range msg.logs {
 		day, err := time.Parse("2006-01-02", l.TrackedDate[:min(10, len(l.TrackedDate))])
 		if err != nil {
@@ -78,14 +82,18 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 			}
 			row = &tsRow{taskID: l.TaskID, title: title}
 			byTask[l.TaskID] = row
-			order = append(order, l.TaskID)
 		}
 		row.cells[idx] = append(row.cells[idx], l)
 	}
 	t.rows = t.rows[:0]
-	for _, id := range order {
-		t.rows = append(t.rows, *byTask[id])
+	for _, row := range byTask {
+		t.rows = append(t.rows, *row)
 	}
+	// By title rather than by first entry, so a task keeps its place from week to week
+	// and a task picked for a new entry does not land mid list.
+	slices.SortFunc(t.rows, func(a, b tsRow) int {
+		return cmp.Or(strings.Compare(strings.ToLower(a.title), strings.ToLower(b.title)), strings.Compare(a.taskID, b.taskID))
+	})
 	// Start on the first task row.
 	// With no rows the only row is the "+ new task" one at index 0.
 	t.cursorRow = 0
@@ -94,18 +102,40 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 			t.cursorRow = i
 		}
 	}
+	if t.focusTask != "" {
+		if i := slices.IndexFunc(t.rows, func(r tsRow) bool { return r.taskID == t.focusTask }); i >= 0 {
+			t.cursorRow = i
+		}
+		t.focusTask = ""
+	}
 	t.scroll()
 }
 
-// scroll clamps offset so cursorRow stays inside the visible window, the same pattern as the sync issues list.
+// unsynced reports a week before the pulled window:
+// empty because nothing was fetched for it, not because nothing was logged.
+// With no window known yet (before the first pull) nothing is marked, the status bar already says a sync is running.
+func (t timesheetModel) unsynced() bool {
+	return !t.windowFrom.IsZero() && t.weekStart.Before(t.windowFrom)
+}
+
+// visibleRows is how many task rows fit in height.
 // Only the task rows scroll: the header, the "+ new task" row, the blank line and the totals line stay pinned,
-// so the window holds height minus those four fixed lines.
+// so the window holds height minus those four fixed lines, and one more for the not synced line when it shows.
+func (t timesheetModel) visibleRows(height int) int {
+	fixed := 4
+	if t.unsynced() {
+		fixed++
+	}
+	return max(1, height-fixed)
+}
+
+// scroll clamps offset so cursorRow stays inside the visible window, the same pattern as the sync issues list.
 // The pinned "+ new task" row (cursorRow == len(rows)) needs no row of its own brought into view.
 func (t *timesheetModel) scroll() {
 	if t.cursorRow >= len(t.rows) {
 		return
 	}
-	visible := max(1, t.height-4)
+	visible := t.visibleRows(t.height)
 	if t.cursorRow < t.offset {
 		t.offset = t.cursorRow
 	}
@@ -116,7 +146,11 @@ func (t *timesheetModel) scroll() {
 
 func (t timesheetModel) title() string {
 	end := t.weekStart.AddDate(0, 0, 6)
-	return fmt.Sprintf("Timesheet: %d %s - %d %s %d", t.weekStart.Day(), t.weekStart.Month().String()[:3], end.Day(), end.Month().String()[:3], end.Year())
+	title := fmt.Sprintf("Timesheet: %d %s - %d %s %d", t.weekStart.Day(), t.weekStart.Month().String()[:3], end.Day(), end.Month().String()[:3], end.Year())
+	if t.unsynced() {
+		title += " (not synced)"
+	}
+	return title
 }
 
 func (t timesheetModel) cellDate() string {
@@ -221,12 +255,12 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 		}
 	}
 	b.WriteString(muted.Render(fmt.Sprintf("%*s", cellW, "Total")) + "\n")
+	if t.unsynced() {
+		b.WriteString(muted.Render(ansi.Truncate("not synced, only this week and the eight before it are kept", width, "...")) + "\n")
+	}
 
-	// height is the source of truth for how many task rows fit:
-	// the header, the "+ new task" row, the blank line and the totals line are pinned and always cost one line each,
-	// so only height-4 is left for the rows themselves.
-	// dayTotals still sums every row, visible or not.
-	visible := max(1, height-4)
+	// height is the source of truth for how many task rows fit, dayTotals still sums every row, visible or not.
+	visible := t.visibleRows(height)
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0

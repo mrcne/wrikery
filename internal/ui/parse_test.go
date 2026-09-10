@@ -34,7 +34,7 @@ func TestParseDate(t *testing.T) {
 }
 
 func TestParseHours(t *testing.T) {
-	for in, want := range map[string]float64{"1.5": 1.5, "1,5": 1.5, "1:30": 1.5, "90m": 1.5, "2h": 2, "2h30m": 2.5, "0.25": 0.25} {
+	for in, want := range map[string]float64{"1.5": 1.5, "1,5": 1.5, "1:30": 1.5, "90m": 1.5, "2h": 2, "2h30m": 2.5, "0.25": 0.25, "1.5h": 1.5, "0,5h": 0.5} {
 		got, err := parseHours(in)
 		if err != nil || got != want {
 			t.Errorf("parseHours(%q) = %v, %v; want %v", in, got, err, want)

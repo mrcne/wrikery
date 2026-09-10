@@ -340,6 +340,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case submitTimelogMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		if msg.timelogID == "" {
+			if m.screen == screenTimesheet {
+				// A new task's row appears with the reload that follows, the cursor goes with it.
+				m.timesheet.focusTask = msg.taskID
+			}
 			return m, m.enqueue(func(ctx context.Context) error {
 				_, err := st.Outbox().EnqueueTimelogCreate(ctx, msg.taskID, meID, store.TimelogCreatePayload{Hours: msg.hours, TrackedDate: msg.date, Comment: msg.comment})
 				return err
@@ -509,7 +513,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list, cmd = m.list.Update(msg)
 		return m, cmd
 	}
-	if m.screen == screenIssues {
+	if m.screen == screenIssues || m.screen == screenTimesheet {
 		// Only the keys that make sense with no task on screen fall through:
 		// everything else would otherwise reach whatever task the main screen had last selected,
 		// underneath the box this screen is showing instead, the task action keys below included.
@@ -523,12 +527,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlaySearch
 			return m, m.search.reset()
 		case key.Matches(msg, m.keys.Refresh):
-			if m.opts.Hooks.Refresh == nil {
-				return m, m.status.show("refresh is not available", true)
-			}
-			m.opts.Hooks.Refresh()
-			return m, m.status.show("refreshing", false)
-		case key.Matches(msg, m.keys.Timesheet):
+			return m.refresh()
+		case key.Matches(msg, m.keys.Issues) && m.screen != screenIssues:
+			m.screen = screenIssues
+			return m, m.loadIssues()
+		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
 			m.screen = screenTimesheet
 			return m, m.loadWeek(time.Time{})
 		case key.Matches(msg, m.keys.Back):
@@ -536,37 +539,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		var cmd tea.Cmd
-		m.issues, cmd = m.issues.Update(msg)
-		return m, cmd
-	}
-	if m.screen == screenTimesheet {
-		// Same reasoning as the issues screen above: only the keys that make sense with no task on screen fall through,
-		// everything else would otherwise reach whatever task the main screen had last selected,
-		// underneath the box this screen is showing instead.
-		switch {
-		case key.Matches(msg, m.keys.Quit):
-			return m, tea.Quit
-		case key.Matches(msg, m.keys.Help):
-			m.overlay = overlayHelp
-			return m, nil
-		case key.Matches(msg, m.keys.Search):
-			m.overlay = overlaySearch
-			return m, m.search.reset()
-		case key.Matches(msg, m.keys.Refresh):
-			if m.opts.Hooks.Refresh == nil {
-				return m, m.status.show("refresh is not available", true)
-			}
-			m.opts.Hooks.Refresh()
-			return m, m.status.show("refreshing", false)
-		case key.Matches(msg, m.keys.Issues):
-			m.screen = screenIssues
-			return m, m.loadIssues()
-		case key.Matches(msg, m.keys.Back):
-			m.screen = screenMain
-			return m, nil
+		if m.screen == screenIssues {
+			m.issues, cmd = m.issues.Update(msg)
+		} else {
+			m.timesheet, cmd = m.timesheet.Update(msg)
 		}
-		var cmd tea.Cmd
-		m.timesheet, cmd = m.timesheet.Update(msg)
 		return m, cmd
 	}
 	prevFocus := m.focus
@@ -579,11 +556,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.overlay = overlaySearch
 		return m, m.search.reset()
 	case key.Matches(msg, m.keys.Refresh):
-		if m.opts.Hooks.Refresh == nil {
-			return m, m.status.show("refresh is not available", true)
-		}
-		m.opts.Hooks.Refresh()
-		return m, m.status.show("refreshing", false)
+		return m.refresh()
 	case key.Matches(msg, m.keys.Issues):
 		m.screen = screenIssues
 		return m, m.loadIssues()
@@ -696,6 +669,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.syncPaneSizes()
 	return m, opened
+}
+
+// refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.
+func (m Model) refresh() (Model, tea.Cmd) {
+	if m.opts.Hooks.Refresh == nil {
+		return m, m.status.show("refresh is not available", true)
+	}
+	m.opts.Hooks.Refresh()
+	return m, m.status.show("refreshing", false)
 }
 
 // selectedTask is the task the open/copy bindings act on:

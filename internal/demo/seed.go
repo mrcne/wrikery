@@ -91,6 +91,11 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err := st.SetMeta(ctx, store.MetaKeyMe, MeID); err != nil {
 		return err
 	}
+	// The demo store never syncs, so it marks the timelog window itself or the timesheet would call every week unsynced.
+	windowFrom, _ := store.TimelogWindow(now)
+	if err := st.SetMeta(ctx, store.MetaKeyTimelogFrom, windowFrom); err != nil {
+		return err
+	}
 	if err := st.Contacts().ReplaceAll(ctx, contacts); err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type OutboxKind string
@@ -96,22 +97,23 @@ type OutboxRepo interface {
 	StatesByEntity(ctx context.Context) (map[string]OutboxState, error)
 }
 
-func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader} }
+func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader, now: s.Now} }
 
 type outboxRepo struct {
 	w, r *sql.DB
+	now  func() time.Time
 }
 
-const nowUTC = `strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`
+func (o outboxRepo) stamp() string { return o.now().UTC().Format(time.RFC3339) }
 
-func insertOutboxTx(ctx context.Context, tx *sql.Tx, kind OutboxKind, entityID string, payload any) (int64, error) {
+func (o outboxRepo) insertOutboxTx(ctx context.Context, tx *sql.Tx, kind OutboxKind, entityID string, payload any) (int64, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO outbox (kind, entity_id, payload) VALUES (?, ?, ?)`,
-		string(kind), entityID, string(raw))
+		`INSERT INTO outbox (kind, entity_id, payload, created_at) VALUES (?, ?, ?, ?)`,
+		string(kind), entityID, string(raw), o.stamp())
 	if err != nil {
 		return 0, err
 	}
@@ -124,7 +126,7 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := insertOutboxTx(ctx, tx, KindTaskUpdate, taskID, p)
+	id, err := o.insertOutboxTx(ctx, tx, KindTaskUpdate, taskID, p)
 	if err != nil {
 		return 0, err
 	}
@@ -179,14 +181,14 @@ func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text s
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := insertOutboxTx(ctx, tx, KindCommentCreate, taskID, CommentCreatePayload{Text: text})
+	id, err := o.insertOutboxTx(ctx, tx, KindCommentCreate, taskID, CommentCreatePayload{Text: text})
 	if err != nil {
 		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO comments (id, task_id, author_id, text, created_date)
-		VALUES (?, ?, ?, ?, `+nowUTC+`)`,
-		fmt.Sprintf("%s%d", LocalIDPrefix, id), taskID, authorID, text); err != nil {
+		VALUES (?, ?, ?, ?, ?)`,
+		fmt.Sprintf("%s%d", LocalIDPrefix, id), taskID, authorID, text, o.stamp()); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -198,16 +200,16 @@ func (o outboxRepo) EnqueueTimelogCreate(ctx context.Context, taskID, userID str
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := insertOutboxTx(ctx, tx, KindTimelogCreate, taskID, p)
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogCreate, taskID, p)
 	if err != nil {
 		return 0, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO timelogs (id, task_id, user_id, tracked_date, comment, hours,
 			created_date, updated_date)
-		VALUES (?, ?, ?, ?, ?, ?, `+nowUTC+`, `+nowUTC+`)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		fmt.Sprintf("%s%d", LocalIDPrefix, id), taskID, userID,
-		p.TrackedDate, p.Comment, p.Hours); err != nil {
+		p.TrackedDate, p.Comment, p.Hours, o.stamp(), o.stamp()); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -219,7 +221,7 @@ func (o outboxRepo) EnqueueTimelogUpdate(ctx context.Context, timelogID string, 
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := insertOutboxTx(ctx, tx, KindTimelogUpdate, timelogID, p)
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogUpdate, timelogID, p)
 	if err != nil {
 		return 0, err
 	}
@@ -237,8 +239,8 @@ func (o outboxRepo) EnqueueTimelogUpdate(ctx context.Context, timelogID string, 
 		set = append(set, "comment = ?")
 		args = append(args, p.Comment)
 	}
-	set = append(set, "updated_date = "+nowUTC)
-	args = append(args, timelogID)
+	set = append(set, "updated_date = ?")
+	args = append(args, o.stamp(), timelogID)
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE timelogs SET `+strings.Join(set, ", ")+` WHERE id = ?`, args...); err != nil {
 		return 0, err
@@ -252,7 +254,7 @@ func (o outboxRepo) EnqueueTimelogDelete(ctx context.Context, timelogID string) 
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := insertOutboxTx(ctx, tx, KindTimelogDelete, timelogID, struct{}{})
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogDelete, timelogID, struct{}{})
 	if err != nil {
 		return 0, err
 	}

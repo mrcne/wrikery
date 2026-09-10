@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -14,6 +15,9 @@ var ErrNotFound = errors.New("store: not found")
 type Store struct {
 	writer *sql.DB
 	reader *sql.DB
+	// Now stamps the rows the store creates itself, queued writes and their optimistic cache rows.
+	// The tests run on a fixed clock, so the stamps have to come from here and not from SQLite.
+	Now func() time.Time
 }
 
 // Open opens or creates the database at path and applies pending migrations.
@@ -39,7 +43,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	reader.SetMaxOpenConns(4)
-	return &Store{writer: writer, reader: reader}, nil
+	return &Store{writer: writer, reader: reader, Now: time.Now}, nil
 }
 
 func (s *Store) Close() error {

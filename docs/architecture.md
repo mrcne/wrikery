@@ -72,6 +72,7 @@ The task search API supports that filter directly, so a poll with nothing new co
 Comments and timelogs are synced only for tasks the user recently viewed or touched, not for the whole account.
 Every cycle also pulls the user's own timelogs for the current week and the eight weeks before it, on top of that per-task pull.
 The store rows in that range are replaced as a whole, so a deleted or moved entry disappears too.
+The first day of the window is written to the meta table, and the timesheet marks a week before it as not synced rather than showing it empty.
 
 ## Sending changes back
 
@@ -114,6 +115,7 @@ A 401 is the exception: sync pauses and asks for a new token instead of retrying
 A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
 Logs go to a file through log/slog, never onto the screen.
 Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.
+The rows the store creates on its own, queued writes and their optimistic cache rows, are stamped from a clock the store holds, so the tests can run on a fixed time.
 
 ## Files on disk
 
@@ -122,7 +124,8 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 
 - config: `~/.config/wrikery/config.toml`
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
-- logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`, two instances at once share the name and the first one's later lines end up in the `.1` file
+- logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`, two instances at once share the name and the first one's later lines end up in the `.1` file.
+  A demo run writes `demo.log` in the same directory and rotates nothing.
 - API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to `~/.config/wrikery/token` (mode 0600) on machines without one
 - `WRIKERY_TOKEN` in the environment overrides the stored token, keychain and file both
 

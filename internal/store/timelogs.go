@@ -5,7 +5,20 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
+
+// TimelogWindow is the range of the current user's time entries the store keeps:
+// the current week plus the eight before it, Monday to Sunday.
+// The syncer pulls this range and the demo seeds it, older weeks are not shown in the timesheet.
+func TimelogWindow(now time.Time) (from, to string) {
+	wd := int(now.Weekday())
+	if wd == 0 {
+		wd = 7
+	}
+	monday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -(wd - 1))
+	return monday.AddDate(0, 0, -7*8).Format("2006-01-02"), monday.AddDate(0, 0, 6).Format("2006-01-02")
+}
 
 type TimelogRepo interface {
 	Upsert(ctx context.Context, logs []Timelog) error

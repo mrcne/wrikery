@@ -53,7 +53,7 @@ func (d commentDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 }
 
 func (d commentDialog) View(th Theme, width int) string {
-	hint := lipgloss.NewStyle().Foreground(th.Muted).Render("ctrl+s send   esc cancel")
+	hint := lipgloss.NewStyle().Foreground(th.Muted).Render("ctrl+s or ctrl+d send   esc cancel")
 	body := d.ta.View() + "\n\n" + hint
 	return th.box("Comment on "+d.title, body, width, lipgloss.Height(body)+2, true)
 }
