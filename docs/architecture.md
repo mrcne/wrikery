@@ -114,6 +114,7 @@ A 401 is the exception: sync pauses and asks for a new token instead of retrying
 A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
 Logs go to a file through log/slog, never onto the screen.
 Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.
+The rows the store creates on its own, queued writes and their optimistic cache rows, are stamped from a clock the store holds, so the tests can run on a fixed time.
 
 ## Files on disk
 
