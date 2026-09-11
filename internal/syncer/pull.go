@@ -205,7 +205,10 @@ func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string,
 			return false, err
 		}
 		all = append(all, page.Timelogs...)
-		if page.NextPageToken == "" {
+		// An empty page ends the walk even when it carries a token.
+		// Wrike sends one with an empty answer (seen on an account with no entries) and refuses it on the next request.
+		// The reference (https://developers.wrike.com/api/v4/timelogs/) only says the token applies an offset to the next page.
+		if page.NextPageToken == "" || len(page.Timelogs) == 0 {
 			break
 		}
 		p.PageToken = page.NextPageToken

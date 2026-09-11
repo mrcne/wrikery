@@ -72,6 +72,7 @@ A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
 Comments and timelogs are synced only for tasks the user recently viewed or touched, not for the whole account.
 Every cycle also pulls the user's own timelogs for the current week and the eight weeks before it, on top of that per-task pull.
+That pull stops at an empty page, because Wrike answers an empty window with a page token and refuses the token on the next request.
 The store rows in that range are replaced as a whole, so a deleted or moved entry disappears too.
 The first day of the window is written to the meta table, and the timesheet marks a week before it as not synced rather than showing it empty.
 
