@@ -12,20 +12,21 @@ type fakeClient struct {
 	mu    sync.Mutex
 	calls []string
 
-	me            func() (wrike.Contact, error)
-	contacts      func() ([]wrike.Contact, error)
-	spaces        func() ([]wrike.Space, error)
-	workflows     func() ([]wrike.Workflow, error)
-	folderTree    func() ([]wrike.Folder, error)
-	tasks         func(p wrike.TaskParams) (wrike.TasksPage, error)
-	taskComments  func(taskID string) ([]wrike.Comment, error)
-	taskTimelogs  func(taskID string) ([]wrike.Timelog, error)
-	timelogs      func(p wrike.TimelogParams) (wrike.TimelogsPage, error)
-	updateTask    func(taskID string, u wrike.TaskUpdate) (wrike.Task, error)
-	createComment func(taskID, text string) (wrike.Comment, error)
-	createTimelog func(taskID string, hours float64, trackedDate, comment string) (wrike.Timelog, error)
-	updateTimelog func(timelogID string, u wrike.TimelogUpdate) (wrike.Timelog, error)
-	deleteTimelog func(timelogID string) error
+	me             func() (wrike.Contact, error)
+	contacts       func() ([]wrike.Contact, error)
+	spaces         func() ([]wrike.Space, error)
+	workflows      func() ([]wrike.Workflow, error)
+	spaceWorkflows func(spaceID string) ([]wrike.Workflow, error)
+	folderTree     func() ([]wrike.Folder, error)
+	tasks          func(p wrike.TaskParams) (wrike.TasksPage, error)
+	taskComments   func(taskID string) ([]wrike.Comment, error)
+	taskTimelogs   func(taskID string) ([]wrike.Timelog, error)
+	timelogs       func(p wrike.TimelogParams) (wrike.TimelogsPage, error)
+	updateTask     func(taskID string, u wrike.TaskUpdate) (wrike.Task, error)
+	createComment  func(taskID, text string) (wrike.Comment, error)
+	createTimelog  func(taskID string, hours float64, trackedDate, comment string) (wrike.Timelog, error)
+	updateTimelog  func(timelogID string, u wrike.TimelogUpdate) (wrike.Timelog, error)
+	deleteTimelog  func(timelogID string) error
 }
 
 func (f *fakeClient) record(call string) {
@@ -70,6 +71,14 @@ func (f *fakeClient) Workflows(ctx context.Context) ([]wrike.Workflow, error) {
 		return nil, nil
 	}
 	return f.workflows()
+}
+
+func (f *fakeClient) SpaceWorkflows(ctx context.Context, spaceID string) ([]wrike.Workflow, error) {
+	f.record("SpaceWorkflows " + spaceID)
+	if f.spaceWorkflows == nil {
+		return nil, nil
+	}
+	return f.spaceWorkflows(spaceID)
 }
 
 func (f *fakeClient) FolderTree(ctx context.Context) ([]wrike.Folder, error) {

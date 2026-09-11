@@ -19,23 +19,19 @@ type statusDialog struct {
 	keys   KeyMap
 }
 
-// newStatusDialog offers the statuses of the workflow the task is in.
-// A task whose status is unknown to the cache (a workflow the reference pull has not seen yet)
-// gets the standard workflow.
+// newStatusDialog offers the statuses of the workflow the task is in, and nothing when the cache holds no such workflow.
+// Any other workflow would be the wrong offer: a status picked from it moves the task onto that workflow.
 func newStatusDialog(task store.Task, ref refData, keys KeyMap) statusDialog {
 	var wf *store.Workflow
 	for i := range ref.workflows {
 		for _, cs := range ref.workflows[i].CustomStatuses {
 			if cs.ID == task.CustomStatusID {
 				wf = &ref.workflows[i]
+				break
 			}
 		}
-	}
-	if wf == nil {
-		for i := range ref.workflows {
-			if ref.workflows[i].Standard {
-				wf = &ref.workflows[i]
-			}
+		if wf != nil {
+			break
 		}
 	}
 	d := statusDialog{taskID: task.ID, keys: keys}

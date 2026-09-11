@@ -41,6 +41,7 @@ The user own tasks are always included, and anything outside the followed set ca
 
 Cached entities: tasks with descriptions, folders and projects, spaces, contacts, comments, timelogs and workflows.
 Workflows are there because custom statuses come from them.
+The account call lists only the account workflows, so the reference pull also asks each space for the workflows it owns, since a task in such a space carries a status from one of those.
 Search over task titles and descriptions uses FTS5, the full text search built into SQLite.
 
 ## The database
