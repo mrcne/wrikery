@@ -306,6 +306,62 @@ func TestPullReferenceReplacesAll(t *testing.T) {
 	}
 }
 
+func TestPullReferenceKeepsTheWorkflowsOfEverySpace(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	account := wrike.Workflow{ID: "W1", Name: "Default", Standard: true,
+		CustomStatuses: []wrike.CustomStatus{{ID: "CS1", Name: "New"}}}
+	owned := wrike.Workflow{ID: "W2", Name: "Task workflow",
+		CustomStatuses: []wrike.CustomStatus{{ID: "CS2", Name: "Planned"}, {ID: "CS3", Name: "In review"}}}
+	fc := &fakeClient{
+		spaces: func() ([]wrike.Space, error) {
+			return []wrike.Space{{ID: "S1", Title: "Dev"}, {ID: "S2", Title: "Personal"}}, nil
+		},
+		workflows: func() ([]wrike.Workflow, error) { return []wrike.Workflow{account}, nil },
+		spaceWorkflows: func(spaceID string) ([]wrike.Workflow, error) {
+			if spaceID == "S1" {
+				return []wrike.Workflow{owned, account}, nil
+			}
+			return nil, nil
+		},
+	}
+	if err := pullReference(ctx, fc, st); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := st.Workflows().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ws) != 2 || ws[0].ID != "W1" || ws[1].ID != "W2" || len(ws[1].CustomStatuses) != 2 {
+		t.Errorf("workflows = %+v, want the account one and the space one once each", ws)
+	}
+}
+
+func TestPullReferenceSurvivesASpaceWithoutTheWorkflowsEndpoint(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	fc := &fakeClient{
+		spaces: func() ([]wrike.Space, error) {
+			return []wrike.Space{{ID: "S1", Title: "Dev"}}, nil
+		},
+		workflows: func() ([]wrike.Workflow, error) {
+			return []wrike.Workflow{{ID: "W1", Name: "Default", Standard: true,
+				CustomStatuses: []wrike.CustomStatus{{ID: "CS1", Name: "New"}}}}, nil
+		},
+		spaceWorkflows: func(spaceID string) ([]wrike.Workflow, error) {
+			return nil, &wrike.APIError{StatusCode: 404, Code: "not_found"}
+		},
+	}
+	if err := pullReference(ctx, fc, st); err != nil {
+		t.Fatalf("a missing space endpoint must not fail the pull: %v", err)
+	}
+	if ws, err := st.Workflows().List(ctx); err != nil || len(ws) != 1 {
+		t.Errorf("workflows = %+v, %v", ws, err)
+	}
+}
+
 func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

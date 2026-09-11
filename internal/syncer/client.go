@@ -13,6 +13,7 @@ type Client interface {
 	Contacts(ctx context.Context) ([]wrike.Contact, error)
 	Spaces(ctx context.Context) ([]wrike.Space, error)
 	Workflows(ctx context.Context) ([]wrike.Workflow, error)
+	SpaceWorkflows(ctx context.Context, spaceID string) ([]wrike.Workflow, error)
 	FolderTree(ctx context.Context) ([]wrike.Folder, error)
 	Tasks(ctx context.Context, p wrike.TaskParams) (wrike.TasksPage, error)
 	TaskComments(ctx context.Context, taskID string) ([]wrike.Comment, error)

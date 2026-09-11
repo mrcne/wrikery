@@ -39,6 +39,30 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 	if err != nil {
 		return err
 	}
+	// The account call leaves out the workflows a space owns, and a task in such a space holds a status from one of those.
+	// The union is deduplicated by id, so one answer that repeats a workflow the account call listed inserts nothing twice.
+	seen := make(map[string]bool, len(workflows))
+	for _, wf := range workflows {
+		seen[wf.ID] = true
+	}
+	for _, sp := range spaces {
+		owned, err := c.SpaceWorkflows(ctx, sp.ID)
+		if isNotFound(err) {
+			// The space call is not on Wrike's reference page, see wrike.SpaceWorkflows.
+			// Should it stop answering one day, the cycle keeps the account workflows instead of failing for good.
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		for _, wf := range owned {
+			if seen[wf.ID] {
+				continue
+			}
+			seen[wf.ID] = true
+			workflows = append(workflows, wf)
+		}
+	}
 	return st.Workflows().ReplaceAll(ctx, workflowsFromWrike(workflows))
 }
 

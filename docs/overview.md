@@ -61,6 +61,7 @@ Saving and quitting the editor sends the file as the comment, an empty file send
 
 `s` lists the statuses of the task's workflow, grouped the way Wrike groups them.
 Moving the cursor and pressing enter applies the highlighted status.
+When the cache does not know the task's workflow yet, the box says so instead of offering another workflow, because a status from another workflow would move the task onto it.
 
 `a` lists the contacts, narrowed as you type a name.
 Space toggles a contact on or off, enter applies the change, esc cancels without one.

@@ -18,6 +18,9 @@ func TestFolderTree(t *testing.T) {
 		if r.URL.Path != "/folders" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
+		if got := r.URL.Query().Get("fields"); got != `["space"]` {
+			t.Errorf("fields = %q, want the space flag requested", got)
+		}
 		_, _ = w.Write([]byte(foldersFixture))
 	}))
 

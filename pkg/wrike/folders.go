@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 )
 
 // Folder is a Wrike folder, project or space root, folders and spaces share this representation.
@@ -28,9 +29,13 @@ type Project struct {
 }
 
 // FolderTree lists every folder the token's account can see, flat, use ChildIDs to build the tree.
+// The space flag is an optional field ("Get Folder Tree", https://developers.wrike.com/api/v4/folders-projects/).
+// A request that does not name it gets no flag on any folder, and then no root reads as a space.
 func (c *Client) FolderTree(ctx context.Context) ([]Folder, error) {
+	q := url.Values{}
+	q.Set("fields", jsonArray([]string{"space"}))
 	var out []Folder
-	if _, err := c.do(ctx, http.MethodGet, "/folders", nil, nil, &out); err != nil {
+	if _, err := c.do(ctx, http.MethodGet, "/folders", q, nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
