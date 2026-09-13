@@ -9,14 +9,14 @@ import (
 
 func TestBranchName(t *testing.T) {
 	task := store.Task{ID: "IEAATASK01", Title: "Fix: auth retry loop (401) -- again!", Permalink: "https://www.wrike.com/open.htm?id=1200001"}
-	if got := branchName("{id}-{slug}", task); got != "1200001-fix-auth-retry-loop-401-again" {
+	if got := branchName("{id}-{slug}", task, nil); got != "1200001-fix-auth-retry-loop-401-again" {
 		t.Errorf("got %q", got)
 	}
-	if got := branchName("feat/{slug}", task); got != "feat/fix-auth-retry-loop-401-again" {
+	if got := branchName("feat/{slug}", task, nil); got != "feat/fix-auth-retry-loop-401-again" {
 		t.Errorf("got %q", got)
 	}
 	long := store.Task{ID: "X", Title: strings.Repeat("word ", 20)}
-	if got := branchName("{id}-{slug}", long); len(got) > 2+40 || !strings.HasPrefix(got, "X-word-word") {
+	if got := branchName("{id}-{slug}", long, nil); len(got) > 2+40 || !strings.HasPrefix(got, "X-word-word") {
 		t.Errorf("slug not cut at 40 or id fallback missing: %q", got)
 	}
 }
@@ -46,7 +46,17 @@ func TestSlugifyTransliteratesNonASCII(t *testing.T) {
 
 func TestBranchNameWithSymbolOnlyTitle(t *testing.T) {
 	task := store.Task{ID: "X999", Title: "!!! ??? ###"}
-	if got := branchName("{id}-{slug}", task); got != "X999-" {
+	if got := branchName("{id}-{slug}", task, nil); got != "X999-" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestBranchNameDropsAHiddenCode(t *testing.T) {
+	task := store.Task{ID: "X1", Title: "(MX) Backend: Kafka - Processing", Permalink: "https://www.wrike.com/open.htm?id=77"}
+	if got := branchName("{id}-{slug}", task, []string{"(MX)"}); got != "77-backend-kafka-processing" {
+		t.Errorf("the hidden code stays out of the branch name, got %q", got)
+	}
+	if got := branchName("{id}-{slug}", task, nil); got != "77-mx-backend-kafka-processing" {
+		t.Errorf("with nothing hidden the code is part of the slug, got %q", got)
 	}
 }

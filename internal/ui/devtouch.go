@@ -67,10 +67,11 @@ func transliterate(s string) string {
 
 // branchName fills the config template.
 // {id} is the permalink number, or the API id when there is no permalink.
-func branchName(tmpl string, task store.Task) string {
+// {slug} comes from the title as the rows show it, a code hidden there stays out of the branch name too.
+func branchName(tmpl string, task store.Task, hide []string) string {
 	id := taskNumber(task.Permalink)
 	if id == "" {
 		id = task.ID
 	}
-	return strings.NewReplacer("{id}", id, "{slug}", slugify(task.Title, 40)).Replace(tmpl)
+	return strings.NewReplacer("{id}", id, "{slug}", slugify(displayTitle(task.Title, hide), 40)).Replace(tmpl)
 }

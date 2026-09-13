@@ -635,7 +635,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.CopyBranch):
 		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.BranchTemplate, t)
+			name := branchName(m.opts.Config.BranchTemplate, t, m.opts.Config.HidePrefixes)
 			return name, "Copied " + name
 		})
 		return m, cmd
