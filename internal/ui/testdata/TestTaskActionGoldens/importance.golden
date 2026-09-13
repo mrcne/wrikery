@@ -15,11 +15,11 @@
 |                      ||  o   Write tests for sync cursor        AN   today||-- Comments (0) -------------------------|
 |                      ||  z   Bump error codes                   AN     Mon||                                         |
 |                      ||  z   Investigate sync cursor            AN     Mon||-- Time (0) -----------------------------|
-|                   +- Title ----------------------------------------------------------------------+                   |
-|                   |Document auth retry loop                                                      |                   |
-|                   |                                                                              |                   |
-|                   |enter saves   esc cancels                                                     |                   |
-|                   +------------------------------------------------------------------------------+                   |
+|                      ||  z   Design legacy +- Importance ---------------+n||                                         |
+|                      ||  z ! Write tests fo|  ! High                    |n||                                         |
+|                      ||  z   Fix onboarding|>   Normal                  |n||                                         |
+|                      ||  z   Add search ran|    Low                     |n||                                         |
+|                      ||  o   Fix search ran+----------------------------+d||                                         |
 |                      ||  o   Add timesheet export               AN+    Wed||                                         |
 |                      ||  o   Rotate dark theme                  AN+    Wed||                                         |
 |                      ||  o   Refactor dark theme                AN  14 Sep||                                         |

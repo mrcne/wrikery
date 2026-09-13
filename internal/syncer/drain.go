@@ -75,6 +75,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		u := wrike.TaskUpdate{
 			Title:              p.Title,
 			CustomStatusID:     p.CustomStatusID,
+			Importance:         p.Importance,
 			AddResponsibles:    p.AddResponsibles,
 			RemoveResponsibles: p.RemoveResponsibles,
 		}

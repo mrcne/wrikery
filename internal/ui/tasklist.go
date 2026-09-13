@@ -459,11 +459,11 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		case store.StateFailed:
 			mark = lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed)
 		}
-		// glyph(1) space title... space mark(1) space who(whoWidth) space due(6), cursor prefix takes 2
-		titleWidth := width - 2 - 2 - 2 - (whoWidth + 1) - 7
+		// glyph(1) space important(1) space title... space mark(1) space who(whoWidth) space due(6), cursor prefix takes 2
+		titleWidth := width - 2 - 2 - 2 - 2 - (whoWidth + 1) - 7
 		title := ansi.Truncate(th.styledTitle(r.task.Title), max(titleWidth, 4), "...")
 		title += strings.Repeat(" ", max(0, titleWidth-ansi.StringWidth(title)))
-		label := fmt.Sprintf("%s %s %s %s %s", glyph, title, mark, whoCell, dueStyle.Render(fmt.Sprintf("%6s", due)))
+		label := fmt.Sprintf("%s %s %s %s %s %s", glyph, th.importanceMark(r.task.Importance), title, mark, whoCell, dueStyle.Render(fmt.Sprintf("%6s", due)))
 		b.WriteString(rowLine(th, label, width, ln.row == l.cursor, focused))
 		if row < listHeight-1 {
 			b.WriteByte('\n')

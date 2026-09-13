@@ -48,6 +48,7 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 		CustomStatusID:     "CS2",
 		AddResponsibles:    []string{"U2"},
 		RemoveResponsibles: []string{"U1"},
+		Importance:         "High",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "after" || got.CustomStatusID != "CS2" {
+	if got.Title != "after" || got.CustomStatusID != "CS2" || got.Importance != "High" {
 		t.Errorf("task = %+v, optimistic apply missing", got)
 	}
 	if len(got.ResponsibleIDs) != 1 || got.ResponsibleIDs[0] != "U2" {

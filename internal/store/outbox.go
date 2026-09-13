@@ -49,6 +49,7 @@ type OutboxRow struct {
 type TaskUpdatePayload struct {
 	Title              string     `json:"title,omitempty"`
 	CustomStatusID     string     `json:"customStatusId,omitempty"`
+	Importance         string     `json:"importance,omitempty"`
 	AddResponsibles    []string   `json:"addResponsibles,omitempty"`
 	RemoveResponsibles []string   `json:"removeResponsibles,omitempty"`
 	Dates              *TaskDates `json:"dates,omitempty"`
@@ -139,6 +140,10 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	if p.CustomStatusID != "" {
 		set = append(set, "custom_status_id = ?")
 		args = append(args, p.CustomStatusID)
+	}
+	if p.Importance != "" {
+		set = append(set, "importance = ?")
+		args = append(args, p.Importance)
 	}
 	if p.Status != "" {
 		// See the Status field's doc comment on TaskUpdatePayload for why this is local only.

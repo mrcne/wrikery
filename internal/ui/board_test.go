@@ -275,3 +275,24 @@ func TestFitColumnsNeverDrawsPastTheWidthAndNeverShrinksAHeader(t *testing.T) {
 		t.Errorf("spare width only ever grows a column, the long header came out at %d, want at least %d", w.widths[0], want)
 	}
 }
+
+func TestHighImportanceIsFlaggedInRowsAndOnCards(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	l := newTaskList(defaultKeyMap())
+	l.ref = testWorkflows()
+	tasks := []store.Task{
+		{ID: "h", Title: "Hot", Status: "Active", CustomStatusID: "S1", Importance: "High"},
+		{ID: "n", Title: "Calm", Status: "Active", CustomStatusID: "S1"},
+	}
+	l.setRows("F1", "API", tasks, nil, "")
+	view := l.View(th, l.ref, time.Time{}, 60, 4, true)
+	if !strings.Contains(view, "o ! Hot") || !strings.Contains(view, "o   Calm") {
+		t.Errorf("list rows should flag High in a fixed column:\n%s", view)
+	}
+	for i, want := range []bool{true, false} {
+		lines := cardLines(th, l.ref, time.Time{}, taskRow{task: tasks[i]}, 30, false, false, nil)
+		if got := strings.Contains(lines[len(lines)-1], "!"); got != want {
+			t.Errorf("card meta line for %s = %q, flagged %v, want %v", tasks[i].ID, lines[len(lines)-1], got, want)
+		}
+	}
+}

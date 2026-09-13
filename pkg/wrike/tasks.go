@@ -127,6 +127,7 @@ func (c *Client) TasksByIDs(ctx context.Context, ids []string, fields []string) 
 type TaskUpdate struct {
 	Title              string
 	CustomStatusID     string
+	Importance         string // High, Normal or Low
 	AddResponsibles    []string
 	RemoveResponsibles []string
 	Dates              *TaskDates
@@ -143,6 +144,9 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	}
 	if u.CustomStatusID != "" {
 		form.Set("customStatus", u.CustomStatusID)
+	}
+	if u.Importance != "" {
+		form.Set("importance", u.Importance)
 	}
 	if len(u.AddResponsibles) > 0 {
 		form.Set("addResponsibles", jsonArray(u.AddResponsibles))
