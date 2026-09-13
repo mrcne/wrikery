@@ -60,7 +60,6 @@ func laneRows(g boardGrid, heights []int, lane int) int {
 	return rows
 }
 
-// cardHeight is the lines a card takes at width: its title on one or two lines and the meta line.
 func cardHeight(shown string, width int) int {
 	return len(wrapTitle(shown, max(width-2, 1))) + 1
 }
@@ -103,7 +102,6 @@ func (g boardGrid) sideways(cell boardCell, idx, dir int) int {
 	return -1
 }
 
-// lane goes to the first card of the next lane, in the same column when it has one, else in the first column that has one.
 func (g boardGrid) lane(cell boardCell, dir int) int {
 	lane := cell.lane + dir
 	if lane < 0 || lane >= len(g.cells) {
@@ -120,7 +118,6 @@ func (g boardGrid) lane(cell boardCell, dir int) int {
 	return -1
 }
 
-// end is the first or the last card of the column over all lanes.
 func (g boardGrid) end(col int, last bool) int {
 	if last {
 		for lane := len(g.cells) - 1; lane >= 0; lane-- {
@@ -183,10 +180,13 @@ func fitColumns(cols []boardColumn, width, firstCol, cursorCol int) boardWindow 
 		used += w.widths[i]
 	}
 	spread(cols, w.widths, first, last, avail-used)
+	// A pane narrower than one card still draws that card, clipped, instead of pushing the marker past the border.
+	for i := first; i <= last; i++ {
+		w.widths[i] = min(w.widths[i], max(avail, 1))
+	}
 	return w
 }
 
-// lastFitting is the last column that fits next to first in avail cells, first itself at the least.
 func lastFitting(widths []int, first, avail int) int {
 	used, last := widths[first], first
 	for last+1 < len(widths) && used+columnGap+widths[last+1] <= avail {
@@ -197,6 +197,7 @@ func lastFitting(widths []int, first, avail int) int {
 }
 
 // spread hands spare cells to the card columns between first and last, equally, up to cardWidthMax each.
+// A header wider than that keeps its width, spare only ever grows a column.
 func spread(cols []boardColumn, widths []int, first, last, spare int) {
 	var card []int
 	for i := first; i <= last; i++ {
@@ -209,7 +210,7 @@ func spread(cols []boardColumn, widths []int, first, last, spare int) {
 	}
 	each := spare / len(card)
 	for _, i := range card {
-		widths[i] = min(cardWidthMax, widths[i]+each)
+		widths[i] = max(widths[i], min(cardWidthMax, widths[i]+each))
 	}
 }
 
@@ -222,16 +223,14 @@ type boardModel struct {
 	last     boardCell // cell of the selected card as of the last fit, where the cursor goes when the card leaves the board
 	lastIdx  int
 	width    int
-	height   int      // inner box height, set by the root from the computed layout
-	hide     []string // title prefixes left off the cards, from the config
+	height   int // inner box height, set by the root from the computed layout
 	keys     KeyMap
 }
 
-// heights is the lines every card takes at the width of its column.
-func (b boardModel) heights(l *taskListModel, g boardGrid, w boardWindow) []int {
+func cardHeights(l *taskListModel, g boardGrid, w boardWindow, hide []string) []int {
 	out := make([]int, len(l.rows))
 	for p := range l.rows {
-		out[p] = cardHeight(displayTitle(l.all[l.rows[p]].task.Title, b.hide), w.widths[g.pos[p].col])
+		out[p] = cardHeight(displayTitle(l.all[l.rows[p]].task.Title, hide), w.widths[g.pos[p].col])
 	}
 	return out
 }
@@ -245,7 +244,6 @@ func (b boardModel) bodyHeight(l *taskListModel) int {
 	return max(1, h)
 }
 
-// cardTop is the first body line of the card at row position p.
 func cardTop(l *taskListModel, g boardGrid, heights []int, p int) int {
 	c := g.pos[p]
 	y := 0
@@ -266,7 +264,8 @@ func cardTop(l *taskListModel, g boardGrid, heights []int, p int) int {
 
 // fit moves the column window and the vertical offset so the selected card is drawn, and remembers its cell.
 // It runs after every move and every resize, View has a value receiver and cannot keep what it computes.
-func (b *boardModel) fit(l *taskListModel) {
+// hide is the config's title prefixes, the card heights depend on how long a title is once they are off.
+func (b *boardModel) fit(l *taskListModel, hide []string) {
 	if l.cursor < 0 || l.cursor >= len(l.rows) {
 		b.firstCol, b.offset = 0, 0
 		return
@@ -276,7 +275,7 @@ func (b *boardModel) fit(l *taskListModel) {
 	b.col, b.last, b.lastIdx = cell.col, cell, g.idx[l.cursor]
 	w := fitColumns(l.columns, b.width, b.firstCol, cell.col)
 	b.firstCol = w.first
-	heights := b.heights(l, g, w)
+	heights := cardHeights(l, g, w, hide)
 	top := cardTop(l, g, heights, l.cursor)
 	if l.sectioned() && g.idx[l.cursor] == 0 {
 		// The first card of a lane brings the lane's divider along.
@@ -293,7 +292,8 @@ func (b *boardModel) fit(l *taskListModel) {
 
 // fallback is the row position to select once the selected card is gone, after a move onto a status the board hides:
 // the card at the same index in the cell it had, or the last one there, or the nearest column of that lane with a card.
-// The list's own fallback, the row at the old position, could land anywhere in the lane, the rows are ordered by group and then by the list order.
+// The list's own fallback, the row at the old position, could land anywhere in the lane,
+// since the rows are ordered by group and then by the list order.
 func (b boardModel) fallback(l *taskListModel) int {
 	if len(l.rows) == 0 {
 		return 0
@@ -317,21 +317,13 @@ func (b boardModel) fallback(l *taskListModel) int {
 	return 0
 }
 
-// inBucket tells whether the selected card sits in a column that takes no move: another workflow than the main one, or an unknown status.
-func (b boardModel) inBucket(l *taskListModel) bool {
-	if l.cursor < 0 || l.cursor >= len(l.rows) {
-		return false
-	}
-	return l.columns[l.rowCol[l.cursor]].bucket
-}
-
-func (b boardModel) Update(msg tea.KeyMsg, l *taskListModel) (boardModel, tea.Cmd) {
+func (b boardModel) Update(msg tea.KeyMsg, l *taskListModel, hide []string) (boardModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, b.keys.Filter), key.Matches(msg, b.keys.ToggleDone):
 		// The filter input and the done toggle live on the list, the board only draws their result.
 		var cmd tea.Cmd
 		*l, cmd = l.Update(msg)
-		b.fit(l)
+		b.fit(l, hide)
 		return b, cmd
 	case key.Matches(msg, b.keys.Enter):
 		return b, intent(focusMsg{pane: paneDetail})
@@ -365,7 +357,7 @@ func (b boardModel) Update(msg tea.KeyMsg, l *taskListModel) (boardModel, tea.Cm
 		return b, nil
 	}
 	l.cursor = target
-	b.fit(l)
+	b.fit(l, hide)
 	_, cmd := l.afterMove(before, nil)
 	return b, cmd
 }
@@ -439,20 +431,21 @@ func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel,
 		head = pad(head, b.width-ansi.StringWidth(marker)) + muted.Render(marker)
 	}
 
-	heights := b.heights(l, g, w)
+	heights := cardHeights(l, g, w, th.HidePrefixes)
 	var body []string
 	for lane := range g.cells {
 		if l.sectioned() {
 			grp := l.groups[lane]
 			body = append(body, divider(th, fmt.Sprintf("%s (%d)", grp.title, len(grp.rows)), b.width))
 		}
-		// Every drawn column is stacked on its own first, cards of two and three lines mixed, then the stacks are joined line by line.
+		// Every drawn column is stacked on its own first, cards of two and three lines mixed,
+		// then the stacks are joined line by line.
 		rows := laneRows(g, heights, lane)
 		stacks := make([][]string, 0, w.last-w.first+1)
 		for c := w.first; c <= w.last; c++ {
 			var stack []string
 			for _, p := range g.cells[lane][c] {
-				stack = append(stack, cardLines(th, ref, now, l.all[l.rows[p]], w.widths[c], p == l.cursor, focused, b.hide)...)
+				stack = append(stack, cardLines(th, ref, now, l.all[l.rows[p]], w.widths[c], p == l.cursor, focused, th.HidePrefixes)...)
 			}
 			for len(stack) < rows {
 				stack = append(stack, strings.Repeat(" ", w.widths[c]))

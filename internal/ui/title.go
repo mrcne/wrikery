@@ -10,22 +10,25 @@ import (
 // displayTitle drops a configured prefix from what rows and cards draw, a project code every task starts with for example.
 // The detail pane keeps the full title, this is for the places where width is short.
 func displayTitle(title string, hide []string) string {
+	shown := title
 	for _, p := range hide {
 		if p == "" || !strings.HasPrefix(title, p) {
 			continue
 		}
-		rest := title[len(p):]
-		if rest == "" || rest[0] == ' ' {
-			return strings.TrimLeft(rest, " ")
+		if rest := title[len(p):]; rest == "" || rest[0] == ' ' {
+			shown = rest
+			break
 		}
 	}
-	return title
+	// Repeated spaces are folded here, wrapTitle rejoins words with one space and the styled spans are offsets into this text.
+	return strings.Join(strings.Fields(shown), " ")
 }
 
 // titleSpans finds where a project code ends and where the part prefixes end, as rune offsets into the title.
 // A code is a short word in parentheses at the start, "(MX) ". A part prefix is a segment of up to three words
 // closed by ": " or " - ", several can chain, and something has to follow the last one.
-// The shapes are how titles are written on a real account, "(MX) Backend: Kafka - Processing", a title that fits neither gets 0, 0.
+// The shapes are how titles are written on a real account, "(MX) Backend: Kafka - Processing",
+// a title that fits neither gets 0, 0.
 func titleSpans(title string) (codeEnd, prefixEnd int) {
 	runes := []rune(title)
 	if len(runes) > 2 && runes[0] == '(' {

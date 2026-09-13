@@ -18,6 +18,7 @@ func TestDisplayTitleDropsAConfiguredCode(t *testing.T) {
 		"(MX)Frontend":                      "(MX)Frontend",
 		"(MX)":                              "",
 		"Plain title":                       "Plain title",
+		"(MX)  Backend:  x":                 "Backend: x",
 	}
 	for in, want := range cases {
 		if got := displayTitle(in, hide); got != want {
@@ -26,6 +27,10 @@ func TestDisplayTitleDropsAConfiguredCode(t *testing.T) {
 	}
 	if got := displayTitle("(MX) Kept", nil); got != "(MX) Kept" {
 		t.Errorf("nothing configured keeps the code, got %q", got)
+	}
+	// Repeated spaces fold, the styled spans are offsets into the folded text.
+	if got := displayTitle("(MX)  Backend:  x", nil); got != "(MX) Backend: x" {
+		t.Errorf("repeated spaces should fold, got %q", got)
 	}
 }
 

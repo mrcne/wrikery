@@ -31,6 +31,7 @@ type taskListModel struct {
 	groupStart []int // position in rows where each group starts
 	columns    []boardColumn
 	rowCol     []int // per position in rows, the column of the row's status
+	count      int   // tasks among the rows, a task in two groups counted once
 	folders    folderIndex
 	ref        refData
 	cursor     int
@@ -84,6 +85,7 @@ func (l *taskListModel) applyFilter() {
 		}
 		kept = append(kept, i)
 	}
+	l.count = len(kept)
 	var colOf map[int]int
 	l.columns, colOf = boardColumns(l.all, kept, l.ref, l.showDone)
 	switch l.groupBy {
@@ -136,13 +138,13 @@ func (l taskListModel) groupOf(p int) int {
 	return g
 }
 
-// setGroup regroups and keeps the selection by id, since the rows come back in another order.
-func (l *taskListModel) setGroup(g groupKey) {
+// regroup rebuilds the rows and keeps the selection by id, since a grouping puts them in another order.
+// The cursor is a position in the rows, so a plain applyFilter after a reference or tree reload would land it on another task.
+func (l *taskListModel) regroup() {
 	id := ""
 	if cur, ok := l.current(); ok {
 		id = cur.task.ID
 	}
-	l.groupBy = g
 	l.applyFilter()
 	if !l.selectByID(id) {
 		l.cursor = min(l.cursor, max(0, len(l.rows)-1))
@@ -150,9 +152,14 @@ func (l *taskListModel) setGroup(g groupKey) {
 	l.scroll()
 }
 
+func (l *taskListModel) setGroup(g groupKey) {
+	l.groupBy = g
+	l.regroup()
+}
+
 // cycleGroup moves to the next grouping. The board skips status, its columns already are the status.
 func (l *taskListModel) cycleGroup(board bool) {
-	next := (l.groupBy + 1) % 4
+	next := (l.groupBy + 1) % (groupStatus + 1)
 	if board && next == groupStatus {
 		next = groupNone
 	}
@@ -187,7 +194,19 @@ func (l taskListModel) titled(prefix string) string {
 	if l.sectioned() {
 		name += ", by " + l.groupBy.String()
 	}
-	return fmt.Sprintf("%s (%d)", name, len(l.rows))
+	return fmt.Sprintf("%s (%d)", name, l.count)
+}
+
+// inBucket tells whether the task sits in a column that takes no card move:
+// another workflow than the main one, or an unknown status.
+// A task that is not among the rows, one opened from search for example, is not on the board and gets a plain step.
+func (l taskListModel) inBucket(taskID string) bool {
+	for p, ri := range l.rows {
+		if l.all[ri].task.ID == taskID {
+			return l.columns[l.rowCol[p]].bucket
+		}
+	}
+	return false
 }
 
 // scroll clamps offset so the cursor row stays inside the pane, the same pattern as the sidebar.

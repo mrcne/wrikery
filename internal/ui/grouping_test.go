@@ -194,3 +194,22 @@ func TestStepStatusWalksTheWorkflowAndSkipsHidden(t *testing.T) {
 		t.Error("an unknown status has no workflow to walk")
 	}
 }
+
+func TestElsewhereStaysLastWhenAFolderSitsUnderTwoParents(t *testing.T) {
+	// F1 is drawn twice, under S1 and under F2, so the flat node slice is longer than the number of folders.
+	idx := newFolderIndex([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2, 3}},
+		{id: "F1", title: "Auth", kind: nodeFolder, depth: 1},
+		{id: "F2", title: "Web", kind: nodeFolder, depth: 1, children: []int{4}},
+		{id: "F1", title: "Auth", kind: nodeFolder, depth: 2},
+	})
+	all, kept := rowsOf(
+		store.Task{ID: "lost", ParentIDs: []string{"X"}},
+		store.Task{ID: "auth", ParentIDs: []string{"F1"}},
+	)
+	groups := groupByFolder(all, kept, store.ScopeKindMe, idx)
+	if got := titlesOf(groups); len(got) != 2 || got[1] != "Elsewhere" {
+		t.Errorf("sections = %v, Elsewhere belongs last", got)
+	}
+}

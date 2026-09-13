@@ -101,7 +101,6 @@ func New(o Options) Model {
 	m.issues.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.board.keys = m.keys
-	m.board.hide = o.Config.HidePrefixes
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -175,7 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ref = msg.ref
 		// The by assignee grouping and the columns read contacts and workflows off the list's own copy.
 		m.list.ref = msg.ref
-		m.list.applyFilter()
+		m.list.regroup()
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
@@ -183,7 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case treeLoadedMsg:
 		m.sidebar.setNodes(msg.nodes)
 		m.list.folders = newFolderIndex(msg.nodes)
-		m.list.applyFilter()
+		m.list.regroup()
 		m.syncPaneSizes()
 		if n, ok := m.sidebar.current(); ok {
 			return m, intent(nodeSelectedMsg{node: n})
@@ -214,7 +213,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
 			m.list.cursor = m.board.fallback(&m.list)
 		}
-		m.board.fit(&m.list)
+		m.board.fit(&m.list, m.theme.HidePrefixes)
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
@@ -547,6 +546,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// A filter query may contain any letter, including the ones bound to quit or the pane switches.
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		if m.shape == shapeBoard {
+			// Every keystroke rebuilds the rows, and the board's window and offset describe the rows it saw last.
+			m.board.fit(&m.list, m.theme.HidePrefixes)
+		}
 		return m, cmd
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
@@ -606,8 +609,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Back):
 		if m.screen != screenMain {
 			m.screen = screenMain
-		} else if m.shape == shapeBoard && m.focus != paneBoard {
-			// A side pane on the board shows while it has focus, esc hands the width back to the board.
+		} else if m.shape == shapeBoard {
+			// The board is the home pane of its shape: a side pane hands the width back to it, on the board itself esc rests.
+			// The one pane rule below counts panes down and would land on the detail, which sits before the board in the order.
 			m.focus = paneBoard
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
@@ -668,7 +672,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.toggleShape()
 	case key.Matches(msg, m.keys.GroupBy):
 		m.list.cycleGroup(m.shape == shapeBoard)
-		m.board.fit(&m.list)
 	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
 		delta := 1
 		if key.Matches(msg, m.keys.StatusPrev) {
@@ -719,7 +722,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(opened, cmd)
 	case paneBoard:
 		var cmd tea.Cmd
-		m.board, cmd = m.board.Update(msg, &m.list)
+		m.board, cmd = m.board.Update(msg, &m.list, m.theme.HidePrefixes)
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	}
@@ -756,13 +759,12 @@ func (m *Model) toggleShape() {
 		}
 	}
 	m.syncPaneSizes()
-	m.board.fit(&m.list)
 }
 
 // moveStatus steps the task to the neighbouring status of its workflow, through the message the status dialog sends,
 // so the toast, the cache update and the outbox row are the ones that exist.
 func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
-	if m.shape == shapeBoard && m.board.inBucket(&m.list) {
+	if m.shape == shapeBoard && m.list.inBucket(t.ID) {
 		return m.status.show("this task is on another workflow, s picks a status", true)
 	}
 	cs, known, ok := stepStatus(t, m.ref, delta)
@@ -770,7 +772,10 @@ func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
 		return m.status.show(noWorkflowKnown, true)
 	}
 	if !ok {
-		return nil
+		if delta > 0 {
+			return m.status.show("already at the last status", false)
+		}
+		return m.status.show("already at the first status", false)
 	}
 	return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
 }
@@ -877,7 +882,7 @@ func (m *Model) syncPaneSizes() {
 	}
 	if r, ok := lay.rects[paneBoard]; ok {
 		m.board.width, m.board.height = r.w-2, r.h-2
-		m.board.fit(&m.list)
+		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)

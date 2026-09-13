@@ -2,6 +2,7 @@ package ui
 
 import (
 	"cmp"
+	"math"
 	"slices"
 	"strings"
 
@@ -61,8 +62,10 @@ func newFolderIndex(nodes []treeNode) folderIndex {
 
 const elsewhere = "Elsewhere"
 
-// sectionFor maps a parent folder to its section under the node in view: the node itself, or the child of the node the folder descends from.
-// My tasks spans the whole tree, there the section is the top level ancestor, and a folder the tree does not know goes to Elsewhere ("").
+// sectionFor maps a parent folder to its section under the node in view:
+// the node itself, or the child of the node the folder descends from.
+// My tasks spans the whole tree, there the section is the top level ancestor,
+// and a folder the tree does not know goes to Elsewhere ("").
 // In a folder view a parent outside the node is not a section, the task is in the view because of another parent, so ok is false.
 func (f folderIndex) sectionFor(folderID, nodeID string) (section string, ok bool) {
 	if folderID == nodeID {
@@ -118,7 +121,8 @@ func groupByFolder(all []taskRow, kept []int, nodeID string, idx folderIndex) []
 		case nodeID:
 			return -1
 		case "":
-			return len(idx.order) + 1
+			// Last, whatever the tree holds. The node slice can be longer than the index when a folder sits under two parents.
+			return math.MaxInt
 		}
 		return idx.order[key]
 	}
@@ -200,7 +204,8 @@ func groupByStatus(cols []boardColumn) []taskGroup {
 }
 
 // boardColumn is one column of the board and one section of the by status grouping.
-// A bucket gathers the rows of a workflow other than the main one, or rows whose status the cache does not know, and takes no card move.
+// A bucket gathers the rows of a workflow other than the main one, or rows whose status the cache does not know,
+// and takes no card move.
 type boardColumn struct {
 	title  string
 	status store.CustomStatus // zero for a bucket
