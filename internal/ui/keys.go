@@ -5,7 +5,7 @@ import "github.com/charmbracelet/bubbles/key"
 type KeyMap struct {
 	Quit, Help, Search, Timesheet, Issues, Refresh, NextPane, PrevPane, Back        key.Binding
 	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone key.Binding
-	Comment, CommentEditor, LogTime, Status, Assignee, Dates, Open                  key.Binding
+	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, Open       key.Binding
 	CopyLink, CopyBranch, CopyID                                                    key.Binding
 	Retry, Discard                                                                  key.Binding
 	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete              key.Binding
@@ -32,7 +32,7 @@ func defaultKeyMap() KeyMap {
 		ColPrev: b("h", "previous column", "h", "left"), ColNext: b("l", "next column", "l", "right"),
 
 		Comment: b("c", "comment", "c"), CommentEditor: b("C", "comment in $EDITOR", "C"), LogTime: b("t", "log time", "t"),
-		Status: b("s", "status", "s"), Assignee: b("a", "assignee", "a"), Dates: b("d", "dates", "d"),
+		Status: b("s", "status", "s"), Assignee: b("a", "assignee", "a"), Dates: b("d", "dates", "d"), EditTitle: b("e", "title", "e"),
 		Open: b("o", "open in browser", "o"), CopyLink: b("y", "copy permalink", "y"), CopyBranch: b("Y", "copy branch name", "Y"), CopyID: b("i", "copy task id", "i"),
 
 		Retry: b("r", "retry", "r"), Discard: b("x", "discard", "x"),
@@ -52,7 +52,7 @@ func (k KeyMap) list() []key.Binding {
 }
 
 func (k KeyMap) task() []key.Binding {
-	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
+	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.EditTitle, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
 }
 
 func (k KeyMap) board() []key.Binding {

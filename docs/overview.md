@@ -53,7 +53,7 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Below it come the metadata and the comment thread. Single key actions on the selected task:
-`c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates.
+`c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.
 
@@ -79,6 +79,9 @@ The date takes the same quick words as the dates dialog and defaults to today.
 The note is optional.
 Tab moves between the fields, enter saves, esc cancels.
 Editing an entry cannot clear a note that is already there.
+
+`e` opens a box with the title, enter saves, esc cancels.
+An empty title is refused in the box, an unchanged one closes it without a write.
 
 ### Views
 

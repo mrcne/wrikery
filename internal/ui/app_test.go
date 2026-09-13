@@ -174,6 +174,17 @@ func TestTaskActionGoldens(t *testing.T) {
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
 	})
+	t.Run("title", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "e")
+		waitAfter(t, tm, from, "enter saves")
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+	})
 	t.Run("issues", func(t *testing.T) {
 		st := seededStore(t)
 		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
@@ -756,6 +767,38 @@ func TestNextStatusKeyQueuesAStatusChange(t *testing.T) {
 	}
 	if after != before+1 {
 		t.Errorf("L should queue one task update, pending went from %d to %d", before, after)
+	}
+}
+
+func TestTitleKeyQueuesTheNewTitle(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	before, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := mark(t, tm)
+	press(tm, "e")
+	waitAfter(t, tm, from, "enter saves")
+	from = mark(t, tm)
+	press(tm, " now", "enter")
+	waitAfter(t, tm, from, "Title updated")
+	after, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Errorf("e should queue one task update, pending went from %d to %d", before, after)
+	}
+	waitAfter(t, tm, from, "Document auth retry loop now")
+	// The search index follows the title through the store's trigger, so the hit proves both the cache row and the index moved.
+	hits, err := st.Tasks().Search(context.Background(), "Document auth retry loop now", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 {
+		t.Errorf("search for the new title found %d tasks, want the edited one", len(hits))
 	}
 }
 

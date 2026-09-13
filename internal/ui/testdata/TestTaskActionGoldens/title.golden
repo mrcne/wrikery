@@ -1,0 +1,40 @@
++- Spaces -------------++- Tasks: My tasks (30) ----------------------------++- #1200033 ------------------------------+
+|> My tasks         30 ||> o Document auth retry loop             AN+ 29 Aug||Document auth retry loop                 |
+|  v Mobile            ||  o Refactor signing keys                AN+ 29 Aug||#1200033  Infra                          |
+|    o iOS app         ||  o Remove rate limit test               AN+ 29 Aug||                                         |
+|  v Platform          ||  o Rotate signing keys                  AN+  2 Sep||Status     o Blocked                     |
+|    o API             ||  o Document rate limit test             AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak       |
+|      Design system   ||  o Refactor error codes                 AN+  2 Sep||Dates      28 Aug -> 29 Aug              |
+|    > Infra           ||  o Remove sync cursor                   AN+  2 Sep||Updated    25 Aug                        |
+|    o Web             ||  o Bump legacy config loader            AN+  2 Sep||                                         |
+|                      ||  o Investigate dependencies             AN+  2 Sep||  Plain paragraph, nothing fancy. Long   |
+|                      ||  o Remove auth retry loop               AN   today||  enough to wrap in a narrow detail      |
+|                      ||  o Bump signing keys                    AN   today||  pane so the wrapping code gets         |
+|                      ||  o Investigate rate limit test          AN   today||  exercised too.                         |
+|                      ||  o Design error codes                   AN   today||                                         |
+|                      ||  o Write tests for sync cursor          AN   today||-- Comments (0) -------------------------|
+|                      ||  z Bump error codes                     AN     Mon||                                         |
+|                      ||  z Investigate sync cursor              AN     Mon||-- Time (0) -----------------------------|
+|                   +- Title ----------------------------------------------------------------------+                   |
+|                   |Document auth retry loop                                                      |                   |
+|                   |                                                                              |                   |
+|                   |enter saves   esc cancels                                                     |                   |
+|                   +------------------------------------------------------------------------------+                   |
+|                      ||  o Add timesheet export                 AN+    Wed||                                         |
+|                      ||  o Rotate dark theme                    AN+    Wed||                                         |
+|                      ||  o Refactor dark theme                  AN  14 Sep||                                         |
+|                      ||  o Fix auth retry loop                ~ AN      --||                                         |
+|                      ||  o Add signing keys                   ! AN      --||                                         |
+|                      ||  o Rotate rate limit test             ! AN      --||                                         |
+|                      ||  o Document error codes                 AN      --||                                         |
+|                      ||  o Refactor sync cursor                 AN      --||                                         |
+|                      ||  o Remove legacy config loader          AN      --||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
+|                      ||                                                   ||                                         |
++----------------------++---------------------------------------------------++-----------------------------------------+
+ demo  * synced 0 s ago  1 pending  2 failed         enter open  / filter  v group by  b board / list  z show completed 

@@ -372,6 +372,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitTitleMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Title: msg.title})
+			return err
+		}, "Title updated")
 	case submitTimelogMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		if msg.timelogID == "" {
@@ -696,6 +702,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Dates):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newDatesDialog(t, m.opts.Now())
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.EditTitle):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newTitleDialog(t, min(m.width-4, 80))
 			m.openDialog(d)
 			return cmd
 		})
