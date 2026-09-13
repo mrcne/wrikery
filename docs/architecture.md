@@ -110,7 +110,8 @@ The status bar always shows the pending and failed counts, so nothing fails with
 ## Error handling
 
 The network is treated as unreliable by default.
-A failed request puts the app in offline mode, which shows in the status bar.
+A request that fails on the network or on Wrike's side puts the app in offline mode, which shows in the status bar.
+A request Wrike rejects with a client error shows as a failing sync instead, the log line carries the request and the reason.
 Reads keep coming from the cache and writes keep going to the queue.
 The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).
 A 401 is the exception: sync pauses and asks for a new token instead of retrying.

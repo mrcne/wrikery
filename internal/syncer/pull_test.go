@@ -257,7 +257,7 @@ func TestPullMyTimelogsPagesAndReplaces(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("changed = %v, %v", changed, err)
 	}
-	if len(seen) != 2 || !seen[0].Me || seen[0].TrackedFrom != "2026-07-06" || seen[0].TrackedTo != "2026-09-06" || seen[1].PageToken != "p2" {
+	if len(seen) != 2 || !seen[0].Me || seen[0].PageSize != 1000 || seen[0].TrackedFrom != "2026-07-06" || seen[0].TrackedTo != "2026-09-06" || seen[1].PageToken != "p2" {
 		t.Errorf("params = %+v", seen)
 	}
 	logs, _ := st.Timelogs().ListForUser(context.Background(), "U1", "2026-07-06", "2026-09-06")

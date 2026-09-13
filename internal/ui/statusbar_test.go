@@ -31,7 +31,7 @@ func TestStatusBarShowsStateCountsAndToast(t *testing.T) {
 		}
 	}
 	s.state = "offline"
-	s.offlineSince = now.Add(-time.Hour)
+	s.since = now.Add(-time.Hour)
 	if out := s.View(th, 80, "", now); !strings.Contains(out, "offline since 11:00") {
 		t.Errorf("offline bar = %q", out)
 	}

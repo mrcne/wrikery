@@ -117,7 +117,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	// Wrike answers 300 with an empty body when the token's account lives in another data center,
 	// observed on GET /contacts?me=true, so treat any 3xx as an API error too.
 	if resp.StatusCode >= 300 {
-		return "", parseAPIError(resp.StatusCode, resp.Header, raw)
+		return "", parseAPIError(method, path, resp.StatusCode, resp.Header, raw)
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {

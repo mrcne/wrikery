@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,8 +92,12 @@ func TestDoReturnsTypedAPIError(t *testing.T) {
 	if !apiErr.IsAuth() || apiErr.IsRateLimit() || apiErr.IsNotFound() {
 		t.Errorf("classification wrong: %+v", apiErr)
 	}
-	if apiErr.Error() == "" {
-		t.Error("Error() must not be empty")
+	if apiErr.Method != "GET" || apiErr.Path != "/contacts" {
+		t.Errorf("request on the error = %q %q, want GET /contacts", apiErr.Method, apiErr.Path)
+	}
+	// The log line for a rejected request is all a reader gets, it must say which request.
+	if got := apiErr.Error(); !strings.Contains(got, "GET /contacts") || !strings.Contains(got, "not_authorized") {
+		t.Errorf("Error() = %q, want the request and the code", got)
 	}
 }
 

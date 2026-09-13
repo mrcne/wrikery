@@ -114,6 +114,32 @@ func TestEngineFirstCycleDrainsAndSyncs(t *testing.T) {
 	}
 }
 
+// A request Wrike rejects is not a lost network: the store is fine and the other pulls went through,
+// so the engine reports a failure rather than offline, and clears it on the next clean cycle.
+func TestEngineReportsARejectedCycleAsFailed(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject,
+		Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var fails atomic.Int32
+	fails.Store(1)
+	fc := &fakeClient{timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+		if fails.Load() > 0 {
+			fails.Add(-1)
+			return wrike.TimelogsPage{}, &wrike.APIError{StatusCode: 400, Code: "invalid_parameter"}
+		}
+		return wrike.TimelogsPage{}, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: time.Hour,
+		ReconnectBase: time.Millisecond, ReconnectCeil: 5 * time.Millisecond})
+
+	waitFor(t, e, "failed", isState(StateFailed))
+	waitFor(t, e, "recovery to idle", isState(StateIdle))
+}
+
 func TestEngineGoesOfflineAndRecovers(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

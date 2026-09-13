@@ -34,6 +34,7 @@ Three panes: a sidebar with the followed spaces and projects, a task list and a 
 A wide terminal shows all three panes, a medium one shows two, and a terminal narrower than eighty columns shows one, so the app stays usable in a small tmux split.
 The visible panes always include the one in focus, so moving focus can slide the window forward or back by one pane.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
+When Wrike rejects a request the bar says the sync is failing instead of offline, since the network is fine and the log has the reason.
 
 ### Keys
 
