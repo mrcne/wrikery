@@ -71,3 +71,10 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 The product description is in [docs/overview.md](docs/overview.md), the technical design in [docs/architecture.md](docs/architecture.md), and technology decisions in [docs/adr/](docs/adr/).
 A few requests for checking a token and the API by hand live in `tools/wrike-requests/wrike.http`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+TODO: Add license information.
+
+Wrike is a trademark of Wrike, Inc.
+This project is not affiliated with or endorsed by Wrike.
