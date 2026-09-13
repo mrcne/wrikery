@@ -11,7 +11,8 @@ import (
 // dialog is a centered box that owns its keys until it emits closeDialogMsg. esc is handled by the root.
 type dialog interface {
 	Update(msg tea.KeyMsg) (dialog, tea.Cmd)
-	View(th Theme, width int) string
+	// View gets the width and height it may use, a box that lists things sizes its list from the height.
+	View(th Theme, width, height int) string
 }
 
 type closeDialogMsg struct{}
@@ -52,7 +53,7 @@ func (d commentDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, cmd
 }
 
-func (d commentDialog) View(th Theme, width int) string {
+func (d commentDialog) View(th Theme, width, height int) string {
 	hint := lipgloss.NewStyle().Foreground(th.Muted).Render("ctrl+s or ctrl+d send   esc cancel")
 	body := d.ta.View() + "\n\n" + hint
 	return th.box("Comment on "+d.title, body, width, lipgloss.Height(body)+2, true)
@@ -73,7 +74,7 @@ func (d confirmDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d confirmDialog) View(th Theme, width int) string {
+func (d confirmDialog) View(th Theme, width, height int) string {
 	body := d.prompt + "\n\n" + lipgloss.NewStyle().Foreground(th.Muted).Render("y confirm   n or esc cancel")
 	return th.box("Confirm", body, min(width, 60), lipgloss.Height(body)+2, true)
 }

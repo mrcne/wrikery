@@ -72,7 +72,7 @@ func (d statusDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d statusDialog) View(th Theme, width int) string {
+func (d statusDialog) View(th Theme, width, height int) string {
 	var b strings.Builder
 	group := ""
 	for i, cs := range d.items {

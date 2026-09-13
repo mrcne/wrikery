@@ -95,7 +95,7 @@ func datesFrom(start, due string) store.TaskDates {
 	return store.TaskDates{Type: "Planned", Start: start, Due: due}
 }
 
-func (d datesDialog) View(th Theme, width int) string {
+func (d datesDialog) View(th Theme, width, height int) string {
 	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + "\n\n"
 	if d.errText != "" {
 		body += lipgloss.NewStyle().Foreground(th.Error).Render(d.errText) + "\n"

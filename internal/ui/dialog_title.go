@@ -46,7 +46,7 @@ func (d titleDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, cmd
 }
 
-func (d titleDialog) View(th Theme, width int) string {
+func (d titleDialog) View(th Theme, width, height int) string {
 	hint := lipgloss.NewStyle().Foreground(th.Muted).Render("enter saves   esc cancels")
 	if d.errText != "" {
 		hint = lipgloss.NewStyle().Foreground(th.Error).Render(d.errText)

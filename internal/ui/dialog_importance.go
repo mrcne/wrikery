@@ -53,7 +53,7 @@ func (d importanceDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d importanceDialog) View(th Theme, width int) string {
+func (d importanceDialog) View(th Theme, width, height int) string {
 	var b strings.Builder
 	for i, level := range importanceLevels {
 		label := "  " + level

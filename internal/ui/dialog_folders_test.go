@@ -34,13 +34,13 @@ func foldersDialogFor(task store.Task, nodeID string) dialog {
 func TestFoldersDialogMovesOutOfTheFolderInView(t *testing.T) {
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"ONC"}}, "INF")
 	dl = typeRunes(dl, "des")
-	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60)
+	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
 	if !strings.Contains(view, "enter moves to Design system, leaves On-call") {
 		t.Errorf("the first line should say what enter does:\n%s", view)
 	}
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitFoldersMsg{taskID: "T", add: []string{"DSG"}, remove: []string{"ONC"}, toast: "Moved to Design system"}
+	want := submitFoldersMsg{taskID: "T", add: []string{"DSG"}, remove: []string{"ONC"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
 		t.Errorf("enter -> %#v", msgs)
 	}
@@ -49,7 +49,7 @@ func TestFoldersDialogMovesOutOfTheFolderInView(t *testing.T) {
 func TestFoldersDialogOnlyAddsWhereNoFolderIsInView(t *testing.T) {
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, store.ScopeKindMe)
 	dl = typeRunes(dl, "web")
-	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60); !strings.Contains(view, "no folder matches") {
+	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); !strings.Contains(view, "no folder matches") {
 		t.Errorf("an empty match should say so:\n%s", view)
 	}
 	for range 3 {
@@ -58,7 +58,7 @@ func TestFoldersDialogOnlyAddsWhereNoFolderIsInView(t *testing.T) {
 	dl = typeRunes(dl, "ios")
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitFoldersMsg{taskID: "T", add: []string{"IOS"}, toast: "Added to iOS app"}
+	want := submitFoldersMsg{taskID: "T", add: []string{"IOS"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
 		t.Errorf("enter on My tasks -> %#v", msgs)
 	}
@@ -76,13 +76,13 @@ func TestFoldersDialogAppliesTogglesInsteadOfMoving(t *testing.T) {
 	for range 3 {
 		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
-	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60)
+	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
 	if !strings.Contains(view, "enter applies 2 changes") || !strings.Contains(view, "[x] Design system") || !strings.Contains(view, "[x] Infra") {
 		t.Errorf("toggled rows and the count should show:\n%s", view)
 	}
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitFoldersMsg{taskID: "T", add: []string{"DSG", "INF"}, toast: "Folders updated"}
+	want := submitFoldersMsg{taskID: "T", add: []string{"DSG", "INF"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
 		t.Errorf("enter with toggles -> %#v", msgs)
 	}
@@ -93,27 +93,27 @@ func TestFoldersDialogKeepsTheLastFolder(t *testing.T) {
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT")
 	dl = typeRunes(dl, "api")
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
-	if view := dl.View(th, 60); !strings.Contains(view, "a task needs a folder") || !strings.Contains(view, "[x] API") {
+	if view := dl.View(th, 60, 40); !strings.Contains(view, "a task needs a folder") || !strings.Contains(view, "[x] API") {
 		t.Errorf("unchecking the only folder should be refused:\n%s", view)
 	}
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter on the folder the task is in with nothing to leave -> %#v, want a refusal", msgs)
 	}
-	if view := dl.View(th, 60); !strings.Contains(view, "already in API") {
+	if view := dl.View(th, 60, 40); !strings.Contains(view, "already in API") {
 		t.Errorf("the refusal should name the folder:\n%s", view)
 	}
 
 	// A parent outside the followed scopes keeps the task placed, so the known one may go.
 	dl = foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API", "ZZZ"}}, "PLT")
-	if view := dl.View(th, 60); !strings.Contains(view, "and 1 folder outside the followed scopes") {
+	if view := dl.View(th, 60, 40); !strings.Contains(view, "and 1 folder outside the followed scopes") {
 		t.Errorf("the unknown parent should be counted:\n%s", view)
 	}
 	dl = typeRunes(dl, "api")
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
 	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitFoldersMsg{taskID: "T", remove: []string{"API"}, toast: "Removed from API"}
+	want := submitFoldersMsg{taskID: "T", remove: []string{"API"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
 		t.Errorf("enter -> %#v", msgs)
 	}
@@ -134,14 +134,46 @@ func TestFolderIndexUnder(t *testing.T) {
 func TestFoldersDialogListsAFolderUnderTwoParentsOnce(t *testing.T) {
 	nodes := sharedTree()
 	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"SHR"}}, nodes, newFolderIndex(nodes), "DSG")
-	if n := strings.Count(d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60), "[x] Shared"); n != 1 {
+	if n := strings.Count(d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40), "[x] Shared"); n != 1 {
 		t.Errorf("Shared listed %d times, want once", n)
 	}
 	dl := typeRunes(dialog(d), "api")
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitFoldersMsg{taskID: "T", add: []string{"API"}, remove: []string{"SHR"}, toast: "Moved to API"}
+	want := submitFoldersMsg{taskID: "T", add: []string{"API"}, remove: []string{"SHR"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
 		t.Errorf("enter -> %#v, want one remove of the folder reached through its second parent", msgs)
+	}
+}
+
+func TestFoldersToastNamesTheFolder(t *testing.T) {
+	titles := map[string]string{"A": "API", "D": "Design system"}
+	for _, tc := range []struct {
+		add, remove []string
+		want        string
+	}{
+		{[]string{"D"}, nil, "Added to Design system"},
+		{[]string{"D"}, []string{"A"}, "Moved to Design system"},
+		{nil, []string{"A"}, "Removed from API"},
+		{[]string{"D"}, []string{"A", "X"}, "Moved to Design system"},
+		{[]string{"D", "A"}, nil, "Folders updated"},
+	} {
+		if got := foldersToast(tc.add, tc.remove, titles); got != tc.want {
+			t.Errorf("toast(%v, %v) = %q, want %q", tc.add, tc.remove, got, tc.want)
+		}
+	}
+}
+
+func TestFoldersDialogClearsTheRefusalOnAMove(t *testing.T) {
+	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT")
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); strings.Contains(view, "a task needs a folder") {
+		t.Errorf("moving the cursor should bring the key hint back:\n%s", view)
+	}
+	dl = typeRunes(dl, "zzz")
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); !strings.Contains(view, "no folder matches") || strings.Contains(view, "already in") {
+		t.Errorf("enter with no match should say so:\n%s", view)
 	}
 }

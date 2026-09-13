@@ -389,7 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.enqueue(func(ctx context.Context) error {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddParents: msg.add, RemoveParents: msg.remove})
 			return err
-		}, msg.toast)
+		}, foldersToast(msg.add, msg.remove, m.list.folders.title))
 	case submitTimelogMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		if msg.timelogID == "" {
@@ -706,7 +706,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.Assignee):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
+			d, cmd := newAssigneeDialog(t, m.ref)
 			m.openDialog(d)
 			return cmd
 		})
@@ -903,7 +903,7 @@ func (m Model) View() string {
 		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
-		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80)), m.width, m.height)
+		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80), m.height), m.width, m.height)
 	}
 	return out
 }

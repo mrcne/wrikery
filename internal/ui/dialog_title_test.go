@@ -43,7 +43,7 @@ func TestTitleDialogRefusesAnEmptyTitle(t *testing.T) {
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter on an empty title -> %#v, want nothing", msgs)
 	}
-	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60)
+	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
 	if !strings.Contains(view, "cannot be empty") {
 		t.Errorf("view = %q, want the refusal", view)
 	}
