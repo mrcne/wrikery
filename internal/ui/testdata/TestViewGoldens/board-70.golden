@@ -4,16 +4,16 @@
 |    > AN+                 29 Aug    AN                     Mon      |
 |      Refactor signing keys         Investigate sync cursor         |
 |      AN+                 29 Aug    AN                     Mon      |
-|      Remove rate limit test        Design legacy config loa..      |
-|      AN+                 29 Aug    AN                     Mon      |
-|      Fix search ranking            Write tests for dependen..      |
+|      Remove rate limit test        Design legacy config            |
+|      AN+                 29 Aug    loader                          |
+|      Fix search ranking            AN                     Mon      |
+|      AN+                    Wed    Write tests for                 |
+|      Add timesheet export          dependencies                    |
 |      AN+                    Wed    AN                     Mon      |
-|      Add timesheet export          Fix onboarding flow             |
+|      Rotate dark theme             Fix onboarding flow             |
 |      AN+                    Wed    AN                     Mon      |
-|      Rotate dark theme             Add search ranking              |
-|      AN+                    Wed    AN                     Mon      |
-|                                                                    |
-|                                                                    |
+|                                    Add search ranking              |
+|                                    AN                     Mon      |
 |                                                                    |
 |                                                                    |
 |                                                                    |

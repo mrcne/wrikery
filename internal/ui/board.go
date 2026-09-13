@@ -17,7 +17,6 @@ const (
 	cardWidth    = 21 // the least a column with cards gets, enough for a readable title and the meta line
 	cardWidthMax = 40 // spare width past this only pads titles
 	columnGap    = 2
-	cardLines    = 2
 )
 
 type boardCell struct{ lane, col int }
@@ -48,13 +47,22 @@ func buildGrid(l *taskListModel) boardGrid {
 	return g
 }
 
-// cardRows is the body lines the cards of a lane take, its tallest column times the lines of a card.
-func (g boardGrid) cardRows(lane int) int {
-	h := 0
+// laneRows is the body lines the cards of a lane take, the tallest of its columns with the heights of its cards summed.
+func laneRows(g boardGrid, heights []int, lane int) int {
+	rows := 0
 	for _, cell := range g.cells[lane] {
-		h = max(h, len(cell)*cardLines)
+		h := 0
+		for _, p := range cell {
+			h += heights[p]
+		}
+		rows = max(rows, h)
 	}
-	return h
+	return rows
+}
+
+// cardHeight is the lines a card takes at width: its title on one or two lines and the meta line.
+func cardHeight(shown string, width int) int {
+	return len(wrapTitle(shown, max(width-2, 1))) + 1
 }
 
 // step walks the column across lanes: the next card in the cell, else the nearest card in the same column of a lane further on.
@@ -214,8 +222,18 @@ type boardModel struct {
 	last     boardCell // cell of the selected card as of the last fit, where the cursor goes when the card leaves the board
 	lastIdx  int
 	width    int
-	height   int // inner box height, set by the root from the computed layout
+	height   int      // inner box height, set by the root from the computed layout
+	hide     []string // title prefixes left off the cards, from the config
 	keys     KeyMap
+}
+
+// heights is the lines every card takes at the width of its column.
+func (b boardModel) heights(l *taskListModel, g boardGrid, w boardWindow) []int {
+	out := make([]int, len(l.rows))
+	for p := range l.rows {
+		out[p] = cardHeight(displayTitle(l.all[l.rows[p]].task.Title, b.hide), w.widths[g.pos[p].col])
+	}
+	return out
 }
 
 // bodyHeight is what is left for the lanes under the pinned header row, and under the filter line when it shows.
@@ -228,11 +246,11 @@ func (b boardModel) bodyHeight(l *taskListModel) int {
 }
 
 // cardTop is the first body line of the card at row position p.
-func cardTop(l *taskListModel, g boardGrid, p int) int {
+func cardTop(l *taskListModel, g boardGrid, heights []int, p int) int {
 	c := g.pos[p]
 	y := 0
 	for lane := 0; lane < c.lane; lane++ {
-		y += g.cardRows(lane)
+		y += laneRows(g, heights, lane)
 		if l.sectioned() {
 			y++
 		}
@@ -240,7 +258,10 @@ func cardTop(l *taskListModel, g boardGrid, p int) int {
 	if l.sectioned() {
 		y++
 	}
-	return y + g.idx[p]*cardLines
+	for _, q := range g.cells[c.lane][c.col][:g.idx[p]] {
+		y += heights[q]
+	}
+	return y
 }
 
 // fit moves the column window and the vertical offset so the selected card is drawn, and remembers its cell.
@@ -253,8 +274,10 @@ func (b *boardModel) fit(l *taskListModel) {
 	g := buildGrid(l)
 	cell := g.pos[l.cursor]
 	b.col, b.last, b.lastIdx = cell.col, cell, g.idx[l.cursor]
-	b.firstCol = fitColumns(l.columns, b.width, b.firstCol, cell.col).first
-	top := cardTop(l, g, l.cursor)
+	w := fitColumns(l.columns, b.width, b.firstCol, cell.col)
+	b.firstCol = w.first
+	heights := b.heights(l, g, w)
+	top := cardTop(l, g, heights, l.cursor)
 	if l.sectioned() && g.idx[l.cursor] == 0 {
 		// The first card of a lane brings the lane's divider along.
 		top--
@@ -262,7 +285,7 @@ func (b *boardModel) fit(l *taskListModel) {
 	if top < b.offset {
 		b.offset = top
 	}
-	if bottom := cardTop(l, g, l.cursor) + cardLines; bottom > b.offset+b.bodyHeight(l) {
+	if bottom := cardTop(l, g, heights, l.cursor) + heights[l.cursor]; bottom > b.offset+b.bodyHeight(l) {
 		b.offset = bottom - b.bodyHeight(l)
 	}
 	b.offset = max(0, b.offset)
@@ -347,12 +370,15 @@ func (b boardModel) Update(msg tea.KeyMsg, l *taskListModel) (boardModel, tea.Cm
 	return b, cmd
 }
 
-// cardLine draws one of the two lines of a card: the title cut with two dots, then a muted meta line with the initials,
+// cardLines draws a card: the title on one or two lines, see wrapTitle, then a muted meta line with the initials,
 // the pending or failed mark and the due date right aligned, through the same helpers as a list row.
-func cardLine(th Theme, ref refData, now time.Time, r taskRow, sub, width int, selected, focused bool) string {
-	inner := width - 2 // rowLine puts the cursor prefix in front
-	if sub == 0 {
-		return rowLine(th, ansi.Truncate(r.task.Title, max(inner, 1), ".."), width, selected, focused)
+func cardLines(th Theme, ref refData, now time.Time, r taskRow, width int, selected, focused bool, hide []string) []string {
+	inner := max(width-2, 1) // rowLine puts the cursor prefix in front
+	shown := displayTitle(r.task.Title, hide)
+	code, prefix := titleSpans(shown)
+	var out []string
+	for _, line := range wrapTitle(shown, inner) {
+		out = append(out, rowLine(th, th.styleTitle(line, code, prefix), width, selected, focused))
 	}
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	who := fmt.Sprintf("%-4s", initials(r.task.ResponsibleIDs, ref.contacts, ref.meID))
@@ -369,7 +395,7 @@ func cardLine(th Theme, ref refData, now time.Time, r taskRow, sub, width int, s
 		dueStyle = lipgloss.NewStyle().Foreground(th.Error)
 	}
 	pad := max(0, inner-5-ansi.StringWidth(due))
-	return rowLine(th, muted.Render(who)+mark+strings.Repeat(" ", pad)+dueStyle.Render(due), width, selected, focused)
+	return append(out, rowLine(th, muted.Render(who)+mark+strings.Repeat(" ", pad)+dueStyle.Render(due), width, selected, focused))
 }
 
 func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel, focused bool) string {
@@ -413,23 +439,30 @@ func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel,
 		head = pad(head, b.width-ansi.StringWidth(marker)) + muted.Render(marker)
 	}
 
+	heights := b.heights(l, g, w)
 	var body []string
 	for lane := range g.cells {
 		if l.sectioned() {
 			grp := l.groups[lane]
 			body = append(body, divider(th, fmt.Sprintf("%s (%d)", grp.title, len(grp.rows)), b.width))
 		}
-		for y := 0; y < g.cardRows(lane); y++ {
-			var cells []string
-			for c := w.first; c <= w.last; c++ {
-				cell := g.cells[lane][c]
-				i, sub := y/cardLines, y%cardLines
-				if i >= len(cell) {
-					cells = append(cells, strings.Repeat(" ", w.widths[c]))
-					continue
-				}
-				p := cell[i]
-				cells = append(cells, cardLine(th, ref, now, l.all[l.rows[p]], sub, w.widths[c], p == l.cursor, focused))
+		// Every drawn column is stacked on its own first, cards of two and three lines mixed, then the stacks are joined line by line.
+		rows := laneRows(g, heights, lane)
+		stacks := make([][]string, 0, w.last-w.first+1)
+		for c := w.first; c <= w.last; c++ {
+			var stack []string
+			for _, p := range g.cells[lane][c] {
+				stack = append(stack, cardLines(th, ref, now, l.all[l.rows[p]], w.widths[c], p == l.cursor, focused, b.hide)...)
+			}
+			for len(stack) < rows {
+				stack = append(stack, strings.Repeat(" ", w.widths[c]))
+			}
+			stacks = append(stacks, stack)
+		}
+		for y := 0; y < rows; y++ {
+			cells := make([]string, 0, len(stacks))
+			for _, stack := range stacks {
+				cells = append(cells, stack[y])
 			}
 			body = append(body, prefix+strings.Join(cells, gap))
 		}

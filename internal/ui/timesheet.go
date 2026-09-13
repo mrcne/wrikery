@@ -264,7 +264,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0
-		line := ansi.Truncate(r.title, titleW, "...")
+		line := ansi.Truncate(displayTitle(r.title, th.HidePrefixes), titleW, "...")
 		line += strings.Repeat(" ", titleW+2-ansi.StringWidth(line))
 		for di, logs := range r.cells {
 			sum, pending, locked := 0.0, false, false

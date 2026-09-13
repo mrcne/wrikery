@@ -1,30 +1,30 @@
 +- Board: My tasks (30) ---------------------------------------------------------------++- #1200033 -----------------------------------------------------------+
 |< 1 In progress (11)          In review (7)             Blocked (6)               +1 >||Document auth retry loop                                              |
-|      Remove auth retry loop    Rotate signing keys     > Document auth retry ..      ||#1200033  Infra                                                       |
-|      AN               today    AN+              2 Sep  > AN+             29 Aug      ||                                                                      |
-|      Bump signing keys         Document rate limit ..    Refactor signing keys       ||Status     o Blocked                                                  |
-|      AN               today    AN+              2 Sep    AN+             29 Aug      ||Assignees  Celina Wrona, Ada Nowak                                    |
-|      Investigate rate lim..    Refactor error codes      Remove rate limit test      ||Dates      28 Aug -> 29 Aug                                           |
-|      AN               today    AN+              2 Sep    AN+             29 Aug      ||Updated    25 Aug                                                     |
-|      Design error codes        Remove sync cursor        Fix search ranking          ||                                                                      |
-|      AN               today    AN+              2 Sep    AN+                Wed      ||  Plain paragraph, nothing fancy. Long enough to wrap in a narrow     |
-|      Write tests for sync..    Bump legacy config l..    Add timesheet export        ||  detail pane so the wrapping code gets exercised too.                |
-|      AN               today    AN+              2 Sep    AN+                Wed      ||                                                                      |
-|      Refactor dark theme       Investigate dependen..    Rotate dark theme           ||-- Comments (0) ------------------------------------------------------|
-|      AN              14 Sep    AN+              2 Sep    AN+                Wed      ||                                                                      |
-|      Fix auth retry loop       Add signing keys                                      ||-- Time (0) ----------------------------------------------------------|
-|      AN  ~               --    AN  !               --                                ||                                                                      |
-|      Rotate rate limit test                                                          ||                                                                      |
+|      Remove auth retry loop    Rotate signing keys     > Document auth retry         ||#1200033  Infra                                                       |
+|      AN               today    AN+              2 Sep  > loop                        ||                                                                      |
+|      Bump signing keys         Document rate limit     > AN+             29 Aug      ||Status     o Blocked                                                  |
+|      AN               today    test                      Refactor signing keys       ||Assignees  Celina Wrona, Ada Nowak                                    |
+|      Investigate rate limit    AN+              2 Sep    AN+             29 Aug      ||Dates      28 Aug -> 29 Aug                                           |
+|      test                      Refactor error codes      Remove rate limit test      ||Updated    25 Aug                                                     |
+|      AN               today    AN+              2 Sep    AN+             29 Aug      ||                                                                      |
+|      Design error codes        Remove sync cursor        Fix search ranking          ||  Plain paragraph, nothing fancy. Long enough to wrap in a narrow     |
+|      AN               today    AN+              2 Sep    AN+                Wed      ||  detail pane so the wrapping code gets exercised too.                |
+|      Write tests for sync      Bump legacy config        Add timesheet export        ||                                                                      |
+|      cursor                    loader                    AN+                Wed      ||-- Comments (0) ------------------------------------------------------|
+|      AN               today    AN+              2 Sep    Rotate dark theme           ||                                                                      |
+|      Refactor dark theme       Investigate               AN+                Wed      ||-- Time (0) ----------------------------------------------------------|
+|      AN              14 Sep    dependencies                                          ||                                                                      |
+|      Fix auth retry loop       AN+              2 Sep                                ||                                                                      |
+|      AN  ~               --    Add signing keys                                      ||                                                                      |
+|      Rotate rate limit test    AN  !               --                                ||                                                                      |
 |      AN  !               --                                                          ||                                                                      |
 |      Document error codes                                                            ||                                                                      |
 |      AN                  --                                                          ||                                                                      |
 |      Refactor sync cursor                                                            ||                                                                      |
 |      AN                  --                                                          ||                                                                      |
-|      Remove legacy config..                                                          ||                                                                      |
+|      Remove legacy config                                                            ||                                                                      |
+|      loader                                                                          ||                                                                      |
 |      AN                  --                                                          ||                                                                      |
-|                                                                                      ||                                                                      |
-|                                                                                      ||                                                                      |
-|                                                                                      ||                                                                      |
 |                                                                                      ||                                                                      |
 |                                                                                      ||                                                                      |
 |                                                                                      ||                                                                      |

@@ -144,6 +144,7 @@ theme = "dark"
 accent = "#7aa2f7"
 ascii = true
 branch_template = "feat/{id}-{slug}"
+hide_prefixes = ["(MX)", "(TX)"]
 `)
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -154,6 +155,9 @@ branch_template = "feat/{id}-{slug}"
 	}
 	if cfg.UI.Theme != "dark" || cfg.UI.Accent != "#7aa2f7" || !cfg.UI.ASCII || cfg.UI.BranchTemplate != "feat/{id}-{slug}" {
 		t.Errorf("UI = %+v", cfg.UI)
+	}
+	if len(cfg.UI.HidePrefixes) != 2 || cfg.UI.HidePrefixes[0] != "(MX)" || cfg.UI.HidePrefixes[1] != "(TX)" {
+		t.Errorf("HidePrefixes = %v, want the two codes", cfg.UI.HidePrefixes)
 	}
 }
 

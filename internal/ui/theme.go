@@ -14,10 +14,11 @@ import (
 // Its ASCII flag covers the glyphs and borders drawn here and the decorations glamour puts around a description.
 // The words themselves keep their letters, a description written in Polish still reads as Polish.
 type Theme struct {
-	Accent, Text, Muted, Border, Error, Warn, Success lipgloss.TerminalColor
-	ASCII                                             bool
-	Glyphs                                            Glyphs
-	mode                                              string
+	Accent, Text, Muted, Dim, Border, Error, Warn, Success lipgloss.TerminalColor
+	ASCII                                                  bool
+	Glyphs                                                 Glyphs
+	HidePrefixes                                           []string // title prefixes the rows and cards leave out, from the config
+	mode                                                   string
 }
 
 type Glyphs struct {
@@ -40,6 +41,7 @@ var basePalette = map[string]palette{
 	"accent":  {"#2f6fdb", "#7aa2f7"},
 	"text":    {"#1f2328", "#e6e6e6"},
 	"muted":   {"#6e7781", "#8b8b8b"},
+	"dim":     {"#4a5461", "#b5b5b5"},
 	"border":  {"#c8ccd0", "#3b4048"},
 	"error":   {"#c62828", "#f7768e"},
 	"warn":    {"#b26a00", "#e0af68"},
@@ -77,6 +79,8 @@ func NewTheme(cfg config.UIConfig) Theme {
 	t.Accent = t.fromPalette(basePalette["accent"])
 	t.Text = t.fromPalette(basePalette["text"])
 	t.Muted = t.fromPalette(basePalette["muted"])
+	t.Dim = t.fromPalette(basePalette["dim"])
+	t.HidePrefixes = cfg.HidePrefixes
 	t.Border = t.fromPalette(basePalette["border"])
 	t.Error = t.fromPalette(basePalette["error"])
 	t.Warn = t.fromPalette(basePalette["warn"])

@@ -122,7 +122,7 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 			cs.Group = t.Status
 		}
 		glyph := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group))
-		label := glyph + " " + t.Title + "  " + muted.Render(s.crumbs[t.ID])
+		label := glyph + " " + th.styledTitle(t.Title) + "  " + muted.Render(s.crumbs[t.ID])
 		b.WriteString(rowLine(th, label, width-2, i == s.cursor, true) + "\n")
 	}
 	title := "Search"

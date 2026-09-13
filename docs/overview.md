@@ -97,6 +97,9 @@ The board takes the width of the window, the sidebar and the task detail show wh
 Columns that do not fit slide in as the cursor moves towards them, an empty column shrinks to its name.
 `h` and `l` move between columns, `j` and `k` between cards, `/`, `z` and every task key work as in the list.
 
+A card shows the title on one line, or on two when it is long, and the break prefers a `: ` or ` - ` in the second half of the first line, so `(MX) Backend: Kafka - Processing` reads as a heading and a detail.
+A code in parentheses at the start of a title, `(MX)`, is drawn muted and a short part prefix closed by `: ` or ` - `, `Backend: Kafka - `, slightly muted, on cards and rows alike, so the eye lands on the words that differ between tasks.
+
 ### Sync issues
 
 `!` opens the list of writes the sync engine could not send.
@@ -143,5 +146,6 @@ The config file lives at `~/.config/wrikery/config.toml`.
 `log_level` sets how much the app logs: debug, info, warn or error.
 `poll_interval` sets how often the sync engine checks Wrike for changes.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
+`hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.

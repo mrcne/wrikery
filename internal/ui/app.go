@@ -101,6 +101,7 @@ func New(o Options) Model {
 	m.issues.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.board.keys = m.keys
+	m.board.hide = o.Config.HidePrefixes
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
