@@ -227,6 +227,10 @@ func (l *taskListModel) scroll() {
 	if v >= l.offset+h {
 		l.offset = v - h + 1
 	}
+	// A filter or a toggle can shorten the list under a window that was scrolled down, which would leave rows hidden above it and blank lines below.
+	if top := max(0, len(l.lines())-h); l.offset > top {
+		l.offset = top
+	}
 }
 
 // listHeight is the row count left for the list once the filter input takes its own line.
