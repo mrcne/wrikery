@@ -48,6 +48,7 @@ type OutboxRow struct {
 // internal/syncer decodes them, the JSON never leaves the app.
 type TaskUpdatePayload struct {
 	Title              string     `json:"title,omitempty"`
+	Description        string     `json:"description,omitempty"`
 	CustomStatusID     string     `json:"customStatusId,omitempty"`
 	Importance         string     `json:"importance,omitempty"`
 	AddResponsibles    []string   `json:"addResponsibles,omitempty"`
@@ -138,6 +139,10 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	if p.Title != "" {
 		set = append(set, "title = ?")
 		args = append(args, p.Title)
+	}
+	if p.Description != "" {
+		set = append(set, "description = ?", "description_plain = ?")
+		args = append(args, p.Description, stripHTML(p.Description))
 	}
 	if p.CustomStatusID != "" {
 		set = append(set, "custom_status_id = ?")

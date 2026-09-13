@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -195,5 +196,58 @@ func TestCycleGroupSkipsStatusOnTheBoard(t *testing.T) {
 	l.cycleGroup(false)
 	if l.groupBy != groupStatus {
 		t.Errorf("the list goes on to status, got %v", l.groupBy)
+	}
+}
+
+func TestFilterPullsTheWindowBackWhenTheListShrinks(t *testing.T) {
+	var l taskListModel
+	l.keys = defaultKeyMap()
+	l.filter = textinput.New()
+	var tasks []store.Task
+	for i := range 30 {
+		title := fmt.Sprintf("Task %d", i)
+		if i%10 == 3 {
+			title += " auth"
+		}
+		tasks = append(tasks, store.Task{ID: fmt.Sprint(i), Title: title, Status: "Active"})
+	}
+	l.setRows("F1", "crumb", tasks, nil, "")
+	l.height = 10
+	l.cursor = 25
+	l.scroll()
+	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	for _, r := range "auth" {
+		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	out := l.View(NewTheme(config.UIConfig{}), refData{}, time.Now(), 80, 10, true)
+	for _, want := range []string{"Task 3 auth", "Task 13 auth", "Task 23 auth"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("filtered list lacks %q:\n%s", want, out)
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Task 23 auth") && !strings.HasPrefix(line, "> ") {
+			t.Errorf("the cursor is not on the last match: %q", line)
+		}
+	}
+}
+
+func TestResizePullsTheListWindowBack(t *testing.T) {
+	m := New(Options{})
+	var tasks []store.Task
+	for i := range 30 {
+		tasks = append(tasks, store.Task{ID: fmt.Sprint(i), Title: fmt.Sprintf("Task %d", i), Status: "Active"})
+	}
+	m.list.setRows("F1", "crumb", tasks, nil, "")
+	m.list.height = 10
+	m.list.cursor = 25
+	m.list.scroll()
+	if m.list.offset != 16 {
+		t.Fatalf("offset = %d before the resize, want 16", m.list.offset)
+	}
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	if got := next.(Model).list; got.offset != 0 || got.height < 30 {
+		t.Errorf("after growing to 40 rows offset = %d, height = %d, want the window pulled back to 0", got.offset, got.height)
 	}
 }

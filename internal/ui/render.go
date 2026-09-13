@@ -4,7 +4,6 @@ import (
 	"strings"
 	"sync"
 
-	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
@@ -30,7 +29,7 @@ func renderMarkup(html, plain string, width int, mode string) string {
 		}
 		return wordWrap(plain, width)
 	}
-	md, err := htmltomarkdown.ConvertString(html)
+	md, err := displayConverter().ConvertString(html)
 	if err != nil {
 		return wordWrap(plain, width)
 	}
@@ -42,6 +41,7 @@ func renderMarkup(html, plain string, width int, mode string) string {
 	if err != nil {
 		return wordWrap(plain, width)
 	}
+	out = underlineMarks(out, mode == "ascii")
 	return strings.Trim(out, "\n")
 }
 
@@ -94,4 +94,68 @@ func wordWrap(s string, width int) string {
 // divider draws a section line: two dashes, the title, dashes to the width, in the muted color.
 func divider(th Theme, title string, width int) string {
 	return lipgloss.NewStyle().Foreground(th.Muted).Render("-- " + title + " " + strings.Repeat("-", max(0, width-ansi.StringWidth(title)-4)))
+}
+
+// Markdown has no underline, so the display converter wraps underlined text in two private use characters that glamour passes through as text.
+const underlineOn, underlineOff = "\uE000", "\uE001"
+
+// underlineMarks turns the markers into the underline escape, whatever the color profile says, the same as the bold and crossed out attributes glamour writes on its own.
+// The ascii style writes bold and struck text between markers instead of attributes, so there the underline becomes underscores.
+// glamour styles every word on its own and resets after it, so the underline is armed again in front of each run of visible text up to the closing marker.
+// That keeps a span underlined across bold words and wrapped lines, and leaves glamour's indent and padding spaces alone.
+func underlineMarks(s string, plain bool) string {
+	if plain {
+		return strings.NewReplacer(underlineOn, "_", underlineOff, "_").Replace(s)
+	}
+	var b strings.Builder
+	in, armed := false, false
+	for len(s) > 0 {
+		i := strings.IndexAny(s, underlineOn+underlineOff+"\x1b")
+		if i < 0 {
+			i = len(s)
+		}
+		if text := s[:i]; text != "" {
+			if in && !armed && strings.TrimSpace(text) != "" {
+				b.WriteString("\x1b[4m")
+				armed = true
+			}
+			b.WriteString(text)
+		}
+		s = s[i:]
+		switch {
+		case s == "":
+		case strings.HasPrefix(s, underlineOn):
+			in = true
+			s = s[len(underlineOn):]
+		case strings.HasPrefix(s, underlineOff):
+			if armed {
+				b.WriteString("\x1b[24m")
+			}
+			in, armed = false, false
+			s = s[len(underlineOff):]
+		default:
+			n := escapeLen(s)
+			seq := s[:n]
+			b.WriteString(seq)
+			if seq == "\x1b[0m" {
+				armed = false
+			}
+			s = s[n:]
+		}
+	}
+	return b.String()
+}
+
+// escapeLen is the length of the control sequence at the start of s: the CSI, its parameter bytes and one final byte.
+// Anything else that starts with an escape is passed on one byte at a time.
+func escapeLen(s string) int {
+	if !strings.HasPrefix(s, "\x1b[") {
+		return 1
+	}
+	for i := 2; i < len(s); i++ {
+		if c := s[i]; c >= 0x40 && c <= 0x7e {
+			return i + 1
+		}
+	}
+	return len(s)
 }

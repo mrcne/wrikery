@@ -126,6 +126,7 @@ func (c *Client) TasksByIDs(ctx context.Context, ids []string, fields []string) 
 // TaskUpdate lists the changes to apply. Zero values mean leave unchanged.
 type TaskUpdate struct {
 	Title              string
+	Description        string // HTML, Wrike keeps a limited set of tags and drops the rest
 	CustomStatusID     string
 	Importance         string // High, Normal or Low
 	AddResponsibles    []string
@@ -143,6 +144,9 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	form := url.Values{}
 	if u.Title != "" {
 		form.Set("title", u.Title)
+	}
+	if u.Description != "" {
+		form.Set("description", u.Description)
 	}
 	if u.CustomStatusID != "" {
 		form.Set("customStatus", u.CustomStatusID)

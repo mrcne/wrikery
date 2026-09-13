@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
@@ -53,5 +54,42 @@ func TestRenderDescriptionKeepsLetters(t *testing.T) {
 	out := renderDescription("<p>Deploy in "+city+" on Friday</p>", "", 40, "ascii")
 	if !strings.Contains(out, city) {
 		t.Errorf("ascii mode should leave the words alone:\n%s", out)
+	}
+}
+
+func TestUnderlineMarksArmAfterEveryReset(t *testing.T) {
+	in := "x " + underlineOn + "a \x1b[1mb\x1b[0m c\x1b[0m\n  \x1b[2md" + underlineOff + " e"
+	want := "x \x1b[4ma \x1b[1mb\x1b[0m\x1b[4m c\x1b[0m\n  \x1b[2m\x1b[4md\x1b[24m e"
+	if got := underlineMarks(in, false); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+	if got := underlineMarks("a "+underlineOn+"b"+underlineOff+" c", true); got != "a _b_ c" {
+		t.Errorf("plain: got %q", got)
+	}
+}
+
+func TestRenderDescriptionShowsStrikeUnderlineAndBoxes(t *testing.T) {
+	src := `<p>keep <u>under</u> and <s>gone</s></p>` +
+		`<ul class="checklist" style="list-style-type: none;"><li><label><input type="checkbox" checked="checked" />done</label></li><li><label><input type="checkbox" />open</label></li></ul>`
+	out := renderDescription(src, "", 60, "dark")
+	if !strings.Contains(out, "\x1b[4munder") || !strings.Contains(out, ";9mgone") {
+		t.Errorf("dark render lacks the underline or the crossed out attribute:\n%q", out)
+	}
+	plain := ansi.Strip(out)
+	// The dark style ticks a box with a check mark, so the ticked one is matched by its text.
+	for _, want := range []string{"keep under and gone", "] done", "[ ] open"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("rendered description lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.ContainsAny(plain, underlineOn+underlineOff+"~<>") {
+		t.Errorf("markers or markup leaked into the render:\n%q", out)
+	}
+	// The ascii style marks instead of styling, the way it does for bold.
+	ascii := ansi.Strip(renderDescription(src, "", 60, "ascii"))
+	for _, want := range []string{"keep _under_ and ~~gone~~", "[x] done"} {
+		if !strings.Contains(ascii, want) {
+			t.Errorf("ascii render lacks %q:\n%s", want, ascii)
+		}
 	}
 }

@@ -47,6 +47,7 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 
 	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{
 		Title:              "after",
+		Description:        "<p>after <b>all</b></p>",
 		CustomStatusID:     "CS2",
 		AddResponsibles:    []string{"U2"},
 		RemoveResponsibles: []string{"U1"},
@@ -67,6 +68,9 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 	}
 	if got.Title != "after" || got.CustomStatusID != "CS2" || got.Importance != "High" {
 		t.Errorf("task = %+v, optimistic apply missing", got)
+	}
+	if got.Description != "<p>after <b>all</b></p>" || got.DescriptionPlain != "after all" {
+		t.Errorf("description = %q, plain = %q, want the queued HTML and its text", got.Description, got.DescriptionPlain)
 	}
 	if strings.Join(got.ParentIDs, ",") != "F2,F3" {
 		t.Errorf("parents = %v, want F1 gone and F3 added", got.ParentIDs)
