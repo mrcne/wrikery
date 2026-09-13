@@ -49,6 +49,14 @@ func summarize(row store.OutboxRow) string {
 			return "status change"
 		case len(p.AddResponsibles)+len(p.RemoveResponsibles) > 0:
 			return "assignee change"
+		case len(p.AddParents)+len(p.RemoveParents) > 0:
+			return "folder change"
+		case p.Title != "":
+			return "title change"
+		case p.Description != "":
+			return "description change"
+		case p.Importance != "":
+			return "importance change"
 		case p.Dates != nil:
 			return "dates change"
 		}

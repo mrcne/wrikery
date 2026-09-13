@@ -21,10 +21,10 @@ Reading:
 Writing:
 
 - add comments
-- change task status, assignee and dates
+- change the title, description, status, importance, assignee, dates and folders of a task
 - log, edit and delete your own time entries
 
-Not in v1: creating tasks, editing descriptions, managing subtasks, editing custom fields, dashboards, Gantt charts.
+Not in v1: creating tasks, managing subtasks, editing custom fields, dashboards, Gantt charts.
 The tool does not try to replace the web application for heavy project management.
 
 ## UX
@@ -52,8 +52,9 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 ### Task detail
 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
+Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
 Below it come the metadata and the comment thread. Single key actions on the selected task:
-`c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `p` importance, `m` folders.
+`c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.
 
@@ -82,6 +83,15 @@ Editing an entry cannot clear a note that is already there.
 
 `e` opens a box with the title, enter saves, esc cancels.
 An empty title is refused in the box, an unchanged one closes it without a write.
+
+`E` opens the description in `$VISUAL` or `$EDITOR` as markdown, the way `C` does for a comment.
+Wrike stores HTML, so the file is a translation, and only the paragraphs you change are translated back.
+A paragraph you leave alone keeps the HTML it had, byte for byte, together with whatever markdown cannot say.
+Headings, bold, italics, code, links, lists, code blocks and strike-through (`~~text~~`) are plain markdown, and a checklist is a task list, `- [ ]` and `- [x]`.
+Underline and colored text have no markdown, they stay in the file as the tags Wrike uses, `<u>text</u>` and `<span style="color: ...">text</span>`, and new ones can be typed the same way.
+Images, tables and anything else the editor cannot express stay as HTML too.
+A newline is a line break and a blank line starts a new paragraph, also inside a code block, because Wrike keeps no raw newlines.
+Saving an unchanged or an empty file writes nothing.
 
 `p` picks the importance, High, Normal or Low.
 A High task carries a `!` next to its status glyph in the list and on its card, the other two levels show nothing there.

@@ -335,18 +335,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case editorDoneMsg:
 		// The temp file is a small OS side effect local to this handler,
-		// the comment itself still goes through submitCommentMsg so it reaches the outbox by the same path as the dialog.
-		// A file that cannot be read is treated as an empty comment, there is nothing better to send.
+		// the text itself still goes through a submit message so it reaches the outbox by the same path as a dialog.
+		// A file that cannot be read is treated as empty, there is nothing better to send.
 		text, _ := os.ReadFile(msg.path)
 		_ = os.Remove(msg.path)
 		if msg.err != nil {
 			return m, m.status.show("editor failed: "+msg.err.Error(), true)
+		}
+		if msg.edit != nil {
+			return m, m.finishDescriptionEdit(msg.taskID, msg.edit, string(text))
 		}
 		trimmed := strings.TrimSpace(string(text))
 		if trimmed == "" {
 			return m, m.status.show("empty comment, nothing sent", false)
 		}
 		return m, intent(submitCommentMsg{taskID: msg.taskID, text: trimmed})
+	case descriptionReadyMsg:
+		cmd, err := openEditor(msg.task.ID, &descriptionEdit{html: msg.task.Description, text: editorText(msg.task.Description)})
+		if err != nil {
+			return m, m.status.show(err.Error(), true)
+		}
+		return m, cmd
+	case submitDescriptionMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Description: msg.html})
+			return err
+		}, "Description updated")
 	case submitCommentMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -673,7 +688,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.CommentEditor):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			cmd, err := openEditor(t.ID)
+			cmd, err := openEditor(t.ID, nil)
 			if err != nil {
 				return m.status.show(err.Error(), true)
 			}
@@ -724,6 +739,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openDialog(d)
 			return cmd
 		})
+		return m, cmd
+	case key.Matches(msg, m.keys.EditDescription):
+		// A list row carries no description, so the task is read again before the editor opens.
+		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.loadDescription(t.ID) })
 		return m, cmd
 	case key.Matches(msg, m.keys.Importance):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {

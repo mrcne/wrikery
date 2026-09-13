@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
@@ -53,5 +54,33 @@ func TestRenderDescriptionKeepsLetters(t *testing.T) {
 	out := renderDescription("<p>Deploy in "+city+" on Friday</p>", "", 40, "ascii")
 	if !strings.Contains(out, city) {
 		t.Errorf("ascii mode should leave the words alone:\n%s", out)
+	}
+}
+
+func TestUnderlineMarksArmAfterEveryReset(t *testing.T) {
+	in := "x " + underlineOn + "a \x1b[1mb\x1b[0m c\x1b[0m\n  \x1b[2md" + underlineOff + " e"
+	want := "x \x1b[4ma \x1b[1mb\x1b[0m\x1b[4m c\x1b[0m\n  \x1b[2m\x1b[4md\x1b[24m e"
+	if got := underlineMarks(in); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestRenderDescriptionShowsStrikeUnderlineAndBoxes(t *testing.T) {
+	src := `<p>keep <u>under</u> and <s>gone</s></p>` +
+		`<ul class="checklist" style="list-style-type: none;"><li><label><input type="checkbox" checked="checked" />done</label></li><li><label><input type="checkbox" />open</label></li></ul>`
+	out := renderDescription(src, "", 60, "ascii")
+	for _, want := range []string{"\x1b[4munder", "\x1b[9mgone"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered description lacks the attribute %q:\n%q", want, out)
+		}
+	}
+	plain := ansi.Strip(out)
+	for _, want := range []string{"keep under and gone", "[x] done", "[ ] open"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("rendered description lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.ContainsAny(plain, underlineOn+underlineOff+"~<>") {
+		t.Errorf("markers or markup leaked into the render:\n%q", out)
 	}
 }

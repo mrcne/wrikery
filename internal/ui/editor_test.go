@@ -2,7 +2,9 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -16,7 +18,7 @@ func TestEditorArgv(t *testing.T) {
 func TestOpenEditorWithoutEditorSet(t *testing.T) {
 	t.Setenv("VISUAL", "")
 	t.Setenv("EDITOR", "")
-	if _, err := openEditor("T"); err == nil {
+	if _, err := openEditor("T", nil); err == nil {
 		t.Error("expected an error with no editor set")
 	}
 }
@@ -85,5 +87,57 @@ func TestEditorDoneOnEditorErrorToasts(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("temp file %s still exists after editorDoneMsg", path)
+	}
+}
+
+func TestEditorFileStartsWithTheDescription(t *testing.T) {
+	path, err := editorFile(&descriptionEdit{html: "<p>a</p>", text: "a\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(path) }()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "a\n" || !strings.Contains(filepath.Base(path), "wrikery-description-") {
+		t.Errorf("file %s holds %q", path, got)
+	}
+	empty, err := editorFile(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(empty) }()
+	if got, _ := os.ReadFile(empty); len(got) != 0 || !strings.Contains(filepath.Base(empty), "wrikery-comment-") {
+		t.Errorf("comment file %s holds %q", empty, got)
+	}
+}
+
+func TestEditorDoneWithADescriptionQueuesTheMergedHTML(t *testing.T) {
+	edit := &descriptionEdit{html: "<p>a</p>", text: editorText("<p>a</p>")}
+	path := writeTempComment(t, "a\n\nb\n")
+	m := New(Options{})
+	_, cmd := m.Update(editorDoneMsg{taskID: "T1", path: path, edit: edit})
+	msgs := collect(cmd)
+	if len(msgs) != 1 || msgs[0] != (submitDescriptionMsg{taskID: "T1", html: "<p>a</p><p>b</p>"}) {
+		t.Errorf("msgs = %#v", msgs)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("temp file %s still exists after editorDoneMsg", path)
+	}
+}
+
+func TestEditorDoneWithAnUntouchedDescriptionSendsNothing(t *testing.T) {
+	edit := &descriptionEdit{html: "<p>a</p>", text: editorText("<p>a</p>")}
+	for text, want := range map[string]string{"a\n": "description unchanged", "  \n": "empty file, description unchanged"} {
+		path := writeTempComment(t, text)
+		m := New(Options{})
+		next, cmd := m.Update(editorDoneMsg{taskID: "T1", path: path, edit: edit})
+		if cmd == nil {
+			t.Fatal("expected a command to clear the toast later")
+		}
+		if got := next.(Model); got.status.toast != want || got.status.toastErr {
+			t.Errorf("file %q: toast = %q, isErr = %v, want %q", text, got.status.toast, got.status.toastErr, want)
+		}
 	}
 }

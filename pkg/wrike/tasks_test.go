@@ -162,6 +162,9 @@ func TestUpdateTaskSendsOnlyChangedFields(t *testing.T) {
 		if got := r.PostForm.Get("importance"); got != "High" {
 			t.Errorf("importance = %q", got)
 		}
+		if got := r.PostForm.Get("description"); got != "<p>Retry <b>once</b></p>" {
+			t.Errorf("description = %q", got)
+		}
 		if got := r.PostForm.Get("addParents"); got != `["IEAAAAFD2"]` {
 			t.Errorf("addParents = %q", got)
 		}
@@ -182,6 +185,7 @@ func TestUpdateTaskSendsOnlyChangedFields(t *testing.T) {
 		AddResponsibles: []string{"KUAAAA02"},
 		Dates:           &TaskDates{Type: "Planned", Duration: 960, Start: "2026-09-02T09:00:00", Due: "2026-09-05T17:00:00"},
 		Importance:      "High",
+		Description:     "<p>Retry <b>once</b></p>",
 		AddParents:      []string{"IEAAAAFD2"},
 		RemoveParents:   []string{"IEAAAAFD1"},
 	})

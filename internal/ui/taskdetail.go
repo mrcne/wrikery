@@ -44,7 +44,8 @@ func (d taskDetailModel) title() string {
 }
 
 // layout rebuilds the viewport content. The root calls it from Update, View only reads what it left behind.
-// The description render is cached on task id, updated date and width, so a resize or a focus change costs nothing.
+// The description render is cached on task id, updated date, width and the description itself, so a resize or a focus change costs nothing.
+// The description is in the key because a queued edit changes it before the updated date moves.
 func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string) {
 	d.vp.Width, d.vp.Height = width, height
 	if !d.loaded || width <= 0 {
@@ -56,7 +57,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		mode = "ascii"
 	}
 	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
-	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
+	renderKey := fmt.Sprintf("%s|%s|%d|%s", d.task.ID, d.task.UpdatedDate, width, d.task.Description)
 	if renderKey != d.renderKey {
 		d.rendered = renderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)
 		d.renderKey = renderKey

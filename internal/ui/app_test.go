@@ -989,3 +989,14 @@ func TestViewGoldens(t *testing.T) {
 		})
 	}
 }
+
+func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "E")
+	waitAfter(t, tm, from, "set $EDITOR to write in an editor")
+}
