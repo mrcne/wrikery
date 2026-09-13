@@ -28,7 +28,7 @@ func TestTitleDialogSubmitsTheEditedTitle(t *testing.T) {
 }
 
 func TestTitleDialogClosesWithoutAWriteWhenUnchanged(t *testing.T) {
-	d, _ := newTitleDialog(store.Task{ID: "T1", Title: "Fix login"}, 60)
+	d, _ := newTitleDialog(store.Task{ID: "T1", Title: "Fix  login   (MX)"}, 60)
 	_, cmd := dialog(d).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 || msgs[0] != (closeDialogMsg{}) {

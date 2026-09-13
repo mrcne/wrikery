@@ -183,3 +183,11 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 		Render(content)
 	return top + "\n" + sides
 }
+
+// importanceMark is the one cell column that flags a High task in list rows and on cards, blank for the rest.
+func (t Theme) importanceMark(importance string) string {
+	if importance != "High" {
+		return " "
+	}
+	return lipgloss.NewStyle().Foreground(t.Warn).Render(t.Glyphs.Important)
+}

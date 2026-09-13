@@ -89,9 +89,9 @@ A High task carries a `!` next to its status glyph in the list and on its card, 
 `m` lists the followed spaces, projects and folders as a checklist with the task's folders checked, narrowed as you type.
 Space toggles a folder and enter applies the toggles, so a task can join or leave several folders in one go.
 Enter with nothing toggled moves the task instead: it leaves the folders under the node in view and joins the highlighted one.
-On My tasks and after a search no folder is in view, so the move only joins.
+On My tasks no folder is in view, so the move only joins, and the same happens when the task sits in no folder under the node in view, after a search that found it elsewhere for example.
 The first line of the box says which of the two enter will do.
-Unchecking the last folder is refused, a task needs one.
+Unchecking the last folder is refused: Wrike would put the task into the account root, which no followed scope covers, and the task would drop out of the cache at the next sync.
 A folder outside the followed scopes is not in the list, the box counts it and never touches it.
 
 ### Views

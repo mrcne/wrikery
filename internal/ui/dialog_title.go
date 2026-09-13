@@ -30,7 +30,8 @@ func newTitleDialog(task store.Task, width int) (titleDialog, tea.Cmd) {
 
 func (d titleDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	if msg.Type == tea.KeyEnter {
-		title := strings.Join(strings.Fields(d.input.Value()), " ")
+		// Only the ends are trimmed, spaces inside a title are the user's own and folding them would queue a write nobody asked for.
+		title := strings.TrimSpace(d.input.Value())
 		if title == "" {
 			d.errText = "a title cannot be empty"
 			return d, nil

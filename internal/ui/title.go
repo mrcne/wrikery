@@ -169,11 +169,3 @@ func (t Theme) styledTitle(title string) string {
 	code, prefix := titleSpans(shown)
 	return t.styleTitle(titleLine{text: shown}, code, prefix)
 }
-
-// importanceMark is the one cell column that flags a High task in list rows and on cards, blank for the rest.
-func (t Theme) importanceMark(importance string) string {
-	if importance != "High" {
-		return " "
-	}
-	return lipgloss.NewStyle().Foreground(t.Warn).Render(t.Glyphs.Important)
-}
