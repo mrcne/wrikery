@@ -127,8 +127,11 @@ func (c *Client) TasksByIDs(ctx context.Context, ids []string, fields []string) 
 type TaskUpdate struct {
 	Title              string
 	CustomStatusID     string
+	Importance         string // High, Normal or Low
 	AddResponsibles    []string
 	RemoveResponsibles []string
+	AddParents         []string // folder ids in the same account
+	RemoveParents      []string
 	Dates              *TaskDates
 }
 
@@ -144,11 +147,20 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	if u.CustomStatusID != "" {
 		form.Set("customStatus", u.CustomStatusID)
 	}
+	if u.Importance != "" {
+		form.Set("importance", u.Importance)
+	}
 	if len(u.AddResponsibles) > 0 {
 		form.Set("addResponsibles", jsonArray(u.AddResponsibles))
 	}
 	if len(u.RemoveResponsibles) > 0 {
 		form.Set("removeResponsibles", jsonArray(u.RemoveResponsibles))
+	}
+	if len(u.AddParents) > 0 {
+		form.Set("addParents", jsonArray(u.AddParents))
+	}
+	if len(u.RemoveParents) > 0 {
+		form.Set("removeParents", jsonArray(u.RemoveParents))
 	}
 	if u.Dates != nil {
 		raw, err := json.Marshal(u.Dates)

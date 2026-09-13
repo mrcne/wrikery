@@ -49,8 +49,11 @@ type OutboxRow struct {
 type TaskUpdatePayload struct {
 	Title              string     `json:"title,omitempty"`
 	CustomStatusID     string     `json:"customStatusId,omitempty"`
+	Importance         string     `json:"importance,omitempty"`
 	AddResponsibles    []string   `json:"addResponsibles,omitempty"`
 	RemoveResponsibles []string   `json:"removeResponsibles,omitempty"`
+	AddParents         []string   `json:"addParents,omitempty"`
+	RemoveParents      []string   `json:"removeParents,omitempty"`
 	Dates              *TaskDates `json:"dates,omitempty"`
 	// Status is the custom status's group.
 	// It is applied to the cache row so the list sorts and filters the task as done right away.
@@ -140,6 +143,10 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		set = append(set, "custom_status_id = ?")
 		args = append(args, p.CustomStatusID)
 	}
+	if p.Importance != "" {
+		set = append(set, "importance = ?")
+		args = append(args, p.Importance)
+	}
 	if p.Status != "" {
 		// See the Status field's doc comment on TaskUpdatePayload for why this is local only.
 		set = append(set, "status = ?")
@@ -169,6 +176,20 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM task_responsibles WHERE task_id = ? AND contact_id = ?`,
 			taskID, c); err != nil {
+			return 0, err
+		}
+	}
+	for _, f := range p.AddParents {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO task_parents (task_id, folder_id) VALUES (?, ?)`,
+			taskID, f); err != nil {
+			return 0, err
+		}
+	}
+	for _, f := range p.RemoveParents {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM task_parents WHERE task_id = ? AND folder_id = ?`,
+			taskID, f); err != nil {
 			return 0, err
 		}
 	}

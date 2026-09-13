@@ -26,12 +26,12 @@ type Glyphs struct {
 	Expanded, Collapsed                    string
 	Pending, Failed                        string
 	Synced, Syncing, Offline               string
-	Cursor                                 string
+	Cursor, Important                      string
 }
 
 // The only line in the package allowed to hold non ASCII characters.
-var unicodeGlyphs = Glyphs{Active: "○", Completed: "✓", Deferred: "◌", Cancelled: "✕", Expanded: "▾", Collapsed: "▸", Pending: "~", Failed: "!", Synced: "●", Syncing: "◐", Offline: "○", Cursor: ">"}
-var asciiGlyphs = Glyphs{Active: "o", Completed: "v", Deferred: "z", Cancelled: "x", Expanded: "v", Collapsed: ">", Pending: "~", Failed: "!", Synced: "*", Syncing: "~", Offline: "o", Cursor: ">"}
+var unicodeGlyphs = Glyphs{Active: "○", Completed: "✓", Deferred: "◌", Cancelled: "✕", Expanded: "▾", Collapsed: "▸", Pending: "~", Failed: "!", Synced: "●", Syncing: "◐", Offline: "○", Cursor: ">", Important: "!"}
+var asciiGlyphs = Glyphs{Active: "o", Completed: "v", Deferred: "z", Cancelled: "x", Expanded: "v", Collapsed: ">", Pending: "~", Failed: "!", Synced: "*", Syncing: "~", Offline: "o", Cursor: ">", Important: "!"}
 
 var asciiBorder = lipgloss.Border{Top: "-", Bottom: "-", Left: "|", Right: "|", TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+"}
 
@@ -182,4 +182,12 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 		Border(b, false, true, true, true).BorderForeground(color).
 		Render(content)
 	return top + "\n" + sides
+}
+
+// importanceMark is the one cell column that flags a High task in list rows and on cards, blank for the rest.
+func (t Theme) importanceMark(importance string) string {
+	if importance != "High" {
+		return " "
+	}
+	return lipgloss.NewStyle().Foreground(t.Warn).Render(t.Glyphs.Important)
 }

@@ -27,7 +27,7 @@ func TestConfirmDialogEmitsOnYes(t *testing.T) {
 func TestCommentDialogHintNamesBothSendKeys(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	d, _ := newCommentDialog("T1", "Fix auth retry loop", 60)
-	out := d.View(th, 60)
+	out := d.View(th, 60, 40)
 	if !strings.Contains(out, "ctrl+s") || !strings.Contains(out, "ctrl+d") {
 		t.Errorf("hint names only one send key:\n%s", out)
 	}

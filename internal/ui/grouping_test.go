@@ -213,3 +213,36 @@ func TestElsewhereStaysLastWhenAFolderSitsUnderTwoParents(t *testing.T) {
 		t.Errorf("sections = %v, Elsewhere belongs last", got)
 	}
 }
+
+// loadTree appends a node per parent, so a folder under two parents is in the slice twice,
+// and the index has to answer for both parents or a move out of the second one is missed.
+func sharedTree() []treeNode {
+	return []treeNode{
+		{id: "PLT", title: "Platform", kind: nodeSpace, children: []int{1, 3}},
+		{id: "API", title: "API", kind: nodeProject, depth: 1, children: []int{2}},
+		{id: "SHR", title: "Shared", kind: nodeFolder, depth: 2},
+		{id: "DSG", title: "Design system", kind: nodeFolder, depth: 1, children: []int{4}},
+		{id: "SHR", title: "Shared", kind: nodeFolder, depth: 2},
+	}
+}
+
+func TestFolderIndexKeepsEveryParent(t *testing.T) {
+	idx := newFolderIndex(sharedTree())
+	for _, tc := range []struct {
+		folder, node string
+		want         bool
+	}{{"SHR", "API", true}, {"SHR", "DSG", true}, {"SHR", "PLT", true}, {"API", "DSG", false}} {
+		if got := idx.under(tc.folder, tc.node); got != tc.want {
+			t.Errorf("under(%s, %s) = %v, want %v", tc.folder, tc.node, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		folder, node, want string
+		ok                 bool
+	}{{"SHR", "DSG", "SHR", true}, {"SHR", "API", "SHR", true}, {"SHR", "PLT", "API", true}, {"API", "DSG", "PLT", false}} {
+		got, ok := idx.sectionFor(tc.folder, tc.node)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("sectionFor(%s, %s) = %q, %v, want %q, %v", tc.folder, tc.node, got, ok, tc.want, tc.ok)
+		}
+	}
+}

@@ -81,7 +81,7 @@ func (d timelogDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, cmd
 }
 
-func (d timelogDialog) View(th Theme, width int) string {
+func (d timelogDialog) View(th Theme, width, height int) string {
 	title := "Log time on " + d.title
 	if d.timelogID != "" {
 		title = "Edit time on " + d.title
@@ -132,7 +132,7 @@ func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, nil
 }
 
-func (d entryPicker) View(th Theme, width int) string {
+func (d entryPicker) View(th Theme, width, height int) string {
 	var b strings.Builder
 	for i, l := range d.logs {
 		label := fmt.Sprintf("%.1f h  %s", l.Hours, l.Comment)

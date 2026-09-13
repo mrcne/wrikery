@@ -10,22 +10,22 @@
 |                      ||  o   Investigate dependencies           AN+  2 Sep||  Plain paragraph, nothing fancy. Long   |
 |                      ||  o   Remove auth retry loop             AN   today||  enough to wrap in a narrow detail      |
 |                      ||  o   Bump signing keys                  AN   today||  pane so the wrapping code gets         |
-|                      ||  o   Inve+- Status ---------------------------------------+ised too.                         |
-|                      ||  o   Desi|Active                                          |                                  |
-|                      ||  o   Writ|  o Backlog                                     |ents (0) -------------------------|
-|                      ||  z   Bump|  o In progress                                 |                                  |
-|                      ||  z   Inve|  o In review                                   | (0) -----------------------------|
-|                      ||  z   Desi|> o Blocked                                     |                                  |
-|                      ||  z ! Writ|                                                |                                  |
-|                      ||  z   Fix |Completed                                       |                                  |
-|                      ||  z   Add |  v Done                                        |                                  |
-|                      ||  o   Fix |                                                |                                  |
-|                      ||  o   Add |Deferred                                        |                                  |
-|                      ||  o   Rota|  z Later                                       |                                  |
-|                      ||  o   Refa|                                                |                                  |
-|                      ||  o ! Fix |Cancelled                                       |                                  |
-|                      ||  o   Add |  x Dropped                                     |                                  |
-|                      ||  o   Rota+------------------------------------------------+                                  |
+|                      ||  o   Investigate rate limit test        AN   today||  exercised too.                         |
+|                      ||  o   Design error codes                 AN   today||                                         |
+|                      ||  o   Write tests for sync cursor        AN   today||-- Comments (0) -------------------------|
+|                      ||  z   Bump error codes                   AN     Mon||                                         |
+|                      ||  z   Investigate sync cursor            AN     Mon||-- Time (0) -----------------------------|
+|                   +- Title ----------------------------------------------------------------------+                   |
+|                   |Document auth retry loop                                                      |                   |
+|                   |                                                                              |                   |
+|                   |enter saves   esc cancels                                                     |                   |
+|                   +------------------------------------------------------------------------------+                   |
+|                      ||  o   Add timesheet export               AN+    Wed||                                         |
+|                      ||  o   Rotate dark theme                  AN+    Wed||                                         |
+|                      ||  o   Refactor dark theme                AN  14 Sep||                                         |
+|                      ||  o ! Fix auth retry loop              ~ AN      --||                                         |
+|                      ||  o   Add signing keys                 ! AN      --||                                         |
+|                      ||  o   Rotate rate limit test           ! AN      --||                                         |
 |                      ||  o   Document error codes               AN      --||                                         |
 |                      ||  o   Refactor sync cursor               AN      --||                                         |
 |                      ||  o   Remove legacy config loader        AN      --||                                         |

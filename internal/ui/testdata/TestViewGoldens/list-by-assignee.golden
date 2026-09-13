@@ -1,40 +1,40 @@
 +- Spaces -------------++- Tasks: My tasks, by assignee (30) -------------------------------------++- #1200033 ------------------------------------------------+
 |> My tasks         30 ||-- Ada Nowak (me) (30) --------------------------------------------------||Document auth retry loop                                   |
-|  v Mobile            ||> o Document auth retry loop                          Blocked      29 Aug||#1200033  Infra                                            |
-|    o iOS app         ||  o Refactor signing keys                             Blocked      29 Aug||                                                           |
-|  v Platform          ||  o Remove rate limit test                            Blocked      29 Aug||Status     o Blocked                                       |
-|    o API             ||  o Rotate signing keys                               In review     2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
-|      Design system   ||  o Document rate limit test                          In review     2 Sep||Dates      28 Aug -> 29 Aug                                |
-|    > Infra           ||  o Refactor error codes                              In review     2 Sep||Updated    25 Aug                                          |
-|    o Web             ||  o Remove sync cursor                                In review     2 Sep||                                                           |
-|                      ||  o Bump legacy config loader                         In review     2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
-|                      ||  o Investigate dependencies                          In review     2 Sep||  a narrow detail pane so the wrapping code gets           |
-|                      ||  o Remove auth retry loop                            In progress   today||  exercised too.                                           |
-|                      ||  o Bump signing keys                                 In progress   today||                                                           |
-|                      ||  o Investigate rate limit test                       In progress   today||-- Comments (0) -------------------------------------------|
-|                      ||  o Design error codes                                In progress   today||                                                           |
-|                      ||  o Write tests for sync cursor                       In progress   today||-- Time (0) -----------------------------------------------|
-|                      ||  z Bump error codes                                  Later           Mon||                                                           |
-|                      ||  z Investigate sync cursor                           Later           Mon||                                                           |
-|                      ||  z Design legacy config loader                       Later           Mon||                                                           |
-|                      ||  z Write tests for dependencies                      Later           Mon||                                                           |
-|                      ||  z Fix onboarding flow                               Later           Mon||                                                           |
-|                      ||  z Add search ranking                                Later           Mon||                                                           |
-|                      ||  o Fix search ranking                                Blocked         Wed||                                                           |
-|                      ||  o Add timesheet export                              Blocked         Wed||                                                           |
-|                      ||  o Rotate dark theme                                 Blocked         Wed||                                                           |
-|                      ||  o Refactor dark theme                               In progress  14 Sep||                                                           |
-|                      ||  o Fix auth retry loop                             ~ In progress      --||                                                           |
-|                      ||  o Add signing keys                                ! In review        --||                                                           |
-|                      ||  o Rotate rate limit test                          ! In progress      --||                                                           |
-|                      ||  o Document error codes                              In progress      --||                                                           |
-|                      ||  o Refactor sync cursor                              In progress      --||                                                           |
-|                      ||  o Remove legacy config loader                       In progress      --||                                                           |
+|  v Mobile            ||> o   Document auth retry loop                        Blocked      29 Aug||#1200033  Infra                                            |
+|    o iOS app         ||  o   Refactor signing keys                           Blocked      29 Aug||                                                           |
+|  v Platform          ||  o   Remove rate limit test                          Blocked      29 Aug||Status     o Blocked                                       |
+|    o API             ||  o   Rotate signing keys                             In review     2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
+|      Design system   ||  o ! Document rate limit test                        In review     2 Sep||Dates      28 Aug -> 29 Aug                                |
+|    > Infra           ||  o   Refactor error codes                            In review     2 Sep||Updated    25 Aug                                          |
+|    o Web             ||  o   Remove sync cursor                              In review     2 Sep||                                                           |
+|                      ||  o   Bump legacy config loader                       In review     2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
+|                      ||  o   Investigate dependencies                        In review     2 Sep||  a narrow detail pane so the wrapping code gets           |
+|                      ||  o   Remove auth retry loop                          In progress   today||  exercised too.                                           |
+|                      ||  o   Bump signing keys                               In progress   today||                                                           |
+|                      ||  o   Investigate rate limit test                     In progress   today||-- Comments (0) -------------------------------------------|
+|                      ||  o   Design error codes                              In progress   today||                                                           |
+|                      ||  o   Write tests for sync cursor                     In progress   today||-- Time (0) -----------------------------------------------|
+|                      ||  z   Bump error codes                                Later           Mon||                                                           |
+|                      ||  z   Investigate sync cursor                         Later           Mon||                                                           |
+|                      ||  z   Design legacy config loader                     Later           Mon||                                                           |
+|                      ||  z ! Write tests for dependencies                    Later           Mon||                                                           |
+|                      ||  z   Fix onboarding flow                             Later           Mon||                                                           |
+|                      ||  z   Add search ranking                              Later           Mon||                                                           |
+|                      ||  o   Fix search ranking                              Blocked         Wed||                                                           |
+|                      ||  o   Add timesheet export                            Blocked         Wed||                                                           |
+|                      ||  o   Rotate dark theme                               Blocked         Wed||                                                           |
+|                      ||  o   Refactor dark theme                             In progress  14 Sep||                                                           |
+|                      ||  o ! Fix auth retry loop                           ~ In progress      --||                                                           |
+|                      ||  o   Add signing keys                              ! In review        --||                                                           |
+|                      ||  o   Rotate rate limit test                        ! In progress      --||                                                           |
+|                      ||  o   Document error codes                            In progress      --||                                                           |
+|                      ||  o   Refactor sync cursor                            In progress      --||                                                           |
+|                      ||  o   Remove legacy config loader                     In progress      --||                                                           |
 |                      ||-- Celina Wrona (12) ----------------------------------------------------||                                                           |
-|                      ||  o Document auth retry loop                          Blocked      29 Aug||                                                           |
-|                      ||  o Refactor signing keys                             Blocked      29 Aug||                                                           |
-|                      ||  o Remove rate limit test                            Blocked      29 Aug||                                                           |
-|                      ||  o Rotate signing keys                               In review     2 Sep||                                                           |
-|                      ||  o Document rate limit test                          In review     2 Sep||                                                           |
+|                      ||  o   Document auth retry loop                        Blocked      29 Aug||                                                           |
+|                      ||  o   Refactor signing keys                           Blocked      29 Aug||                                                           |
+|                      ||  o   Remove rate limit test                          Blocked      29 Aug||                                                           |
+|                      ||  o   Rotate signing keys                             In review     2 Sep||                                                           |
+|                      ||  o ! Document rate limit test                        In review     2 Sep||                                                           |
 +----------------------++-------------------------------------------------------------------------++-----------------------------------------------------------+
  demo  * synced 0 s ago  1 pending  2 failed   enter open  / filter  v group by  b board / list  z show completed  tab next pane  ctrl+f search  ? help  q quit 

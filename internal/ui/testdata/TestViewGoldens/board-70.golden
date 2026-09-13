@@ -1,19 +1,19 @@
 +- Board: My tasks (30) ---------------------------------------------+
 |< 3 Blocked (6)                   Later (6)                         |
 |    > Document auth retry loop      Bump error codes                |
-|    > AN+                 29 Aug    AN                     Mon      |
+|    >   AN+               29 Aug      AN                   Mon      |
 |      Refactor signing keys         Investigate sync cursor         |
-|      AN+                 29 Aug    AN                     Mon      |
+|        AN+               29 Aug      AN                   Mon      |
 |      Remove rate limit test        Design legacy config            |
-|      AN+                 29 Aug    loader                          |
-|      Fix search ranking            AN                     Mon      |
-|      AN+                    Wed    Write tests for                 |
+|        AN+               29 Aug    loader                          |
+|      Fix search ranking              AN                   Mon      |
+|        AN+                  Wed    Write tests for                 |
 |      Add timesheet export          dependencies                    |
-|      AN+                    Wed    AN                     Mon      |
+|        AN+                  Wed    ! AN                   Mon      |
 |      Rotate dark theme             Fix onboarding flow             |
-|      AN+                    Wed    AN                     Mon      |
+|        AN+                  Wed      AN                   Mon      |
 |                                    Add search ranking              |
-|                                    AN                     Mon      |
+|                                      AN                   Mon      |
 |                                                                    |
 |                                                                    |
 |                                                                    |

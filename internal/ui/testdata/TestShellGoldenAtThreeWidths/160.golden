@@ -1,30 +1,30 @@
 +- Spaces -------------++- Tasks: My tasks (30) --------------------------------------------------++- #1200033 ------------------------------------------------+
-|> My tasks         30 ||> o Document auth retry loop                                   AN+ 29 Aug||Document auth retry loop                                   |
-|  v Mobile            ||  o Refactor signing keys                                      AN+ 29 Aug||#1200033  Infra                                            |
-|    o iOS app         ||  o Remove rate limit test                                     AN+ 29 Aug||                                                           |
-|  v Platform          ||  o Rotate signing keys                                        AN+  2 Sep||Status     o Blocked                                       |
-|    o API             ||  o Document rate limit test                                   AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
-|      Design system   ||  o Refactor error codes                                       AN+  2 Sep||Dates      28 Aug -> 29 Aug                                |
-|    > Infra           ||  o Remove sync cursor                                         AN+  2 Sep||Updated    25 Aug                                          |
-|    o Web             ||  o Bump legacy config loader                                  AN+  2 Sep||                                                           |
-|                      ||  o Investigate dependencies                                   AN+  2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
-|                      ||  o Remove auth retry loop                                     AN   today||  a narrow detail pane so the wrapping code gets           |
-|                      ||  o Bump signing keys                                          AN   today||  exercised too.                                           |
-|                      ||  o Investigate rate limit test                                AN   today||                                                           |
-|                      ||  o Design error codes                                         AN   today||-- Comments (0) -------------------------------------------|
-|                      ||  o Write tests for sync cursor                                AN   today||                                                           |
-|                      ||  z Bump error codes                                           AN     Mon||-- Time (0) -----------------------------------------------|
-|                      ||  z Investigate sync cursor                                    AN     Mon||                                                           |
-|                      ||  z Design legacy config loader                                AN     Mon||                                                           |
-|                      ||  z Write tests for dependencies                               AN     Mon||                                                           |
-|                      ||  z Fix onboarding flow                                        AN     Mon||                                                           |
-|                      ||  z Add search ranking                                         AN     Mon||                                                           |
-|                      ||  o Fix search ranking                                         AN+    Wed||                                                           |
-|                      ||  o Add timesheet export                                       AN+    Wed||                                                           |
-|                      ||  o Rotate dark theme                                          AN+    Wed||                                                           |
-|                      ||  o Refactor dark theme                                        AN  14 Sep||                                                           |
-|                      ||  o Fix auth retry loop                                      ~ AN      --||                                                           |
-|                      ||  o Add signing keys                                         ! AN      --||                                                           |
-|                      ||  o Rotate rate limit test                                   ! AN      --||                                                           |
+|> My tasks         30 ||> o   Document auth retry loop                                 AN+ 29 Aug||Document auth retry loop                                   |
+|  v Mobile            ||  o   Refactor signing keys                                    AN+ 29 Aug||#1200033  Infra                                            |
+|    o iOS app         ||  o   Remove rate limit test                                   AN+ 29 Aug||                                                           |
+|  v Platform          ||  o   Rotate signing keys                                      AN+  2 Sep||Status     o Blocked                                       |
+|    o API             ||  o ! Document rate limit test                                 AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
+|      Design system   ||  o   Refactor error codes                                     AN+  2 Sep||Dates      28 Aug -> 29 Aug                                |
+|    > Infra           ||  o   Remove sync cursor                                       AN+  2 Sep||Updated    25 Aug                                          |
+|    o Web             ||  o   Bump legacy config loader                                AN+  2 Sep||                                                           |
+|                      ||  o   Investigate dependencies                                 AN+  2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
+|                      ||  o   Remove auth retry loop                                   AN   today||  a narrow detail pane so the wrapping code gets           |
+|                      ||  o   Bump signing keys                                        AN   today||  exercised too.                                           |
+|                      ||  o   Investigate rate limit test                              AN   today||                                                           |
+|                      ||  o   Design error codes                                       AN   today||-- Comments (0) -------------------------------------------|
+|                      ||  o   Write tests for sync cursor                              AN   today||                                                           |
+|                      ||  z   Bump error codes                                         AN     Mon||-- Time (0) -----------------------------------------------|
+|                      ||  z   Investigate sync cursor                                  AN     Mon||                                                           |
+|                      ||  z   Design legacy config loader                              AN     Mon||                                                           |
+|                      ||  z ! Write tests for dependencies                             AN     Mon||                                                           |
+|                      ||  z   Fix onboarding flow                                      AN     Mon||                                                           |
+|                      ||  z   Add search ranking                                       AN     Mon||                                                           |
+|                      ||  o   Fix search ranking                                       AN+    Wed||                                                           |
+|                      ||  o   Add timesheet export                                     AN+    Wed||                                                           |
+|                      ||  o   Rotate dark theme                                        AN+    Wed||                                                           |
+|                      ||  o   Refactor dark theme                                      AN  14 Sep||                                                           |
+|                      ||  o ! Fix auth retry loop                                    ~ AN      --||                                                           |
+|                      ||  o   Add signing keys                                       ! AN      --||                                                           |
+|                      ||  o   Rotate rate limit test                                 ! AN      --||                                                           |
 +----------------------++-------------------------------------------------------------------------++-----------------------------------------------------------+
  demo  * synced 0 s ago  1 pending  2 failed   enter open  / filter  v group by  b board / list  z show completed  tab next pane  ctrl+f search  ? help  q quit 

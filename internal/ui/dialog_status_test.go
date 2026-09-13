@@ -48,7 +48,7 @@ func TestStatusDialogRefusesATaskWhoseWorkflowIsNotCached(t *testing.T) {
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter -> %#v, want nothing queued", msgs)
 	}
-	if view := d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60); !strings.Contains(view, "no workflow known") {
+	if view := d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); !strings.Contains(view, "no workflow known") {
 		t.Errorf("view = %q, want the refusal", view)
 	}
 }

@@ -372,6 +372,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitTitleMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Title: msg.title})
+			return err
+		}, "Title updated")
+	case submitImportanceMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Importance: msg.importance})
+			return err
+		}, "Importance set to "+msg.importance)
+	case submitFoldersMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddParents: msg.add, RemoveParents: msg.remove})
+			return err
+		}, foldersToast(msg.add, msg.remove, m.list.folders.title))
 	case submitTimelogMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		if msg.timelogID == "" {
@@ -688,7 +706,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.Assignee):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newAssigneeDialog(t, m.ref, m.keys)
+			d, cmd := newAssigneeDialog(t, m.ref)
 			m.openDialog(d)
 			return cmd
 		})
@@ -696,6 +714,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Dates):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newDatesDialog(t, m.opts.Now())
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.EditTitle):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newTitleDialog(t, min(m.width-4, 80))
+			m.openDialog(d)
+			return cmd
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Importance):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			m.openDialog(newImportanceDialog(t, m.keys))
+			return nil
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Folders):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, m.list.nodeID)
 			m.openDialog(d)
 			return cmd
 		})
@@ -865,7 +903,7 @@ func (m Model) View() string {
 		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
-		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80)), m.width, m.height)
+		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80), m.height), m.width, m.height)
 	}
 	return out
 }

@@ -1,27 +1,27 @@
 +- Board: My tasks (30) ---------------------------------------------------------------------------------------------------------------------------------------+
 |Backlog (0)  In progress (11)                    In review (7)                       Blocked (6)                         Later (6)                            |
 |               Remove auth retry loop              Rotate signing keys               > Document auth retry loop            Bump error codes                   |
-|               AN                         today    AN+                        2 Sep  > AN+                       29 Aug    AN                           Mon   |
+|                 AN                       today      AN+                      2 Sep  >   AN+                     29 Aug      AN                         Mon   |
 |               Bump signing keys                   Document rate limit test            Refactor signing keys               Investigate sync cursor            |
-|               AN                         today    AN+                        2 Sep    AN+                       29 Aug    AN                           Mon   |
+|                 AN                       today    ! AN+                      2 Sep      AN+                     29 Aug      AN                         Mon   |
 |               Investigate rate limit test         Refactor error codes                Remove rate limit test              Design legacy config loader        |
-|               AN                         today    AN+                        2 Sep    AN+                       29 Aug    AN                           Mon   |
+|                 AN                       today      AN+                      2 Sep      AN+                     29 Aug      AN                         Mon   |
 |               Design error codes                  Remove sync cursor                  Fix search ranking                  Write tests for dependencies       |
-|               AN                         today    AN+                        2 Sep    AN+                          Wed    AN                           Mon   |
+|                 AN                       today      AN+                      2 Sep      AN+                        Wed    ! AN                         Mon   |
 |               Write tests for sync cursor         Bump legacy config loader           Add timesheet export                Fix onboarding flow                |
-|               AN                         today    AN+                        2 Sep    AN+                          Wed    AN                           Mon   |
+|                 AN                       today      AN+                      2 Sep      AN+                        Wed      AN                         Mon   |
 |               Refactor dark theme                 Investigate dependencies            Rotate dark theme                   Add search ranking                 |
-|               AN                        14 Sep    AN+                        2 Sep    AN+                          Wed    AN                           Mon   |
+|                 AN                      14 Sep      AN+                      2 Sep      AN+                        Wed      AN                         Mon   |
 |               Fix auth retry loop                 Add signing keys                                                                                           |
-|               AN  ~                         --    AN  !                         --                                                                           |
+|               ! AN  ~                       --      AN  !                       --                                                                           |
 |               Rotate rate limit test                                                                                                                         |
-|               AN  !                         --                                                                                                               |
+|                 AN  !                       --                                                                                                               |
 |               Document error codes                                                                                                                           |
-|               AN                            --                                                                                                               |
+|                 AN                          --                                                                                                               |
 |               Refactor sync cursor                                                                                                                           |
-|               AN                            --                                                                                                               |
+|                 AN                          --                                                                                                               |
 |               Remove legacy config loader                                                                                                                    |
-|               AN                            --                                                                                                               |
+|                 AN                          --                                                                                                               |
 |                                                                                                                                                              |
 |                                                                                                                                                              |
 |                                                                                                                                                              |

@@ -386,8 +386,9 @@ func cardLines(th Theme, ref refData, now time.Time, r taskRow, width int, selec
 	if overdue {
 		dueStyle = lipgloss.NewStyle().Foreground(th.Error)
 	}
-	pad := max(0, inner-5-ansi.StringWidth(due))
-	return append(out, rowLine(th, muted.Render(who)+mark+strings.Repeat(" ", pad)+dueStyle.Render(due), width, selected, focused))
+	// The importance flag leads the line, as it does in list rows, and keeps clear of the sending mark that shares its glyph in ascii mode.
+	pad := max(0, inner-7-ansi.StringWidth(due))
+	return append(out, rowLine(th, th.importanceMark(r.task.Importance)+" "+muted.Render(who)+mark+strings.Repeat(" ", pad)+dueStyle.Render(due), width, selected, focused))
 }
 
 func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel, focused bool) string {

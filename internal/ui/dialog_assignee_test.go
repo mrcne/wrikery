@@ -16,9 +16,9 @@ func TestAssigneeDialogFiltersTogglesAndDiffs(t *testing.T) {
 		"C":  {ID: "C", FirstName: "Celina", LastName: "Wrona"},
 		"X":  {ID: "X", FirstName: "Gone", LastName: "Person", Deleted: true},
 	}}
-	d, _ := newAssigneeDialog(store.Task{ID: "T", ResponsibleIDs: []string{"B"}}, ref, defaultKeyMap())
-	if len(d.visible) != 3 || d.contacts[d.visible[0]].ID != "ME" {
-		t.Fatalf("visible = %v (me first, deleted hidden)", d.visible)
+	d, _ := newAssigneeDialog(store.Task{ID: "T", ResponsibleIDs: []string{"B"}}, ref)
+	if len(d.list.visible) != 3 || d.list.rows[d.list.visible[0]].id != "ME" {
+		t.Fatalf("visible = %v (me first, deleted hidden)", d.list.visible)
 	}
 	var dl dialog = d
 	for _, r := range "cel" {
