@@ -9,6 +9,7 @@ type KeyMap struct {
 	CopyLink, CopyBranch, CopyID                                                    key.Binding
 	Retry, Discard                                                                  key.Binding
 	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete              key.Binding
+	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext  key.Binding
 }
 
 func b(help, desc string, keys ...string) key.Binding {
@@ -25,6 +26,10 @@ func defaultKeyMap() KeyMap {
 		HalfDown: b("ctrl+d", "half page down", "ctrl+d", "pgdown"), HalfUp: b("ctrl+u", "half page up", "ctrl+u", "pgup"),
 		Filter: b("/", "filter", "/"), Enter: b("enter", "open", "enter"), Left: b("h", "collapse / left", "h", "left"), Right: b("l", "expand / right", "l", "right"),
 		ToggleDone: b("z", "show completed", "z"),
+		Board:      b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
+		PrevGroup: b("{", "previous group", "{"), NextGroup: b("}", "next group", "}"),
+		StatusPrev: b("H", "previous status", "H"), StatusNext: b("L", "next status", "L"),
+		ColPrev: b("h", "previous column", "h", "left"), ColNext: b("l", "next column", "l", "right"),
 
 		Comment: b("c", "comment", "c"), CommentEditor: b("C", "comment in $EDITOR", "C"), LogTime: b("t", "log time", "t"),
 		Status: b("s", "status", "s"), Assignee: b("a", "assignee", "a"), Dates: b("d", "dates", "d"),
@@ -43,11 +48,15 @@ func (k KeyMap) global() []key.Binding {
 }
 
 func (k KeyMap) list() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone}
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board}
 }
 
 func (k KeyMap) task() []key.Binding {
-	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.Assignee, k.Dates, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
+	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
+}
+
+func (k KeyMap) board() []key.Binding {
+	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.ToggleDone, k.GroupBy, k.Board, k.Enter}
 }
 
 func (k KeyMap) timesheet() []key.Binding {

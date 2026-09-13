@@ -16,6 +16,7 @@ Reading:
 - task list and task detail: description, status, assignee, dates, comments
 - instant full text search over everything cached
 - a timesheet view of your own logged time
+- a board over workflow statuses, plain or with a lane per person or per folder
 
 Writing:
 
@@ -79,6 +80,26 @@ The note is optional.
 Tab moves between the fields, enter saves, esc cancels.
 Editing an entry cannot clear a note that is already there.
 
+### Views
+
+The task list can be grouped, and the same tasks can be shown as a board.
+`v` cycles the grouping: none, by folder, by assignee, by status.
+By folder groups the tasks of a space or project by the folder or project one level below it, so a project reads by its epics, and one sidebar step down regroups by that epic's own children.
+On My tasks the group is the followed space or project the task sits in.
+By assignee puts you first and unassigned tasks last, a task with several people shows under each of them, and the assignee column shows the status name instead.
+Each group starts with a line that carries its name and count, `{` and `}` jump between groups.
+`H` and `L` move the selected task to the previous or next status of its workflow without opening the status box.
+
+`b` turns the list into a board: a column per status of the workflow the tasks use, cards in the columns, and a lane per group when a grouping is on.
+So the board by assignee is a standup, who is on what and what is stuck, and the board by folder is a board per epic.
+Tasks on another workflow than most of the folder gather in one column named after that workflow, and `H` and `L` refuse to move them, the status box still works.
+The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back.
+Columns that do not fit slide in as the cursor moves towards them, an empty column shrinks to its name.
+`h` and `l` move between columns, `j` and `k` between cards, `/`, `z` and every task key work as in the list.
+
+A card shows the title on one line, or on two when it is long, and the break prefers a `: ` or ` - ` in the second half of the first line, so `(MX) Backend: Kafka - Processing` reads as a heading and a detail.
+A code in parentheses at the start of a title, `(MX)`, is drawn muted and a short part prefix closed by `: ` or ` - `, `Backend: Kafka - `, slightly muted, on cards and rows alike, so the eye lands on the words that differ between tasks.
+
 ### Sync issues
 
 `!` opens the list of writes the sync engine could not send.
@@ -125,5 +146,6 @@ The config file lives at `~/.config/wrikery/config.toml`.
 `log_level` sets how much the app logs: debug, info, warn or error.
 `poll_interval` sets how often the sync engine checks Wrike for changes.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
+`hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title and the branch name `Y` copies leaves the prefix out too.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.

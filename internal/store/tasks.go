@@ -291,7 +291,8 @@ func (t taskRepo) Search(ctx context.Context, query string, limit int) ([]Task, 
 const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importance, t.permalink,
 	t.dates_type, t.dates_duration, t.dates_start, t.dates_due, t.created_date, t.updated_date,
 	COALESCE(t.last_opened_at, ''),
-	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), '')`
+	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), ''),
+	COALESCE((SELECT GROUP_CONCAT(folder_id) FROM task_parents p WHERE p.task_id = t.id), '')`
 
 // Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
 // NULLIF covers a database written before the empty due date became a NULL, where the column still holds an empty string.
@@ -329,10 +330,10 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 		var task Task
 		var dType, dStart, dDue sql.NullString
 		var dDur sql.NullInt64
-		var resp string
+		var resp, parents string
 		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
 			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-			&task.LastOpenedAt, &resp); err != nil {
+			&task.LastOpenedAt, &resp, &parents); err != nil {
 			return nil, err
 		}
 		if dType.Valid {
@@ -341,6 +342,10 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 		if resp != "" {
 			task.ResponsibleIDs = strings.Split(resp, ",")
 			sort.Strings(task.ResponsibleIDs)
+		}
+		if parents != "" {
+			task.ParentIDs = strings.Split(parents, ",")
+			sort.Strings(task.ParentIDs)
 		}
 		out = append(out, task)
 	}

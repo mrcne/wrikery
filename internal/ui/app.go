@@ -69,12 +69,14 @@ type Model struct {
 	screen  screen
 	overlay overlay
 	focus   pane
+	shape   shape
 
 	status    statusModel
 	firstRun  firstRunModel
 	ref       refData
 	sidebar   sidebarModel
 	list      taskListModel
+	board     boardModel
 	detail    taskDetailModel
 	search    searchModel
 	issues    issuesModel
@@ -98,6 +100,7 @@ func New(o Options) Model {
 	m.search = newSearch(m.keys)
 	m.issues.keys = m.keys
 	m.timesheet.keys = m.keys
+	m.board.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -113,6 +116,21 @@ func New(o Options) Model {
 		m.firstRun = newFirstRun(stepToken, "", m.keys)
 	}
 	return m
+}
+
+// panes is the pane order of the current shape, what tab cycles through and the layout slides over.
+func (m Model) panes() []pane {
+	if m.shape == shapeBoard {
+		return []pane{paneSidebar, paneBoard, paneDetail}
+	}
+	return []pane{paneSidebar, paneList, paneDetail}
+}
+
+func (m Model) layout() layout {
+	if m.shape == shapeBoard {
+		return computeBoardLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	}
+	return computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
 }
 
 func (m Model) Init() tea.Cmd {
@@ -154,12 +172,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		// The by assignee grouping and the columns read contacts and workflows off the list's own copy.
+		m.list.ref = msg.ref
+		m.list.regroup()
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
 		return m, m.loadTree()
 	case treeLoadedMsg:
 		m.sidebar.setNodes(msg.nodes)
+		m.list.folders = newFolderIndex(msg.nodes)
+		m.list.regroup()
 		m.syncPaneSizes()
 		if n, ok := m.sidebar.current(); ok {
 			return m, intent(nodeSelectedMsg{node: n})
@@ -168,6 +191,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case focusMsg:
 		prev := m.focus
 		m.focus = msg.pane
+		// The children name the list, the shape decides whether that means the list or the board.
+		if m.shape == shapeBoard && m.focus == paneList {
+			m.focus = paneBoard
+		}
+		if m.shape == shapeList && m.focus == paneBoard {
+			m.focus = paneList
+		}
 		m.syncPaneSizes()
 		return m, m.openedOnFocus(prev)
 	case nodeSelectedMsg:
@@ -177,8 +207,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
 			m.list.cursor = 0
 		}
-		m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
+		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
 		m.pendingSelect = ""
+		if !found && m.shape == shapeBoard {
+			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
+			m.list.cursor = m.board.fallback(&m.list)
+		}
+		m.board.fit(&m.list, m.theme.HidePrefixes)
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
@@ -511,6 +546,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// A filter query may contain any letter, including the ones bound to quit or the pane switches.
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		if m.shape == shapeBoard {
+			// Every keystroke rebuilds the rows, and the board's window and offset describe the rows it saw last.
+			m.board.fit(&m.list, m.theme.HidePrefixes)
+		}
 		return m, cmd
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
@@ -564,12 +603,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenTimesheet
 		return m, m.loadWeek(time.Time{})
 	case key.Matches(msg, m.keys.NextPane):
-		m.focus = (m.focus + 1) % 3
+		m.focus = m.cyclePane(1)
 	case key.Matches(msg, m.keys.PrevPane):
-		m.focus = (m.focus + 2) % 3
+		m.focus = m.cyclePane(-1)
 	case key.Matches(msg, m.keys.Back):
 		if m.screen != screenMain {
 			m.screen = screenMain
+		} else if m.shape == shapeBoard {
+			// The board is the home pane of its shape: a side pane hands the width back to it, on the board itself esc rests.
+			// The one pane rule below counts panes down and would land on the detail, which sits before the board in the order.
+			m.focus = paneBoard
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
 		}
@@ -596,7 +639,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.CopyBranch):
 		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.BranchTemplate, t)
+			name := branchName(m.opts.Config.BranchTemplate, t, m.opts.Config.HidePrefixes)
 			return name, "Copied " + name
 		})
 		return m, cmd
@@ -624,6 +667,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openDialog(newStatusDialog(t, m.ref, m.keys))
 			return nil
 		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Board):
+		m.toggleShape()
+	case key.Matches(msg, m.keys.GroupBy):
+		m.list.cycleGroup(m.shape == shapeBoard)
+	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
+		delta := 1
+		if key.Matches(msg, m.keys.StatusPrev) {
+			delta = -1
+		}
+		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
 		return m, cmd
 	case key.Matches(msg, m.keys.LogTime):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
@@ -666,9 +720,64 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detail, cmd = m.detail.Update(msg)
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
+	case paneBoard:
+		var cmd tea.Cmd
+		m.board, cmd = m.board.Update(msg, &m.list, m.theme.HidePrefixes)
+		m.syncPaneSizes()
+		return m, tea.Batch(opened, cmd)
 	}
 	m.syncPaneSizes()
 	return m, opened
+}
+
+// cyclePane moves focus by delta over the panes of the current shape.
+func (m Model) cyclePane(delta int) pane {
+	panes := m.panes()
+	for i, p := range panes {
+		if p == m.focus {
+			return panes[(i+delta+len(panes))%len(panes)]
+		}
+	}
+	return panes[0]
+}
+
+// toggleShape switches the list and the board. The selection is the list's cursor either way, so nothing is carried over.
+// The board has no by status grouping, its columns already are the status, so that grouping drops to none.
+func (m *Model) toggleShape() {
+	if m.shape == shapeBoard {
+		m.shape = shapeList
+		if m.focus == paneBoard {
+			m.focus = paneList
+		}
+	} else {
+		m.shape = shapeBoard
+		if m.focus == paneList {
+			m.focus = paneBoard
+		}
+		if m.list.groupBy == groupStatus {
+			m.list.setGroup(groupNone)
+		}
+	}
+	m.syncPaneSizes()
+}
+
+// moveStatus steps the task to the neighbouring status of its workflow, through the message the status dialog sends,
+// so the toast, the cache update and the outbox row are the ones that exist.
+func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
+	if m.shape == shapeBoard && m.list.inBucket(t.ID) {
+		return m.status.show("this task is on another workflow, s picks a status", true)
+	}
+	cs, known, ok := stepStatus(t, m.ref, delta)
+	if !known {
+		return m.status.show(noWorkflowKnown, true)
+	}
+	if !ok {
+		if delta > 0 {
+			return m.status.show("already at the last status", false)
+		}
+		return m.status.show("already at the first status", false)
+	}
+	return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
 }
 
 // refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.
@@ -741,7 +850,7 @@ func (m Model) View() string {
 	case screenTimesheet:
 		body = m.viewTimesheet(bodyHeight)
 	default:
-		body = m.viewMain(bodyHeight)
+		body = m.viewMain()
 	}
 	hints := ""
 	if m.height >= 20 {
@@ -764,12 +873,16 @@ func (m Model) View() string {
 // syncPaneSizes pushes the computed pane heights down to the child models.
 // A View method takes its size as a plain argument each frame and has no way to remember it between calls on its own.
 func (m *Model) syncPaneSizes() {
-	lay := computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	lay := m.layout()
 	if r, ok := lay.rects[paneSidebar]; ok {
 		m.sidebar.height = r.h - 2
 	}
 	if r, ok := lay.rects[paneList]; ok {
 		m.list.height = r.h - 2
+	}
+	if r, ok := lay.rects[paneBoard]; ok {
+		m.board.width, m.board.height = r.w-2, r.h-2
+		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
@@ -801,8 +914,8 @@ func (m Model) viewTimesheet(height int) string {
 	return m.theme.box(title, body, m.width, height, true)
 }
 
-func (m Model) viewMain(height int) string {
-	lay := computeLayout(m.width, height, m.focus, m.sidebar.width())
+func (m Model) viewMain() string {
+	lay := m.layout()
 	parts := make([]string, 0, len(lay.visible))
 	for _, p := range lay.visible {
 		r := lay.rects[p]
@@ -817,6 +930,8 @@ func (m Model) paneTitle(p pane) string {
 		return "Spaces"
 	case paneList:
 		return m.list.title()
+	case paneBoard:
+		return m.list.titled("Board")
 	}
 	return m.detail.title()
 }
@@ -827,6 +942,8 @@ func (m Model) paneBody(p pane, r rect) string {
 		return m.sidebar.View(m.theme, r.w-2, r.h-2, m.focus == paneSidebar)
 	case paneList:
 		return m.list.View(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.focus == paneList)
+	case paneBoard:
+		return m.board.View(m.theme, m.ref, m.opts.Now(), &m.list, m.focus == paneBoard)
 	}
 	// The detail pane laid itself out in Update, View only reads the viewport.
 	return m.detail.View()
@@ -844,8 +961,11 @@ func (m Model) hintBindings() []key.Binding {
 		}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
+	if m.focus == paneBoard {
+		return append([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base...)
+	}
 	if m.focus == paneList {
-		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
+		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base...)
 	}
 	if m.focus == paneDetail {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
@@ -859,6 +979,9 @@ func (m Model) helpGroups() [][]key.Binding {
 	}
 	if m.screen == screenTimesheet {
 		return [][]key.Binding{m.keys.global(), m.keys.timesheet()}
+	}
+	if m.shape == shapeBoard {
+		return [][]key.Binding{m.keys.global(), m.keys.board(), m.keys.task()}
 	}
 	return [][]key.Binding{m.keys.global(), m.keys.list(), m.keys.task()}
 }

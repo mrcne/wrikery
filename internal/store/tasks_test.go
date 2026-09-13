@@ -293,3 +293,40 @@ func TestListForResponsible(t *testing.T) {
 		}
 	}
 }
+
+func TestListRowsCarryParentIDs(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Folders().ReplaceTree(ctx, []Folder{
+		{ID: "S1", Title: "Space", Space: true, ChildIDs: []string{"F1", "F2"}},
+		{ID: "F1", Title: "One"},
+		{ID: "F2", Title: "Two"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{
+		{ID: "both", Title: "In two folders", Status: "Active", ParentIDs: []string{"F2", "F1"}, ResponsibleIDs: []string{"ME"}},
+		{ID: "one", Title: "In one", Status: "Active", ParentIDs: []string{"F1"}, ResponsibleIDs: []string{"ME"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inFolder, err := st.Tasks().ListInFolder(ctx, "S1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := st.Tasks().ListForResponsible(ctx, "ME")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rows := range [][]Task{inFolder, mine} {
+		for _, task := range rows {
+			want := []string{"F1"}
+			if task.ID == "both" {
+				want = []string{"F1", "F2"}
+			}
+			if !reflect.DeepEqual(task.ParentIDs, want) {
+				t.Errorf("%s: ParentIDs = %v, want %v", task.ID, task.ParentIDs, want)
+			}
+		}
+	}
+}

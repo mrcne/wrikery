@@ -1,0 +1,40 @@
++- Spaces -------------++- Tasks: My tasks, by folder (30) ---------------------------------------++- #1200033 ------------------------------------------------+
+|> My tasks         30 ||-- Mobile (5) -----------------------------------------------------------||Document auth retry loop                                   |
+|  v Mobile            ||  o Remove rate limit test                                     AN+ 29 Aug||#1200033  Infra                                            |
+|    o iOS app         ||  o Investigate dependencies                                   AN+  2 Sep||                                                           |
+|  v Platform          ||  o Write tests for sync cursor                                AN   today||Status     o Blocked                                       |
+|    o API             ||  z Add search ranking                                         AN     Mon||Assignees  Celina Wrona, Ada Nowak                         |
+|      Design system   ||  o Remove legacy config loader                                AN      --||Dates      28 Aug -> 29 Aug                                |
+|    > Infra           ||-- Platform (25) --------------------------------------------------------||Updated    25 Aug                                          |
+|    o Web             ||> o Document auth retry loop                                   AN+ 29 Aug||                                                           |
+|                      ||  o Refactor signing keys                                      AN+ 29 Aug||  Plain paragraph, nothing fancy. Long enough to wrap in   |
+|                      ||  o Rotate signing keys                                        AN+  2 Sep||  a narrow detail pane so the wrapping code gets           |
+|                      ||  o Document rate limit test                                   AN+  2 Sep||  exercised too.                                           |
+|                      ||  o Refactor error codes                                       AN+  2 Sep||                                                           |
+|                      ||  o Remove sync cursor                                         AN+  2 Sep||-- Comments (0) -------------------------------------------|
+|                      ||  o Bump legacy config loader                                  AN+  2 Sep||                                                           |
+|                      ||  o Remove auth retry loop                                     AN   today||-- Time (0) -----------------------------------------------|
+|                      ||  o Bump signing keys                                          AN   today||                                                           |
+|                      ||  o Investigate rate limit test                                AN   today||                                                           |
+|                      ||  o Design error codes                                         AN   today||                                                           |
+|                      ||  z Bump error codes                                           AN     Mon||                                                           |
+|                      ||  z Investigate sync cursor                                    AN     Mon||                                                           |
+|                      ||  z Design legacy config loader                                AN     Mon||                                                           |
+|                      ||  z Write tests for dependencies                               AN     Mon||                                                           |
+|                      ||  z Fix onboarding flow                                        AN     Mon||                                                           |
+|                      ||  o Fix search ranking                                         AN+    Wed||                                                           |
+|                      ||  o Add timesheet export                                       AN+    Wed||                                                           |
+|                      ||  o Rotate dark theme                                          AN+    Wed||                                                           |
+|                      ||  o Refactor dark theme                                        AN  14 Sep||                                                           |
+|                      ||  o Fix auth retry loop                                      ~ AN      --||                                                           |
+|                      ||  o Add signing keys                                         ! AN      --||                                                           |
+|                      ||  o Rotate rate limit test                                   ! AN      --||                                                           |
+|                      ||  o Document error codes                                       AN      --||                                                           |
+|                      ||  o Refactor sync cursor                                       AN      --||                                                           |
+|                      ||                                                                         ||                                                           |
+|                      ||                                                                         ||                                                           |
+|                      ||                                                                         ||                                                           |
+|                      ||                                                                         ||                                                           |
+|                      ||                                                                         ||                                                           |
++----------------------++-------------------------------------------------------------------------++-----------------------------------------------------------+
+ demo  * synced 0 s ago  1 pending  2 failed   enter open  / filter  v group by  b board / list  z show completed  tab next pane  ctrl+f search  ? help  q quit 

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 )
 
@@ -126,5 +127,73 @@ func TestTaskListReselectsByID(t *testing.T) {
 	l.setRows("F1", "", []store.Task{{ID: "0", Title: "new", Status: "Active"}, tasks[0], tasks[1]}, nil, "")
 	if row, _ := l.current(); row.task.ID != "2" {
 		t.Errorf("selection lost, now on %s", row.task.ID)
+	}
+}
+
+func pressKey(l taskListModel, k string) taskListModel {
+	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	return l
+}
+
+func TestTaskListSectionsSkipTheCursorAndCountLines(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	l.ref = refData{meID: "ME", contacts: map[string]store.Contact{
+		"ME": {FirstName: "Ada", LastName: "Nowak"},
+		"B1": {FirstName: "Bartek", LastName: "Lis"},
+	}, statuses: map[string]store.CustomStatus{"S2": {ID: "S2", Name: "In Progress", Group: "Active"}}}
+	l.height = 3
+	tasks := []store.Task{
+		{ID: "1", Title: "Mine", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"ME"}},
+		{ID: "2", Title: "Theirs", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"B1"}},
+		{ID: "3", Title: "Also theirs", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"B1"}},
+		{ID: "4", Title: "Shared", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"B1", "ME"}},
+	}
+	l.setRows("F1", "API", tasks, nil, "")
+	l.setGroup(groupAssignee)
+	// The shared task is a row under both people, the title still counts it once.
+	if got := l.title(); !strings.Contains(got, "Tasks: API, by assignee (4)") || len(l.rows) != 5 {
+		t.Errorf("title = %q over %d rows", got, len(l.rows))
+	}
+	if cur, _ := l.current(); cur.task.ID != "1" {
+		t.Fatalf("selection lost on regroup, now on %s", cur.task.ID)
+	}
+	if l.visual(2) != 4 {
+		t.Errorf("visual(2) = %d, want 4: two section lines sit above the third row", l.visual(2))
+	}
+	l = pressKey(l, "}")
+	if cur, _ := l.current(); cur.task.ID != "2" {
+		t.Errorf("} should land on the first row of the next section, got %s", cur.task.ID)
+	}
+	if l.offset != 2 {
+		t.Errorf("offset = %d, want 2: at height 3 the section line above the cursor row stays in view", l.offset)
+	}
+	l = pressKey(l, "{")
+	if cur, _ := l.current(); cur.task.ID != "1" {
+		t.Errorf("{ should go back to the first row of the previous section, got %s", cur.task.ID)
+	}
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	view := l.View(th, l.ref, time.Time{}, 60, 8, true)
+	for _, want := range []string{"-- Ada Nowak (me) (2) ", "-- Bartek Lis (3) ", "In Progress"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	l.setGroup(groupNone)
+	if l.visual(2) != 2 || strings.Contains(l.title(), "by ") {
+		t.Errorf("without a grouping there are no section lines: visual(2) = %d, title %q", l.visual(2), l.title())
+	}
+}
+
+func TestCycleGroupSkipsStatusOnTheBoard(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	l.setGroup(groupAssignee)
+	l.cycleGroup(true)
+	if l.groupBy != groupNone {
+		t.Errorf("after assignee the board goes back to none, got %v", l.groupBy)
+	}
+	l.setGroup(groupAssignee)
+	l.cycleGroup(false)
+	if l.groupBy != groupStatus {
+		t.Errorf("the list goes on to status, got %v", l.groupBy)
 	}
 }

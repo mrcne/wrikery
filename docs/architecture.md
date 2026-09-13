@@ -22,6 +22,8 @@ The code is split into four parts with strict boundaries, plus a small config pa
 - `internal/ui` is the bubbletea application.
   It reads from the store, writes user actions to the store and the outbox, and never talks to the network.
   When sync changes the store, the UI hears about it through a bubbletea message and refreshes.
+  The task list owns the rows and their order, grouped or not, and two views draw them: the list with sections and a board with a column per workflow status and a lane per group.
+  The board moves the list's own cursor, so there is one selection and no state to carry across when the shape changes.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
@@ -52,6 +54,8 @@ Most of the mapping is direct, so only three parts need explaining:
 - tasks keep their dates in flat columns, with task_responsibles and task_parents as join tables
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
+
+The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.
 
 Timestamps are stored as UTC text in RFC3339 format.
 Task start and due dates and the tracked date on a timelog keep the strings without a time zone that the API returns.

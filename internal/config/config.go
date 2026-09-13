@@ -26,6 +26,8 @@ type UIConfig struct {
 	Accent         string `toml:"accent"`
 	ASCII          bool   `toml:"ascii"`
 	BranchTemplate string `toml:"branch_template"`
+	// HidePrefixes are title prefixes the rows and cards leave out, a project code every task starts with for example.
+	HidePrefixes []string `toml:"hide_prefixes"`
 }
 
 var levels = map[string]slog.Level{
