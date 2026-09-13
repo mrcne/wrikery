@@ -90,6 +90,11 @@ When a write succeeds, the temporary local row is swapped for the version the se
 A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
 The drain sends Wrike only the custom status id and lets it derive the group.
 
+A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
+The UI cuts the stored HTML into top level blocks, a block element or a run of text between two line breaks, and hands the editor one piece of markdown per block.
+On save, a block whose markdown is still in the file keeps the bytes it came with, only the blocks the user changed are translated back, and markup that markdown cannot express stays in the file as HTML tags.
+So an untouched paragraph never changes on the server, whatever it holds.
+
 After a network error the engine waits before the next attempt, and the wait grows with every failure.
 A 429 response, meaning the rate limit was hit, is treated the same way.
 This is what the Wrike documentation asks for, retries with growing waits.
@@ -105,6 +110,7 @@ The client exposes both flags, so the UI can refuse the change up front instead 
 Task edits send only the fields the user changed.
 Two people editing different fields of the same task both keep their change.
 If they edit the same field, the last write wins, which is also what the web application does in practice.
+A description edit is that case with a longer window, since the whole field is sent when the editor closes.
 
 Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.
 Those rows move to the failed state.

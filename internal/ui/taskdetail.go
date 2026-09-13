@@ -14,16 +14,17 @@ import (
 )
 
 type taskDetailModel struct {
-	task      store.Task
-	comments  []store.Comment
-	logs      []store.Timelog
-	state     store.OutboxState
-	crumb     string
-	rendered  string
-	renderKey string
-	vp        viewport.Model
-	keys      KeyMap
-	loaded    bool
+	task         store.Task
+	comments     []store.Comment
+	logs         []store.Timelog
+	state        store.OutboxState
+	crumb        string
+	rendered     string
+	renderKey    string
+	renderedFrom string // the description the render came from, compared instead of copied into the key
+	vp           viewport.Model
+	keys         KeyMap
+	loaded       bool
 }
 
 func (d *taskDetailModel) set(msg taskLoadedMsg) {
@@ -44,8 +45,8 @@ func (d taskDetailModel) title() string {
 }
 
 // layout rebuilds the viewport content. The root calls it from Update, View only reads what it left behind.
-// The description render is cached on task id, updated date, width and the description itself, so a resize or a focus change costs nothing.
-// The description is in the key because a queued edit changes it before the updated date moves.
+// The description render is cached on task id, updated date and width, so a resize or a focus change costs nothing.
+// The description itself is compared as well, since a queued edit changes it before the updated date moves.
 func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string) {
 	d.vp.Width, d.vp.Height = width, height
 	if !d.loaded || width <= 0 {
@@ -57,10 +58,10 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		mode = "ascii"
 	}
 	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
-	renderKey := fmt.Sprintf("%s|%s|%d|%s", d.task.ID, d.task.UpdatedDate, width, d.task.Description)
-	if renderKey != d.renderKey {
+	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
+	if renderKey != d.renderKey || d.task.Description != d.renderedFrom {
 		d.rendered = renderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)
-		d.renderKey = renderKey
+		d.renderKey, d.renderedFrom = renderKey, d.task.Description
 	}
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)

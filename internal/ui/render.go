@@ -29,7 +29,7 @@ func renderMarkup(html, plain string, width int, mode string) string {
 		}
 		return wordWrap(plain, width)
 	}
-	md, err := newDisplayConverter().ConvertString(html)
+	md, err := displayConverter().ConvertString(html)
 	if err != nil {
 		return wordWrap(plain, width)
 	}
@@ -41,7 +41,7 @@ func renderMarkup(html, plain string, width int, mode string) string {
 	if err != nil {
 		return wordWrap(plain, width)
 	}
-	out = underlineMarks(out)
+	out = underlineMarks(out, mode == "ascii")
 	return strings.Trim(out, "\n")
 }
 
@@ -62,9 +62,6 @@ func newRenderer(width int, mode string) (*glamour.TermRenderer, error) {
 		// glamour's ascii style is not quite ascii: list items carry a bullet and the image format ends in an arrow.
 		cfg.Item.BlockPrefix = "- "
 		cfg.ImageText.Format = "Image: {{.text}} ->"
-		// It also writes struck text between tildes, the crossed out attribute is what the other styles use and it needs no glyph.
-		crossed := true
-		cfg.Strikethrough.BlockPrefix, cfg.Strikethrough.BlockSuffix, cfg.Strikethrough.CrossedOut = "", "", &crossed
 		style = glamour.WithStyles(cfg)
 	}
 	// glamour colors unconditionally, at true color, while the rest of the UI goes through lipgloss.
@@ -102,11 +99,14 @@ func divider(th Theme, title string, width int) string {
 // Markdown has no underline, so the display converter wraps underlined text in two private use characters that glamour passes through as text.
 const underlineOn, underlineOff = "\uE000", "\uE001"
 
-// underlineMarks turns the markers into the underline escape.
-// It is on whatever the color profile says, the same as the bold and crossed out attributes glamour writes on its own.
+// underlineMarks turns the markers into the underline escape, whatever the color profile says, the same as the bold and crossed out attributes glamour writes on its own.
+// The ascii style writes bold and struck text between markers instead of attributes, so there the underline becomes underscores.
 // glamour styles every word on its own and resets after it, so the underline is armed again in front of each run of visible text up to the closing marker.
 // That keeps a span underlined across bold words and wrapped lines, and leaves glamour's indent and padding spaces alone.
-func underlineMarks(s string) string {
+func underlineMarks(s string, plain bool) string {
+	if plain {
+		return strings.NewReplacer(underlineOn, "_", underlineOff, "_").Replace(s)
+	}
 	var b strings.Builder
 	in, armed := false, false
 	for len(s) > 0 {

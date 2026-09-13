@@ -2,7 +2,9 @@ package ui
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
@@ -401,9 +403,15 @@ func hasAttr(n *html.Node, key string) bool {
 	return false
 }
 
+// One converter serves every block and every render, the library keeps a mutex for that.
+var (
+	editorConverter  = sync.OnceValue(newEditorConverter)
+	displayConverter = sync.OnceValue(newDisplayConverter)
+)
+
 // editorMarkdown turns one block of Wrike HTML into the markdown the editor shows for it.
 func editorMarkdown(fragment string) string {
-	md, err := newEditorConverter().ConvertString(fragment)
+	md, err := editorConverter().ConvertString(fragment)
 	if err != nil {
 		return strings.TrimSpace(fragment)
 	}
@@ -418,11 +426,15 @@ func parseFragment(s string) []*html.Node {
 	return nodes
 }
 
+// voidClose matches the void elements the renderer closes as <br/>, which Wrike writes as <br />.
+// Attribute values and text are escaped by the renderer, so the pattern meets real tags only,
+// except inside a raw text element such as script, which a description has no business holding.
+var voidClose = regexp.MustCompile(`<(br|hr|img|input)\b([^>]*)/>`)
+
 func renderHTML(n *html.Node) string {
 	var b bytes.Buffer
 	_ = html.Render(&b, n)
-	// The renderer closes void elements as <br/>, Wrike writes <br />, and a slash before a closing bracket occurs nowhere else in rendered output.
-	return strings.ReplaceAll(b.String(), "/>", " />")
+	return voidClose.ReplaceAllString(b.String(), "<$1$2 />")
 }
 
 func innerHTML(n *html.Node) string {
