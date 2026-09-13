@@ -162,6 +162,12 @@ func TestUpdateTaskSendsOnlyChangedFields(t *testing.T) {
 		if got := r.PostForm.Get("importance"); got != "High" {
 			t.Errorf("importance = %q", got)
 		}
+		if got := r.PostForm.Get("addParents"); got != `["IEAAAAFD2"]` {
+			t.Errorf("addParents = %q", got)
+		}
+		if got := r.PostForm.Get("removeParents"); got != `["IEAAAAFD1"]` {
+			t.Errorf("removeParents = %q", got)
+		}
 		if r.PostForm.Has("title") || r.PostForm.Has("removeResponsibles") {
 			t.Errorf("unchanged fields must be omitted, form = %v", r.PostForm)
 		}
@@ -176,6 +182,8 @@ func TestUpdateTaskSendsOnlyChangedFields(t *testing.T) {
 		AddResponsibles: []string{"KUAAAA02"},
 		Dates:           &TaskDates{Type: "Planned", Duration: 960, Start: "2026-09-02T09:00:00", Due: "2026-09-05T17:00:00"},
 		Importance:      "High",
+		AddParents:      []string{"IEAAAAFD2"},
+		RemoveParents:   []string{"IEAAAAFD1"},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -60,6 +60,17 @@ func newFolderIndex(nodes []treeNode) folderIndex {
 	return idx
 }
 
+// under reports whether the folder is the node in view or descends from it.
+// My tasks is no folder, so nothing is under it.
+func (f folderIndex) under(folderID, nodeID string) bool {
+	for id := folderID; id != ""; id = f.parent[id] {
+		if id == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
 const elsewhere = "Elsewhere"
 
 // sectionFor maps a parent folder to its section under the node in view:

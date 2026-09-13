@@ -384,6 +384,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Importance: msg.importance})
 			return err
 		}, "Importance set to "+msg.importance)
+	case submitFoldersMsg:
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{AddParents: msg.add, RemoveParents: msg.remove})
+			return err
+		}, msg.toast)
 	case submitTimelogMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		if msg.timelogID == "" {
@@ -723,6 +729,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			m.openDialog(newImportanceDialog(t, m.keys))
 			return nil
+		})
+		return m, cmd
+	case key.Matches(msg, m.keys.Folders):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, m.list.nodeID)
+			m.openDialog(d)
+			return cmd
 		})
 		return m, cmd
 	}

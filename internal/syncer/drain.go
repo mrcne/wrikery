@@ -78,6 +78,8 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 			Importance:         p.Importance,
 			AddResponsibles:    p.AddResponsibles,
 			RemoveResponsibles: p.RemoveResponsibles,
+			AddParents:         p.AddParents,
+			RemoveParents:      p.RemoveParents,
 		}
 		if p.Dates != nil {
 			u.Dates = &wrike.TaskDates{Type: p.Dates.Type, Duration: p.Dates.Duration,

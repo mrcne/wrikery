@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -192,6 +193,17 @@ func TestTaskActionGoldens(t *testing.T) {
 		from := mark(t, tm)
 		press(tm, "p")
 		waitAfter(t, tm, from, "Importance")
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+	})
+	t.Run("folders", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "m")
+		waitAfter(t, tm, from, "Folders")
 		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
@@ -835,6 +847,41 @@ func TestImportanceKeyQueuesTheChange(t *testing.T) {
 		t.Errorf("p should queue one task update, pending went from %d to %d", before, after)
 	}
 	waitAfter(t, tm, from, "! Document auth retry loop")
+}
+
+func TestFoldersKeyMovesTheTaskOutOfTheFolderInView(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "shift+tab", "j") // the sidebar, then Mobile
+	from := mark(t, tm)
+	press(tm, "enter", "tab")
+	waitAfter(t, tm, from, "Tasks: Mobile (")
+	// The pane title counts the shown tasks, done ones hidden, so the number comes from the screen and not from the store.
+	shown := regexp.MustCompile(`Tasks: Mobile \((\d+)\)`).FindStringSubmatch(seenOutput(t, tm).String()[from:])
+	if shown == nil {
+		t.Fatal("no Mobile count on screen")
+	}
+	count, _ := strconv.Atoi(shown[1])
+	inDesign, err := st.Tasks().ListInFolder(ctx, "IEAADSGN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	from = mark(t, tm)
+	press(tm, "m")
+	waitAfter(t, tm, from, "Folders")
+	from = mark(t, tm)
+	press(tm, "des", "enter")
+	waitAfter(t, tm, from, "Moved to Design system")
+	waitAfter(t, tm, from, fmt.Sprintf("Tasks: Mobile (%d)", count-1))
+	nowDesign, err := st.Tasks().ListInFolder(ctx, "IEAADSGN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nowDesign) != len(inDesign)+1 {
+		t.Errorf("Design system holds %d tasks, want %d after the move", len(nowDesign), len(inDesign)+1)
+	}
 }
 
 func TestBoardTogglesAndKeepsTheSelection(t *testing.T) {

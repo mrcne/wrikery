@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,6 +40,7 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 
 	task := makeTask("T1", "before")
 	task.ResponsibleIDs = []string{"U1"}
+	task.ParentIDs = []string{"F1", "F2"}
 	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +51,8 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 		AddResponsibles:    []string{"U2"},
 		RemoveResponsibles: []string{"U1"},
 		Importance:         "High",
+		AddParents:         []string{"F3"},
+		RemoveParents:      []string{"F1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +67,9 @@ func TestEnqueueTaskUpdateAppliesOptimistically(t *testing.T) {
 	}
 	if got.Title != "after" || got.CustomStatusID != "CS2" || got.Importance != "High" {
 		t.Errorf("task = %+v, optimistic apply missing", got)
+	}
+	if strings.Join(got.ParentIDs, ",") != "F2,F3" {
+		t.Errorf("parents = %v, want F1 gone and F3 added", got.ParentIDs)
 	}
 	if len(got.ResponsibleIDs) != 1 || got.ResponsibleIDs[0] != "U2" {
 		t.Errorf("responsibles = %v, want [U2]", got.ResponsibleIDs)

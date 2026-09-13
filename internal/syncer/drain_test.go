@@ -20,7 +20,7 @@ func TestDrainSendsInOrderAndCompletes(t *testing.T) {
 	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "after", Importance: "Low"}); err != nil {
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "after", Importance: "Low", AddParents: []string{"F2"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -32,6 +32,9 @@ func TestDrainSendsInOrderAndCompletes(t *testing.T) {
 		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
 			if u.Importance != "Low" {
 				t.Errorf("update sent importance %q, want the queued Low", u.Importance)
+			}
+			if len(u.AddParents) != 1 || u.AddParents[0] != "F2" {
+				t.Errorf("update sent parents %v, want the queued F2", u.AddParents)
 			}
 			return wrike.Task{ID: taskID, Title: u.Title, Status: "Active",
 				UpdatedDate: time.Date(2026, 9, 3, 10, 5, 0, 0, time.UTC)}, nil

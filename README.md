@@ -37,6 +37,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - a board over workflow statuses, plain or with a lane per person or per folder
 - add comments
 - change task title, importance, status, assignee and dates
+- move a task between folders, or put it in several
 - log, edit and delete your own time entries
 - offline: reads come from the local cache, writes are queued and sent later, and a sync issues screen lists any that failed for a retry or a discard
 
@@ -52,6 +53,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `s` | status |
 | `e` | edit the title |
 | `p` | importance |
+| `m` | move, or add to folders |
 | `t` | log time |
 | `T` | timesheet |
 | `?` | every key for the current screen |

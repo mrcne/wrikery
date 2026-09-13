@@ -130,6 +130,8 @@ type TaskUpdate struct {
 	Importance         string // High, Normal or Low
 	AddResponsibles    []string
 	RemoveResponsibles []string
+	AddParents         []string // folder ids in the same account
+	RemoveParents      []string
 	Dates              *TaskDates
 }
 
@@ -153,6 +155,12 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	}
 	if len(u.RemoveResponsibles) > 0 {
 		form.Set("removeResponsibles", jsonArray(u.RemoveResponsibles))
+	}
+	if len(u.AddParents) > 0 {
+		form.Set("addParents", jsonArray(u.AddParents))
+	}
+	if len(u.RemoveParents) > 0 {
+		form.Set("removeParents", jsonArray(u.RemoveParents))
 	}
 	if u.Dates != nil {
 		raw, err := json.Marshal(u.Dates)
