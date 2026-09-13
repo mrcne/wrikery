@@ -6,6 +6,7 @@ const (
 	StateIdle         SyncState = "idle"
 	StateSyncing      SyncState = "syncing"
 	StateOffline      SyncState = "offline"
+	StateFailed       SyncState = "failed"
 	StateAuthRequired SyncState = "auth_required"
 )
 

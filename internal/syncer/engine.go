@@ -149,7 +149,12 @@ func (e *Engine) Run(ctx context.Context) error {
 			e.setState(StateAuthRequired)
 		default:
 			e.failures++
-			e.setState(StateOffline)
+			// A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
+			if classify(err) == failPermanent {
+				e.setState(StateFailed)
+			} else {
+				e.setState(StateOffline)
+			}
 			e.log.Warn("sync cycle failed", "error", err)
 			wait = backoff(e.failures-1, e.cfg.ReconnectBase, e.cfg.ReconnectCeil)
 		}

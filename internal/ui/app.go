@@ -373,9 +373,9 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	switch state {
 	case "idle":
 		m.status.lastSynced = m.opts.Now()
-	case "offline":
-		if m.status.offlineSince.IsZero() {
-			m.status.offlineSince = m.opts.Now()
+	case "offline", "failed":
+		if m.status.since.IsZero() {
+			m.status.since = m.opts.Now()
 		}
 	case "auth_required":
 		if m.screen != screenFirstRun {
@@ -384,8 +384,8 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 			m.firstRun.reauth = true
 		}
 	}
-	if state != "offline" {
-		m.status.offlineSince = time.Time{}
+	if state != "offline" && state != "failed" {
+		m.status.since = time.Time{}
 	}
 	return m, nil
 }

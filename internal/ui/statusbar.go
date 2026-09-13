@@ -11,15 +11,15 @@ import (
 )
 
 type statusModel struct {
-	state        string // idle, syncing, offline, auth_required
-	lastSynced   time.Time
-	offlineSince time.Time
-	pending      int
-	failed       int
-	toast        string
-	toastErr     bool
-	toastSeq     int
-	demo         bool
+	state      string // idle, syncing, offline, failed, auth_required
+	lastSynced time.Time
+	since      time.Time // when the current offline or failed stretch began
+	pending    int
+	failed     int
+	toast      string
+	toastErr   bool
+	toastSeq   int
+	demo       bool
 }
 
 type toastExpiredMsg struct{ seq int }
@@ -57,7 +57,9 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 	case "syncing":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Accent).Render(th.Glyphs.Syncing + " syncing"))
 	case "offline":
-		left.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(th.Glyphs.Offline + " offline since " + s.offlineSince.Format("15:04")))
+		left.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(th.Glyphs.Offline + " offline since " + s.since.Format("15:04")))
+	case "failed":
+		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sync failing since " + s.since.Format("15:04")))
 	case "auth_required":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " token rejected"))
 	default:

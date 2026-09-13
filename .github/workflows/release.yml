@@ -8,7 +8,23 @@ permissions:
   contents: write
 
 jobs:
+  # A tag can be pushed on a commit CI never saw, so the release runs the same checks first.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.3
+          install-only: true
+      - run: make check
+
   goreleaser:
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

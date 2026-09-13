@@ -26,7 +26,7 @@ func TestParseDate(t *testing.T) {
 			t.Errorf("parseDate(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"someday", "2026-13-01", "+x"} {
+	for _, bad := range []string{"someday", "2026-13-01", "+x", "+3"} {
 		if _, err := parseDate(bad, now); err == nil {
 			t.Errorf("parseDate(%q) accepted", bad)
 		}

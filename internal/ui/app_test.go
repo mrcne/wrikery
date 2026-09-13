@@ -293,6 +293,9 @@ func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	waitFor(t, tm, "1 failed")
 	tm.Send(ui.SyncStateMsg{State: "offline"})
 	waitFor(t, tm, "offline since")
+	// A request Wrike rejected is not a lost network, the bar must not call it offline.
+	tm.Send(ui.SyncStateMsg{State: "failed"})
+	waitFor(t, tm, "sync failing since")
 }
 
 // TestStatusBarShowsSeededCountsOnFirstFrame covers the demo store's outbox counts reaching the

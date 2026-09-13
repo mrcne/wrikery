@@ -257,12 +257,35 @@ func TestPullMyTimelogsPagesAndReplaces(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("changed = %v, %v", changed, err)
 	}
-	if len(seen) != 2 || !seen[0].Me || seen[0].TrackedFrom != "2026-07-06" || seen[0].TrackedTo != "2026-09-06" || seen[1].PageToken != "p2" {
+	if len(seen) != 2 || !seen[0].Me || seen[0].PageSize != 1000 || seen[0].TrackedFrom != "2026-07-06" || seen[0].TrackedTo != "2026-09-06" || seen[1].PageToken != "p2" {
 		t.Errorf("params = %+v", seen)
 	}
 	logs, _ := st.Timelogs().ListForUser(context.Background(), "U1", "2026-07-06", "2026-09-06")
 	if len(logs) != 2 {
 		t.Errorf("stored %d logs", len(logs))
+	}
+	if from, _ := st.GetMeta(context.Background(), store.MetaKeyTimelogFrom); from != "2026-07-06" {
+		t.Errorf("meta window start = %q, want 2026-07-06", from)
+	}
+}
+
+// An account with no time entries answers the window with an empty page that still carries a page token,
+// and Wrike refuses that token on the next request, so the pull must not send it.
+func TestPullMyTimelogsStopsAtAnEmptyPage(t *testing.T) {
+	st := newTestStore(t)
+	calls := 0
+	fc := &fakeClient{timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+		calls++
+		if p.PageToken != "" {
+			return wrike.TimelogsPage{}, &wrike.APIError{StatusCode: 400, Code: "invalid_parameter"}
+		}
+		return wrike.TimelogsPage{NextPageToken: "offset-past-the-end"}, nil
+	}}
+	if _, err := pullMyTimelogs(context.Background(), fc, st, "U1", time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("pull failed: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1", calls)
 	}
 	if from, _ := st.GetMeta(context.Background(), store.MetaKeyTimelogFrom); from != "2026-07-06" {
 		t.Errorf("meta window start = %q, want 2026-07-06", from)

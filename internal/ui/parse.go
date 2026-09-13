@@ -35,7 +35,7 @@ func parseDate(s string, now time.Time) (string, error) {
 	}
 	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
 		n, err := strconv.Atoi(strings.TrimSuffix(s[1:], "d"))
-		if err != nil {
+		if err != nil || !strings.HasSuffix(s, "d") {
 			return "", fmt.Errorf("expected +Nd or -Nd, got %q", s)
 		}
 		if s[0] == '-' {
