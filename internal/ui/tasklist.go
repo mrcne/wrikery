@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,17 +22,24 @@ type taskRow struct {
 }
 
 type taskListModel struct {
-	nodeID    string
-	crumb     string
-	all       []taskRow
-	rows      []int
-	cursor    int
-	offset    int
-	height    int // set by the root from the computed layout, View cannot remember it on its own
-	showDone  bool
-	filtering bool
-	filter    textinput.Model
-	keys      KeyMap
+	nodeID     string
+	crumb      string
+	all        []taskRow
+	rows       []int // positions into all in group order, a task in two groups is here twice
+	groupBy    groupKey
+	groups     []taskGroup
+	groupStart []int // position in rows where each group starts
+	columns    []boardColumn
+	rowCol     []int // per position in rows, the column of the row's status
+	folders    folderIndex
+	ref        refData
+	cursor     int
+	offset     int // a visual line, section lines counted
+	height     int // set by the root from the computed layout, View cannot remember it on its own
+	showDone   bool
+	filtering  bool
+	filter     textinput.Model
+	keys       KeyMap
 }
 
 func newTaskList(keys KeyMap) taskListModel {
@@ -41,7 +49,8 @@ func newTaskList(keys KeyMap) taskListModel {
 	return taskListModel{keys: keys, filter: in}
 }
 
-func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string) {
+// setRows replaces the rows and reports whether keepID, or the task selected before, is still among them.
+func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string) bool {
 	if keepID == "" {
 		if cur, ok := l.current(); ok {
 			keepID = cur.task.ID
@@ -53,15 +62,19 @@ func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states
 		l.all = append(l.all, taskRow{task: t, state: states[t.ID]})
 	}
 	l.applyFilter()
-	if !l.selectByID(keepID) {
+	found := l.selectByID(keepID)
+	if !found {
 		l.cursor = min(l.cursor, max(0, len(l.rows)-1))
 	}
 	l.scroll()
+	return found
 }
 
+// applyFilter is the one place the rows are built: the filter and the done toggle narrow all, the grouping orders what is left.
+// The columns are computed here too, the board and the by status sections share them.
 func (l *taskListModel) applyFilter() {
 	q := strings.ToLower(strings.TrimSpace(l.filter.Value()))
-	l.rows = l.rows[:0]
+	var kept []int
 	for i, r := range l.all {
 		if !l.showDone && isDone(r.task) {
 			continue
@@ -69,11 +82,81 @@ func (l *taskListModel) applyFilter() {
 		if q != "" && !strings.Contains(strings.ToLower(r.task.Title), q) {
 			continue
 		}
-		l.rows = append(l.rows, i)
+		kept = append(kept, i)
+	}
+	var colOf map[int]int
+	l.columns, colOf = boardColumns(l.all, kept, l.ref, l.showDone)
+	switch l.groupBy {
+	case groupFolder:
+		l.groups = groupByFolder(l.all, kept, l.nodeID, l.folders)
+	case groupAssignee:
+		l.groups = groupByAssignee(l.all, kept, l.ref)
+	case groupStatus:
+		l.groups = groupByStatus(l.columns)
+	default:
+		l.groups = []taskGroup{{rows: kept}}
+	}
+	l.rows, l.groupStart, l.rowCol = l.rows[:0], l.groupStart[:0], l.rowCol[:0]
+	for _, g := range l.groups {
+		l.groupStart = append(l.groupStart, len(l.rows))
+		for _, ri := range g.rows {
+			l.rows = append(l.rows, ri)
+			l.rowCol = append(l.rowCol, colOf[ri])
+		}
 	}
 	if l.cursor >= len(l.rows) {
 		l.cursor = max(0, len(l.rows)-1)
 	}
+}
+
+func (l taskListModel) sectioned() bool { return l.groupBy != groupNone }
+
+// visual is the line of row position p once the section lines above it are counted.
+func (l taskListModel) visual(p int) int {
+	if !l.sectioned() {
+		return p
+	}
+	n := 0
+	for _, s := range l.groupStart {
+		if s <= p {
+			n++
+		}
+	}
+	return p + n
+}
+
+// groupOf is the group holding row position p, -1 with no rows.
+func (l taskListModel) groupOf(p int) int {
+	g := -1
+	for i, s := range l.groupStart {
+		if s <= p && i < len(l.groups) && len(l.groups[i].rows) > 0 {
+			g = i
+		}
+	}
+	return g
+}
+
+// setGroup regroups and keeps the selection by id, since the rows come back in another order.
+func (l *taskListModel) setGroup(g groupKey) {
+	id := ""
+	if cur, ok := l.current(); ok {
+		id = cur.task.ID
+	}
+	l.groupBy = g
+	l.applyFilter()
+	if !l.selectByID(id) {
+		l.cursor = min(l.cursor, max(0, len(l.rows)-1))
+	}
+	l.scroll()
+}
+
+// cycleGroup moves to the next grouping. The board skips status, its columns already are the status.
+func (l *taskListModel) cycleGroup(board bool) {
+	next := (l.groupBy + 1) % 4
+	if board && next == groupStatus {
+		next = groupNone
+	}
+	l.setGroup(next)
 }
 
 func (l taskListModel) current() (taskRow, bool) {
@@ -93,26 +176,37 @@ func (l *taskListModel) selectByID(id string) bool {
 	return false
 }
 
-func (l taskListModel) title() string {
-	name := "Tasks"
+func (l taskListModel) title() string { return l.titled("Tasks") }
+
+// titled builds the pane title for the list or the board, the grouping named so the state is visible.
+func (l taskListModel) titled(prefix string) string {
+	name := prefix
 	if l.crumb != "" {
 		name += ": " + l.crumb
+	}
+	if l.sectioned() {
+		name += ", by " + l.groupBy.String()
 	}
 	return fmt.Sprintf("%s (%d)", name, len(l.rows))
 }
 
 // scroll clamps offset so the cursor row stays inside the pane, the same pattern as the sidebar.
 // View has a value receiver, so it cannot persist the offset it would otherwise compute itself, this is done here instead.
+// Offsets are visual lines, so a section line counts, and the one above the first row of a group is kept in view with that row.
 func (l *taskListModel) scroll() {
 	h := l.listHeight()
 	if h <= 0 {
 		return
 	}
-	if l.cursor < l.offset {
-		l.offset = l.cursor
+	v := l.visual(l.cursor)
+	if v < l.offset {
+		l.offset = v
 	}
-	if l.cursor >= l.offset+h {
-		l.offset = l.cursor - h + 1
+	if l.sectioned() && slices.Contains(l.groupStart, l.cursor) && v-1 < l.offset {
+		l.offset = max(0, v-1)
+	}
+	if v >= l.offset+h {
+		l.offset = v - h + 1
 	}
 }
 
@@ -163,6 +257,17 @@ func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
 		l.cursor = min(len(l.rows)-1, l.cursor+10)
 	case key.Matches(msg, l.keys.HalfUp):
 		l.cursor = max(0, l.cursor-10)
+	case key.Matches(msg, l.keys.PrevGroup):
+		g := l.groupOf(l.cursor)
+		if g >= 0 && l.cursor > l.groupStart[g] {
+			l.cursor = l.groupStart[g]
+		} else if g > 0 {
+			l.cursor = l.groupStart[g-1]
+		}
+	case key.Matches(msg, l.keys.NextGroup):
+		if g := l.groupOf(l.cursor); g >= 0 && g+1 < len(l.groupStart) {
+			l.cursor = l.groupStart[g+1]
+		}
 	case key.Matches(msg, l.keys.Filter):
 		l.filtering = true
 		l.scroll()
@@ -249,6 +354,26 @@ func firstRune(s string) string {
 	return string(r)
 }
 
+// listLine is one drawn line: a section line of group when row is -1, else the row at that position.
+type listLine struct{ group, row int }
+
+func (l taskListModel) lines() []listLine {
+	var out []listLine
+	if !l.sectioned() {
+		for p := range l.rows {
+			out = append(out, listLine{row: p})
+		}
+		return out
+	}
+	for g, grp := range l.groups {
+		out = append(out, listLine{group: g, row: -1})
+		for i := range grp.rows {
+			out = append(out, listLine{group: g, row: l.groupStart[g] + i})
+		}
+	}
+	return out
+}
+
 func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height int, focused bool) string {
 	if height <= 0 {
 		return ""
@@ -259,21 +384,36 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 	}
 	// offset lives on the model and is advanced by scroll().
 	// This only guards against it landing past the end, for example right after the filter shrinks the row count.
+	lines := l.lines()
 	offset := l.offset
-	if last := len(l.rows) - 1; offset > last {
+	if last := len(lines) - 1; offset > last {
 		offset = max(0, last)
+	}
+	// In the by assignee view the section says who, so the initials give way to the status name, which a standup wants told apart.
+	whoWidth := 3
+	if l.groupBy == groupAssignee {
+		whoWidth = 12
 	}
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	var b strings.Builder
 	for row := 0; row < listHeight; row++ {
 		vi := offset + row
-		if vi >= len(l.rows) {
+		if vi >= len(lines) {
 			if row < listHeight-1 {
 				b.WriteByte('\n')
 			}
 			continue
 		}
-		r := l.all[l.rows[vi]]
+		ln := lines[vi]
+		if ln.row < 0 {
+			g := l.groups[ln.group]
+			b.WriteString(divider(th, fmt.Sprintf("%s (%d)", g.title, len(g.rows)), width))
+			if row < listHeight-1 {
+				b.WriteByte('\n')
+			}
+			continue
+		}
+		r := l.all[l.rows[ln.row]]
 		cs := ref.statuses[r.task.CustomStatusID]
 		if cs.Group == "" {
 			cs.Group = r.task.Status
@@ -284,7 +424,15 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		if overdue {
 			dueStyle = lipgloss.NewStyle().Foreground(th.Error)
 		}
-		who := muted.Render(fmt.Sprintf("%-3s", initials(r.task.ResponsibleIDs, ref.contacts, ref.meID)))
+		who := initials(r.task.ResponsibleIDs, ref.contacts, ref.meID)
+		if l.groupBy == groupAssignee {
+			who = cs.Name
+			if who == "" {
+				who = r.task.Status
+			}
+			who = ansi.Truncate(who, whoWidth, "")
+		}
+		whoCell := muted.Render(fmt.Sprintf("%-*s", whoWidth, who))
 		mark := " "
 		switch r.state {
 		case store.StatePending:
@@ -292,12 +440,12 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		case store.StateFailed:
 			mark = lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed)
 		}
-		// glyph(1) space title... space mark(1) space who(3) space due(6), cursor prefix takes 2
-		titleWidth := width - 2 - 2 - 2 - 4 - 7
+		// glyph(1) space title... space mark(1) space who(whoWidth) space due(6), cursor prefix takes 2
+		titleWidth := width - 2 - 2 - 2 - (whoWidth + 1) - 7
 		title := ansi.Truncate(r.task.Title, max(titleWidth, 4), "...")
 		title += strings.Repeat(" ", max(0, titleWidth-ansi.StringWidth(title)))
-		label := fmt.Sprintf("%s %s %s %s %s", glyph, title, mark, who, dueStyle.Render(fmt.Sprintf("%6s", due)))
-		b.WriteString(rowLine(th, label, width, vi == l.cursor, focused))
+		label := fmt.Sprintf("%s %s %s %s %s", glyph, title, mark, whoCell, dueStyle.Render(fmt.Sprintf("%6s", due)))
+		b.WriteString(rowLine(th, label, width, ln.row == l.cursor, focused))
 		if row < listHeight-1 {
 			b.WriteByte('\n')
 		}

@@ -103,10 +103,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		b.WriteString(d.rendered + "\n\n")
 	}
 
-	divider := func(s string) string {
-		return muted.Render("-- " + s + " " + strings.Repeat("-", max(0, width-len(s)-4)))
-	}
-	b.WriteString(divider(fmt.Sprintf("Comments (%d)", len(d.comments))) + "\n")
+	b.WriteString(divider(th, fmt.Sprintf("Comments (%d)", len(d.comments)), width) + "\n")
 	for _, c := range d.comments {
 		who := bold.Render(contactName(c.AuthorID, ref))
 		// A queued comment carries the local clock, not the server's, so it is marked instead of dated.
@@ -118,7 +115,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		b.WriteString(who + "\n")
 		b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(c.Text) + "\n")
 	}
-	b.WriteString("\n" + divider(fmt.Sprintf("Time (%d)", len(d.logs))) + "\n")
+	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	for _, l := range d.logs {
 		line := fmt.Sprintf("%s  %s  %.1f h", shortDate(l.TrackedDate), contactName(l.UserID, ref), l.Hours)
 		if l.Comment != "" {

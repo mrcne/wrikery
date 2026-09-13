@@ -19,6 +19,9 @@ type statusDialog struct {
 	keys   KeyMap
 }
 
+// noWorkflowKnown is what the status box and the H and L keys say when the cache holds no workflow for the task's status.
+const noWorkflowKnown = "no workflow known for this task yet, refresh and try again"
+
 // newStatusDialog offers the statuses of the workflow the task is in, and nothing when the cache holds no such workflow.
 // Any other workflow would be the wrong offer: a status picked from it moves the task onto that workflow.
 func newStatusDialog(task store.Task, ref refData, keys KeyMap) statusDialog {
@@ -84,7 +87,7 @@ func (d statusDialog) View(th Theme, width int) string {
 		b.WriteString(rowLine(th, label, width-2, i == d.cursor, true) + "\n")
 	}
 	if len(d.items) == 0 {
-		b.WriteString("no workflow known for this task yet, refresh and try again\n")
+		b.WriteString(noWorkflowKnown + "\n")
 	}
 	body := strings.TrimRight(b.String(), "\n")
 	return th.box("Status", body, min(width, 50), lipgloss.Height(body)+2, true)

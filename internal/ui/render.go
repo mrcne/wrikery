@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // renderDescription turns Wrike's HTML into terminal text: html-to-markdown, then glamour at the pane width.
@@ -88,4 +89,9 @@ func toASCII(s string) string { return asciiDrawing.Replace(s) }
 // lipgloss breaks on word boundaries, which is what the plain text fallback wants.
 func wordWrap(s string, width int) string {
 	return lipgloss.NewStyle().Width(width).Render(s)
+}
+
+// divider draws a section line: two dashes, the title, dashes to the width, in the muted color.
+func divider(th Theme, title string, width int) string {
+	return lipgloss.NewStyle().Foreground(th.Muted).Render("-- " + title + " " + strings.Repeat("-", max(0, width-ansi.StringWidth(title)-4)))
 }

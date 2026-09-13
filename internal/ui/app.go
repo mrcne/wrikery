@@ -154,12 +154,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		// The by assignee grouping and the columns read contacts and workflows off the list's own copy.
+		m.list.ref = msg.ref
+		m.list.applyFilter()
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
 		return m, m.loadTree()
 	case treeLoadedMsg:
 		m.sidebar.setNodes(msg.nodes)
+		m.list.folders = newFolderIndex(msg.nodes)
+		m.list.applyFilter()
 		m.syncPaneSizes()
 		if n, ok := m.sidebar.current(); ok {
 			return m, intent(nodeSelectedMsg{node: n})
@@ -625,6 +630,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return nil
 		})
 		return m, cmd
+	case key.Matches(msg, m.keys.GroupBy):
+		m.list.cycleGroup(false)
+	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
+		delta := 1
+		if key.Matches(msg, m.keys.StatusPrev) {
+			delta = -1
+		}
+		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
+		return m, cmd
 	case key.Matches(msg, m.keys.LogTime):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newTimelogDialog(t.ID, t.Title, nil, "", m.opts.Now())
@@ -669,6 +683,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.syncPaneSizes()
 	return m, opened
+}
+
+// moveStatus steps the task to the neighbouring status of its workflow, through the message the status dialog sends,
+// so the toast, the cache update and the outbox row are the ones that exist.
+func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
+	cs, known, ok := stepStatus(t, m.ref, delta)
+	if !known {
+		return m.status.show(noWorkflowKnown, true)
+	}
+	if !ok {
+		return nil
+	}
+	return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
 }
 
 // refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.

@@ -737,3 +737,24 @@ func TestSyncIssuesRoutesKeysToTheScreen(t *testing.T) {
 		t.Errorf("s should not open the status dialog on the issues screen:\n%s", view)
 	}
 }
+
+func TestNextStatusKeyQueuesAStatusChange(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	// The demo seeds queued rows of its own, so the count before the key is the baseline.
+	before, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := mark(t, tm)
+	press(tm, "L")
+	waitAfter(t, tm, from, "Status set to ")
+	after, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Errorf("L should queue one task update, pending went from %d to %d", before, after)
+	}
+}
