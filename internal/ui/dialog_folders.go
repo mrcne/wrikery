@@ -43,7 +43,8 @@ func newFoldersDialog(task store.Task, nodes []treeNode, idx folderIndex, nodeID
 	d := foldersDialog{taskID: task.ID, checked: map[string]bool{}, original: map[string]bool{}}
 	known := map[string]bool{}
 	for _, n := range nodes {
-		if n.kind == nodeMe {
+		// The tree draws a folder once per parent, the checklist lists it once, where it first appears.
+		if n.kind == nodeMe || known[n.id] {
 			continue
 		}
 		d.rows = append(d.rows, folderRow{id: n.id, title: n.title, depth: n.depth})

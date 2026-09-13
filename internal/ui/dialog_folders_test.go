@@ -130,3 +130,18 @@ func TestFolderIndexUnder(t *testing.T) {
 		}
 	}
 }
+
+func TestFoldersDialogListsAFolderUnderTwoParentsOnce(t *testing.T) {
+	nodes := sharedTree()
+	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"SHR"}}, nodes, newFolderIndex(nodes), "DSG")
+	if n := strings.Count(d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60), "[x] Shared"); n != 1 {
+		t.Errorf("Shared listed %d times, want once", n)
+	}
+	dl := typeRunes(dialog(d), "api")
+	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	want := submitFoldersMsg{taskID: "T", add: []string{"API"}, remove: []string{"SHR"}, toast: "Moved to API"}
+	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
+		t.Errorf("enter -> %#v, want one remove of the folder reached through its second parent", msgs)
+	}
+}

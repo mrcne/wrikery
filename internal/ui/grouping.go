@@ -40,21 +40,26 @@ type taskGroup struct {
 // folderIndex is what grouping by folder needs from the sidebar tree.
 // The sidebar sorts children by title, so order gives the sections the order the sidebar shows.
 type folderIndex struct {
-	title  map[string]string
-	parent map[string]string // "" at the top level
-	order  map[string]int
+	title   map[string]string
+	parents map[string][]string // every parent a folder is drawn under, the tree lists a shared folder once per parent
+	order   map[string]int
 }
 
 func newFolderIndex(nodes []treeNode) folderIndex {
-	idx := folderIndex{title: map[string]string{}, parent: map[string]string{}, order: map[string]int{}}
+	idx := folderIndex{title: map[string]string{}, parents: map[string][]string{}, order: map[string]int{}}
 	for i, n := range nodes {
 		if n.kind == nodeMe {
 			continue
 		}
 		idx.title[n.id] = n.title
-		idx.order[n.id] = i
+		if _, seen := idx.order[n.id]; !seen {
+			idx.order[n.id] = i
+		}
 		for _, c := range n.children {
-			idx.parent[nodes[c].id] = n.id
+			child := nodes[c].id
+			if !slices.Contains(idx.parents[child], n.id) {
+				idx.parents[child] = append(idx.parents[child], n.id)
+			}
 		}
 	}
 	return idx
@@ -63,12 +68,24 @@ func newFolderIndex(nodes []treeNode) folderIndex {
 // under reports whether the folder is the node in view or descends from it.
 // My tasks is no folder, so nothing is under it.
 func (f folderIndex) under(folderID, nodeID string) bool {
-	for id := folderID; id != ""; id = f.parent[id] {
+	seen := map[string]bool{}
+	var climb func(id string) bool
+	climb = func(id string) bool {
 		if id == nodeID {
 			return true
 		}
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		for _, p := range f.parents[id] {
+			if climb(p) {
+				return true
+			}
+		}
+		return false
 	}
-	return false
+	return climb(folderID)
 }
 
 const elsewhere = "Elsewhere"
@@ -86,17 +103,33 @@ func (f folderIndex) sectionFor(folderID, nodeID string) (section string, ok boo
 	if _, known := f.title[folderID]; !known {
 		return "", mine
 	}
-	id := folderID
-	for {
-		parent := f.parent[id]
-		if parent == nodeID {
-			return id, true
+	// The first path up that reaches the node wins, and a folder that reaches none answers with the first root it climbs to.
+	seen := map[string]bool{}
+	root := ""
+	var climb func(id string) (string, bool)
+	climb = func(id string) (string, bool) {
+		if seen[id] {
+			return "", false
 		}
-		if parent == "" {
-			return id, mine
+		seen[id] = true
+		parents := f.parents[id]
+		if len(parents) == 0 && root == "" {
+			root = id
 		}
-		id = parent
+		for _, p := range parents {
+			if p == nodeID {
+				return id, true
+			}
+			if s, ok := climb(p); ok {
+				return s, true
+			}
+		}
+		return "", false
 	}
+	if s, ok := climb(folderID); ok {
+		return s, true
+	}
+	return root, mine
 }
 
 func groupByFolder(all []taskRow, kept []int, nodeID string, idx folderIndex) []taskGroup {
