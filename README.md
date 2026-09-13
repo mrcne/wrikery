@@ -34,6 +34,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - task list and task detail: description, status, assignee, dates, comments
 - instant full text search over everything cached
 - a timesheet view of your own logged time
+- a board over workflow statuses, plain or with a lane per person or per folder
 - add comments
 - change task status, assignee and dates
 - log, edit and delete your own time entries

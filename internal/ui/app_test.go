@@ -758,3 +758,109 @@ func TestNextStatusKeyQueuesAStatusChange(t *testing.T) {
 		t.Errorf("L should queue one task update, pending went from %d to %d", before, after)
 	}
 }
+
+func TestBoardTogglesAndKeepsTheSelection(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "j", "j")
+	from := mark(t, tm)
+	press(tm, "b")
+	waitAfter(t, tm, from, "Board: My tasks (")
+	from = mark(t, tm)
+	press(tm, "v", "v")
+	waitAfter(t, tm, from, "Board: My tasks, by assignee (")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Spaces") {
+		t.Errorf("the sidebar hides while the board has focus:\n%s", view)
+	}
+	for _, want := range []string{"Backlog (", "In progress (", "-- Ada Nowak (me) ("} {
+		if !strings.Contains(view, want) {
+			t.Errorf("board lacks %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestBoardSidePanesShowWhileFocused(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "b")
+	waitAfter(t, tm, from, "Board: My tasks (")
+	from = mark(t, tm)
+	press(tm, "shift+tab")
+	waitAfter(t, tm, from, "Spaces")
+	press(tm, "j")
+	waitFor(t, tm, "Board: Mobile (")
+	from = mark(t, tm)
+	press(tm, "esc")
+	waitAfter(t, tm, from, "Board: Mobile (")
+	// The divider was on screen in the list shape already, so only a frame drawn after this mark proves the detail came back.
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "-- Comments (")
+	from = mark(t, tm)
+	press(tm, "esc")
+	waitAfter(t, tm, from, "Board: Mobile (")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Spaces") || strings.Contains(view, "-- Comments (") {
+		t.Errorf("after esc the board stands alone again:\n%s", view)
+	}
+}
+
+func TestBoardMovesACardWithL(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "b")
+	waitAfter(t, tm, from, "Board: My tasks (")
+	before, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	from = mark(t, tm)
+	press(tm, "L")
+	waitAfter(t, tm, from, "Status set to ")
+	after, _, err := st.Outbox().Counts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before+1 {
+		t.Errorf("L on the board should queue one task update, pending went from %d to %d", before, after)
+	}
+}
+
+// TestViewGoldens captures the grouped list and the board over the demo data.
+// Every case waits for the pane title that only the finished load draws, then for the title the keys produce.
+func TestViewGoldens(t *testing.T) {
+	cases := []struct {
+		name  string
+		width int
+		keys  []string
+		wait  string
+	}{
+		{"list-by-folder", 160, []string{"v"}, "Tasks: My tasks, by folder ("},
+		{"list-by-assignee", 160, []string{"v", "v"}, "Tasks: My tasks, by assignee ("},
+		{"board", 160, []string{"b"}, "Board: My tasks ("},
+		{"board-by-assignee", 160, []string{"b", "v", "v"}, "Board: My tasks, by assignee ("},
+		{"board-detail", 160, []string{"b", "enter"}, "-- Comments ("},
+		{"board-70", 70, []string{"b"}, "Board: My tasks ("},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st := seededStore(t)
+			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(c.width, 40))
+			loaded := "Tasks: My tasks ("
+			if c.width >= 120 {
+				loaded = "-- Comments ("
+			}
+			waitFor(t, tm, loaded)
+			from := mark(t, tm)
+			press(tm, c.keys...)
+			waitAfter(t, tm, from, c.wait)
+			golden.RequireEqual(t, []byte(finalView(t, tm)))
+		})
+	}
+}

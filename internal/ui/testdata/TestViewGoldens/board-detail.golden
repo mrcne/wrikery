@@ -1,0 +1,40 @@
++- Board: My tasks (30) ---------------------------------------------------------------++- #1200033 -----------------------------------------------------------+
+|< 1 In progress (11)          In review (7)             Blocked (6)               +1 >||Document auth retry loop                                              |
+|      Remove auth retry loop    Rotate signing keys     > Document auth retry ..      ||#1200033  Infra                                                       |
+|      AN               today    AN+              2 Sep  > AN+             29 Aug      ||                                                                      |
+|      Bump signing keys         Document rate limit ..    Refactor signing keys       ||Status     o Blocked                                                  |
+|      AN               today    AN+              2 Sep    AN+             29 Aug      ||Assignees  Celina Wrona, Ada Nowak                                    |
+|      Investigate rate lim..    Refactor error codes      Remove rate limit test      ||Dates      28 Aug -> 29 Aug                                           |
+|      AN               today    AN+              2 Sep    AN+             29 Aug      ||Updated    25 Aug                                                     |
+|      Design error codes        Remove sync cursor        Fix search ranking          ||                                                                      |
+|      AN               today    AN+              2 Sep    AN+                Wed      ||  Plain paragraph, nothing fancy. Long enough to wrap in a narrow     |
+|      Write tests for sync..    Bump legacy config l..    Add timesheet export        ||  detail pane so the wrapping code gets exercised too.                |
+|      AN               today    AN+              2 Sep    AN+                Wed      ||                                                                      |
+|      Refactor dark theme       Investigate dependen..    Rotate dark theme           ||-- Comments (0) ------------------------------------------------------|
+|      AN              14 Sep    AN+              2 Sep    AN+                Wed      ||                                                                      |
+|      Fix auth retry loop       Add signing keys                                      ||-- Time (0) ----------------------------------------------------------|
+|      AN  ~               --    AN  !               --                                ||                                                                      |
+|      Rotate rate limit test                                                          ||                                                                      |
+|      AN  !               --                                                          ||                                                                      |
+|      Document error codes                                                            ||                                                                      |
+|      AN                  --                                                          ||                                                                      |
+|      Refactor sync cursor                                                            ||                                                                      |
+|      AN                  --                                                          ||                                                                      |
+|      Remove legacy config..                                                          ||                                                                      |
+|      AN                  --                                                          ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
+|                                                                                      ||                                                                      |
++--------------------------------------------------------------------------------------++----------------------------------------------------------------------+
+ demo  * synced 0 s ago  1 pending  2 failed                                      k up  j down  h collapse / left  tab next pane  ctrl+f search  ? help  q quit 

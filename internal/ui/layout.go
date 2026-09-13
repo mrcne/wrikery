@@ -6,6 +6,15 @@ const (
 	paneSidebar pane = iota
 	paneList
 	paneDetail
+	paneBoard
+)
+
+// shape is how the main screen shows the tasks: the list between the sidebar and the detail, or the board.
+type shape int
+
+const (
+	shapeList shape = iota
+	shapeBoard
 )
 
 type rect struct{ x, y, w, h int }
@@ -54,6 +63,36 @@ func computeLayout(width, height int, focus pane, sidebarWidth int) layout {
 		lay.rects[p] = rect{x: x, y: 0, w: w, h: height}
 		x += w
 		remaining -= w
+	}
+	return lay
+}
+
+// computeBoardLayout draws the board across the width and a side pane only while it has focus.
+// The folder rarely changes while a board is up and the width goes to the columns, so the sidebar is not kept in view.
+// Below 80 columns the focused pane alone is drawn, as in the list shape.
+func computeBoardLayout(width, height int, focus pane, sidebarWidth int) layout {
+	lay := layout{rects: map[pane]rect{}}
+	alone := func(p pane) layout {
+		lay.visible = []pane{p}
+		lay.rects[p] = rect{x: 0, y: 0, w: width, h: height}
+		return lay
+	}
+	if width < 80 {
+		return alone(focus)
+	}
+	switch focus {
+	case paneSidebar:
+		lay.visible = []pane{paneSidebar, paneBoard}
+		lay.rects[paneSidebar] = rect{x: 0, y: 0, w: sidebarWidth, h: height}
+		lay.rects[paneBoard] = rect{x: sidebarWidth, y: 0, w: width - sidebarWidth, h: height}
+	case paneDetail:
+		// The detail keeps the share it has in the list shape, 45 percent, the board takes the rest.
+		dw := width * 45 / 100
+		lay.visible = []pane{paneBoard, paneDetail}
+		lay.rects[paneBoard] = rect{x: 0, y: 0, w: width - dw, h: height}
+		lay.rects[paneDetail] = rect{x: width - dw, y: 0, w: dw, h: height}
+	default:
+		return alone(paneBoard)
 	}
 	return lay
 }

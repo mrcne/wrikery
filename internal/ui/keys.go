@@ -55,6 +55,10 @@ func (k KeyMap) task() []key.Binding {
 	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
 }
 
+func (k KeyMap) board() []key.Binding {
+	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.ToggleDone, k.GroupBy, k.Board, k.Enter}
+}
+
 func (k KeyMap) timesheet() []key.Binding {
 	return []key.Binding{k.DayLeft, k.DayRight, k.Down, k.Up, k.WeekPrev, k.WeekNext, k.ThisWeek, k.Add, k.Edit, k.Delete, k.Enter}
 }

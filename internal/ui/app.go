@@ -69,12 +69,14 @@ type Model struct {
 	screen  screen
 	overlay overlay
 	focus   pane
+	shape   shape
 
 	status    statusModel
 	firstRun  firstRunModel
 	ref       refData
 	sidebar   sidebarModel
 	list      taskListModel
+	board     boardModel
 	detail    taskDetailModel
 	search    searchModel
 	issues    issuesModel
@@ -98,6 +100,7 @@ func New(o Options) Model {
 	m.search = newSearch(m.keys)
 	m.issues.keys = m.keys
 	m.timesheet.keys = m.keys
+	m.board.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -113,6 +116,21 @@ func New(o Options) Model {
 		m.firstRun = newFirstRun(stepToken, "", m.keys)
 	}
 	return m
+}
+
+// panes is the pane order of the current shape, what tab cycles through and the layout slides over.
+func (m Model) panes() []pane {
+	if m.shape == shapeBoard {
+		return []pane{paneSidebar, paneBoard, paneDetail}
+	}
+	return []pane{paneSidebar, paneList, paneDetail}
+}
+
+func (m Model) layout() layout {
+	if m.shape == shapeBoard {
+		return computeBoardLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	}
+	return computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
 }
 
 func (m Model) Init() tea.Cmd {
@@ -173,6 +191,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case focusMsg:
 		prev := m.focus
 		m.focus = msg.pane
+		// The children name the list, the shape decides whether that means the list or the board.
+		if m.shape == shapeBoard && m.focus == paneList {
+			m.focus = paneBoard
+		}
+		if m.shape == shapeList && m.focus == paneBoard {
+			m.focus = paneList
+		}
 		m.syncPaneSizes()
 		return m, m.openedOnFocus(prev)
 	case nodeSelectedMsg:
@@ -182,8 +207,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
 			m.list.cursor = 0
 		}
-		m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
+		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
 		m.pendingSelect = ""
+		if !found && m.shape == shapeBoard {
+			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
+			m.list.cursor = m.board.fallback(&m.list)
+		}
+		m.board.fit(&m.list)
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
@@ -569,12 +599,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenTimesheet
 		return m, m.loadWeek(time.Time{})
 	case key.Matches(msg, m.keys.NextPane):
-		m.focus = (m.focus + 1) % 3
+		m.focus = m.cyclePane(1)
 	case key.Matches(msg, m.keys.PrevPane):
-		m.focus = (m.focus + 2) % 3
+		m.focus = m.cyclePane(-1)
 	case key.Matches(msg, m.keys.Back):
 		if m.screen != screenMain {
 			m.screen = screenMain
+		} else if m.shape == shapeBoard && m.focus != paneBoard {
+			// A side pane on the board shows while it has focus, esc hands the width back to the board.
+			m.focus = paneBoard
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
 		}
@@ -630,8 +663,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return nil
 		})
 		return m, cmd
+	case key.Matches(msg, m.keys.Board):
+		m.toggleShape()
 	case key.Matches(msg, m.keys.GroupBy):
-		m.list.cycleGroup(false)
+		m.list.cycleGroup(m.shape == shapeBoard)
+		m.board.fit(&m.list)
 	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
 		delta := 1
 		if key.Matches(msg, m.keys.StatusPrev) {
@@ -680,14 +716,54 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detail, cmd = m.detail.Update(msg)
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
+	case paneBoard:
+		var cmd tea.Cmd
+		m.board, cmd = m.board.Update(msg, &m.list)
+		m.syncPaneSizes()
+		return m, tea.Batch(opened, cmd)
 	}
 	m.syncPaneSizes()
 	return m, opened
 }
 
+// cyclePane moves focus by delta over the panes of the current shape.
+func (m Model) cyclePane(delta int) pane {
+	panes := m.panes()
+	for i, p := range panes {
+		if p == m.focus {
+			return panes[(i+delta+len(panes))%len(panes)]
+		}
+	}
+	return panes[0]
+}
+
+// toggleShape switches the list and the board. The selection is the list's cursor either way, so nothing is carried over.
+// The board has no by status grouping, its columns already are the status, so that grouping drops to none.
+func (m *Model) toggleShape() {
+	if m.shape == shapeBoard {
+		m.shape = shapeList
+		if m.focus == paneBoard {
+			m.focus = paneList
+		}
+	} else {
+		m.shape = shapeBoard
+		if m.focus == paneList {
+			m.focus = paneBoard
+		}
+		if m.list.groupBy == groupStatus {
+			m.list.setGroup(groupNone)
+		}
+	}
+	m.syncPaneSizes()
+	m.board.fit(&m.list)
+}
+
 // moveStatus steps the task to the neighbouring status of its workflow, through the message the status dialog sends,
 // so the toast, the cache update and the outbox row are the ones that exist.
 func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
+	if m.shape == shapeBoard && m.board.inBucket(&m.list) {
+		return m.status.show("this task is on another workflow, s picks a status", true)
+	}
 	cs, known, ok := stepStatus(t, m.ref, delta)
 	if !known {
 		return m.status.show(noWorkflowKnown, true)
@@ -768,7 +844,7 @@ func (m Model) View() string {
 	case screenTimesheet:
 		body = m.viewTimesheet(bodyHeight)
 	default:
-		body = m.viewMain(bodyHeight)
+		body = m.viewMain()
 	}
 	hints := ""
 	if m.height >= 20 {
@@ -791,12 +867,16 @@ func (m Model) View() string {
 // syncPaneSizes pushes the computed pane heights down to the child models.
 // A View method takes its size as a plain argument each frame and has no way to remember it between calls on its own.
 func (m *Model) syncPaneSizes() {
-	lay := computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	lay := m.layout()
 	if r, ok := lay.rects[paneSidebar]; ok {
 		m.sidebar.height = r.h - 2
 	}
 	if r, ok := lay.rects[paneList]; ok {
 		m.list.height = r.h - 2
+	}
+	if r, ok := lay.rects[paneBoard]; ok {
+		m.board.width, m.board.height = r.w-2, r.h-2
+		m.board.fit(&m.list)
 	}
 	if r, ok := lay.rects[paneDetail]; ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
@@ -828,8 +908,8 @@ func (m Model) viewTimesheet(height int) string {
 	return m.theme.box(title, body, m.width, height, true)
 }
 
-func (m Model) viewMain(height int) string {
-	lay := computeLayout(m.width, height, m.focus, m.sidebar.width())
+func (m Model) viewMain() string {
+	lay := m.layout()
 	parts := make([]string, 0, len(lay.visible))
 	for _, p := range lay.visible {
 		r := lay.rects[p]
@@ -844,6 +924,8 @@ func (m Model) paneTitle(p pane) string {
 		return "Spaces"
 	case paneList:
 		return m.list.title()
+	case paneBoard:
+		return m.list.titled("Board")
 	}
 	return m.detail.title()
 }
@@ -854,6 +936,8 @@ func (m Model) paneBody(p pane, r rect) string {
 		return m.sidebar.View(m.theme, r.w-2, r.h-2, m.focus == paneSidebar)
 	case paneList:
 		return m.list.View(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.focus == paneList)
+	case paneBoard:
+		return m.board.View(m.theme, m.ref, m.opts.Now(), &m.list, m.focus == paneBoard)
 	}
 	// The detail pane laid itself out in Update, View only reads the viewport.
 	return m.detail.View()
@@ -871,8 +955,11 @@ func (m Model) hintBindings() []key.Binding {
 		}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
+	if m.focus == paneBoard {
+		return append([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base...)
+	}
 	if m.focus == paneList {
-		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.ToggleDone}, base...)
+		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base...)
 	}
 	if m.focus == paneDetail {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
@@ -886,6 +973,9 @@ func (m Model) helpGroups() [][]key.Binding {
 	}
 	if m.screen == screenTimesheet {
 		return [][]key.Binding{m.keys.global(), m.keys.timesheet()}
+	}
+	if m.shape == shapeBoard {
+		return [][]key.Binding{m.keys.global(), m.keys.board(), m.keys.task()}
 	}
 	return [][]key.Binding{m.keys.global(), m.keys.list(), m.keys.task()}
 }
