@@ -157,3 +157,37 @@ func TestWrikeHTMLShapes(t *testing.T) {
 		}
 	}
 }
+
+func TestEditorKeepsAMention(t *testing.T) {
+	src := `<p>hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there</p>`
+	text := editorText(src)
+	if want := `hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there` + "\n"; text != want {
+		t.Fatalf("editor text = %q, want %q", text, want)
+	}
+	got, changed := mergeDescription(src, strings.Replace(text, " there", " there, edited", 1))
+	if want := `<p>hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there, edited</p>`; !changed || got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestMergeThatRendersToNothingIsNotAChange(t *testing.T) {
+	for _, file := range []string{"[a]: http://example.com\n", "<!-- gone -->\n"} {
+		if got, changed := mergeDescription("<p>x</p>", file); changed || got != "" {
+			t.Errorf("file %q: got %q, changed %v", file, got, changed)
+		}
+	}
+}
+
+func TestMergeIntoADescriptionWithNoBlocksDropsItsGlue(t *testing.T) {
+	for _, src := range []string{"<p></p>", "<br /><br />", ""} {
+		if got, changed := mergeDescription(src, "hello\n"); !changed || got != "<p>hello</p>" {
+			t.Errorf("source %q: got %q, changed %v", src, got, changed)
+		}
+	}
+}
+
+func TestMergeIgnoresAByteOrderMark(t *testing.T) {
+	if got, changed := mergeDescription("<p>a</p><p>b</p>", "\uFEFFa\n\nb\n"); changed {
+		t.Errorf("a byte order mark counted as an edit, got %q", got)
+	}
+}

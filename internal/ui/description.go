@@ -215,8 +215,9 @@ func editorText(description string) string {
 }
 
 // normalizeEdited makes the saved file comparable with the markdown it was opened with.
-// Editors add or drop the final newline and strip trailing spaces on save, none of which is an edit.
+// Editors add or drop the final newline, strip trailing spaces and write a byte order mark on save, none of which is an edit.
 func normalizeEdited(s string) string {
+	s = strings.TrimPrefix(s, "\uFEFF")
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
@@ -250,8 +251,8 @@ type piece struct {
 
 // mergeDescription rebuilds the description from the saved file.
 // Blocks whose markdown still stands in the file keep their HTML and their place, the text between them is converted.
-// changed is false when every block is still there in its order and nothing was added.
-func mergeDescription(description, edited string) (html string, changed bool) {
+// changed is false when every block is still there in its order and nothing was added, and when what is left renders to nothing.
+func mergeDescription(description, edited string) (merged string, changed bool) {
 	blocks, trailing := splitDescription(description)
 	text := normalizeEdited(edited)
 	// A description with no paragraph elements came from Wrike's editor, and a new one is written with paragraphs.
@@ -301,8 +302,12 @@ func mergeDescription(description, edited string) (html string, changed bool) {
 		}
 		out.WriteString(p.html)
 	}
-	if n := len(pieces); n > 0 && pieces[n-1].idx == len(blocks)-1 {
+	if n := len(pieces); len(blocks) > 0 && n > 0 && pieces[n-1].idx == len(blocks)-1 {
 		out.WriteString(trailing)
+	}
+	// A comment or a link reference on its own renders to nothing, which is an empty file and not a change.
+	if strings.TrimSpace(out.String()) == "" {
+		return "", false
 	}
 	return out.String(), true
 }
@@ -327,6 +332,13 @@ func newEditorConverter() *converter.Converter {
 	}
 	conv.Register.RendererFor("img", converter.TagTypeInline, renderVerbatim, converter.PriorityEarly)
 	conv.Register.RendererFor("table", converter.TagTypeBlock, renderVerbatim, converter.PriorityEarly)
+	// A mention is an anchor without an href whose class and rel carry the contact, so it stays as it is instead of turning into an empty link.
+	conv.Register.RendererFor("a", converter.TagTypeInline, func(ctx converter.Context, w converter.Writer, n *html.Node) converter.RenderStatus {
+		if hasAttr(n, "href") && !strings.Contains(attr(n, "class"), "stream-user-id") {
+			return converter.RenderTryNext
+		}
+		return renderTagAround(ctx, w, n)
+	}, converter.PriorityEarly)
 	conv.Register.RendererFor("input", converter.TagTypeInline, renderCheckbox, converter.PriorityEarly)
 	// A newline in the editor is a line break, so a br is written as one instead of the two trailing spaces most editors strip on save.
 	conv.Register.RendererFor("br", converter.TagTypeInline, func(_ converter.Context, w converter.Writer, _ *html.Node) converter.RenderStatus {
