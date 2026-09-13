@@ -113,6 +113,14 @@ func (l *taskListModel) applyFilter() {
 
 func (l taskListModel) sectioned() bool { return l.groupBy != groupNone }
 
+// lineCount is the length of lines() without building it: a section line per group when sectioned.
+func (l taskListModel) lineCount() int {
+	if l.sectioned() {
+		return len(l.rows) + len(l.groups)
+	}
+	return len(l.rows)
+}
+
 // visual is the line of row position p once the section lines above it are counted.
 func (l taskListModel) visual(p int) int {
 	if !l.sectioned() {
@@ -228,7 +236,7 @@ func (l *taskListModel) scroll() {
 		l.offset = v - h + 1
 	}
 	// A filter or a toggle can shorten the list under a window that was scrolled down, which would leave rows hidden above it and blank lines below.
-	if top := max(0, len(l.lines())-h); l.offset > top {
+	if top := max(0, l.lineCount()-h); l.offset > top {
 		l.offset = top
 	}
 }
@@ -405,13 +413,9 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 	if l.filtering || l.filter.Value() != "" {
 		listHeight--
 	}
-	// offset lives on the model and is advanced by scroll().
-	// This only guards against it landing past the end, for example right after the filter shrinks the row count.
+	// offset lives on the model, scroll() keeps it inside the list on every path that changes the rows or the height.
 	lines := l.lines()
 	offset := l.offset
-	if last := len(lines) - 1; offset > last {
-		offset = max(0, last)
-	}
 	// In the by assignee view the section says who, so the initials give way to the status name, which a standup wants told apart.
 	whoWidth := 3
 	if l.groupBy == groupAssignee {

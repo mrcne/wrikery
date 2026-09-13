@@ -936,6 +936,8 @@ func (m *Model) syncPaneSizes() {
 	}
 	if r, ok := lay.rects[paneList]; ok {
 		m.list.height = r.h - 2
+		// A taller pane can leave the window past the end of the list, scroll pulls it back.
+		m.list.scroll()
 	}
 	if r, ok := lay.rects[paneBoard]; ok {
 		m.board.width, m.board.height = r.w-2, r.h-2
