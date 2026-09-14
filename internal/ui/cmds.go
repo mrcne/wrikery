@@ -158,7 +158,8 @@ func (m Model) loadTree() tea.Cmd {
 						children = append(children, c)
 					}
 				}
-				sort.Slice(children, func(i, j int) bool { return children[i].Title < children[j].Title })
+				// By title, without regard to case, so a folder named in lower case does not sink under the others.
+				sort.Slice(children, func(i, j int) bool { return strings.ToLower(children[i].Title) < strings.ToLower(children[j].Title) })
 				for _, c := range children {
 					// nodes grows while we recurse, so index by idx and never hold a pointer into the slice.
 					nodes[idx].children = append(nodes[idx].children, add(c, depth+1))
