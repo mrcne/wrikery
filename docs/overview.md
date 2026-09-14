@@ -53,6 +53,7 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
+A link shows its text and then its address, or the address alone when the text is the address, as it is for a pasted one.
 Below it come the metadata and the comment thread. Single key actions on the selected task:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.

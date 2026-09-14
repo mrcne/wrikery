@@ -93,3 +93,23 @@ func TestRenderDescriptionShowsStrikeUnderlineAndBoxes(t *testing.T) {
 		}
 	}
 }
+
+// Pasting an address into Wrike makes a link whose text is the address, and glamour prints the text and then the address.
+// Such a link reaches glamour as a bare address, printed once. A link with its own text keeps both, that is what the text is for.
+func TestRenderDescriptionPrintsARepeatedAddressOnce(t *testing.T) {
+	const url = "https://developers.wrike.com/"
+	for _, html := range []string{
+		`<p>Docs: <a href="` + url + `">` + url + `</a></p>`,
+		`<p>Docs: <a href="` + url + `" target="_blank">https://developers.wrike.com</a></p>`,
+		`<p>Docs: <a href="` + url + `"> <b>` + url + `</b> </a>.</p>`,
+	} {
+		out := ansi.Strip(renderDescription(html, "", 80, "dark"))
+		if strings.Count(out, "developers.wrike.com") != 1 || !strings.Contains(out, "Docs: "+url) {
+			t.Errorf("%s\nshould print the address once, after the text before it:\n%s", html, out)
+		}
+	}
+	out := ansi.Strip(renderDescription(`<p>See the <a href="`+url+`">API reference</a>.</p>`, "", 80, "dark"))
+	if !strings.Contains(out, "API reference "+url) {
+		t.Errorf("a link with its own text should keep both:\n%s", out)
+	}
+}
