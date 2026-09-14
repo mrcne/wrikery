@@ -245,12 +245,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	bold := lipgloss.NewStyle().Bold(true)
 	const cellW = 7
-	titleW := width - 8*cellW - 2
+	// Two columns in front of the titles hold the cursor mark, the same one the list and the sidebar draw.
+	titleW := width - 8*cellW - 4
 	if titleW < 10 {
 		titleW = 10
 	}
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", titleW+2))
+	b.WriteString(strings.Repeat(" ", titleW+4))
 	for i := 0; i < 7; i++ {
 		d := t.weekStart.AddDate(0, 0, i)
 		label := fmt.Sprintf("%s %d", d.Weekday().String()[:3], d.Day())
@@ -270,8 +271,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0
-		line := ansi.Truncate(displayTitle(r.title, th.HidePrefixes), titleW, "...")
-		line += strings.Repeat(" ", titleW+2-ansi.StringWidth(line))
+		title := ansi.Truncate(displayTitle(r.title, th.HidePrefixes), titleW, "...")
+		pad := strings.Repeat(" ", titleW+2-ansi.StringWidth(title))
+		line := "  " + title + pad
+		if ri == t.cursorRow {
+			// The mark and the accent tie the highlighted cell to its task, a wide grid leaves too much space between them.
+			line = th.Glyphs.Cursor + " " + lipgloss.NewStyle().Foreground(th.Accent).Render(title) + pad
+		}
 		for di, logs := range r.cells {
 			sum, pending, locked := 0.0, false, false
 			for _, l := range logs {
@@ -305,9 +311,9 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	}
 	// The empty row: n here logs time on a task picked through search.
 	const newTaskLabel = "+ new task"
-	addLabel := muted.Render(newTaskLabel)
+	addLabel := "  " + muted.Render(newTaskLabel)
 	if t.cursorRow == len(t.rows) {
-		addLabel = lipgloss.NewStyle().Foreground(th.Accent).Render(newTaskLabel)
+		addLabel = th.Glyphs.Cursor + " " + lipgloss.NewStyle().Foreground(th.Accent).Render(newTaskLabel)
 	}
 	b.WriteString(addLabel + strings.Repeat(" ", titleW+2-ansi.StringWidth(newTaskLabel)))
 	for di := 0; di < 7; di++ {
@@ -319,7 +325,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	}
 	b.WriteString("\n\n")
 	total := 0.0
-	line := bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
+	line := "  " + bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
 	for _, v := range dayTotals {
 		total += v
 		line += fmt.Sprintf("%*.1f", cellW, v)

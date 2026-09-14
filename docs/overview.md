@@ -139,6 +139,7 @@ Each row carries a total for the task, each column a total for the day, and the 
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
 `h` and `l` move between days, `j` and `k` move between rows.
+The row under the cursor carries the cursor mark in front of its title, so on a wide grid a cell can be traced back to its task.
 `[` and `]` go one week back and forward, `.` jumps back to the current week.
 `n` logs time on the row's task for the selected day.
 On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
