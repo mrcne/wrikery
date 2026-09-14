@@ -2,12 +2,12 @@
 |> My tasks         30 ||> o   Document auth retry loop                                  AN+ 29 Aug|
 |  v Mobile            ||  o   Refactor signing keys                                     AN+ 29 Aug|
 |    o iOS app         ||  o   Remove rate limit test                                    AN+ 29 Aug|
-|  v Platform          ||  o   Rotate signing keys                                       AN+  2 Sep|
-|    o API             ||  o ! Document rate limit test                                  AN+  2 Sep|
-|      Design system   ||  o   Refactor error codes                                      AN+  2 Sep|
-|    > Infra           ||  o   Remove sync cursor                                        AN+  2 Sep|
-|    o Web             ||  o   Bump legacy config loader                                 AN+  2 Sep|
-|                      ||  o   Investigate dependencies                                  AN+  2 Sep|
+|      Wishlist        ||  o   Rotate signing keys                                       AN+  2 Sep|
+|  v Platform          ||  o ! Document rate limit test                                  AN+  2 Sep|
+|    o API             ||  o   Refactor error codes                                      AN+  2 Sep|
+|      Design system   ||  o   Remove sync cursor                                        AN+  2 Sep|
+|    > Infra           ||  o   Bump legacy config loader                                 AN+  2 Sep|
+|    o Web             ||  o   Investigate dependencies                                  AN+  2 Sep|
 |                      ||  o   Remove auth retry loop                                    AN   today|
 |                      ||  o   Bump signing keys                                         AN   today|
 |                      ||  o   Investigate rate limit test                               AN   today|

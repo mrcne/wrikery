@@ -2,12 +2,12 @@
 |> My tasks         30 ||-- Mobile (5) -----------------------------------------------------------||Document auth retry loop                                   |
 |  v Mobile            ||  o   Remove rate limit test                                   AN+ 29 Aug||#1200033  Infra                                            |
 |    o iOS app         ||  o   Investigate dependencies                                 AN+  2 Sep||                                                           |
-|  v Platform          ||  o   Write tests for sync cursor                              AN   today||Status     o Blocked                                       |
-|    o API             ||  z   Add search ranking                                       AN     Mon||Assignees  Celina Wrona, Ada Nowak                         |
-|      Design system   ||  o   Remove legacy config loader                              AN      --||Dates      28 Aug -> 29 Aug                                |
-|    > Infra           ||-- Platform (25) --------------------------------------------------------||Updated    25 Aug                                          |
-|    o Web             ||> o   Document auth retry loop                                 AN+ 29 Aug||                                                           |
-|                      ||  o   Refactor signing keys                                    AN+ 29 Aug||  Plain paragraph, nothing fancy. Long enough to wrap in   |
+|      Wishlist        ||  o   Write tests for sync cursor                              AN   today||Status     o Blocked                                       |
+|  v Platform          ||  z   Add search ranking                                       AN     Mon||Assignees  Celina Wrona, Ada Nowak                         |
+|    o API             ||  o   Remove legacy config loader                              AN      --||Dates      28 Aug -> 29 Aug                                |
+|      Design system   ||-- Platform (25) --------------------------------------------------------||Updated    25 Aug                                          |
+|    > Infra           ||> o   Document auth retry loop                                 AN+ 29 Aug||                                                           |
+|    o Web             ||  o   Refactor signing keys                                    AN+ 29 Aug||  Plain paragraph, nothing fancy. Long enough to wrap in   |
 |                      ||  o   Rotate signing keys                                      AN+  2 Sep||  a narrow detail pane so the wrapping code gets           |
 |                      ||  o ! Document rate limit test                                 AN+  2 Sep||  exercised too.                                           |
 |                      ||  o   Refactor error codes                                     AN+  2 Sep||                                                           |

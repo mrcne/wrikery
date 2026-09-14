@@ -2,12 +2,12 @@
 |> My tasks         30 ||-- Ada Nowak (me) (30) --------------------------------------------------||Document auth retry loop                                   |
 |  v Mobile            ||> o   Document auth retry loop                        Blocked      29 Aug||#1200033  Infra                                            |
 |    o iOS app         ||  o   Refactor signing keys                           Blocked      29 Aug||                                                           |
-|  v Platform          ||  o   Remove rate limit test                          Blocked      29 Aug||Status     o Blocked                                       |
-|    o API             ||  o   Rotate signing keys                             In review     2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
-|      Design system   ||  o ! Document rate limit test                        In review     2 Sep||Dates      28 Aug -> 29 Aug                                |
-|    > Infra           ||  o   Refactor error codes                            In review     2 Sep||Updated    25 Aug                                          |
-|    o Web             ||  o   Remove sync cursor                              In review     2 Sep||                                                           |
-|                      ||  o   Bump legacy config loader                       In review     2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
+|      Wishlist        ||  o   Remove rate limit test                          Blocked      29 Aug||Status     o Blocked                                       |
+|  v Platform          ||  o   Rotate signing keys                             In review     2 Sep||Assignees  Celina Wrona, Ada Nowak                         |
+|    o API             ||  o ! Document rate limit test                        In review     2 Sep||Dates      28 Aug -> 29 Aug                                |
+|      Design system   ||  o   Refactor error codes                            In review     2 Sep||Updated    25 Aug                                          |
+|    > Infra           ||  o   Remove sync cursor                              In review     2 Sep||                                                           |
+|    o Web             ||  o   Bump legacy config loader                       In review     2 Sep||  Plain paragraph, nothing fancy. Long enough to wrap in   |
 |                      ||  o   Investigate dependencies                        In review     2 Sep||  a narrow detail pane so the wrapping code gets           |
 |                      ||  o   Remove auth retry loop                          In progress   today||  exercised too.                                           |
 |                      ||  o   Bump signing keys                               In progress   today||                                                           |

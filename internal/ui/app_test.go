@@ -228,6 +228,10 @@ func TestSidebarShowsFollowedSpaces(t *testing.T) {
 	if !strings.Contains(view, "Design system") {
 		t.Errorf("sidebar should list Design system under Platform:\n%s", view)
 	}
+	// Folders sort by title without regard to case, so the lower case iOS app stays above Wishlist.
+	if strings.Index(view, "iOS app") > strings.Index(view, "Wishlist") {
+		t.Errorf("sidebar should list iOS app before Wishlist:\n%s", view)
+	}
 }
 
 func TestTabMovesFocusAndWindowSlides(t *testing.T) {
@@ -1012,6 +1016,7 @@ func TestViewGoldens(t *testing.T) {
 		{"board-by-assignee", 160, []string{"b", "v", "v"}, "Board: My tasks, by assignee ("},
 		{"board-detail", 160, []string{"b", "enter"}, "-- Comments ("},
 		{"board-70", 70, []string{"b"}, "Board: My tasks ("},
+		{"empty-folder", 160, []string{"shift+tab", "j", "j", "j"}, "Tasks: Mobile / Wishlist (0)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

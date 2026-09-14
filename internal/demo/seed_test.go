@@ -36,6 +36,9 @@ func TestSeedFillsEveryTable(t *testing.T) {
 	if err != nil || len(tree) != 6 || !tree[0].Space {
 		t.Errorf("platform subtree = %d folders, %v", len(tree), err)
 	}
+	if tasks, _ := st.Tasks().ListInFolder(ctx, folderWishlist); len(tasks) != 0 {
+		t.Errorf("Wishlist should stay empty, it holds %d tasks", len(tasks))
+	}
 	if hits, _ := st.Tasks().Search(ctx, "retry", 100); len(hits) == 0 {
 		t.Error("search finds nothing, descriptions or titles not seeded")
 	}
