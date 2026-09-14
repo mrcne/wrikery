@@ -25,6 +25,7 @@ func weekOf(t time.Time) time.Time {
 
 type tsRow struct {
 	taskID, title string
+	parentID      string // first folder of the task, where enter on the row lands, "" for a task outside the cache
 	cells         [7][]store.Timelog
 }
 
@@ -47,6 +48,7 @@ type weekLoadedMsg struct {
 	windowFrom time.Time
 	logs       []store.Timelog
 	titles     map[string]string
+	parents    map[string]string
 	states     map[string]store.OutboxState
 }
 type loadWeekMsg struct{ start time.Time }
@@ -80,7 +82,7 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 			if title == "" {
 				title = "(task " + l.TaskID + ")"
 			}
-			row = &tsRow{taskID: l.TaskID, title: title}
+			row = &tsRow{taskID: l.TaskID, title: title, parentID: msg.parents[l.TaskID]}
 			byTask[l.TaskID] = row
 		}
 		row.cells[idx] = append(row.cells[idx], l)
@@ -213,7 +215,11 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 			taskID = t.rows[t.cursorRow].taskID
 		}
 		return t, intent(newEntryMsg{taskID: taskID, date: t.cellDate()})
-	case key.Matches(msg, t.keys.Edit), key.Matches(msg, t.keys.Enter):
+	case key.Matches(msg, t.keys.Enter):
+		if r := t.cursorRow; r < len(t.rows) {
+			return t, intent(openTaskMsg{id: t.rows[r].taskID, parentID: t.rows[r].parentID})
+		}
+	case key.Matches(msg, t.keys.Edit):
 		switch logs := t.cell(); len(logs) {
 		case 0:
 			return t, nil

@@ -83,7 +83,12 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 				if s.pickMode {
 					return s, intent(searchPickMsg{task: s.results[s.cursor]})
 				}
-				return s, intent(searchOpenMsg{task: s.results[s.cursor]})
+				t := s.results[s.cursor]
+				parentID := ""
+				if len(t.ParentIDs) > 0 {
+					parentID = t.ParentIDs[0]
+				}
+				return s, intent(openTaskMsg{id: t.ID, parentID: parentID})
 			}
 			return s, nil
 		}

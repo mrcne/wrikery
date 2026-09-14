@@ -714,7 +714,7 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 
 	// A later reload (any outbox or store change) must not knock the detail off the task just
 	// opened: openTaskMsg has to put its parent folder (Web) in the sidebar's selected node, the
-	// same way openFromSearch does, or the list reload keyed off the stale API selection fires a
+	// same way the search jump does, or the list reload keyed off the stale API selection fires a
 	// taskSelectedMsg for whatever row is there instead. A fixed sleep, not a wait for specific
 	// text, is used here: with the fix the reload is idempotent and repaints nothing new to wait
 	// for, so the only reliable way to let its goroutine settle before the assertion is to wait.
@@ -746,6 +746,28 @@ func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	waitFor(t, tm, "Logged 2.0 h")
 	waitFor(t, tm, "~4.0")
 	golden.RequireEqual(t, []byte(finalView(t, tm)))
+}
+
+// TestEnterOnTheTimesheetOpensTheTask covers the way back from the grid: enter on a row lands on the
+// main screen with that task in the detail pane and its folder selected in the sidebar, the way search does.
+// The last of the eight rows is "Write tests for onboarding flow", task IEAATASK19 in Web, which is completed:
+// logged time often sits on finished work, so the list has to show it although the done toggle starts off.
+func TestEnterOnTheTimesheetOpensTheTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	from := mark(t, tm)
+	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
+	waitAfter(t, tm, from, "#1200019")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Timesheet:") || !strings.Contains(view, "Tasks: Platform / Web (") {
+		t.Errorf("enter on a timesheet row should show the task on the main screen with its folder selected:\n%s", view)
+	}
+	if !strings.Contains(view, "> v   Write tests for onboarding flow") {
+		t.Errorf("the completed task should be the selected row of the list:\n%s", view)
+	}
 }
 
 // TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action

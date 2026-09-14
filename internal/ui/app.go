@@ -253,8 +253,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.search, cmd = m.search.Update(msg)
 		return m, cmd
-	case searchOpenMsg:
-		return m.openFromSearch(msg.task)
+	case openTaskMsg:
+		return m.jumpToTask(msg.id, msg.parentID)
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
@@ -309,20 +309,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case discardIssueMsg:
 		st := m.opts.Store
 		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
-	case openTaskMsg:
-		// selectedTaskID is set here, not left for the pendingSelect round trip through tasksLoadedMsg:
-		// taskLoadedMsg drops any answer for a task nobody is on yet, and nothing else is on this one.
-		// The rest mirrors openFromSearch: the parent folder becomes the selected node so a later
-		// list reload finds this task again, and pendingSelect is only set where a load is issued.
-		m.screen, m.focus, m.selectedTaskID = screenMain, paneDetail, msg.id
-		cmds := []tea.Cmd{m.loadTask(msg.id)}
-		if msg.parentID != "" && m.sidebar.selectByID(msg.parentID) {
-			n, _ := m.sidebar.current()
-			m.selectedNode = n
-			m.pendingSelect = msg.id
-			cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
-		}
-		return m, tea.Batch(cmds...)
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
@@ -496,27 +482,24 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 	return m.markOpened(m.selectedTaskID)
 }
 
-// openFromSearch closes the search overlay and jumps straight to the chosen task.
-// selectedTaskID is set here rather than waiting for the sidebar/list round trip, so openedOnFocus
-// below marks the right task and a task whose folder is outside the tree still reaches the detail pane.
-func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
+// jumpToTask leaves the search overlay, the sync issues screen or the timesheet and shows the task on the main screen.
+// selectedTaskID is set here rather than waiting for the sidebar/list round trip: taskLoadedMsg drops an answer for a task
+// nobody is on yet, openedOnFocus below has to mark the right task, and a task whose folder is outside the tree still reaches the detail pane.
+func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
-	m.screen = screenMain
-	m.overlay = overlayNone
+	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
-	m.focus = paneDetail
-	m.selectedTaskID = t.ID
 	var cmds []tea.Cmd
-	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
+	if parentID != "" && m.sidebar.selectByID(parentID) {
 		n, _ := m.sidebar.current()
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
-		// reloads the node the search left behind instead of the one now on screen.
+		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
 		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
-		m.pendingSelect = t.ID
+		m.pendingSelect = id
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
 	}
-	cmds = append(cmds, m.loadTask(t.ID), m.openedOnFocus(prevFocus))
+	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
 }
 

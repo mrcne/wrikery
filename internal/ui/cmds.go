@@ -413,22 +413,26 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		titles := map[string]string{}
+		// The title names the row and the first parent is where enter on the row lands.
+		// An entry can belong to a task outside every followed scope, that task is not in the store and its row says so.
+		titles, parents := map[string]string{}, map[string]string{}
 		for _, l := range logs {
 			if _, done := titles[l.TaskID]; done {
 				continue
 			}
+			titles[l.TaskID] = ""
 			if t, err := st.Tasks().Get(ctx, l.TaskID); err == nil {
 				titles[l.TaskID] = t.Title
-			} else {
-				titles[l.TaskID] = ""
+				if len(t.ParentIDs) > 0 {
+					parents[l.TaskID] = t.ParentIDs[0]
+				}
 			}
 		}
 		states, err := st.Outbox().StatesByEntity(ctx)
 		if err != nil {
 			return errMsg{err}
 		}
-		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, states: states}
+		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, parents: parents, states: states}
 	}
 }
 

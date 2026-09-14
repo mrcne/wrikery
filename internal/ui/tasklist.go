@@ -51,11 +51,15 @@ func newTaskList(keys KeyMap) taskListModel {
 }
 
 // setRows replaces the rows and reports whether keepID, or the task selected before, is still among them.
+// Only a jump from the search, the issues screen or the timesheet names a keepID, and it turns the done toggle on
+// when its task needs it, a plain reload leaves the toggle alone so a task completed from the list still leaves it.
 func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string) bool {
 	if keepID == "" {
 		if cur, ok := l.current(); ok {
 			keepID = cur.task.ID
 		}
+	} else if !l.showDone && slices.ContainsFunc(tasks, func(t store.Task) bool { return t.ID == keepID && isDone(t) }) {
+		l.showDone = true
 	}
 	l.nodeID, l.crumb = nodeID, crumb
 	l.all = l.all[:0]

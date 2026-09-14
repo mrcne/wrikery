@@ -251,3 +251,19 @@ func TestResizePullsTheListWindowBack(t *testing.T) {
 		t.Errorf("after growing to 40 rows offset = %d, height = %d, want the window pulled back to 0", got.offset, got.height)
 	}
 }
+
+// A jump names the task to select, and a completed one has to be on screen for that,
+// so the done toggle turns on for it and stays as it was on a plain reload.
+func TestJumpToACompletedTaskTurnsTheDoneToggleOn(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	tasks := []store.Task{{ID: "1", Title: "open", Status: "Active"}, {ID: "2", Title: "done", Status: "Completed"}}
+	if found := l.setRows("F1", "API", tasks, nil, "2"); !found || !l.showDone || l.cursor != 1 {
+		t.Errorf("jump to the completed task: found %v, showDone %v, cursor %d", found, l.showDone, l.cursor)
+	}
+	l = newTaskList(defaultKeyMap())
+	l.setRows("F1", "API", tasks, nil, "")
+	tasks[0].Status = "Completed"
+	if found := l.setRows("F1", "API", tasks, nil, ""); found || l.showDone {
+		t.Errorf("reload with the selected task completed: found %v, showDone %v, want it gone from the list", found, l.showDone)
+	}
+}

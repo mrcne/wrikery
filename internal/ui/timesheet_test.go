@@ -319,3 +319,32 @@ func TestNewEntryFromTheAddRowGoesThroughSearchPick(t *testing.T) {
 		t.Errorf("date input = %q, want 2026-09-02", got)
 	}
 }
+
+// Enter leaves the grid for the task behind the row, and e keeps editing the entry under the cursor.
+// The "+ new task" row has no task, so enter rests there.
+func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
+	var ts timesheetModel
+	ts.keys = defaultKeyMap()
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
+		titles:    map[string]string{"T1": "Fix auth retry loop"},
+		parents:   map[string]string{"T1": "F1"},
+	})
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	_, cmd := ts.Update(enter)
+	if cmd == nil {
+		t.Fatal("enter on a row sent nothing")
+	}
+	if msg, ok := cmd().(openTaskMsg); !ok || msg.id != "T1" || msg.parentID != "F1" {
+		t.Errorf("enter on a row sent %#v, want openTaskMsg for T1 in F1", cmd())
+	}
+	_, cmd = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if msg, ok := cmd().(editEntryMsg); !ok || msg.log.ID != "a" {
+		t.Errorf("e sent %#v, want editEntryMsg for entry a", cmd())
+	}
+	ts.cursorRow = len(ts.rows)
+	if _, cmd = ts.Update(enter); cmd != nil {
+		t.Errorf("enter on the new task row sent %#v", cmd())
+	}
+}

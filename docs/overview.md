@@ -142,7 +142,7 @@ The last row, `+ new task`, is for logging time on a task that has no row yet.
 `[` and `]` go one week back and forward, `.` jumps back to the current week.
 `n` logs time on the row's task for the selected day.
 On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
-`e` or enter edits the entry under the cursor, and when a cell holds more than one entry a small list asks which one first.
+`e` edits the entry under the cursor, and when a cell holds more than one entry a small list asks which one first.
 `x` deletes an entry after a confirmation, again through that list when the cell holds several.
 
 The sync engine keeps the current week and the eight weeks before it.
@@ -151,6 +151,8 @@ A cell with a write still queued shows the pending marker in front of the hours.
 
 An entry that sits in a locked or approved timesheet is shown dimmed.
 Editing or deleting it is refused with a message instead, nothing is queued for it.
+
+Enter on a row leaves the grid for the task behind it, shown on the main screen with its folder selected, the way the search does.
 
 ### First run
 
