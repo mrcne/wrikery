@@ -204,6 +204,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedNode = msg.node
 		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node))
 	case tasksLoadedMsg:
+		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
+		// or two quick moves could leave the list showing the folder passed on the way.
+		if msg.nodeID != m.selectedNode.id {
+			return m, nil
+		}
 		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
 			m.list.cursor = 0
 		}
@@ -220,6 +225,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearIfListEmpty()
 		return m, nil
 	case taskSelectedMsg:
+		// The intent travels through the queue, and a list load that lands before it can leave the list without that row.
+		// Such a late selection is dropped, or an empty folder would show a task from the folder before.
+		if !m.list.has(msg.id) {
+			return m, nil
+		}
 		m.selectedTaskID = msg.id
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:

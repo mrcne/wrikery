@@ -95,6 +95,7 @@ func TestTasksLoadedMsgSkipsReselectWhenCursorDidNotMove(t *testing.T) {
 	m.list = newTaskList(m.keys)
 	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
 	m.selectedTaskID = "1"
+	m.selectedNode = treeNode{id: "F1"}
 	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
 	if cmd != nil {
 		if msg, ok := cmd().(taskSelectedMsg); ok {
@@ -108,6 +109,7 @@ func TestTasksLoadedMsgReselectsWhenCursorMoved(t *testing.T) {
 	m.list = newTaskList(m.keys)
 	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
 	m.selectedTaskID = "9"
+	m.selectedNode = treeNode{id: "F1"}
 	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
 	if cmd == nil {
 		t.Fatal("expected a command reselecting the new task")
@@ -265,5 +267,30 @@ func TestJumpToACompletedTaskTurnsTheDoneToggleOn(t *testing.T) {
 	tasks[0].Status = "Completed"
 	if found := l.setRows("F1", "API", tasks, nil, ""); found || l.showDone {
 		t.Errorf("reload with the selected task completed: found %v, showDone %v, want it gone from the list", found, l.showDone)
+	}
+}
+
+// Loads and intents travel through the queue, so an answer can land after the sidebar moved on:
+// a list for a node no longer selected, or a selection for a row the list no longer has.
+// Both are dropped, otherwise an empty folder shows the tasks or the detail of the folder passed on the way.
+func TestStaleListLoadAndTaskSelectionAreDropped(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.selectedNode = treeNode{id: "F1"}
+	tasks := []store.Task{{ID: "T1", Title: "one", Status: "Active"}}
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks})
+	next, _ = next.(Model).Update(taskSelectedMsg{id: "T1"})
+	m = next.(Model)
+	if m.selectedTaskID != "T1" {
+		t.Fatalf("a selection for a row of the list should stand, selected %q", m.selectedTaskID)
+	}
+	m.selectedNode = treeNode{id: "F2"}
+	next, _ = m.Update(tasksLoadedMsg{nodeID: "F2", crumb: "Wishlist"})
+	next, cmd := next.(Model).Update(taskSelectedMsg{id: "T1"})
+	if got := next.(Model).selectedTaskID; got != "" || cmd != nil {
+		t.Errorf("a selection for a row the list no longer has should be dropped, selected %q", got)
+	}
+	next, cmd = next.(Model).Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks})
+	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil {
+		t.Errorf("a late load for the node left behind should be dropped, list shows %s with %d rows", m.list.nodeID, m.list.count)
 	}
 }

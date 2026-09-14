@@ -185,6 +185,10 @@ func (l taskListModel) current() (taskRow, bool) {
 	return l.all[l.rows[l.cursor]], true
 }
 
+func (l taskListModel) has(id string) bool {
+	return slices.ContainsFunc(l.rows, func(ri int) bool { return l.all[ri].task.ID == id })
+}
+
 func (l *taskListModel) selectByID(id string) bool {
 	for i, ri := range l.rows {
 		if l.all[ri].task.ID == id {
