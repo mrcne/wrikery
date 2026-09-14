@@ -770,6 +770,24 @@ func TestEnterOnTheTimesheetOpensTheTask(t *testing.T) {
 	}
 }
 
+// TestEmptyListDropsTheSelectedTask covers a list that shows no task, here a filter nothing matches:
+// the detail pane empties and an action key says so instead of reaching the task selected before.
+func TestEmptyListDropsTheSelectedTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "/", "zzz", "enter")
+	waitAfter(t, tm, from, "Tasks: My tasks (0)")
+	from = mark(t, tm)
+	press(tm, "s")
+	waitAfter(t, tm, from, "no task selected")
+	view := finalView(t, tm)
+	if strings.Contains(view, "-- Comments (") || !strings.Contains(view, "Select a task.") {
+		t.Errorf("the detail pane should show no task:\n%s", view)
+	}
+}
+
 // TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
 // (here s for the status dialog) does nothing on the issues screen, since there is no task pane
 // underneath it to act on and the key would otherwise reach whatever task was selected before.

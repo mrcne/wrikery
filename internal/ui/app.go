@@ -217,6 +217,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
+		m.clearIfListEmpty()
 		return m, nil
 	case taskSelectedMsg:
 		m.selectedTaskID = msg.id
@@ -512,6 +513,15 @@ func (m Model) reloadTask() tea.Cmd {
 	return m.loadTask(m.selectedTaskID)
 }
 
+// clearIfListEmpty drops the selected task when the list shows none: an empty folder, a filter nothing matches,
+// or the done toggle hiding the last row. Without it the detail pane and the action keys stay on a task from before.
+func (m *Model) clearIfListEmpty() {
+	if _, ok := m.list.current(); !ok && m.selectedTaskID != "" {
+		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+	}
+}
+
 // openDialog opens a dialog and switches the overlay to it.
 // The pointer receiver mutates the caller's m in place, and the caller returns that same m afterward,
 // so a caller must not also read m in the same statement, the order between the two is unspecified.
@@ -566,6 +576,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Every keystroke rebuilds the rows, and the board's window and offset describe the rows it saw last.
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
+		m.clearIfListEmpty()
 		return m, cmd
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
@@ -753,6 +764,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case paneList:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.clearIfListEmpty()
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	case paneDetail:
