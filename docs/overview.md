@@ -43,6 +43,7 @@ Vim style keys (j, k, h, l, g, G) and arrow keys both work. `?` shows a help ove
 `/` filters the current list as you type. Tab cycles through the panes, Enter goes one level deeper, Esc goes back.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
+A jump to a completed task, from the search, the sync issues screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
 ### Search
 

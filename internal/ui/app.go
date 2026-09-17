@@ -206,7 +206,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tasksLoadedMsg:
 		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
 		// or two quick moves could leave the list showing the folder passed on the way.
+		// A pending selection belongs to the load it was set with and goes with it.
 		if msg.nodeID != m.selectedNode.id {
+			m.pendingSelect = ""
 			return m, nil
 		}
 		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
@@ -494,8 +496,10 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 }
 
 // jumpToTask leaves the search overlay, the sync issues screen or the timesheet and shows the task on the main screen.
-// selectedTaskID is set here rather than waiting for the sidebar/list round trip: taskLoadedMsg drops an answer for a task
-// nobody is on yet, openedOnFocus below has to mark the right task, and a task whose folder is outside the tree still reaches the detail pane.
+// selectedTaskID is set here rather than waiting for the sidebar/list round trip:
+// taskLoadedMsg drops an answer for a task nobody is on yet, and openedOnFocus below has to mark the right task.
+// A task whose folder is outside the tree reaches the detail pane too, but only until the next list reload,
+// which selects the cursor row of the folder left behind.
 func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
 	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
@@ -525,6 +529,7 @@ func (m Model) reloadTask() tea.Cmd {
 
 // clearIfListEmpty drops the selected task when the list shows none: an empty folder, a filter nothing matches,
 // or the done toggle hiding the last row. Without it the detail pane and the action keys stay on a task from before.
+// It runs wherever the rows are rebuilt: after a load, and after a key the list or the board handled.
 func (m *Model) clearIfListEmpty() {
 	if _, ok := m.list.current(); !ok && m.selectedTaskID != "" {
 		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
@@ -785,6 +790,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case paneBoard:
 		var cmd tea.Cmd
 		m.board, cmd = m.board.Update(msg, &m.list, m.theme.HidePrefixes)
+		m.clearIfListEmpty()
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	}

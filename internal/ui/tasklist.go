@@ -38,6 +38,7 @@ type taskListModel struct {
 	offset     int // a visual line, section lines counted
 	height     int // set by the root from the computed layout, View cannot remember it on its own
 	showDone   bool
+	doneLifted bool // showDone turned on by a jump, turned off again when the list moves to another node
 	filtering  bool
 	filter     textinput.Model
 	keys       KeyMap
@@ -51,15 +52,25 @@ func newTaskList(keys KeyMap) taskListModel {
 }
 
 // setRows replaces the rows and reports whether keepID, or the task selected before, is still among them.
-// Only a jump from the search, the issues screen or the timesheet names a keepID, and it turns the done toggle on
-// when its task needs it, a plain reload leaves the toggle alone so a task completed from the list still leaves it.
+// Only a jump from the search, the issues screen or the timesheet names a keepID.
+// The jump lifts whatever would hide its task, the done toggle and the filter,
+// and a lifted toggle falls back once a plain move takes the list to another node.
+// A plain reload leaves both alone, so a task completed from the list still leaves it.
 func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string) bool {
 	if keepID == "" {
 		if cur, ok := l.current(); ok {
 			keepID = cur.task.ID
 		}
-	} else if !l.showDone && slices.ContainsFunc(tasks, func(t store.Task) bool { return t.ID == keepID && isDone(t) }) {
-		l.showDone = true
+		if l.doneLifted && nodeID != l.nodeID {
+			l.showDone, l.doneLifted = false, false
+		}
+	} else if i := slices.IndexFunc(tasks, func(t store.Task) bool { return t.ID == keepID }); i >= 0 {
+		if !l.showDone && isDone(tasks[i]) {
+			l.showDone, l.doneLifted = true, true
+		}
+		if q := l.query(); q != "" && !strings.Contains(strings.ToLower(tasks[i].Title), q) {
+			l.filter.SetValue("")
+		}
 	}
 	l.nodeID, l.crumb = nodeID, crumb
 	l.all = l.all[:0]
@@ -78,7 +89,7 @@ func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states
 // applyFilter is the one place the rows are built: the filter and the done toggle narrow all, the grouping orders what is left.
 // The columns are computed here too, the board and the by status sections share them.
 func (l *taskListModel) applyFilter() {
-	q := strings.ToLower(strings.TrimSpace(l.filter.Value()))
+	q := l.query()
 	var kept []int
 	for i, r := range l.all {
 		if !l.showDone && isDone(r.task) {
@@ -116,6 +127,8 @@ func (l *taskListModel) applyFilter() {
 }
 
 func (l taskListModel) sectioned() bool { return l.groupBy != groupNone }
+
+func (l taskListModel) query() string { return strings.ToLower(strings.TrimSpace(l.filter.Value())) }
 
 // lineCount is the length of lines() without building it: a section line per group when sectioned.
 func (l taskListModel) lineCount() int {
@@ -312,7 +325,8 @@ func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
 		l.scroll()
 		return l, l.filter.Focus()
 	case key.Matches(msg, l.keys.ToggleDone):
-		l.showDone = !l.showDone
+		// The user's own press wins over a jump's lift, so the toggle stays as they set it when the list moves on.
+		l.showDone, l.doneLifted = !l.showDone, false
 		l.applyFilter()
 	case key.Matches(msg, l.keys.Enter), key.Matches(msg, l.keys.Right):
 		return l, intent(focusMsg{pane: paneDetail})

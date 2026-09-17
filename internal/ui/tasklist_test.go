@@ -254,19 +254,59 @@ func TestResizePullsTheListWindowBack(t *testing.T) {
 	}
 }
 
-// A jump names the task to select, and a completed one has to be on screen for that,
-// so the done toggle turns on for it and stays as it was on a plain reload.
-func TestJumpToACompletedTaskTurnsTheDoneToggleOn(t *testing.T) {
+// A jump names the task to select, and it has to be on screen for that, so the done toggle and a filter that
+// would hide it are lifted. The lifted toggle falls back when the list moves to another node, unless the user
+// pressed z in between, and a plain reload lifts nothing.
+func TestJumpLiftsTheDoneToggleAndTheFilter(t *testing.T) {
 	l := newTaskList(defaultKeyMap())
+	l.filter.SetValue("zzz")
 	tasks := []store.Task{{ID: "1", Title: "open", Status: "Active"}, {ID: "2", Title: "done", Status: "Completed"}}
-	if found := l.setRows("F1", "API", tasks, nil, "2"); !found || !l.showDone || l.cursor != 1 {
-		t.Errorf("jump to the completed task: found %v, showDone %v, cursor %d", found, l.showDone, l.cursor)
+	if found := l.setRows("F1", "API", tasks, nil, "2"); !found || !l.showDone || l.cursor != 1 || l.filter.Value() != "" {
+		t.Errorf("jump to the completed task: found %v, showDone %v, cursor %d, filter %q", found, l.showDone, l.cursor, l.filter.Value())
+	}
+	l.setRows("F2", "Web", tasks, nil, "")
+	if l.showDone {
+		t.Error("the lifted toggle should fall back when the list moves to another node")
+	}
+	l.setRows("F1", "API", tasks, nil, "2")
+	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	l.setRows("F2", "Web", tasks, nil, "")
+	if !l.showDone {
+		t.Error("a toggle the user pressed after the jump should stay as they left it")
 	}
 	l = newTaskList(defaultKeyMap())
 	l.setRows("F1", "API", tasks, nil, "")
 	tasks[0].Status = "Completed"
 	if found := l.setRows("F1", "API", tasks, nil, ""); found || l.showDone {
 		t.Errorf("reload with the selected task completed: found %v, showDone %v, want it gone from the list", found, l.showDone)
+	}
+}
+
+// A filter left on the list must not swallow the task a jump asks for: the list would come out empty and the
+// selection would be dropped with it.
+func TestJumpKeepsItsTaskUnderAFilter(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.selectedNode = treeNode{id: "F1"}
+	m.list.filter.SetValue("zzz")
+	m.selectedTaskID, m.pendingSelect = "T1", "T1"
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "one", Status: "Active"}}})
+	if m = next.(Model); m.selectedTaskID != "T1" || m.list.count != 1 {
+		t.Errorf("the jump should stand: selected %q, %d rows", m.selectedTaskID, m.list.count)
+	}
+}
+
+// The board hands z to the list, so it can empty the rows on the same key, and the selection has to go with them.
+func TestDoneToggleOnTheBoardDropsTheSelectionWhenEmpty(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.shape, m.focus = shapeBoard, paneBoard
+	m.selectedNode = treeNode{id: "F1"}
+	m.list.showDone = true
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "done", Status: "Completed"}}})
+	next, _ = next.(Model).Update(taskSelectedMsg{id: "T1"})
+	next, _ = next.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	if m = next.(Model); m.selectedTaskID != "" || m.list.count != 0 {
+		t.Errorf("z that empties the board should drop the selection, selected %q with %d rows", m.selectedTaskID, m.list.count)
 	}
 }
 
@@ -289,8 +329,10 @@ func TestStaleListLoadAndTaskSelectionAreDropped(t *testing.T) {
 	if got := next.(Model).selectedTaskID; got != "" || cmd != nil {
 		t.Errorf("a selection for a row the list no longer has should be dropped, selected %q", got)
 	}
-	next, cmd = next.(Model).Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks})
-	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil {
-		t.Errorf("a late load for the node left behind should be dropped, list shows %s with %d rows", m.list.nodeID, m.list.count)
+	m = next.(Model)
+	m.pendingSelect = "T1"
+	next, cmd = m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks})
+	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil || m.pendingSelect != "" {
+		t.Errorf("a late load for the node left behind should be dropped with its pending selection, list shows %s with %d rows, pending %q", m.list.nodeID, m.list.count, m.pendingSelect)
 	}
 }
