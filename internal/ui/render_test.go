@@ -112,4 +112,10 @@ func TestRenderDescriptionPrintsARepeatedAddressOnce(t *testing.T) {
 	if !strings.Contains(out, "API reference "+url) {
 		t.Errorf("a link with its own text should keep both:\n%s", out)
 	}
+	// A no-break space pasted into the address is not an autolink to commonmark, so such a link keeps the ordinary form.
+	odd := "https://developers.wrike.com/a\u00a0b"
+	out = ansi.Strip(renderDescription(`<p><a href="`+odd+`">`+odd+`</a></p>`, "", 80, "dark"))
+	if strings.Contains(out, "<") || !strings.Contains(out, "developers.wrike.com/a") {
+		t.Errorf("an address with whitespace should not become a bare autolink:\n%s", out)
+	}
 }
