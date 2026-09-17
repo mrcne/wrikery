@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	MeID          = "KUAAAAME"
-	SpacePlatform = "IEAAPLAT"
-	SpaceMobile   = "IEAAMOBI"
-	ProjectAPI    = "IEAAAPI1"
-	taskCount     = 60
+	MeID           = "KUAAAAME"
+	SpacePlatform  = "IEAAPLAT"
+	SpaceMobile    = "IEAAMOBI"
+	ProjectAPI     = "IEAAAPI1"
+	folderWishlist = "IEAAWISH"
+	taskCount      = 60
 )
 
 var contacts = []store.Contact{
@@ -60,11 +61,13 @@ var folders = []store.Folder{
 	{ID: "IEAADSGN", Title: "Design system", Scope: "WsFolder"},
 	{ID: "IEAAINFR", Title: "Infra", Scope: "WsFolder", ChildIDs: []string{"IEAAINF2"}},
 	{ID: "IEAAINF2", Title: "On-call", Scope: "WsFolder"},
-	{ID: SpaceMobile, Title: "Mobile", Scope: "WsFolder", Space: true, ChildIDs: []string{"IEAAIOS1"}},
+	{ID: SpaceMobile, Title: "Mobile", Scope: "WsFolder", Space: true, ChildIDs: []string{"IEAAIOS1", folderWishlist}},
 	{ID: "IEAAIOS1", Title: "iOS app", Scope: "WsFolder", Project: &store.Project{Status: "Yellow", CustomStatusID: "IEAAST14"}},
+	{ID: folderWishlist, Title: "Wishlist", Scope: "WsFolder"},
 }
 
 // taskFolders is where tasks live. Space roots hold none directly, like most real accounts.
+// Wishlist holds none either, so the empty task list has a fixture next to the full ones.
 var taskFolders = []string{ProjectAPI, "IEAAWEB1", "IEAADSGN", "IEAAINFR", "IEAAINF2", "IEAAIOS1"}
 
 var verbs = []string{"Fix", "Add", "Rotate", "Document", "Refactor", "Remove", "Bump", "Investigate", "Design", "Write tests for"}

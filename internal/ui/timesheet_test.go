@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -317,5 +318,77 @@ func TestNewEntryFromTheAddRowGoesThroughSearchPick(t *testing.T) {
 	}
 	if got := d.inputs[1].Value(); got != "2026-09-02" {
 		t.Errorf("date input = %q, want 2026-09-02", got)
+	}
+}
+
+// Enter leaves the grid for the task behind the row, and e keeps editing the entry under the cursor.
+// The "+ new task" row has no task, so enter rests there.
+func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
+	var ts timesheetModel
+	ts.keys = defaultKeyMap()
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
+		titles:    map[string]string{"T1": "Fix auth retry loop"},
+		parents:   map[string]string{"T1": "F1"},
+	})
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	_, cmd := ts.Update(enter)
+	if cmd == nil {
+		t.Fatal("enter on a row sent nothing")
+	}
+	if msg, ok := cmd().(openTaskMsg); !ok || msg.id != "T1" || msg.parentID != "F1" {
+		t.Errorf("enter on a row sent %#v, want openTaskMsg for T1 in F1", cmd())
+	}
+	_, cmd = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if msg, ok := cmd().(editEntryMsg); !ok || msg.log.ID != "a" {
+		t.Errorf("e sent %#v, want editEntryMsg for entry a", cmd())
+	}
+	ts.cursorRow = len(ts.rows)
+	if _, cmd = ts.Update(enter); cmd != nil {
+		t.Errorf("enter on the new task row sent %#v", cmd())
+	}
+	// An entry can belong to a task outside every followed scope, then there is no task to open and the key says so.
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "b", TaskID: "T9", TrackedDate: "2026-08-31", Hours: 1}},
+		titles:    map[string]string{"T9": ""},
+	})
+	ts.cursorRow = 0
+	_, cmd = ts.Update(enter)
+	if msg, ok := cmd().(toastMsg); !ok || !msg.isErr {
+		t.Errorf("enter on a row without a cached task sent %#v, want an error toast", cmd())
+	}
+}
+
+// The row under the cursor carries the cursor mark in front of its title, so on a wide grid the highlighted cell
+// can be traced back to its task without counting rows. The mark is a column of its own and the "+ new task" row gets it too.
+func TestTimesheetMarksTheRowUnderTheCursor(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	var ts timesheetModel
+	ts.keys, ts.height = defaultKeyMap(), 12
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs: []store.Timelog{
+			{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2},
+			{ID: "b", TaskID: "T2", TrackedDate: "2026-09-02", Hours: 4},
+		},
+		titles: map[string]string{"T1": "Fix auth retry loop", "T2": "Rotate signing keys"},
+	})
+	lines := strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
+	if !strings.HasPrefix(lines[1], "> Fix auth retry loop") || !strings.HasPrefix(lines[2], "  Rotate signing keys") {
+		t.Errorf("the first row should carry the mark and the second not:\n%s", strings.Join(lines, "\n"))
+	}
+	if mon, hours := strings.Index(lines[0], "Mon 31")+6, strings.Index(lines[1], "2.0")+3; mon != hours {
+		t.Errorf("the Monday cell ends at column %d and its header at %d:\n%s", hours, mon, strings.Join(lines, "\n"))
+	}
+	if !strings.HasPrefix(lines[3], "  + new task") || !strings.HasPrefix(lines[5], "  Total") {
+		t.Errorf("the add row and the totals should sit under the titles:\n%s", strings.Join(lines, "\n"))
+	}
+	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	lines = strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
+	if !strings.HasPrefix(lines[1], "  Fix auth retry loop") || !strings.HasPrefix(lines[3], "> + new task") {
+		t.Errorf("the mark should have moved to the new task row:\n%s", strings.Join(lines, "\n"))
 	}
 }

@@ -58,8 +58,8 @@ type searchResultsMsg struct {
 	tasks  []store.Task
 	crumbs map[string]string
 }
-type searchOpenMsg struct{ task store.Task } // intent: close the search overlay and jump to this task
-type searchPickMsg struct{ task store.Task } // intent: pick mode, hand the task back to whoever asked for it
+type openTaskMsg struct{ id, parentID string } // intent: leave the search overlay, the issues screen or the timesheet for this task
+type searchPickMsg struct{ task store.Task }   // intent: pick mode, hand the task back to whoever asked for it
 type runSearchMsg struct {
 	seq   int
 	query string

@@ -43,6 +43,7 @@ Vim style keys (j, k, h, l, g, G) and arrow keys both work. `?` shows a help ove
 `/` filters the current list as you type. Tab cycles through the panes, Enter goes one level deeper, Esc goes back.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
+A jump to a completed task, from the search, the sync issues screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
 ### Search
 
@@ -53,6 +54,7 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
+A link shows its text and then its address, or the address alone when the text is the address, as it is for a pasted one.
 Below it come the metadata and the comment thread. Single key actions on the selected task:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.
@@ -139,10 +141,11 @@ Each row carries a total for the task, each column a total for the day, and the 
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
 `h` and `l` move between days, `j` and `k` move between rows.
+The row under the cursor carries the cursor mark in front of its title, so on a wide grid a cell can be traced back to its task.
 `[` and `]` go one week back and forward, `.` jumps back to the current week.
 `n` logs time on the row's task for the selected day.
 On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
-`e` or enter edits the entry under the cursor, and when a cell holds more than one entry a small list asks which one first.
+`e` edits the entry under the cursor, and when a cell holds more than one entry a small list asks which one first.
 `x` deletes an entry after a confirmation, again through that list when the cell holds several.
 
 The sync engine keeps the current week and the eight weeks before it.
@@ -151,6 +154,8 @@ A cell with a write still queued shows the pending marker in front of the hours.
 
 An entry that sits in a locked or approved timesheet is shown dimmed.
 Editing or deleting it is refused with a message instead, nothing is queued for it.
+
+Enter on a row leaves the grid for the task behind it, shown on the main screen with its folder selected, the way the search does.
 
 ### First run
 

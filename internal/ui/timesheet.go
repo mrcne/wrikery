@@ -25,6 +25,8 @@ func weekOf(t time.Time) time.Time {
 
 type tsRow struct {
 	taskID, title string
+	parentID      string // first folder of the task, where enter on the row lands
+	cached        bool   // false for a task outside every followed scope, the store has its entries but not the task
 	cells         [7][]store.Timelog
 }
 
@@ -47,6 +49,7 @@ type weekLoadedMsg struct {
 	windowFrom time.Time
 	logs       []store.Timelog
 	titles     map[string]string
+	parents    map[string]string
 	states     map[string]store.OutboxState
 }
 type loadWeekMsg struct{ start time.Time }
@@ -77,10 +80,11 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 		row, ok := byTask[l.TaskID]
 		if !ok {
 			title := msg.titles[l.TaskID]
-			if title == "" {
+			cached := title != ""
+			if !cached {
 				title = "(task " + l.TaskID + ")"
 			}
-			row = &tsRow{taskID: l.TaskID, title: title}
+			row = &tsRow{taskID: l.TaskID, title: title, parentID: msg.parents[l.TaskID], cached: cached}
 			byTask[l.TaskID] = row
 		}
 		row.cells[idx] = append(row.cells[idx], l)
@@ -213,7 +217,14 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 			taskID = t.rows[t.cursorRow].taskID
 		}
 		return t, intent(newEntryMsg{taskID: taskID, date: t.cellDate()})
-	case key.Matches(msg, t.keys.Edit), key.Matches(msg, t.keys.Enter):
+	case key.Matches(msg, t.keys.Enter):
+		if r := t.cursorRow; r < len(t.rows) {
+			if !t.rows[r].cached {
+				return t, intent(toastMsg{text: "this task is outside the followed spaces and not synced", isErr: true})
+			}
+			return t, intent(openTaskMsg{id: t.rows[r].taskID, parentID: t.rows[r].parentID})
+		}
+	case key.Matches(msg, t.keys.Edit):
 		switch logs := t.cell(); len(logs) {
 		case 0:
 			return t, nil
@@ -239,12 +250,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	bold := lipgloss.NewStyle().Bold(true)
 	const cellW = 7
-	titleW := width - 8*cellW - 2
+	// Two columns in front of the titles hold the cursor mark, the same one the list and the sidebar draw.
+	titleW := width - 8*cellW - 4
 	if titleW < 10 {
 		titleW = 10
 	}
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", titleW+2))
+	b.WriteString(strings.Repeat(" ", titleW+4))
 	for i := 0; i < 7; i++ {
 		d := t.weekStart.AddDate(0, 0, i)
 		label := fmt.Sprintf("%s %d", d.Weekday().String()[:3], d.Day())
@@ -264,8 +276,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0
-		line := ansi.Truncate(displayTitle(r.title, th.HidePrefixes), titleW, "...")
-		line += strings.Repeat(" ", titleW+2-ansi.StringWidth(line))
+		title := ansi.Truncate(displayTitle(r.title, th.HidePrefixes), titleW, "...")
+		pad := strings.Repeat(" ", titleW+2-ansi.StringWidth(title))
+		line := "  " + title + pad
+		if ri == t.cursorRow {
+			// The mark and the accent tie the highlighted cell to its task, a wide grid leaves too much space between them.
+			line = th.Glyphs.Cursor + " " + lipgloss.NewStyle().Foreground(th.Accent).Render(title) + pad
+		}
 		for di, logs := range r.cells {
 			sum, pending, locked := 0.0, false, false
 			for _, l := range logs {
@@ -299,9 +316,9 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	}
 	// The empty row: n here logs time on a task picked through search.
 	const newTaskLabel = "+ new task"
-	addLabel := muted.Render(newTaskLabel)
+	addLabel := "  " + muted.Render(newTaskLabel)
 	if t.cursorRow == len(t.rows) {
-		addLabel = lipgloss.NewStyle().Foreground(th.Accent).Render(newTaskLabel)
+		addLabel = th.Glyphs.Cursor + " " + lipgloss.NewStyle().Foreground(th.Accent).Render(newTaskLabel)
 	}
 	b.WriteString(addLabel + strings.Repeat(" ", titleW+2-ansi.StringWidth(newTaskLabel)))
 	for di := 0; di < 7; di++ {
@@ -313,7 +330,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	}
 	b.WriteString("\n\n")
 	total := 0.0
-	line := bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
+	line := "  " + bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
 	for _, v := range dayTotals {
 		total += v
 		line += fmt.Sprintf("%*.1f", cellW, v)

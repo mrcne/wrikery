@@ -204,6 +204,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedNode = msg.node
 		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node))
 	case tasksLoadedMsg:
+		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
+		// or two quick moves could leave the list showing the folder passed on the way.
+		// A pending selection belongs to the load it was set with and goes with it.
+		if msg.nodeID != m.selectedNode.id {
+			m.pendingSelect = ""
+			return m, nil
+		}
 		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
 			m.list.cursor = 0
 		}
@@ -217,8 +224,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
+		m.clearIfListEmpty()
 		return m, nil
 	case taskSelectedMsg:
+		// The intent travels through the queue, and a list load that lands before it can leave the list without that row.
+		// Such a late selection is dropped, or an empty folder would show a task from the folder before.
+		if !m.list.has(msg.id) {
+			return m, nil
+		}
 		m.selectedTaskID = msg.id
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:
@@ -253,8 +266,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.search, cmd = m.search.Update(msg)
 		return m, cmd
-	case searchOpenMsg:
-		return m.openFromSearch(msg.task)
+	case openTaskMsg:
+		return m.jumpToTask(msg.id, msg.parentID)
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
@@ -309,20 +322,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case discardIssueMsg:
 		st := m.opts.Store
 		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
-	case openTaskMsg:
-		// selectedTaskID is set here, not left for the pendingSelect round trip through tasksLoadedMsg:
-		// taskLoadedMsg drops any answer for a task nobody is on yet, and nothing else is on this one.
-		// The rest mirrors openFromSearch: the parent folder becomes the selected node so a later
-		// list reload finds this task again, and pendingSelect is only set where a load is issued.
-		m.screen, m.focus, m.selectedTaskID = screenMain, paneDetail, msg.id
-		cmds := []tea.Cmd{m.loadTask(msg.id)}
-		if msg.parentID != "" && m.sidebar.selectByID(msg.parentID) {
-			n, _ := m.sidebar.current()
-			m.selectedNode = n
-			m.pendingSelect = msg.id
-			cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
-		}
-		return m, tea.Batch(cmds...)
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
@@ -496,27 +495,26 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 	return m.markOpened(m.selectedTaskID)
 }
 
-// openFromSearch closes the search overlay and jumps straight to the chosen task.
-// selectedTaskID is set here rather than waiting for the sidebar/list round trip, so openedOnFocus
-// below marks the right task and a task whose folder is outside the tree still reaches the detail pane.
-func (m Model) openFromSearch(t store.Task) (tea.Model, tea.Cmd) {
+// jumpToTask leaves the search overlay, the sync issues screen or the timesheet and shows the task on the main screen.
+// selectedTaskID is set here rather than waiting for the sidebar/list round trip:
+// taskLoadedMsg drops an answer for a task nobody is on yet, and openedOnFocus below has to mark the right task.
+// A task whose folder is outside the tree reaches the detail pane too, but only until the next list reload,
+// which selects the cursor row of the folder left behind.
+func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
-	m.screen = screenMain
-	m.overlay = overlayNone
+	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
-	m.focus = paneDetail
-	m.selectedTaskID = t.ID
 	var cmds []tea.Cmd
-	if len(t.ParentIDs) > 0 && m.sidebar.selectByID(t.ParentIDs[0]) {
+	if parentID != "" && m.sidebar.selectByID(parentID) {
 		n, _ := m.sidebar.current()
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
-		// reloads the node the search left behind instead of the one now on screen.
+		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
 		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
-		m.pendingSelect = t.ID
+		m.pendingSelect = id
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
 	}
-	cmds = append(cmds, m.loadTask(t.ID), m.openedOnFocus(prevFocus))
+	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
 }
 
@@ -527,6 +525,16 @@ func (m Model) reloadTask() tea.Cmd {
 		return nil
 	}
 	return m.loadTask(m.selectedTaskID)
+}
+
+// clearIfListEmpty drops the selected task when the list shows none: an empty folder, a filter nothing matches,
+// or the done toggle hiding the last row. Without it the detail pane and the action keys stay on a task from before.
+// It runs wherever the rows are rebuilt: after a load, and after a key the list or the board handled.
+func (m *Model) clearIfListEmpty() {
+	if _, ok := m.list.current(); !ok && m.selectedTaskID != "" {
+		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+	}
 }
 
 // openDialog opens a dialog and switches the overlay to it.
@@ -583,6 +591,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Every keystroke rebuilds the rows, and the board's window and offset describe the rows it saw last.
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
+		m.clearIfListEmpty()
 		return m, cmd
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
@@ -770,6 +779,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case paneList:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
+		m.clearIfListEmpty()
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	case paneDetail:
@@ -780,6 +790,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case paneBoard:
 		var cmd tea.Cmd
 		m.board, cmd = m.board.Update(msg, &m.list, m.theme.HidePrefixes)
+		m.clearIfListEmpty()
 		m.syncPaneSizes()
 		return m, tea.Batch(opened, cmd)
 	}
@@ -1016,7 +1027,7 @@ func (m Model) hintBindings() []key.Binding {
 	if m.screen == screenTimesheet {
 		return []key.Binding{
 			m.keys.DayLeft, m.keys.DayRight, m.keys.Down, m.keys.Up, m.keys.WeekPrev, m.keys.WeekNext,
-			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Back,
+			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Enter, m.keys.Back,
 		}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}

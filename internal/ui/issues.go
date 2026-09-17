@@ -33,7 +33,6 @@ type issuesModel struct {
 type issuesLoadedMsg struct{ rows []issueRow }
 type retryIssueMsg struct{ id int64 }
 type discardIssueMsg struct{ id int64 }
-type openTaskMsg struct{ id, parentID string }
 
 func summarize(row store.OutboxRow) string {
 	switch row.Kind {

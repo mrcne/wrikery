@@ -1,10 +1,11 @@
 package ui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,7 +159,11 @@ func (m Model) loadTree() tea.Cmd {
 						children = append(children, c)
 					}
 				}
-				sort.Slice(children, func(i, j int) bool { return children[i].Title < children[j].Title })
+				// By title without regard to case, so a folder named in lower case does not sink under the others,
+				// then by the title as written so two that differ only in case keep one order between reloads.
+				slices.SortFunc(children, func(a, b store.Folder) int {
+					return cmp.Or(strings.Compare(strings.ToLower(a.Title), strings.ToLower(b.Title)), strings.Compare(a.Title, b.Title))
+				})
 				for _, c := range children {
 					// nodes grows while we recurse, so index by idx and never hold a pointer into the slice.
 					nodes[idx].children = append(nodes[idx].children, add(c, depth+1))
@@ -188,6 +193,15 @@ func (m Model) loadTree() tea.Cmd {
 }
 
 func isDone(t store.Task) bool { return t.Status == "Completed" || t.Status == "Cancelled" }
+
+// firstParent is the folder a jump to the task lands in.
+// The store sorts ParentIDs, so this is the lowest folder id and not an order Wrike has, any of them will do to show the task.
+func firstParent(t store.Task) string {
+	if len(t.ParentIDs) == 0 {
+		return ""
+	}
+	return t.ParentIDs[0]
+}
 
 func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
@@ -268,10 +282,8 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 		}
 		crumbs := map[string]string{}
 		for _, t := range tasks {
-			if len(t.ParentIDs) > 0 {
-				if f, err := st.Folders().Get(ctx, t.ParentIDs[0]); err == nil {
-					crumbs[t.ID] = f.Title
-				}
+			if f, err := st.Folders().Get(ctx, firstParent(t)); err == nil {
+				crumbs[t.ID] = f.Title
 			}
 		}
 		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
@@ -347,10 +359,7 @@ func (m Model) loadIssues() tea.Cmd {
 			}
 			if ir.taskID != "" {
 				if t, err := st.Tasks().Get(ctx, ir.taskID); err == nil {
-					ir.title = t.Title
-					if len(t.ParentIDs) > 0 {
-						ir.parentID = t.ParentIDs[0]
-					}
+					ir.title, ir.parentID = t.Title, firstParent(t)
 				} else {
 					ir.title = "(task " + ir.taskID + ")"
 				}
@@ -413,22 +422,23 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		titles := map[string]string{}
+		// The title names the row and the first parent is where enter on the row lands.
+		// An entry can belong to a task outside every followed scope, that task is not in the store and its row says so.
+		titles, parents := map[string]string{}, map[string]string{}
 		for _, l := range logs {
 			if _, done := titles[l.TaskID]; done {
 				continue
 			}
+			titles[l.TaskID] = ""
 			if t, err := st.Tasks().Get(ctx, l.TaskID); err == nil {
-				titles[l.TaskID] = t.Title
-			} else {
-				titles[l.TaskID] = ""
+				titles[l.TaskID], parents[l.TaskID] = t.Title, firstParent(t)
 			}
 		}
 		states, err := st.Outbox().StatesByEntity(ctx)
 		if err != nil {
 			return errMsg{err}
 		}
-		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, states: states}
+		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, parents: parents, states: states}
 	}
 }
 

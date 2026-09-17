@@ -2,12 +2,12 @@
 |> My tasks         30 ||> o   Document auth retry loop           AN+ 29 Aug||Document auth retry loop                 |
 |  v Mobile            ||  o   Refactor signing keys              AN+ 29 Aug||#1200033  Infra                          |
 |    o iOS app         ||  o   Remove rate limit test             AN+ 29 Aug||                                         |
-|  v Platform          ||  o   Rotate signing keys                AN+  2 Sep||Status     o Blocked                     |
-|    o API             ||  o ! Document rate limit test           AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak       |
-|      Design system   ||  o   Refactor error codes               AN+  2 Sep||Dates      28 Aug -> 29 Aug              |
-|    > Infra           ||  o   Remove sync cursor                 AN+  2 Sep||Updated    25 Aug                        |
-|    o Web             ||  o   Bump legacy config loader          AN+  2 Sep||                                         |
-|                      ||  o   Investigate dependencies           AN+  2 Sep||  Plain paragraph, nothing fancy. Long   |
+|      Wishlist        ||  o   Rotate signing keys                AN+  2 Sep||Status     o Blocked                     |
+|  v Platform          ||  o ! Document rate limit test           AN+  2 Sep||Assignees  Celina Wrona, Ada Nowak       |
+|    o API             ||  o   Refactor error codes               AN+  2 Sep||Dates      28 Aug -> 29 Aug              |
+|      Design system   ||  o   Remove sync cursor                 AN+  2 Sep||Updated    25 Aug                        |
+|    > Infra           ||  o   Bump legacy config loader          AN+  2 Sep||                                         |
+|    o Web             ||  o   Investigate dependencies           AN+  2 Sep||  Plain paragraph, nothing fancy. Long   |
 |                      ||  o   Remove auth retry loop             AN   today||  enough to wrap in a narrow detail      |
 |                      ||  o   Bump signing keys                  AN   today||  pane so the wrapping code gets         |
 |                      ||  o   Investigate rate limit test        AN   today||  exercised too.                         |

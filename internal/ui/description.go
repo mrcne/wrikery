@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
@@ -620,5 +621,40 @@ func newDisplayConverter() *converter.Converter {
 		return converter.RenderSuccess
 	}, converter.PriorityEarly)
 	conv.Register.RendererFor("input", converter.TagTypeInline, renderCheckbox, converter.PriorityEarly)
+	// Pasting an address into Wrike makes a link whose text is the address, and glamour prints the text and then the address.
+	// Such a link goes through as a bare address, which glamour prints once, the same as an address typed into the text.
+	conv.Register.RendererFor("a", converter.TagTypeInline, func(_ converter.Context, w converter.Writer, n *html.Node) converter.RenderStatus {
+		href := strings.TrimSpace(attr(n, "href"))
+		if !isWebAddress(href) || trimAddress(textOf(n)) != trimAddress(href) {
+			return converter.RenderTryNext
+		}
+		_, _ = w.WriteString("<" + href + ">")
+		return converter.RenderSuccess
+	}, converter.PriorityEarly)
 	return conv
+}
+
+// isWebAddress accepts what commonmark takes as an autolink between angle brackets: a web scheme, no whitespace of any kind and no angle bracket.
+// Anything else is left to the ordinary link rendering, an autolink that commonmark rejects would print its brackets.
+func isWebAddress(s string) bool {
+	lower := strings.ToLower(s)
+	return (strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")) &&
+		strings.IndexFunc(s, unicode.IsSpace) < 0 && !strings.ContainsAny(s, "<>")
+}
+
+// trimAddress makes the link text and the href comparable: a browser adds the trailing slash to one and not the other.
+func trimAddress(s string) string {
+	return strings.TrimSuffix(strings.TrimSpace(s), "/")
+}
+
+func textOf(n *html.Node) string {
+	var b strings.Builder
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.TextNode {
+			b.WriteString(c.Data)
+		} else {
+			b.WriteString(textOf(c))
+		}
+	}
+	return b.String()
 }
