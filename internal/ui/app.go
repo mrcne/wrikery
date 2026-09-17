@@ -1027,7 +1027,7 @@ func (m Model) hintBindings() []key.Binding {
 	if m.screen == screenTimesheet {
 		return []key.Binding{
 			m.keys.DayLeft, m.keys.DayRight, m.keys.Down, m.keys.Up, m.keys.WeekPrev, m.keys.WeekNext,
-			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Back,
+			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Enter, m.keys.Back,
 		}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}

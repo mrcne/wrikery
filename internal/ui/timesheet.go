@@ -25,7 +25,8 @@ func weekOf(t time.Time) time.Time {
 
 type tsRow struct {
 	taskID, title string
-	parentID      string // first folder of the task, where enter on the row lands, "" for a task outside the cache
+	parentID      string // first folder of the task, where enter on the row lands
+	cached        bool   // false for a task outside every followed scope, the store has its entries but not the task
 	cells         [7][]store.Timelog
 }
 
@@ -79,10 +80,11 @@ func (t *timesheetModel) set(msg weekLoadedMsg) {
 		row, ok := byTask[l.TaskID]
 		if !ok {
 			title := msg.titles[l.TaskID]
-			if title == "" {
+			cached := title != ""
+			if !cached {
 				title = "(task " + l.TaskID + ")"
 			}
-			row = &tsRow{taskID: l.TaskID, title: title, parentID: msg.parents[l.TaskID]}
+			row = &tsRow{taskID: l.TaskID, title: title, parentID: msg.parents[l.TaskID], cached: cached}
 			byTask[l.TaskID] = row
 		}
 		row.cells[idx] = append(row.cells[idx], l)
@@ -217,6 +219,9 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 		return t, intent(newEntryMsg{taskID: taskID, date: t.cellDate()})
 	case key.Matches(msg, t.keys.Enter):
 		if r := t.cursorRow; r < len(t.rows) {
+			if !t.rows[r].cached {
+				return t, intent(toastMsg{text: "this task is outside the followed spaces and not synced", isErr: true})
+			}
 			return t, intent(openTaskMsg{id: t.rows[r].taskID, parentID: t.rows[r].parentID})
 		}
 	case key.Matches(msg, t.keys.Edit):

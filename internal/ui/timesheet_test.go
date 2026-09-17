@@ -348,6 +348,17 @@ func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
 	if _, cmd = ts.Update(enter); cmd != nil {
 		t.Errorf("enter on the new task row sent %#v", cmd())
 	}
+	// An entry can belong to a task outside every followed scope, then there is no task to open and the key says so.
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "b", TaskID: "T9", TrackedDate: "2026-08-31", Hours: 1}},
+		titles:    map[string]string{"T9": ""},
+	})
+	ts.cursorRow = 0
+	_, cmd = ts.Update(enter)
+	if msg, ok := cmd().(toastMsg); !ok || !msg.isErr {
+		t.Errorf("enter on a row without a cached task sent %#v, want an error toast", cmd())
+	}
 }
 
 // The row under the cursor carries the cursor mark in front of its title, so on a wide grid the highlighted cell
