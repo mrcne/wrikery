@@ -22,6 +22,7 @@ type closeDialogMsg struct{}
 type writeQueuedMsg struct {
 	toast           string
 	pending, failed int
+	selectID        string // a row the write made, the list lands on it after the reload
 }
 type submitCommentMsg struct{ taskID, text string }
 

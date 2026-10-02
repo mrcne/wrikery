@@ -198,6 +198,16 @@ func (l taskListModel) current() (taskRow, bool) {
 	return l.all[l.rows[l.cursor]], true
 }
 
+// groupAt is the group the row at pos sits in.
+func (l taskListModel) groupAt(pos int) (taskGroup, bool) {
+	for i := len(l.groupStart) - 1; i >= 0; i-- {
+		if pos >= l.groupStart[i] {
+			return l.groups[i], true
+		}
+	}
+	return taskGroup{}, false
+}
+
 func (l taskListModel) has(id string) bool {
 	return slices.ContainsFunc(l.rows, func(ri int) bool { return l.all[ri].task.ID == id })
 }

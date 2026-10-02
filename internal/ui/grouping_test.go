@@ -246,3 +246,17 @@ func TestFolderIndexKeepsEveryParent(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupByFolderCarriesTheSectionID(t *testing.T) {
+	nodes := testTree()
+	idx := newFolderIndex(nodes)
+	all := []taskRow{
+		{task: store.Task{ID: "T1", ParentIDs: []string{"ONC"}}},
+		{task: store.Task{ID: "T2", ParentIDs: []string{"API"}}},
+		{task: store.Task{ID: "T3", ParentIDs: []string{"PLT"}}},
+	}
+	groups := groupByFolder(all, []int{0, 1, 2}, "PLT", idx)
+	if len(groups) != 3 || groups[0].id != "PLT" || groups[1].id != "API" || groups[2].id != "INF" {
+		t.Errorf("groups = %+v, want the node first, then its children in tree order, each with its id", groups)
+	}
+}
