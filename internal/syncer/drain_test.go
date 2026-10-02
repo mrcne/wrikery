@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -280,5 +281,84 @@ func TestDrainAuthFailureLeavesRowDue(t *testing.T) {
 	}
 	if row.NextAttemptAt != "" {
 		t.Fatalf("next attempt = %q, want none", row.NextAttemptAt)
+	}
+}
+
+func TestDrainCreatesATaskThenItsDependents(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}}, "CS1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := store.LocalID(createID)
+	if _, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, localID, store.TaskUpdatePayload{Importance: "High"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
+		if tc.Title != "New one" || len(tc.Responsibles) != 1 || tc.Responsibles[0] != "U1" {
+			t.Errorf("create sent %+v, want the queued title and responsible", tc)
+		}
+		return wrike.Task{ID: "T9", Title: tc.Title, Status: "Active", CustomStatusID: "CS1", Importance: "Normal",
+			ResponsibleIDs: tc.Responsibles, ParentIDs: []string{folderID}, Permalink: "https://www.wrike.com/open.htm?id=9",
+			CreatedDate: time.Date(2026, 10, 1, 9, 0, 5, 0, time.UTC), UpdatedDate: time.Date(2026, 10, 1, 9, 0, 5, 0, time.UTC)}, nil
+	}, updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		return wrike.Task{ID: taskID, Title: "New one", Importance: u.Importance}, nil
+	}}
+	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	if err != nil || !changed {
+		t.Fatalf("drain = %v, %v", changed, err)
+	}
+
+	log := fc.callLog()
+	if len(log) != 3 || log[0] != "CreateTask F1" || log[1] != "CreateComment T9" || log[2] != "UpdateTask T9" {
+		t.Fatalf("calls = %v, want the create first and the dependents against the confirmed id", log)
+	}
+	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("local task after the drain: %v, want gone", err)
+	}
+	task, err := st.Tasks().Get(ctx, "T9")
+	if err != nil || task.Importance != "High" {
+		t.Errorf("task = %+v, %v, want the server copy with the dependent edit applied", task, err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v", pending, failed, err)
+	}
+}
+
+func TestDrainRejectedCreateKeepsTheLocalTaskAndItsDependents(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := store.LocalID(createID)
+	if _, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
+		return wrike.Task{}, &wrike.APIError{StatusCode: 403, Code: "access_forbidden", Description: "no"}
+	}}
+	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	if err != nil || !changed {
+		t.Fatalf("drain = %v, %v", changed, err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 1 || failed != 1 {
+		t.Errorf("counts = %d, %d, %v, want the create failed and the comment still waiting", pending, failed, err)
+	}
+	if _, err := st.Tasks().Get(ctx, localID); err != nil {
+		t.Errorf("local task after the rejection: %v, want kept for the issues screen", err)
+	}
+	if log := fc.callLog(); len(log) != 1 {
+		t.Errorf("calls = %v, the dependent must not be sent", log)
 	}
 }

@@ -23,6 +23,7 @@ type fakeClient struct {
 	taskTimelogs   func(taskID string) ([]wrike.Timelog, error)
 	timelogs       func(p wrike.TimelogParams) (wrike.TimelogsPage, error)
 	updateTask     func(taskID string, u wrike.TaskUpdate) (wrike.Task, error)
+	createTask     func(folderID string, t wrike.TaskCreate) (wrike.Task, error)
 	createComment  func(taskID, text string) (wrike.Comment, error)
 	createTimelog  func(taskID string, hours float64, trackedDate, comment string) (wrike.Timelog, error)
 	updateTimelog  func(timelogID string, u wrike.TimelogUpdate) (wrike.Timelog, error)
@@ -127,6 +128,14 @@ func (f *fakeClient) UpdateTask(ctx context.Context, taskID string, u wrike.Task
 		return wrike.Task{ID: taskID}, nil
 	}
 	return f.updateTask(taskID, u)
+}
+
+func (f *fakeClient) CreateTask(ctx context.Context, folderID string, t wrike.TaskCreate) (wrike.Task, error) {
+	f.record("CreateTask " + folderID)
+	if f.createTask == nil {
+		return wrike.Task{ID: "T1", Title: t.Title, Status: "Active", ParentIDs: []string{folderID}}, nil
+	}
+	return f.createTask(folderID, t)
 }
 
 func (f *fakeClient) CreateComment(ctx context.Context, taskID, text string) (wrike.Comment, error) {

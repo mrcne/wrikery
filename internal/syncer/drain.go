@@ -67,6 +67,16 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 
 func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow) error {
 	switch row.Kind {
+	case store.KindTaskCreate:
+		var p store.TaskCreatePayload
+		if err := json.Unmarshal(row.Payload, &p); err != nil {
+			return fmt.Errorf("%w %d: payload: %w", errCorruptRow, row.ID, err)
+		}
+		task, err := c.CreateTask(ctx, row.EntityID, wrike.TaskCreate{Title: p.Title, Responsibles: p.Responsibles})
+		if err != nil {
+			return err
+		}
+		return st.Outbox().CompleteTaskCreate(ctx, row.ID, taskFromWrike(task))
 	case store.KindTaskUpdate:
 		var p store.TaskUpdatePayload
 		if err := json.Unmarshal(row.Payload, &p); err != nil {
