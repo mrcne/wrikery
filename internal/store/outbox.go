@@ -13,6 +13,7 @@ import (
 type OutboxKind string
 
 const (
+	KindTaskCreate    OutboxKind = "task_create"
 	KindTaskUpdate    OutboxKind = "task_update"
 	KindCommentCreate OutboxKind = "comment_create"
 	KindTimelogCreate OutboxKind = "timelog_create"
@@ -31,6 +32,9 @@ const (
 // LocalIDPrefix marks optimistic cache rows an enqueue created before the server confirmed them.
 // The suffix is the outbox row id.
 const LocalIDPrefix = "local:"
+
+// LocalID is the cache id of the row an outbox create made, from the outbox row's id.
+func LocalID(id int64) string { return fmt.Sprintf("%s%d", LocalIDPrefix, id) }
 
 type OutboxRow struct {
 	ID            int64
@@ -63,6 +67,13 @@ type TaskUpdatePayload struct {
 	Status string `json:"status,omitempty"`
 }
 
+// TaskCreatePayload mirrors CreateTask. The folder is the row's entity id.
+// Responsibles holds the user's own id for a create from My tasks, so the server copy stays in that view after the swap.
+type TaskCreatePayload struct {
+	Title        string   `json:"title"`
+	Responsibles []string `json:"responsibles,omitempty"`
+}
+
 type CommentCreatePayload struct {
 	Text string `json:"text"`
 }
@@ -80,6 +91,8 @@ type TimelogUpdatePayload struct {
 }
 
 type OutboxRepo interface {
+	EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload, localStatusID string) (int64, error)
+	CompleteTaskCreate(ctx context.Context, id int64, real Task) error
 	EnqueueTaskUpdate(ctx context.Context, taskID string, p TaskUpdatePayload) (int64, error)
 	EnqueueComment(ctx context.Context, taskID, authorID, text string) (int64, error)
 	EnqueueTimelogCreate(ctx context.Context, taskID, userID string, p TimelogCreatePayload) (int64, error)
@@ -201,6 +214,30 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	return id, tx.Commit()
 }
 
+// EnqueueTaskCreate queues a create in folderID and writes the task under a local id so the list shows it at once.
+// localStatusID is a guess for that row only, the first Active status of the workflow in view.
+// It is not sent, Wrike picks the folder's own default and the swap brings the real one.
+func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload, localStatusID string) (int64, error) {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	id, err := o.insertOutboxTx(ctx, tx, KindTaskCreate, folderID, p)
+	if err != nil {
+		return 0, err
+	}
+	local := Task{
+		ID: LocalID(id), Title: p.Title, Status: "Active", CustomStatusID: localStatusID, Importance: "Normal",
+		ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
+		CreatedDate: o.stamp(), UpdatedDate: o.stamp(),
+	}
+	if err := upsertTasksTx(ctx, tx, []Task{local}); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
+}
+
 func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text string) (int64, error) {
 	tx, err := o.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -214,7 +251,7 @@ func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text s
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO comments (id, task_id, author_id, text, created_date)
 		VALUES (?, ?, ?, ?, ?)`,
-		fmt.Sprintf("%s%d", LocalIDPrefix, id), taskID, authorID, text, o.stamp()); err != nil {
+		LocalID(id), taskID, authorID, text, o.stamp()); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -234,7 +271,7 @@ func (o outboxRepo) EnqueueTimelogCreate(ctx context.Context, taskID, userID str
 		INSERT INTO timelogs (id, task_id, user_id, tracked_date, comment, hours,
 			created_date, updated_date)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		fmt.Sprintf("%s%d", LocalIDPrefix, id), taskID, userID,
+		LocalID(id), taskID, userID,
 		p.TrackedDate, p.Comment, p.Hours, o.stamp(), o.stamp()); err != nil {
 		return 0, err
 	}
@@ -370,6 +407,36 @@ func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error
 	return tx.Commit()
 }
 
+// CompleteTaskCreate swaps the local task for the server's and points everything that named the local id at the real one.
+// The server row goes in first and the thread rows move before the local row is deleted,
+// the foreign key would otherwise cascade the queued comments away.
+func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task) error {
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+		return err
+	}
+	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
+		return err
+	}
+	localID := LocalID(id)
+	for _, table := range []string{"comments", "timelogs"} {
+		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET task_id = ? WHERE task_id = ?`, real.ID, localID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE outbox SET entity_id = ? WHERE entity_id = ?`, real.ID, localID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment) error {
 	tx, err := o.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -380,7 +447,7 @@ func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment)
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`,
-		fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		LocalID(id)); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -404,7 +471,7 @@ func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog)
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`,
-		fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		LocalID(id)); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -426,7 +493,7 @@ func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog)
 	// the local id. Point it at the confirmed id so it can drain.
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE outbox SET entity_id = ? WHERE entity_id = ?`,
-		real.ID, fmt.Sprintf("%s%d", LocalIDPrefix, id)); err != nil {
+		real.ID, LocalID(id)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -472,10 +539,29 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	localID := fmt.Sprintf("%s%d", LocalIDPrefix, id)
+	localID := LocalID(id)
 	switch OutboxKind(kind) {
 	case KindCommentCreate:
 		if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`, localID); err != nil {
+			return err
+		}
+	case KindTaskCreate:
+		// The comments go with the task through the cascade, the writes queued on it are dropped here,
+		// their target never existed on the server.
+		// Time entries have no foreign key to tasks, so they are deleted by hand.
+		// Edits queued under such an entry name its local id, they go before the entry does.
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM outbox WHERE entity_id IN (SELECT id FROM timelogs WHERE task_id = ? AND id LIKE ?)`,
+			localID, LocalIDPrefix+"%"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE task_id = ?`, localID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE entity_id = ?`, localID); err != nil {
 			return err
 		}
 	case KindTimelogCreate:
@@ -523,7 +609,10 @@ func (o outboxRepo) ResetInflight(ctx context.Context) (int64, error) {
 
 // StatesByEntity maps each entity with queued work to pending or failed. Inflight counts as pending, failed wins.
 func (o outboxRepo) StatesByEntity(ctx context.Context) (map[string]OutboxState, error) {
-	rows, err := o.r.QueryContext(ctx, `SELECT entity_id, state FROM outbox`)
+	// A create names its folder as the entity, the pending mark belongs to the task it made.
+	rows, err := o.r.QueryContext(ctx, `
+		SELECT CASE WHEN kind = ? THEN ? || id ELSE entity_id END, state FROM outbox`,
+		string(KindTaskCreate), LocalIDPrefix)
 	if err != nil {
 		return nil, err
 	}

@@ -212,8 +212,9 @@ func (t taskRepo) PruneExcept(ctx context.Context, keep []string) (int64, error)
 			return 0, err
 		}
 	}
+	// A local task is a create still in the outbox, Wrike has never listed it and the sweep must not take it for a deleted one.
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM tasks WHERE id NOT IN (SELECT id FROM keep_ids)`)
+		`DELETE FROM tasks WHERE id NOT IN (SELECT id FROM keep_ids) AND id NOT LIKE ?`, LocalIDPrefix+"%")
 	if err != nil {
 		return 0, err
 	}
@@ -244,9 +245,10 @@ func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 }
 
 func (t taskRepo) RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error) {
+	// A local task has no thread on the server yet, asking for it would answer 404 and delete the task.
 	return t.stringColumn(ctx, `
-		SELECT id FROM tasks WHERE last_opened_at >= ?
-		ORDER BY last_opened_at DESC LIMIT ?`, since, limit)
+		SELECT id FROM tasks WHERE last_opened_at >= ? AND id NOT LIKE ?
+		ORDER BY last_opened_at DESC LIMIT ?`, since, LocalIDPrefix+"%", limit)
 }
 
 // Search runs the user's words as quoted FTS terms, the last one as a prefix.

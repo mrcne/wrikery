@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
@@ -200,5 +202,69 @@ func TestMetaRoundTrip(t *testing.T) {
 	}
 	if v != "U2" {
 		t.Errorf("value = %q, want U2", v)
+	}
+}
+
+// The outbox rebuild in 0006 must keep the queued rows, their ids and the id sequence,
+// an id handed out again would let a local:N name two things.
+func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wrike.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	names, err := fs.Glob(migrationFS, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name >= "migrations/0006_outbox_task_create.sql" {
+			break
+		}
+		body, err := migrationFS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("applying %s: %v", name, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Row 2 comes and goes, so the sequence sits at 2 while the highest row left is 1.
+	// A plain copy would restart the sequence at 1 and hand out 2 again.
+	if _, err := db.Exec(`INSERT INTO outbox (kind, entity_id, payload, state, last_error) VALUES ('task_update', 'T1', '{"title":"x"}', 'failed', 'boom')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO outbox (kind, entity_id, payload) VALUES ('comment_create', 'T1', '{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM outbox WHERE id = 2`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	rows, err := st.Outbox().ListFailed(context.Background())
+	if err != nil || len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
+		t.Fatalf("failed rows after the rebuild = %+v, %v, want row 1 as it was", rows, err)
+	}
+	id, err := st.Outbox().EnqueueTaskCreate(context.Background(), "F1", TaskCreatePayload{Title: "new"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 3 {
+		t.Errorf("next outbox id = %d, want 3, the sequence must survive the rebuild", id)
 	}
 }

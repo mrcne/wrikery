@@ -330,3 +330,44 @@ func TestListRowsCarryParentIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneExceptKeepsLocalTasks(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a"), makeTask("T2", "b")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.Tasks().PruneExcept(ctx, []string{"T1"})
+	if err != nil || n != 1 {
+		t.Fatalf("pruned = %d, %v, want only T2", n, err)
+	}
+	if _, err := st.Tasks().Get(ctx, LocalID(id)); err != nil {
+		t.Errorf("the unconfirmed task was pruned: %v", err)
+	}
+}
+
+func TestRecentlyOpenedIDsSkipsLocalTasks(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().MarkOpened(ctx, LocalID(id), "2026-10-01T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().MarkOpened(ctx, "T1", "2026-10-01T09:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, "2026-09-30T00:00:00Z", 10)
+	if err != nil || len(ids) != 1 || ids[0] != "T1" {
+		t.Errorf("ids = %v, %v, want only T1, the local task has no thread on the server", ids, err)
+	}
+}
