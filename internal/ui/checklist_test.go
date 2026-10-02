@@ -60,3 +60,12 @@ func TestChecklistWindowFollowsTheCursor(t *testing.T) {
 		t.Errorf("filter, blank, four rows and a marker are 7 lines, got %d", lines)
 	}
 }
+
+func TestChecklistSingleDrawsNoBoxes(t *testing.T) {
+	c, _ := newChecklist([]checkRow{{id: "A", label: "Alpha"}, {id: "B", label: "  Beta"}}, nil, "")
+	c.single = true
+	view := c.view(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 40, 5)
+	if strings.Contains(view, "[ ]") || !strings.Contains(view, "Beta") {
+		t.Errorf("single pick view = %q, want the rows without boxes", view)
+	}
+}
