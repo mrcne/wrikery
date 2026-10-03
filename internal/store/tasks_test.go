@@ -414,3 +414,53 @@ func TestFindByTitleMatchesACaseInsensitiveFragmentAndEscapesWildcards(t *testin
 		t.Errorf("limit 2 returned %d rows", len(got))
 	}
 }
+
+func TestFindByTitleNonASCIILettersMatchExactly(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	err := st.Tasks().Upsert(ctx, []Task{
+		makeTask("T1", "Fix the Żółw issue"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "LOGIN", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("LOGIN matched %+v, want nothing", got)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "Żółw", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "T1" {
+		t.Errorf("non-ASCII fragment matched %+v, want T1", got)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "ŀgin", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("wrong non-ASCII case matched %+v, want nothing", got)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "LOGIN", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("login matched %+v, want nothing", got)
+	}
+	task := makeTask("T2", "Login page fix")
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "LOGIN", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "T2" {
+		t.Errorf("LOGIN matched %+v, want T2", got)
+	}
+}
