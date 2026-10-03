@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -60,7 +61,10 @@ func TestReadBackKeepsTheFatesWordsWhenTheStoreCannotBeRead(t *testing.T) {
 			}
 			before := store.Task{ID: "TASK1", Title: "Before"}
 			ref := refData{pending: map[string]store.OutboxState{"TASK1": store.StateFailed}}
-			got := readBack(context.Background(), env, tc.out, "TASK1", before, &ref, true)
+			got, ok := readBack(context.Background(), env, tc.out, "TASK1", before, &ref, true)
+			if ok {
+				t.Error("ok = true for a read that failed")
+			}
 			if got.Title != "Before" {
 				t.Errorf("task = %+v, want the one from before the write", got)
 			}
@@ -69,6 +73,41 @@ func TestReadBackKeepsTheFatesWordsWhenTheStoreCannotBeRead(t *testing.T) {
 			}
 			if _, ok := ref.pending["TASK1"]; ok != tc.wantPending || ref.pending["TASK1"] == store.StateFailed {
 				t.Errorf("marks = %v, want pending %v", ref.pending, tc.wantPending)
+			}
+		})
+	}
+}
+
+func TestReportWriteWithoutReadBackPrintsOnlyTheFate(t *testing.T) {
+	for _, tc := range []struct {
+		out      outcome
+		wantText string
+		wantSent bool
+		wantCode int
+	}{
+		{sent, "sent local:7\n", true, exitOK},
+		{queued, "queued local:7\n", false, exitQueued},
+	} {
+		t.Run(tc.out.String(), func(t *testing.T) {
+			env, out, _ := testEnv(t)
+			fallback := store.Task{ID: "local:7", Title: "Before", Status: "Active"}
+			ref := refData{}
+			if code := reportWrite(context.Background(), env, tc.out, "slow", false, false, fallback, &ref, "Before  [Active]"); code != tc.wantCode {
+				t.Errorf("text code = %d, want %d", code, tc.wantCode)
+			}
+			if out.String() != tc.wantText {
+				t.Errorf("text = %q, want %q", out.String(), tc.wantText)
+			}
+			out.Reset()
+			if code := reportWrite(context.Background(), env, tc.out, "slow", true, false, fallback, &ref, ""); code != tc.wantCode {
+				t.Errorf("json code = %d, want %d", code, tc.wantCode)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 3 || got["id"] != "local:7" || got["sent"] != tc.wantSent || got["read_back"] != false {
+				t.Errorf("json = %v, want only id, sent and read_back false", got)
 			}
 		})
 	}

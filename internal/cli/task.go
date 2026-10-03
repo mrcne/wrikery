@@ -164,11 +164,14 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	after := readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
-	if !*asJSON && out != rejected && out != blocked {
+	after, readOK := t, false
+	if out == sent || out == queued {
+		after, readOK = readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
+	}
+	if !*asJSON && readOK {
 		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
 	}
-	return reportWrite(ctx, env, out, reason, *asJSON, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
+	return reportWrite(ctx, env, out, reason, *asJSON, readOK, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.
@@ -229,12 +232,12 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	task := readBack(ctx, env, out, store.LocalID(rowID), store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
-	if out == blocked {
-		return reportBlocked(env)
+	task, readOK := store.Task{ID: store.LocalID(rowID), Title: title}, false
+	if out == sent || out == queued {
+		task, readOK = readBack(ctx, env, out, task.ID, task, &ref, *asJSON)
 	}
-	if *asJSON || out == rejected {
-		return reportWrite(ctx, env, out, reason, *asJSON, task, &ref, "")
+	if *asJSON || out == rejected || out == blocked || !readOK {
+		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "")
 	}
 	word := "created"
 	if out == queued {
