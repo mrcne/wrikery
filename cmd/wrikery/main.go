@@ -270,7 +270,12 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		return 1
 	}
 	a := &app{cfg: cfg, st: st, tokens: tokens}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.
+	if !signal.Ignored(syscall.SIGHUP) {
+		signals = append(signals, syscall.SIGHUP)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
 	return cli.Run(ctx, cli.Env{
 		Config:   cfg,

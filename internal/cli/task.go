@@ -197,7 +197,7 @@ const createUsage = `usage: wrikery task create --folder F [--json] TITLE...
 
 Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
 Nobody is assigned, the status is the folder's default on Wrike.
-Put -- before a title that starts with a dash, everything after it is title.
+Put -- before a title with a word that starts with a dash, everything after it is title.
 `
 
 func runTaskCreate(ctx context.Context, env Env, args []string) int {

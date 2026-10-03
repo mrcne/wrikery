@@ -201,11 +201,11 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 The commands are `sync`, `task list`, `task show`, `task status` and `task create`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
 A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
-A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, or rejected.
+A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
-A title that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
+A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
 On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
 Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.

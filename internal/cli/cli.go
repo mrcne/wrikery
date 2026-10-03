@@ -21,7 +21,7 @@ import (
 // A script branches on them, so they are part of the interface and documented in the overview.
 const (
 	exitOK     = 0
-	exitError  = 1 // a missing token, a name that matched nothing, a store error, a write Wrike rejected
+	exitError  = 1 // a missing token, a name that matched nothing, a store error, a write Wrike rejected, a token rejected during the send
 	exitUsage  = 2
 	exitQueued = 3 // the write is in the outbox and the cache, not on Wrike yet
 )

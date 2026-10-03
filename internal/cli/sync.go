@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -48,7 +47,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if *asJSON {
 		code := printJSON(env, syncJSON{State: string(state), Pending: pending, Failed: failed})
 		if cycleErr != nil {
-			return failCycle(env, cycleErr)
+			return fail(env, cycleErr)
 		}
 		return code
 	}
@@ -57,15 +56,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	_, _ = fmt.Fprintf(env.Stdout, "sync %s, %s %d pending, %s %d failed\n", state,
 		dim.Render(th.Glyphs.Pending), pending, lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed), failed)
 	if cycleErr != nil {
-		return failCycle(env, cycleErr)
+		return fail(env, cycleErr)
 	}
 	return exitOK
-}
-
-// failCycle names a lock the engine could not take, which it reports as offline like any other failure.
-func failCycle(env Env, err error) int {
-	if errors.Is(err, syncer.ErrLocked) {
-		return fail(env, errors.New("another wrikery is sending, try again"))
-	}
-	return fail(env, err)
 }

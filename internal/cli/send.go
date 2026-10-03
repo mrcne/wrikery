@@ -39,7 +39,7 @@ func preflight(ctx context.Context, env Env) (string, int) {
 
 // send runs one drain pass for the row just queued and reads its fate back from the outbox.
 // The pass sends every due row older than this one first, the order the engine keeps.
-// The drain error is only the reason behind a queued outcome, the row's state is the truth.
+// The drain error is the reason behind a queued outcome or the sign of a rejected token, otherwise the row's state is the truth.
 func send(ctx context.Context, env Env, host string, rowID int64) (outcome, string, error) {
 	eng := syncer.New(env.Client(env.Token, host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
