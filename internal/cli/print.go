@@ -205,7 +205,7 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 	}
 	accent := lipgloss.NewStyle().Foreground(th.Accent)
 	for _, c := range comments {
-		_, _ = fmt.Fprintf(w, "%s  %s\n%s\n\n", accent.Render(contactName(*ref, c.AuthorID)), dim.Render(commentTime(c.CreatedDate)), c.Text)
+		_, _ = fmt.Fprintf(w, "%s  %s\n%s\n\n", accent.Render(contactName(*ref, c.AuthorID)), dim.Render(commentTime(c.CreatedDate)), strings.TrimSpace(c.Text))
 	}
 }
 

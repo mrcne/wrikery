@@ -75,7 +75,12 @@ func TestTaskShowOnATerminalRendersTheDescription(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
 		t.Fatalf("code = %d", code)
 	}
-	golden.RequireEqual(t, out.Bytes())
+	// glamour pads the description line to the width, the padding is not part of the contract.
+	lines := strings.Split(out.String(), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	golden.RequireEqual(t, []byte(strings.Join(lines, "\n")))
 }
 
 func TestTaskShowJSONHasTheDescriptionAndComments(t *testing.T) {

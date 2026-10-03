@@ -103,23 +103,37 @@ func runTask(ctx context.Context, env Env, args []string) int {
 	return exitUsage
 }
 
-// parse runs fs over args.
-// The second value is true when the caller is done:
+// parse runs fs over args and returns the arguments that are not flags.
+// Flags may stand anywhere, the flag package alone stops at the first argument that is not one,
+// and a script writes the task before --json.
+// A "--" ends the flags the usual way, everything after it is an argument.
+// The last value is true when the caller is done:
 // the usage was asked for and printed (exit 0), or a flag was wrong (exit 2).
-func parse(env Env, fs *flag.FlagSet, usage string, args []string) (int, bool) {
+func parse(env Env, fs *flag.FlagSet, usage string, args []string) ([]string, int, bool) {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
-	err := fs.Parse(args)
-	switch {
-	case errors.Is(err, flag.ErrHelp):
-		printUsage(env.Stdout, fs, usage)
-		return exitOK, true
-	case err != nil:
-		_, _ = fmt.Fprintf(env.Stderr, "wrikery: %v\n", err)
-		printUsage(env.Stderr, fs, usage)
-		return exitUsage, true
+	var positional []string
+	for {
+		err := fs.Parse(args)
+		switch {
+		case errors.Is(err, flag.ErrHelp):
+			printUsage(env.Stdout, fs, usage)
+			return nil, exitOK, true
+		case err != nil:
+			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %v\n", err)
+			printUsage(env.Stderr, fs, usage)
+			return nil, exitUsage, true
+		}
+		rest := fs.Args()
+		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
+			return append(positional, rest...), exitOK, false
+		}
+		if len(rest) == 0 {
+			return positional, exitOK, false
+		}
+		positional = append(positional, rest[0])
+		args = rest[1:]
 	}
-	return exitOK, false
 }
 
 func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {

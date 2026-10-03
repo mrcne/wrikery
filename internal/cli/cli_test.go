@@ -3,10 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"flag"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -18,6 +23,8 @@ import (
 func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 	// The golden holds comment times, so the zone must not depend on the machine.
 	time.Local = time.UTC
+	// Colors would put escape codes into the text the tests compare.
+	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "wrike.db"))
 	if err != nil {
@@ -82,5 +89,46 @@ func TestRunSubcommandHelpFlagIsNotAnError(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "--folder") {
 		t.Errorf("stdout = %q, want the list flags", out.String())
+	}
+}
+
+func TestParseFindsFlagsAnywhereAmongTheArguments(t *testing.T) {
+	cases := map[string][]string{
+		"before":  {"-x", "a", "b"},
+		"after":   {"a", "b", "-x"},
+		"between": {"a", "-x", "b"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			env, _, _ := testEnv(t)
+			fs := flag.NewFlagSet("t", flag.ContinueOnError)
+			x := fs.Bool("x", false, "")
+			got, code, done := parse(env, fs, "usage\n", args)
+			if done || code != exitOK || !*x || !reflect.DeepEqual(got, []string{"a", "b"}) {
+				t.Errorf("got %v code %d done %v x %v", got, code, done, *x)
+			}
+		})
+	}
+}
+
+func TestParseTakesEverythingAfterDoubleDashAsArguments(t *testing.T) {
+	env, _, _ := testEnv(t)
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	x := fs.Bool("x", false, "")
+	got, _, done := parse(env, fs, "usage\n", []string{"a", "--", "-x", "b"})
+	if done || *x || !reflect.DeepEqual(got, []string{"a", "-x", "b"}) {
+		t.Errorf("got %v done %v x %v", got, done, *x)
+	}
+}
+
+func TestParseHelpAnywherePrintsTheUsage(t *testing.T) {
+	for _, args := range [][]string{{"--help", "a"}, {"a", "--help"}} {
+		env, out, _ := testEnv(t)
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		fs.Bool("x", false, "")
+		_, code, done := parse(env, fs, "usage: t\n", args)
+		if !done || code != exitOK || !strings.HasPrefix(out.String(), "usage: t") {
+			t.Errorf("%v: code %d done %v out %q", args, code, done, out.String())
+		}
 	}
 }

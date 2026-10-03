@@ -19,10 +19,11 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 	me := fs.Bool("me", false, "your own tasks, the default")
 	all := fs.Bool("all", false, "include completed and cancelled tasks")
 	asJSON := fs.Bool("json", false, "print JSON")
-	if code, done := parse(env, fs, listUsage, args); done {
+	positional, code, done := parse(env, fs, listUsage, args)
+	if done {
 		return code
 	}
-	if fs.NArg() > 0 {
+	if len(positional) > 0 {
 		return usageError(env, fs, listUsage, "task list takes flags only")
 	}
 	if *folder != "" && *me {
@@ -84,21 +85,14 @@ Prints one task: the header fields, the description and the comments the cache h
 func runTaskShow(ctx context.Context, env Env, args []string) int {
 	fs := flag.NewFlagSet("task show", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print JSON")
-	if code, done := parse(env, fs, showUsage, args); done {
+	positional, code, done := parse(env, fs, showUsage, args)
+	if done {
 		return code
 	}
-	rest := fs.Args()
-	if len(rest) > 1 {
-		// The flag package stops at the first argument that is not a flag, and a script writes the task first.
-		if code, done := parse(env, fs, showUsage, rest[1:]); done {
-			return code
-		}
-		rest = append(rest[:1], fs.Args()...)
-	}
-	if len(rest) != 1 {
+	if len(positional) != 1 {
 		return usageError(env, fs, showUsage, "task show takes one task, an id or a part of its title")
 	}
-	t, err := resolveTask(ctx, env.Store, rest[0])
+	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
 		return fail(env, err)
 	}
