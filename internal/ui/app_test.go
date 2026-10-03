@@ -561,7 +561,9 @@ func TestCommentDialogQueuesAndMarks(t *testing.T) {
 	press(tm, "hello from the test")
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
 	waitAfter(t, tm, from, "Comment queued")
-	waitAfter(t, tm, from, "(sending)")
+	// The seeded comment already shows the sending mark and closing the box redraws it, so waiting for the mark proves nothing.
+	// The count is the one thing only the reload after the write draws, so the view below is read after that reload landed.
+	waitAfter(t, tm, from, "Comments (2)")
 
 	view := finalView(t, tm)
 	if !strings.Contains(view, "hello from the test") {
