@@ -105,6 +105,7 @@ Two processes can therefore drain one outbox, a running TUI and a command.
 The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.
 An advisory lock file next to the database covers what the claim cannot: the reset of in-flight rows, which would resend a row a command is mid-way through, and the order of two rows on one task.
 Every drain pass takes the lock, puts back to pending the rows a process that died mid-send left in flight, and then sends.
+The kernel releases the lock when its holder dies, so a crash never leaves it taken.
 A command that cannot take the lock inside its deadline leaves its write queued.
 
 A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
