@@ -65,6 +65,7 @@ type Engine struct {
 	meID          string
 	lastReference time.Time
 	failures      int
+	lockWarned    bool
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -249,7 +250,16 @@ func (e *Engine) ensureMeScope(ctx context.Context) error {
 func (e *Engine) drain(start, post context.Context) (bool, error) {
 	lock, err := acquire(start, e.cfg.LockFile)
 	if err != nil {
-		return false, err
+		if errors.Is(err, ErrLocked) || start.Err() != nil {
+			return false, err
+		}
+		// The file system cannot take the lock: a file owned by another user, or flock unsupported on a network mount.
+		// Without it the engine is back to the behavior before the lock existed, which beats a sync that never runs.
+		if !e.lockWarned {
+			e.lockWarned = true
+			e.log.Warn("sync lock unavailable, continuing without it", "error", err, "path", e.cfg.LockFile)
+		}
+		lock = &syncLock{}
 	}
 	defer lock.release()
 	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.

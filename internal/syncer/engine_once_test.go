@@ -1,9 +1,12 @@
 package syncer
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,6 +172,30 @@ func TestDrainLetsAStartedCreateFinishPastTheBudget(t *testing.T) {
 	}
 	if task, err := st.Tasks().Get(ctx, "TNEW"); err != nil || task.Title != "New" {
 		t.Errorf("task = %+v, %v, want the created task in the cache", task, err)
+	}
+}
+
+func TestDrainContinuesWhenTheLockFileCannotBeOpened(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "One")
+	var logs bytes.Buffer
+	lockPath := filepath.Join(t.TempDir(), "missing", "sync.lock")
+	e := New(&fakeClient{}, st, Config{LockFile: lockPath}, slog.New(slog.NewTextHandler(&logs, nil)))
+	for i := 0; i < 2; i++ {
+		id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "Two"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Drain(ctx, 0); err != nil {
+			t.Fatalf("Drain %d: %v", i, err)
+		}
+		if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("row %d after the drain: err = %v, want ErrNotFound, it was sent", i, err)
+		}
+	}
+	if n := strings.Count(logs.String(), "sync lock unavailable"); n != 1 {
+		t.Errorf("warning logged %d times, want once\n%s", n, logs.String())
 	}
 }
 
