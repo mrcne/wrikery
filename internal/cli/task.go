@@ -72,6 +72,6 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 		}
 		return printJSON(env, rows)
 	}
-	printTaskList(ctx, env, tasks, &ref, hidden, *all)
+	printTaskList(env, tasks, &ref, hidden)
 	return exitOK
 }

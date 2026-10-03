@@ -148,10 +148,17 @@ func TestTaskListPendingMarkFollowsAQueuedWrite(t *testing.T) {
 	if code := Run(ctx, env, []string{"task", "list", "--folder", "later"}); code != exitOK {
 		t.Fatalf("code = %d", code)
 	}
+	seen := false
 	for _, line := range strings.Split(out.String(), "\n") {
-		if strings.HasPrefix(line, "TASK2") && !strings.Contains(line, "TASK2 "+env.Theme.Glyphs.Pending) {
-			t.Errorf("TASK2 row has no pending mark: %q", line)
+		if strings.HasPrefix(line, "TASK2") {
+			seen = true
+			if !strings.Contains(line, "TASK2 "+env.Theme.Glyphs.Pending) {
+				t.Errorf("TASK2 row has no pending mark: %q", line)
+			}
 		}
+	}
+	if !seen {
+		t.Errorf("no TASK2 row in:\n%s", out.String())
 	}
 	out.Reset()
 	if code := Run(ctx, env, []string{"task", "list", "--folder", "later", "--json"}); code != exitOK {
@@ -167,5 +174,34 @@ func TestTaskListPendingMarkFollowsAQueuedWrite(t *testing.T) {
 	}
 	if pending["TASK2"] != true || pending["TASK1"] != false {
 		t.Errorf("pending by id = %v, want TASK2 true and TASK1 false", pending)
+	}
+}
+
+func TestTaskListAlignsTheStatusColumnForIdsOfDifferentLength(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}, "ST_NEW"); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run(ctx, env, []string{"task", "list", "--folder", "later"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) < 4 || !strings.Contains(out.String(), "local:1") {
+		t.Fatalf("want the local row next to the TASK rows:\n%s", out.String())
+	}
+	col := -1
+	for _, line := range lines {
+		// The first run of spaces ends the id cell, the status glyph is the next character.
+		gap := strings.Index(line, "  ")
+		if gap <= 0 {
+			t.Fatalf("no status cell in %q", line)
+		}
+		i := gap + len(line[gap:]) - len(strings.TrimLeft(line[gap:], " "))
+		if col >= 0 && i != col {
+			t.Errorf("status column at %d, want %d in %q", i, col, line)
+		}
+		col = i
 	}
 }
