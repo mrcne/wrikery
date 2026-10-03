@@ -182,3 +182,39 @@ func TestTaskStatusJSONReportsSent(t *testing.T) {
 		t.Errorf("got = %v", got)
 	}
 }
+
+func TestTaskStatusInterruptedMidDrainStaysQueuedNotAnError(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The server notices a dropped client only once the body is read.
+		_ = r.ParseForm()
+		cancel()
+		<-r.Context().Done()
+	}))
+	env.Deadline = 5 * time.Second
+	if code := Run(ctx, env, []string{"task", "status", "TASK1", "On Hold"}); code != exitQueued {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "queued: ") {
+		t.Errorf("out:\n%s", out.String())
+	}
+}
+
+func TestTaskStatusJSONReportsQueued(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, nil)
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold", "--json"}); code != exitQueued {
+		t.Fatalf("code = %d", code)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	if got["sent"] != false || got["pending"] != true {
+		t.Errorf("got = %v", got)
+	}
+}

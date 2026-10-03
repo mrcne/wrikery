@@ -13,10 +13,14 @@ import (
 type outcome int
 
 const (
-	sent     outcome = iota // the row completed, the change is on Wrike
-	queued                  // the row is still pending, Wrike was not reached inside the deadline
+	queued   outcome = iota // the row is still pending, Wrike was not reached inside the deadline
+	sent                    // the row completed, the change is on Wrike
 	rejected                // Wrike refused the write, the row is failed and listed under sync issues
 )
+
+func (o outcome) String() string {
+	return [...]string{"queued", "sent", "rejected"}[o]
+}
 
 // preflight checks the token and resolves the host before anything is queued,
 // so a failure here never hides a row behind an error exit.
@@ -40,22 +44,30 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	dctx, cancel := context.WithTimeout(ctx, env.Deadline)
 	defer cancel()
 	drainErr := eng.Drain(dctx)
-	row, err := env.Store.Outbox().Get(ctx, rowID)
+	// Ctrl-C cancels ctx while the drain runs, the engine puts its row back on purpose.
+	// A read on the cancelled ctx would fail at once, so the outcome is read on one that cannot be cancelled.
+	row, err := env.Store.Outbox().Get(context.WithoutCancel(ctx), rowID)
 	if errors.Is(err, store.ErrNotFound) {
 		return sent, "", nil
 	}
 	if err != nil {
-		return 0, "", err
+		return queued, "", err
 	}
 	if row.State == store.StateFailed {
 		return rejected, row.LastError, nil
 	}
-	reason := "Wrike could not be reached"
+	var reason string
 	switch {
 	case errors.Is(drainErr, syncer.ErrLocked):
 		reason = "another wrikery is sending"
+	case errors.Is(drainErr, context.DeadlineExceeded):
+		reason = "Wrike did not answer in time"
+	case errors.Is(drainErr, context.Canceled):
+		reason = "interrupted"
 	case drainErr != nil:
-		slog.Warn("drain after a command write", "error", drainErr)
+		reason = drainErr.Error()
+	default:
+		reason = "waiting for an earlier write"
 	}
 	return queued, reason, nil
 }
@@ -74,11 +86,13 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 			taskJSON
 			Sent bool `json:"sent"`
 		}
-		code := printJSON(env, result{taskJSON: taskRow(ctx, env, t, ref), Sent: out == sent})
+		if code := printJSON(env, result{taskJSON: taskRow(ctx, env, t, ref), Sent: out == sent}); code != exitOK {
+			return code
+		}
 		if out == queued {
 			return exitQueued
 		}
-		return code
+		return exitOK
 	}
 	if out == queued {
 		_, _ = fmt.Fprintln(env.Stdout, "queued: "+text)

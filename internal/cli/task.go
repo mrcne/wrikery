@@ -161,15 +161,18 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
+	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
+	ctx = context.WithoutCancel(ctx)
 	after, err := currentTask(ctx, env, t.ID)
 	if err != nil {
-		return fail(env, err)
+		return fail(env, fmt.Errorf("the change is %s, reading the task back: %w", out, err))
 	}
-	// The pending marks changed under the drain, read them again for the JSON.
-	if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
-		return fail(env, err)
-	}
-	if !*asJSON {
+	if *asJSON {
+		// The pending marks changed under the drain, read them again.
+		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
+			return fail(env, fmt.Errorf("the change is %s, reading the queue back: %w", out, err))
+		}
+	} else if out != rejected {
 		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
 	}
 	return reportWrite(ctx, env, out, reason, *asJSON, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
@@ -178,8 +181,12 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.
 func currentTask(ctx context.Context, env Env, id string) (store.Task, error) {
 	if store.IsLocalID(id) {
-		if real, err := env.Store.Outbox().RealID(ctx, id); err == nil {
+		real, err := env.Store.Outbox().RealID(ctx, id)
+		switch {
+		case err == nil:
 			id = real
+		case !errors.Is(err, store.ErrNotFound):
+			return store.Task{}, err
 		}
 	}
 	return env.Store.Tasks().Get(ctx, id)
