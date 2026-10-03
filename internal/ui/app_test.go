@@ -1100,6 +1100,45 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 	}
 }
 
+func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, demo.ProjectAPI, store.TaskCreatePayload{Title: "Swapped", Responsibles: []string{demo.MeID}}, "IEAAST11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "/", "Swapped", "enter")
+	waitFor(t, tm, "(sending)")
+
+	real := store.Task{
+		ID: "IEAATASK99", Title: "Swapped", Status: "Active", CustomStatusID: "IEAAST11", Importance: "Normal",
+		ResponsibleIDs: []string{demo.MeID}, ParentIDs: []string{demo.ProjectAPI},
+		Permalink: "https://www.wrike.com/open.htm?id=1299999", CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z",
+	}
+	if err := st.Outbox().CompleteTaskCreate(ctx, id, real); err != nil {
+		t.Fatal(err)
+	}
+	tm.Send(ui.OutboxChangedMsg{Pending: 0, Failed: 0})
+	tm.Send(ui.StoreChangedMsg{Entities: []string{"tasks", "comments", "timelogs"}})
+	waitFor(t, tm, "#1299999")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+
+	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
+	for _, want := range []string{"Swapped", "#1299999"} {
+		if !strings.Contains(final, want) {
+			t.Errorf("final view should contain %q:\n%s", want, final)
+		}
+	}
+	for _, bad := range []string{"(sending)", "not found"} {
+		if strings.Contains(final, bad) {
+			t.Errorf("final view should not contain %q:\n%s", bad, final)
+		}
+	}
+}
+
 func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 	st := seededStore(t)
 	if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}, "IEAAST11"); err != nil {

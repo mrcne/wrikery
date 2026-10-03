@@ -232,6 +232,11 @@ func (m Model) loadTask(id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		task, err := st.Tasks().Get(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			// The task vanished between the selection and the read: a create swapped it for the server row,
+			// or a sweep or a 404 on its thread removed it. The list reload selects whatever sits there now.
+			return nil
+		}
 		if err != nil {
 			return errMsg{err}
 		}
