@@ -419,7 +419,7 @@ func TestFindByTitleNonASCIILettersMatchExactly(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	err := st.Tasks().Upsert(ctx, []Task{
-		makeTask("T1", "Fix the Żółw issue"),
+		makeTask("T1", "Fix the \u017b\u00f3\u0142w issue"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -431,14 +431,14 @@ func TestFindByTitleNonASCIILettersMatchExactly(t *testing.T) {
 	if len(got) != 0 {
 		t.Errorf("LOGIN matched %+v, want nothing", got)
 	}
-	got, err = st.Tasks().FindByTitle(ctx, "Żółw", 10)
+	got, err = st.Tasks().FindByTitle(ctx, "\u017b\u00f3\u0142w", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].ID != "T1" {
 		t.Errorf("non-ASCII fragment matched %+v, want T1", got)
 	}
-	got, err = st.Tasks().FindByTitle(ctx, "ŀgin", 10)
+	got, err = st.Tasks().FindByTitle(ctx, "\u0140gin", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
