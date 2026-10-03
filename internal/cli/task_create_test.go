@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -35,6 +36,26 @@ func TestTaskCreateSendsTheTaskAndPrintsTheRealId(t *testing.T) {
 	}
 	if _, err := env.Store.Tasks().Get(context.Background(), "TASKNEW"); err != nil {
 		t.Errorf("the server row is not in the cache: %v", err)
+	}
+}
+
+func TestTaskCreateFinishesAPostStartedBeforeTheDeadline(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		// Longer than the 300ms deadline of the test environment.
+		time.Sleep(600 * time.Millisecond)
+		_, _ = fmt.Fprintf(w, taskAnswer, "TASKNEW", "Slow create", "Active", "ST_NEW")
+	}))
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "PROJ1", "Slow", "create"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "created TASKNEW") {
+		t.Errorf("out:\n%s", out.String())
+	}
+	if pending, failed, err := env.Store.Outbox().Counts(context.Background()); err != nil || pending != 0 || failed != 0 {
+		t.Errorf("outbox = %d pending, %d failed, %v, want empty", pending, failed, err)
 	}
 }
 

@@ -183,6 +183,24 @@ func TestTaskStatusJSONReportsSent(t *testing.T) {
 	}
 }
 
+func TestTaskStatusIsCutAtTheDeadlineAndQueued(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		// Longer than the 300ms deadline of the test environment.
+		time.Sleep(600 * time.Millisecond)
+		_, _ = fmt.Fprintf(w, taskAnswer, "TASK1", "Headless commands for scripts", "Active", "ST_HOLD")
+	}))
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitQueued {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	row, err := env.Store.Outbox().Get(context.Background(), 1)
+	if err != nil || row.State != store.StatePending || row.Attempts != 1 {
+		t.Errorf("row = %+v, %v, want pending with one attempt", row, err)
+	}
+}
+
 func TestTaskStatusInterruptedMidDrainStaysQueuedNotAnError(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)

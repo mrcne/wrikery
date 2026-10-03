@@ -88,6 +88,24 @@ func TestSyncInterruptedSaysSo(t *testing.T) {
 	}
 }
 
+func TestSyncInterruptedJSONSaysSo(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, stubAccount())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := Run(ctx, env, []string{"sync", "--json"}); code != exitError {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	if got["state"] != "interrupted" {
+		t.Errorf("got = %v", got)
+	}
+}
+
 func TestSyncOfflineIsAnError(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)

@@ -22,7 +22,7 @@ var errCorruptRow = errors.New("sync: corrupt outbox row")
 // Store failures after a successful send are returned like transient errors, the crash-retry ambiguity is accepted in the spec.
 // start bounds whether another row is started, post is the context a create runs on, see sendRow.
 func drainOutbox(start, post context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
-	// A command's deadline or a Ctrl-C can end ctx in the middle of a send.
+	// A command's deadline or a Ctrl-C can end start in the middle of a send.
 	// The row must still be put back to pending with its backoff, or it stays in flight and nothing sends it again.
 	bookkeeping := context.WithoutCancel(start)
 	changed := false

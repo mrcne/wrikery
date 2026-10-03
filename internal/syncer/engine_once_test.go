@@ -221,6 +221,12 @@ func TestDrainContinuesWhenTheLockFileCannotBeOpened(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if i == 1 {
+			// A degraded pass still puts the leftover of a dead process back to pending.
+			if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if err := e.Drain(ctx, 0); err != nil {
 			t.Fatalf("Drain %d: %v", i, err)
 		}
@@ -236,9 +242,8 @@ func TestDrainContinuesWhenTheLockFileCannotBeOpened(t *testing.T) {
 func TestDrainStopsStartingRowsAtTheBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	seedTask(t, st, "T1", "One")
 	seedTask(t, st, "T2", "Two")
-	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "A"})
+	first, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,9 +251,9 @@ func TestDrainStopsStartingRowsAtTheBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
-		time.Sleep(150 * time.Millisecond)
-		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
+	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
+		time.Sleep(300 * time.Millisecond)
+		return wrike.Task{ID: "TNEW", Title: "New", Status: "Active"}, nil
 	}}
 	e := New(fc, st, Config{}, nil)
 	if err := e.Drain(ctx, 100*time.Millisecond); err == nil {

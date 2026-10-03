@@ -203,7 +203,7 @@ They read the same local cache and queue writes through the same outbox as the i
 A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
-`wrikery sync` pulls the changes only, `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
+`wrikery sync` sends the queue, refreshes the reference data and pulls the changes, and `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
 A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.

@@ -114,17 +114,23 @@ func (e *Engine) Once(ctx context.Context, full bool) (SyncState, error) {
 		e.setState(stateAfter(err))
 		return e.state, err
 	}
-	err := e.cycle(ctx, context.WithoutCancel(ctx), full)
+	post, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), postCeiling)
+	defer cancelPost()
+	err := e.cycle(ctx, post, full)
 	e.setState(stateAfter(err))
 	return e.state, err
 }
 
+// postCeiling is three times the client's request timeout.
+const postCeiling = 90 * time.Second
+
 // Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
 // Like every drain pass it first puts the in-flight rows of a dead process back to pending.
 // The budget bounds the wait for the lock and the start of each row, zero means only ctx does.
-// A create that has started runs to Wrike's answer, neither the budget nor a cancelled ctx cuts it off.
+// A create that has started runs to Wrike's answer, neither the budget nor a cancelled ctx cuts it off, up to postCeiling.
 // ErrLocked means the lock was held by another process until the budget or the deadline of ctx ran out and nothing was sent.
 // A cancelled ctx returns context.Canceled instead.
+// When the budget ends after the last row finished the context error comes back too, a caller that reads the row's state can ignore it.
 func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 	start := ctx
 	if budget > 0 {
@@ -132,9 +138,11 @@ func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 		start, cancel = context.WithTimeout(ctx, budget)
 		defer cancel()
 	}
-	// A POST may have reached Wrike when the context ends, and the client never retries a POST for the same reason.
-	// Cutting it off would leave a row the next drain sends again, so the client's own timeout is the only limit.
-	post := context.WithoutCancel(ctx)
+	// A POST may have reached Wrike when the context ends, so cutting it off would leave a row the next drain sends again.
+	// The client's own timeout ends a request on the wire well before the ceiling, the ceiling only ends the sleeps
+	// of a rate limit retry, and a 429 means the write was not applied, so cancelling there is safe.
+	post, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), postCeiling)
+	defer cancelPost()
 	_, err := e.drain(start, post)
 	return err
 }
