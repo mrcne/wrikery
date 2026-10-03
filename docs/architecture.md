@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into four parts with strict boundaries, plus a small config package:
+The code is split into five parts with strict boundaries, plus a small config package:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
