@@ -114,14 +114,12 @@ func (e *Engine) Once(ctx context.Context, full bool) (SyncState, error) {
 		e.setState(stateAfter(err))
 		return e.state, err
 	}
-	post, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), postCeiling)
-	defer cancelPost()
-	err := e.cycle(ctx, post, full)
+	err := e.cycle(ctx, context.WithoutCancel(ctx), full)
 	e.setState(stateAfter(err))
 	return e.state, err
 }
 
-// postCeiling is three times the client's request timeout.
+// postCeiling is three times the client's request timeout, the longest one create may take from the moment it is sent.
 const postCeiling = 90 * time.Second
 
 // Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
@@ -130,7 +128,8 @@ const postCeiling = 90 * time.Second
 // A create that has started runs to Wrike's answer, neither the budget nor a cancelled ctx cuts it off, up to postCeiling.
 // ErrLocked means the lock was held by another process until the budget or the deadline of ctx ran out and nothing was sent.
 // A cancelled ctx returns context.Canceled instead.
-// When the budget ends after the last row finished the context error comes back too, a caller that reads the row's state can ignore it.
+// When the budget ends while a create is still running past it, the next NextDue fails on the ended context and the context error comes back, a caller that reads the row's state can ignore it.
+// A row that finishes inside the budget gives nil.
 func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 	start := ctx
 	if budget > 0 {
@@ -139,10 +138,8 @@ func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 		defer cancel()
 	}
 	// A POST may have reached Wrike when the context ends, so cutting it off would leave a row the next drain sends again.
-	// The client's own timeout ends a request on the wire well before the ceiling, the ceiling only ends the sleeps
-	// of a rate limit retry, and a 429 means the write was not applied, so cancelling there is safe.
-	post, cancelPost := context.WithTimeout(context.WithoutCancel(ctx), postCeiling)
-	defer cancelPost()
+	// sendRow puts a ceiling on each create, see there.
+	post := context.WithoutCancel(ctx)
 	_, err := e.drain(start, post)
 	return err
 }

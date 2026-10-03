@@ -277,6 +277,8 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), signals...)
 	defer stop()
+	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
+	go func() { <-ctx.Done(); stop() }()
 	return cli.Run(ctx, cli.Env{
 		Config:   cfg,
 		Store:    st,

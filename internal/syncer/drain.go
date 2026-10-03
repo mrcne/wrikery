@@ -70,12 +70,18 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 }
 
 func sendRow(start, post context.Context, c Client, st *store.Store, row store.OutboxRow) error {
-	// A create may have reached Wrike when its context ends and is never retried by the client, so it runs on post.
+	// A create may have reached Wrike when its context ends, and the client does not retry a POST after a network or server error, so it runs on post.
 	// Cancelling an update or a delete is harmless, they can be sent again, and the retry backoff must not outlive the budget.
+	// Each create gets its own ceiling from the moment it is sent.
+	// The ceiling ends the sleeps of rate limit retries, which are safe to cut because Wrike answers 429 instead of processing the request,
+	// see https://developers.wrike.com/faq/.
+	// A late retry attempt can still be cut on the wire, which is the crash ambiguity the drain accepts.
 	ctx := start
 	switch row.Kind {
 	case store.KindTaskCreate, store.KindCommentCreate, store.KindTimelogCreate:
-		ctx = post
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(post, postCeiling)
+		defer cancel()
 	}
 	// Once Wrike has answered the write has landed, so the local commit must not fail on a context that ended meanwhile.
 	// A context error there would reschedule the row and the next drain would send it again.
