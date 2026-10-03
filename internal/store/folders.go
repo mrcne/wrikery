@@ -11,6 +11,7 @@ type FolderRepo interface {
 	Get(ctx context.Context, id string) (Folder, error)
 	Children(ctx context.Context, parentID string) ([]Folder, error)
 	Subtree(ctx context.Context, rootID string) ([]Folder, error)
+	FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error)
 }
 
 func (s *Store) Folders() FolderRepo { return folderRepo{w: s.writer, r: s.reader} }
@@ -121,6 +122,27 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 		SELECT `+folderColumns+` FROM folders
 		JOIN folder_children ON child_id = id
 		WHERE parent_id = ? ORDER BY title`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []Folder
+	for rows.Next() {
+		fo, err := scanFolder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fo)
+	}
+	return out, rows.Err()
+}
+
+// FindByTitle is the lookup behind a folder fragment on the command line, ChildIDs are left empty.
+func (f folderRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error) {
+	rows, err := f.r.QueryContext(ctx, `
+		SELECT `+folderColumns+` FROM folders
+		WHERE lower(title) LIKE ? ESCAPE '\'
+		ORDER BY title LIMIT ?`, likePattern(fragment), limit)
 	if err != nil {
 		return nil, err
 	}

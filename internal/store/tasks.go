@@ -20,6 +20,7 @@ type TaskRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
+	FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error)
 }
 
 func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader} }
@@ -319,6 +320,15 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 		SELECT `+taskListColumns+` FROM tasks t
 		JOIN task_responsibles tr ON tr.task_id = t.id
 		WHERE tr.contact_id = ? `+taskListOrder, contactID)
+}
+
+// FindByTitle is the lookup behind a title fragment on the command line.
+// It is a plain substring on the title, the search index would match descriptions too.
+func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
+	return t.list(ctx, `
+		SELECT `+taskListColumns+` FROM tasks t
+		WHERE lower(t.title) LIKE ? ESCAPE '\'
+		`+taskListOrder+` LIMIT ?`, likePattern(fragment), limit)
 }
 
 func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, error) {

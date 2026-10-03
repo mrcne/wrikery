@@ -371,3 +371,46 @@ func TestRecentlyOpenedIDsSkipsLocalTasks(t *testing.T) {
 		t.Errorf("ids = %v, %v, want only T1, the local task has no thread on the server", ids, err)
 	}
 }
+
+func TestFindByTitleMatchesACaseInsensitiveFragmentAndEscapesWildcards(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	err := st.Tasks().Upsert(ctx, []Task{
+		makeTask("T1", "Fix the login page"),
+		makeTask("T2", "Login copy 100% done"),
+		makeTask("T3", "Write docs"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "LOGIN", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("LOGIN matched %d tasks, want 2: %+v", len(got), got)
+	}
+	// A percent sign is a character in the title, not a wildcard.
+	got, err = st.Tasks().FindByTitle(ctx, "100%", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "T2" {
+		t.Errorf("100%% matched %+v, want T2 alone", got)
+	}
+	// An underscore is not a single character wildcard either.
+	got, err = st.Tasks().FindByTitle(ctx, "l_gin", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("l_gin matched %+v, want nothing", got)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "o", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("limit 2 returned %d rows", len(got))
+	}
+}

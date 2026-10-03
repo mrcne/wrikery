@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -325,5 +326,30 @@ func TestEnqueueTaskCreateWritesALocalTask(t *testing.T) {
 	}
 	if states[localID] != StatePending || states["F1"] != "" {
 		t.Errorf("states = %v, want the local task pending and the folder untouched", states)
+	}
+}
+
+func TestOutboxGetReadsOneRowAndReportsAGoneOne(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "One")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "Two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.ID != id || row.Kind != KindTaskUpdate || row.EntityID != "T1" || row.State != StatePending {
+		t.Errorf("row = %+v", row)
+	}
+	if err := st.Outbox().Discard(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("after discard err = %v, want ErrNotFound", err)
 	}
 }

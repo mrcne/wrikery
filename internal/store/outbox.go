@@ -102,6 +102,7 @@ type OutboxRepo interface {
 	EnqueueTimelogUpdate(ctx context.Context, timelogID string, p TimelogUpdatePayload) (int64, error)
 	EnqueueTimelogDelete(ctx context.Context, timelogID string) (int64, error)
 	Counts(ctx context.Context) (pending, failed int, err error)
+	Get(ctx context.Context, id int64) (OutboxRow, error)
 	NextDue(ctx context.Context, now string) (OutboxRow, error)
 	MarkInflight(ctx context.Context, id int64) error
 	Complete(ctx context.Context, id int64) error
@@ -396,6 +397,16 @@ func (o outboxRepo) Counts(ctx context.Context) (pending, failed int, err error)
 			COUNT(*) FILTER (WHERE state = 'failed')
 		FROM outbox`).Scan(&pending, &failed)
 	return pending, failed, err
+}
+
+// Get reads one row by id, ErrNotFound once the row completed or was discarded.
+func (o outboxRepo) Get(ctx context.Context, id int64) (OutboxRow, error) {
+	r, err := scanOutboxRow(o.r.QueryRowContext(ctx,
+		`SELECT `+outboxColumns+` FROM outbox WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return OutboxRow{}, ErrNotFound
+	}
+	return r, err
 }
 
 const outboxColumns = `id, kind, entity_id, payload, state, attempts, last_error,
