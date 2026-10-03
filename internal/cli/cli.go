@@ -152,7 +152,3 @@ func fail(env Env, err error) int {
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: %v\n", err)
 	return exitError
 }
-
-var errNotBuilt = errors.New("not built yet")
-
-func runSync(_ context.Context, env Env, _ []string) int { return fail(env, errNotBuilt) }
