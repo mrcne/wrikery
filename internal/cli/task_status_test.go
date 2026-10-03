@@ -239,3 +239,16 @@ func TestTaskStatusAuthFailureIsAnErrorNotQueued(t *testing.T) {
 		t.Errorf("%d rows pending, want the one that stays queued", pending)
 	}
 }
+
+func TestTaskStatusTakesABrowserLink(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, nil)
+	code := Run(context.Background(), env, []string{"task", "status", "https://www.wrike.com/open.htm?id=1&foo=bar", "On Hold"})
+	if code != exitQueued {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "was: Headless commands for scripts  [New]") {
+		t.Errorf("out:\n%s", out.String())
+	}
+}

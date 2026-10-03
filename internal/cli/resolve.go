@@ -12,7 +12,7 @@ import (
 // candidateLimit caps the rows an ambiguous fragment lists back, the next attempt uses an id anyway.
 const candidateLimit = 20
 
-// resolveTask takes an id, a local id or a title fragment that matches exactly one cached task.
+// resolveTask takes an id, a local id, the number or link from the browser or a title fragment that matches exactly one cached task.
 // The id is tried first, so a fragment can never shadow a real id, and the match is refused when it is not unique.
 func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, error) {
 	// An empty fragment would become LIKE '%%' and match a cache that holds one row.
@@ -25,6 +25,25 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return store.Task{}, err
+	}
+	if number, isLink := linkNumber(arg); isLink {
+		if number == "" {
+			return store.Task{}, fmt.Errorf("%q is not a Wrike task link", arg)
+		}
+		t, err := st.Tasks().ByPermalinkID(ctx, number)
+		if errors.Is(err, store.ErrNotFound) {
+			return store.Task{}, fmt.Errorf("no task with the link %q in the cache, follow its space or run wrikery sync", arg)
+		}
+		return t, err
+	} else if isDigits(arg) {
+		// A title may be a number too, so a miss goes on to the fragment.
+		t, err := st.Tasks().ByPermalinkID(ctx, arg)
+		if err == nil {
+			return t, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return store.Task{}, err
+		}
 	}
 	hits, err := st.Tasks().FindByTitle(ctx, arg, candidateLimit+1)
 	if err != nil {
@@ -42,6 +61,32 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 		lines = append(lines, h.ID+"  "+h.Title)
 	}
 	return store.Task{}, ambiguous(arg, "tasks", lines)
+}
+
+// linkNumber reports whether arg is a Wrike link and gives the digits after id=, empty when there are none.
+// The host is ignored, a link from app-eu.wrike.com is the same task as the cached www.wrike.com one.
+func linkNumber(arg string) (number string, isLink bool) {
+	_, rest, found := strings.Cut(arg, "open.htm?id=")
+	if !found {
+		return "", false
+	}
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	return rest[:end], true
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Folder, error) {

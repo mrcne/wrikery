@@ -21,6 +21,7 @@ type TaskRepo interface {
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
 	FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error)
+	ByPermalinkID(ctx context.Context, numeric string) (Task, error)
 }
 
 func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader} }
@@ -329,6 +330,20 @@ func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) (
 		SELECT `+taskListColumns+` FROM tasks t
 		WHERE lower(t.title) LIKE ? ESCAPE '\'
 		`+taskListOrder+` LIMIT ?`, likePattern(fragment), limit)
+}
+
+// ByPermalinkID finds the task whose permalink ends in open.htm?id=<numeric>, the caller passes digits only.
+// The suffix is matched because the numeric id appears in links and nowhere else in the API, and the host differs per data center.
+func (t taskRepo) ByPermalinkID(ctx context.Context, numeric string) (Task, error) {
+	var id string
+	err := t.r.QueryRowContext(ctx, `SELECT t.id FROM tasks t WHERE t.permalink LIKE '%open.htm?id=' || ? ESCAPE '\' LIMIT 1`, numeric).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, err
+	}
+	return t.Get(ctx, id)
 }
 
 func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, error) {

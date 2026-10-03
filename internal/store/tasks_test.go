@@ -464,3 +464,29 @@ func TestFindByTitleNonASCIILettersMatchExactly(t *testing.T) {
 		t.Errorf("LOGIN matched %+v, want T2", got)
 	}
 }
+
+func TestByPermalinkIDMatchesTheNumberOnAnyHost(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	eu, com, long := makeTask("EU", "On the eu host"), makeTask("COM", "On the main host"), makeTask("LONG", "Number with a longer neighbour")
+	eu.Permalink = "https://app-eu.wrike.com/open.htm?id=4552825748"
+	com.Permalink = "https://www.wrike.com/open.htm?id=77"
+	long.Permalink = "https://www.wrike.com/open.htm?id=12"
+	if err := st.Tasks().Upsert(ctx, []Task{eu, com, long}); err != nil {
+		t.Fatal(err)
+	}
+	for number, want := range map[string]string{"4552825748": "EU", "77": "COM", "12": "LONG"} {
+		got, err := st.Tasks().ByPermalinkID(ctx, number)
+		if err != nil || got.ID != want {
+			t.Errorf("ByPermalinkID(%s) = %q, %v, want %s", number, got.ID, err, want)
+		}
+		if err == nil && got.Description == "" {
+			t.Errorf("ByPermalinkID(%s) came without the description", number)
+		}
+	}
+	for _, number := range []string{"1", "2", "99", "552825748"} {
+		if _, err := st.Tasks().ByPermalinkID(ctx, number); !errors.Is(err, ErrNotFound) {
+			t.Errorf("ByPermalinkID(%s) error = %v, want ErrNotFound", number, err)
+		}
+	}
+}

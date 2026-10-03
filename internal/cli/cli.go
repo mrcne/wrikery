@@ -52,6 +52,7 @@ Commands:
   wrikery task create --folder F TITLE...   create a task, the words make the title
 
 A task or folder is an id or a part of its title that matches exactly one cached row.
+A task may also be the number or the link from the browser, like https://app-eu.wrike.com/open.htm?id=4552825748.
 Every command takes --json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 `
 

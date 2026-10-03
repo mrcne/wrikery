@@ -214,3 +214,78 @@ func TestResolveFolderRefusesAnEmptyArgument(t *testing.T) {
 		}
 	}
 }
+
+func TestLinkNumber(t *testing.T) {
+	for _, tc := range []struct {
+		arg    string
+		number string
+		isLink bool
+	}{
+		{"https://app-eu.wrike.com/open.htm?id=4552825748", "4552825748", true},
+		{"https://www.wrike.com/open.htm?id=1&foo=bar", "1", true},
+		{"https://www.wrike.com/open.htm?id=15#comments", "15", true},
+		{"open.htm?id=", "", true},
+		{"https://www.wrike.com/open.htm?id=abc", "", true},
+		{"4552825748", "", false},
+		{"licence file", "", false},
+	} {
+		number, isLink := linkNumber(tc.arg)
+		if number != tc.number || isLink != tc.isLink {
+			t.Errorf("linkNumber(%q) = %q, %v, want %q, %v", tc.arg, number, isLink, tc.number, tc.isLink)
+		}
+	}
+}
+
+func TestResolveTaskTakesABrowserNumberOrLink(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	for arg, want := range map[string]string{
+		"2":                                      "TASK2",
+		"https://app-eu.wrike.com/open.htm?id=3": "TASK3",
+		"https://www.wrike.com/open.htm?id=1&foo=bar":     "TASK1",
+		"https://app-eu.wrike.com/open.htm?id=4#comments": "TASK4",
+	} {
+		got, err := resolveTask(ctx, env.Store, arg)
+		if err != nil || got.ID != want {
+			t.Errorf("resolveTask(%q) = %q, %v, want %s", arg, got.ID, err, want)
+		}
+	}
+}
+
+func TestResolveTaskNumberFallsThroughToTheTitle(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	_, err := resolveTask(context.Background(), env.Store, "99")
+	if err == nil || !strings.Contains(err.Error(), `no task matching "99"`) {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestResolveTaskRefusesALinkItCannotUse(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	_, err := resolveTask(ctx, env.Store, "https://www.wrike.com/open.htm?id=99")
+	if err == nil || !strings.Contains(err.Error(), `no task with the link "https://www.wrike.com/open.htm?id=99" in the cache`) {
+		t.Errorf("unknown link error = %v", err)
+	}
+	_, err = resolveTask(ctx, env.Store, "https://www.wrike.com/open.htm?id=x")
+	if err == nil || !strings.Contains(err.Error(), `is not a Wrike task link`) {
+		t.Errorf("broken link error = %v", err)
+	}
+}
+
+func TestResolveTaskKeepsAnExactIdAheadOfANumber(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.Tasks().Upsert(context.Background(), []store.Task{
+		{ID: "2", Title: "Digit id", Status: "Active", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveTask(context.Background(), env.Store, "2")
+	if err != nil || got.ID != "2" {
+		t.Errorf("resolveTask(2) = %q, %v", got.ID, err)
+	}
+}
