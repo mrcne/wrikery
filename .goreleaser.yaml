@@ -21,6 +21,21 @@ archives:
 checksum:
   name_template: checksums.txt
 
+homebrew_casks:
+  - repository:
+      owner: mrcne
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/mrcne/wrikery
+    description: Terminal client for Wrike
+    hooks:
+      post:
+        # The binary is not signed, so a cask download would stop at Gatekeeper on first run.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wrikery"]
+          end
+
 changelog:
   use: github
   groups:
