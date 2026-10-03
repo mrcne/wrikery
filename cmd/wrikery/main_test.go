@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestVersionLine(t *testing.T) {
 	tests := []struct {
@@ -46,5 +50,26 @@ func TestVersionLine(t *testing.T) {
 					tt.version, tt.commit, tt.goVer, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunCommandRefusesDemoMode(t *testing.T) {
+	if code := runCommand([]string{"help"}, "", true, true); code != 2 {
+		t.Errorf("code = %d, want 2", code)
+	}
+}
+
+func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("WRIKERY_TOKEN", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+	t.Setenv("HOME", dir)
+	if code := runCommand([]string{"help"}, "", true, false); code != 0 {
+		t.Errorf("code = %d, want 0", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data", "wrikery", "wrike.db")); err != nil {
+		t.Errorf("the command did not open the store: %v", err)
 	}
 }
