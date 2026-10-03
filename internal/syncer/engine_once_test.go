@@ -59,7 +59,7 @@ func TestDrainSendsThePendingRowsAndStops(t *testing.T) {
 		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
 	}}
 	e := New(fc, st, Config{}, nil)
-	if err := e.Drain(ctx); err != nil {
+	if err := e.Drain(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	pending, failed, err := st.Outbox().Counts(ctx)
@@ -95,7 +95,7 @@ func TestDrainGivesUpWhenTheLockIsHeld(t *testing.T) {
 	e := New(fc, st, Config{LockFile: lockPath}, nil)
 	dctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 	defer cancel()
-	if err := e.Drain(dctx); !errors.Is(err, ErrLocked) {
+	if err := e.Drain(dctx, 0); !errors.Is(err, ErrLocked) {
 		t.Fatalf("Drain err = %v, want ErrLocked", err)
 	}
 	if calls := fc.callLog(); len(calls) != 0 {
@@ -107,7 +107,7 @@ func TestDrainGivesUpWhenTheLockIsHeld(t *testing.T) {
 	}
 }
 
-func TestDrainReschedulesTheRowWhenTheContextEndsMidSend(t *testing.T) {
+func TestDrainCutsAStartedUpdateAtTheBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTask(t, st, "T1", "One")
@@ -115,15 +115,13 @@ func TestDrainReschedulesTheRowWhenTheContextEndsMidSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The send outlives the deadline, the way a stalled request does when a command's wait runs out.
+	// The send outlives the budget, the way a stalled request does when a command's wait runs out.
 	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 		return wrike.Task{}, context.DeadlineExceeded
 	}}
 	e := New(fc, st, Config{}, nil)
-	dctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	defer cancel()
-	if err := e.Drain(dctx); err == nil {
+	if err := e.Drain(ctx, 100*time.Millisecond); err == nil {
 		t.Fatal("want the context error back")
 	}
 	row, err := st.Outbox().Get(ctx, id)
@@ -132,6 +130,62 @@ func TestDrainReschedulesTheRowWhenTheContextEndsMidSend(t *testing.T) {
 	}
 	if row.State != store.StatePending || row.Attempts != 1 || row.NextAttemptAt == "" {
 		t.Errorf("row = %+v, want pending with one attempt and a next time, not stranded in flight", row)
+	}
+}
+
+func TestDrainLetsAStartedCreateFinishPastTheBudget(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
+		time.Sleep(300 * time.Millisecond)
+		return wrike.Task{ID: "TNEW", Title: "New", Status: "Active"}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	// The loop then reads the next row on the ended budget, so Drain may return the context error.
+	// The commit is what counts here.
+	_ = e.Drain(ctx, 100*time.Millisecond)
+	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("row after the drain: err = %v, want ErrNotFound", err)
+	}
+	if task, err := st.Tasks().Get(ctx, "TNEW"); err != nil || task.Title != "New" {
+		t.Errorf("task = %+v, %v, want the created task in the cache", task, err)
+	}
+}
+
+func TestDrainStopsStartingRowsAtTheBudget(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "One")
+	seedTask(t, st, "T2", "Two")
+	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.Outbox().EnqueueTaskUpdate(ctx, "T2", store.TaskUpdatePayload{Title: "B"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		time.Sleep(150 * time.Millisecond)
+		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	if err := e.Drain(ctx, 100*time.Millisecond); err == nil {
+		t.Fatal("want the context error once the budget ended")
+	}
+	if _, err := st.Outbox().Get(ctx, first); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("first row: err = %v, want ErrNotFound, it was sent", err)
+	}
+	row, err := st.Outbox().Get(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != store.StatePending || row.Attempts != 0 {
+		t.Errorf("second row = %+v, want pending and never started", row)
 	}
 }
 
@@ -198,7 +252,7 @@ func TestDrainCommitsASendThatOutlivedTheContext(t *testing.T) {
 	e := New(fc, st, Config{}, nil)
 	// The loop then reads the next row on the ended context, so Drain may return the context error.
 	// The commit is what counts here.
-	_ = e.Drain(dctx)
+	_ = e.Drain(dctx, 0)
 	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("row after the drain: err = %v, want ErrNotFound", err)
 	}

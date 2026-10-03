@@ -106,18 +106,30 @@ func (e *Engine) WakeOutbox() {
 // Once runs one full cycle, reference pull and sweep included, and reports the state it ended in.
 // A command uses it where the TUI uses Run.
 // Like every drain pass it first puts the in-flight rows of a dead process back to pending.
+// A create already on the wire is not cut off by a Ctrl-C, see Drain.
 func (e *Engine) Once(ctx context.Context) (SyncState, error) {
-	err := e.cycle(ctx, true)
+	err := e.cycle(ctx, context.WithoutCancel(ctx), true)
 	e.setState(stateAfter(err))
 	return e.state, err
 }
 
 // Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
 // Like every drain pass it first puts the in-flight rows of a dead process back to pending.
-// ErrLocked means the lock was held by another process until the deadline of ctx and nothing was sent.
+// The budget bounds the wait for the lock and the start of each row, zero means only ctx does.
+// A create that has started runs to Wrike's answer, neither the budget nor a cancelled ctx cuts it off.
+// ErrLocked means the lock was held by another process until the budget or the deadline of ctx ran out and nothing was sent.
 // A cancelled ctx returns context.Canceled instead.
-func (e *Engine) Drain(ctx context.Context) error {
-	_, err := e.drain(ctx)
+func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
+	start := ctx
+	if budget > 0 {
+		var cancel context.CancelFunc
+		start, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
+	// A POST may have reached Wrike when the context ends, and the client never retries a POST for the same reason.
+	// Cutting it off would leave a row the next drain sends again, so the client's own timeout is the only limit.
+	post := context.WithoutCancel(ctx)
+	_, err := e.drain(start, post)
 	return err
 }
 
@@ -167,7 +179,7 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 	manual := true
 	for {
-		err := e.cycle(ctx, manual)
+		err := e.cycle(ctx, ctx, manual)
 		manual = false
 		var wait time.Duration
 		state := stateAfter(err)
@@ -224,24 +236,25 @@ func (e *Engine) startupLocal(ctx context.Context) error {
 }
 
 // drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
-func (e *Engine) drain(ctx context.Context) (bool, error) {
-	lock, err := acquire(ctx, e.cfg.LockFile)
+// start bounds the wait for the lock and whether another row is started, post is the context of a send that may have reached Wrike.
+func (e *Engine) drain(start, post context.Context) (bool, error) {
+	lock, err := acquire(start, e.cfg.LockFile)
 	if err != nil {
 		return false, err
 	}
 	defer lock.release()
 	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.
 	// Sending it again is the crash ambiguity the drain already accepts.
-	if _, err := e.st.Outbox().ResetInflight(ctx); err != nil {
+	if _, err := e.st.Outbox().ResetInflight(start); err != nil {
 		return false, err
 	}
-	return drainOutbox(ctx, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+	return drainOutbox(start, post, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
 }
 
-func (e *Engine) cycle(ctx context.Context, manual bool) error {
+func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	e.setState(StateSyncing)
 
-	changed, err := e.drain(ctx)
+	changed, err := e.drain(ctx, post)
 	if changed {
 		e.emitOutboxCounts(ctx)
 		e.emit(Event{Kind: EventStoreChanged,

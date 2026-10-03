@@ -36,7 +36,7 @@ type Env struct {
 	LockFile string                                                  // the sync lock next to the database
 	Theme    ui.Theme
 	Width    int           // columns of the terminal stdout is, 0 in a pipe
-	Deadline time.Duration // how long a write waits for Wrike before it is left queued
+	Deadline time.Duration // how long a write waits for the lock and to start, a create already sent runs to Wrike's answer within the client's 30 seconds
 	Stdout   io.Writer
 	Stderr   io.Writer
 }

@@ -107,6 +107,7 @@ An advisory lock file next to the database covers what the claim cannot: the res
 Every drain pass takes the lock, puts back to pending the rows a process that died mid-send left in flight, and then sends.
 The kernel releases the lock when its holder dies, so a crash never leaves it taken.
 A command that cannot take the lock inside its deadline leaves its write queued.
+The deadline bounds the wait and the start of a row, a create already sent runs to Wrike's answer because the client never retries a POST and a cut off create would be sent again by the next drain.
 
 A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
 The UI cuts the stored HTML into top level blocks, a block element or a run of text between two line breaks, and hands the editor one piece of markdown per block.

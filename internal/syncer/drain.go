@@ -20,27 +20,28 @@ var errCorruptRow = errors.New("sync: corrupt outbox row")
 // It stops at the first transient or auth failure so a backed off row can never be overtaken by a later one,
 // which the conflict policy depends on. changed reports whether any row completed or failed, so the caller knows to emit events.
 // Store failures after a successful send are returned like transient errors, the crash-retry ambiguity is accepted in the spec.
-func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
+// start bounds whether another row is started, post is the context a create runs on, see sendRow.
+func drainOutbox(start, post context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
 	// A command's deadline or a Ctrl-C can end ctx in the middle of a send.
 	// The row must still be put back to pending with its backoff, or it stays in flight and nothing sends it again.
-	bookkeeping := context.WithoutCancel(ctx)
+	bookkeeping := context.WithoutCancel(start)
 	changed := false
 	for {
-		row, err := st.Outbox().NextDue(ctx, rfc3339(time.Now()))
+		row, err := st.Outbox().NextDue(start, rfc3339(time.Now()))
 		if errors.Is(err, store.ErrNotFound) {
 			return changed, nil
 		}
 		if err != nil {
 			return changed, err
 		}
-		if err := st.Outbox().MarkInflight(ctx, row.ID); err != nil {
+		if err := st.Outbox().MarkInflight(start, row.ID); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				// Discarded from the sync issues view between the read and the claim.
 				continue
 			}
 			return changed, err
 		}
-		sendErr := sendRow(ctx, c, st, row)
+		sendErr := sendRow(start, post, c, st, row)
 		if sendErr == nil {
 			changed = true
 			continue
@@ -68,7 +69,14 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 	}
 }
 
-func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+func sendRow(start, post context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+	// A create may have reached Wrike when its context ends and is never retried by the client, so it runs on post.
+	// Cancelling an update or a delete is harmless, they can be sent again, and the retry backoff must not outlive the budget.
+	ctx := start
+	switch row.Kind {
+	case store.KindTaskCreate, store.KindCommentCreate, store.KindTimelogCreate:
+		ctx = post
+	}
 	// Once Wrike has answered the write has landed, so the local commit must not fail on a context that ended meanwhile.
 	// A context error there would reschedule the row and the next drain would send it again.
 	done := context.WithoutCancel(ctx)
