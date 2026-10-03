@@ -78,6 +78,35 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	return queued, reason, nil
 }
 
+// readBack reads the task and, for JSON, the pending marks after a write whose fate is known.
+// A read that fails does not change the fate, so the exit code stays the write's and the caller prints what it knows:
+// fallback is the task as it was before the write, and the marks are guessed from the outcome.
+func readBack(ctx context.Context, env Env, out outcome, id string, fallback store.Task, ref *refData, wantMarks bool) store.Task {
+	task, err := currentTask(ctx, env, id)
+	if err != nil {
+		warnReadBack(env, out, err)
+		task = fallback
+	}
+	if !wantMarks {
+		return task
+	}
+	// The pending marks changed under the drain, read them again.
+	marks, err := env.Store.Outbox().StatesByEntity(ctx)
+	if err != nil {
+		warnReadBack(env, out, err)
+		marks = map[string]store.OutboxState{}
+		if out == queued {
+			marks[task.ID] = store.StatePending
+		}
+	}
+	ref.pending = marks
+	return task
+}
+
+func warnReadBack(env Env, out outcome, err error) {
+	_, _ = fmt.Fprintf(env.Stderr, "wrikery: the change is %s, reading the task back: %v\n", out, err)
+}
+
 func reportBlocked(env Env) int {
 	_, _ = fmt.Fprintln(env.Stderr, "wrikery: token rejected, run wrikery to sign in again, the change stays queued")
 	return exitError

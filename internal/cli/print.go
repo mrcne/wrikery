@@ -27,7 +27,8 @@ type taskJSON struct {
 	Dates        *datesJSON   `json:"dates"`
 	Created      string       `json:"created"`
 	Updated      string       `json:"updated"`
-	Pending      bool         `json:"pending"`
+	Pending      bool         `json:"pending"` // a write is waiting to be sent or being sent
+	Failed       bool         `json:"failed"`  // Wrike refused a write, it is listed under sync issues
 }
 
 type personJSON struct {
@@ -70,7 +71,9 @@ func taskRow(ctx context.Context, env Env, t store.Task, ref *refData) taskJSON 
 		Folders:      make([]folderJSON, 0, len(t.ParentIDs)),
 		Created:      t.CreatedDate, Updated: t.UpdatedDate,
 	}
-	_, row.Pending = ref.pending[t.ID]
+	state := ref.pending[t.ID]
+	row.Pending = state == store.StatePending || state == store.StateInflight
+	row.Failed = state == store.StateFailed
 	for _, id := range t.ResponsibleIDs {
 		row.Responsibles = append(row.Responsibles, personJSON{ID: id, Name: contactName(*ref, id)})
 	}
@@ -102,8 +105,11 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 	names := make([]string, len(tasks))
 	for i, t := range tasks {
 		mark := " "
-		if _, ok := ref.pending[t.ID]; ok {
+		switch ref.pending[t.ID] {
+		case store.StatePending, store.StateInflight:
 			mark = th.Glyphs.Pending
+		case store.StateFailed:
+			mark = lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed)
 		}
 		ids[i] = t.ID + " " + mark
 		names[i] = ref.statusName(t)
@@ -190,6 +196,12 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 	}
 	line("folders", strings.Join(titles, ", "))
 	line("link", t.Permalink)
+	switch ref.pending[t.ID] {
+	case store.StatePending, store.StateInflight:
+		line("queued", "a write is waiting to be sent")
+	case store.StateFailed:
+		line("queued", "a write was rejected, see the sync issues screen")
+	}
 
 	body := t.DescriptionPlain
 	if env.Width > 0 {

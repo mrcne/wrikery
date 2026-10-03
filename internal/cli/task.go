@@ -164,16 +164,8 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	after, err := currentTask(ctx, env, t.ID)
-	if err != nil {
-		return fail(env, fmt.Errorf("the change is %s, reading the task back: %w", out, err))
-	}
-	if *asJSON {
-		// The pending marks changed under the drain, read them again.
-		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
-			return fail(env, fmt.Errorf("the change is %s, reading the queue back: %w", out, err))
-		}
-	} else if out != rejected && out != blocked {
+	after := readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
+	if !*asJSON && out != rejected && out != blocked {
 		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
 	}
 	return reportWrite(ctx, env, out, reason, *asJSON, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
@@ -237,16 +229,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	task, err := currentTask(ctx, env, store.LocalID(rowID))
-	if err != nil {
-		return fail(env, fmt.Errorf("the create is %s, reading the task back: %w", out, err))
-	}
-	if *asJSON {
-		// The pending marks changed under the drain, read them again.
-		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
-			return fail(env, fmt.Errorf("the create is %s, reading the queue back: %w", out, err))
-		}
-	}
+	task := readBack(ctx, env, out, store.LocalID(rowID), store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
 	if out == blocked {
 		return reportBlocked(env)
 	}

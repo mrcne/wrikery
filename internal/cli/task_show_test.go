@@ -120,3 +120,25 @@ func TestTaskShowNeedsExactlyOneTask(t *testing.T) {
 		t.Errorf("unknown task code = %d", code)
 	}
 }
+
+func TestTaskShowSaysWhatBecameOfAQueuedWrite(t *testing.T) {
+	for name, tc := range map[string]struct {
+		fail bool
+		want string
+	}{
+		"pending": {false, "queued      a write is waiting to be sent\n"},
+		"failed":  {true, "queued      a write was rejected, see the sync issues screen\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, out, _ := testEnv(t)
+			seedBoard(t, env.Store)
+			queueUpdate(t, env, tc.fail)
+			if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+				t.Fatalf("code = %d", code)
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("show lacks %q:\n%s", tc.want, out.String())
+			}
+		})
+	}
+}

@@ -211,6 +211,7 @@ A bare number is only ever that number, it is never tried as a part of a title.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
 A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
+A task in JSON has `pending` true while a write for it is waiting to be sent and `failed` true when Wrike rejected one.
 On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
 Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.
 The interface, when it is running at the same time, shows a command's change at its next poll or after a refresh with `R`.

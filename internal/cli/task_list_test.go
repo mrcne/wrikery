@@ -205,3 +205,42 @@ func TestTaskListAlignsTheStatusColumnForIdsOfDifferentLength(t *testing.T) {
 		col = i
 	}
 }
+
+func TestTaskListShowsARejectedWriteAsFailedNotPending(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	queueUpdate(t, env, true)
+	if code := Run(context.Background(), env, []string{"task", "list"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.HasPrefix(out.String(), "TASK1 "+env.Theme.Glyphs.Failed) {
+		t.Errorf("row = %q, want the failed glyph after the id", out.String())
+	}
+	out.Reset()
+	if code := Run(context.Background(), env, []string{"task", "list", "--json"}); code != exitOK {
+		t.Fatalf("json code = %d", code)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0]["failed"] != true || rows[0]["pending"] != false {
+		t.Errorf("row = %v, want failed true and pending false", rows[0])
+	}
+}
+
+func TestTaskListShowsAQueuedWriteAsPending(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	queueUpdate(t, env, false)
+	if code := Run(context.Background(), env, []string{"task", "list", "--json"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0]["failed"] != false || rows[0]["pending"] != true {
+		t.Errorf("row = %v, want pending true and failed false", rows[0])
+	}
+}
