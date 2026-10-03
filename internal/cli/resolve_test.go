@@ -337,6 +337,24 @@ func TestResolveFolderPrefersAnExactTitle(t *testing.T) {
 	}
 }
 
+func TestResolveTrimsTheArgumentOnceSoSpacesChangeNothing(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	if err := env.Store.Tasks().Upsert(ctx, []store.Task{
+		{ID: "TASK12", Title: "Timesheet", Status: "Active", Permalink: "https://www.wrike.com/open.htm?id=99", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+		{ID: "TASK13", Title: "Timesheet export", Status: "Active", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveTask(ctx, env.Store, " 99"); err != nil || got.ID != "TASK12" {
+		t.Errorf("a number with a space = %+v, %v", got, err)
+	}
+	if got, err := resolveTask(ctx, env.Store, " Timesheet "); err != nil || got.ID != "TASK12" {
+		t.Errorf("an exact title with spaces = %+v, %v", got, err)
+	}
+}
+
 func TestResolveTaskRefusesALinkItCannotUse(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)

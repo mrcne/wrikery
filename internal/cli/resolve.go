@@ -15,8 +15,9 @@ const candidateLimit = 20
 // resolveTask takes an id, a local id, the number or link from the browser or a title fragment that matches exactly one cached task.
 // The id is tried first, so a fragment can never shadow a real id, and the match is refused when it is not unique.
 func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, error) {
-	// An empty fragment would become LIKE '%%' and match a cache that holds one row.
-	if strings.TrimSpace(arg) == "" {
+	arg = strings.TrimSpace(arg)
+	// An empty fragment folds to empty and would match every row.
+	if arg == "" {
 		return store.Task{}, errors.New("a task is needed, an id or a part of its title")
 	}
 	t, err := st.Tasks().Get(ctx, arg)
@@ -85,7 +86,6 @@ func linkNumber(arg string) (number string, isLink bool) {
 // It lets a full title win over longer titles that contain it.
 // The hits are cut at candidateLimit+1, so an exact title past that cut is missed, which only happens with a fragment that is too short to have been meant as a title.
 func exactTitle(arg string, titles []string) int {
-	arg = strings.TrimSpace(arg)
 	found := -1
 	for i, title := range titles {
 		if !strings.EqualFold(strings.TrimSpace(title), arg) {
@@ -112,7 +112,8 @@ func isDigits(s string) bool {
 }
 
 func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Folder, error) {
-	if strings.TrimSpace(arg) == "" {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
 		return store.Folder{}, errors.New("a folder is needed, an id or a part of its title")
 	}
 	fo, err := st.Folders().Get(ctx, arg)

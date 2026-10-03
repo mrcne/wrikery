@@ -484,3 +484,15 @@ func TestByPermalinkIDMatchesTheNumberOnAnyHost(t *testing.T) {
 		}
 	}
 }
+
+func TestFindByTitleMatchesNothingForAFragmentThatFoldsToEmpty(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "Plan")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "\u0301", 10)
+	if err != nil || len(got) != 0 {
+		t.Errorf("FindByTitle(combining mark) = %v, %v, want no rows", got, err)
+	}
+}

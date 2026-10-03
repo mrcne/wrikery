@@ -8,7 +8,7 @@ func TestPadRightCountsTerminalCells(t *testing.T) {
 		want string
 	}{
 		{"ab", "ab    "},
-		{"日本", "日本  "},
+		{"\u65e5\u672c", "\u65e5\u672c  "},
 		{"toolongvalue", "toolongvalue"},
 	} {
 		if got := padRight(tc.in, 6); got != tc.want {

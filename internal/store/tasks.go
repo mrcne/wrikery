@@ -327,12 +327,16 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 // It is a plain substring on the folded title, the search index would match descriptions too.
 // The whole table is read, the cache holds a few thousand tasks at most.
 func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
+	want := foldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains.
+	if want == "" {
+		return nil, nil
+	}
 	rows, err := t.r.QueryContext(ctx, `SELECT t.id, t.title FROM tasks t `+taskListOrder)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	want := foldTitle(fragment)
 	var ids []string
 	for rows.Next() && len(ids) < limit {
 		var id, title string

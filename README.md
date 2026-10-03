@@ -81,7 +81,7 @@ wrikery task create --folder Sandbox Try the new command
 A task or a folder is an id or a part of its title that matches exactly one cached row.
 A task may also be the number or the link from the browser, the link goes in quotes.
 Every command takes `--json`.
-A write is sent right away and reported as sent, queued when Wrike could not be reached, or rejected.
+A write is sent right away and reported as sent, queued when Wrike could not be reached, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 
 ## Config

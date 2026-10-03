@@ -102,7 +102,7 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 	dim := lipgloss.NewStyle().Foreground(th.Dim)
 	idW, statusW := 2, 6
 	ids := make([]string, len(tasks))
-	names := make([]string, len(tasks))
+	cells := make([]string, len(tasks))
 	for i, t := range tasks {
 		mark := " "
 		switch ref.pending[t.ID] {
@@ -112,9 +112,9 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 			mark = lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed)
 		}
 		ids[i] = t.ID + " " + mark
-		names[i] = ref.statusName(t)
+		cells[i] = th.StatusGlyph(statusOf(t, ref).Group) + " " + ref.statusName(t)
 		idW = max(idW, ansi.StringWidth(ids[i]))
-		statusW = max(statusW, ansi.StringWidth(names[i])+2)
+		statusW = max(statusW, ansi.StringWidth(cells[i]))
 	}
 	tty := env.Width > 0
 	if tty {
@@ -122,12 +122,7 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 	}
 	for i, t := range tasks {
 		id := dim.Render(padRight(ids[i], idW))
-		cs := ref.statuses[t.CustomStatusID]
-		if cs.ID == "" {
-			cs.Group = t.Status
-		}
-		status := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).
-			Render(padRight(th.StatusGlyph(cs.Group)+" "+names[i], statusW))
+		status := lipgloss.NewStyle().Foreground(th.StatusColor(statusOf(t, ref))).Render(padRight(cells[i], statusW))
 		_, _ = fmt.Fprintf(env.Stdout, "%s  %s  %s %s\n", id, status, th.ImportanceMark(t.Importance), t.Title)
 	}
 	if tty {
@@ -140,6 +135,15 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 		}
 		_, _ = fmt.Fprintln(env.Stdout, dim.Render(count))
 	}
+}
+
+// statusOf is the custom status of a task, or a bare one carrying the group when the cache does not know it.
+func statusOf(t store.Task, ref *refData) store.CustomStatus {
+	cs := ref.statuses[t.CustomStatusID]
+	if cs.ID == "" {
+		cs.Group = t.Status
+	}
+	return cs
 }
 
 // padRight pads by terminal cells, fmt pads by bytes and would misalign a non-ASCII or wide status name.

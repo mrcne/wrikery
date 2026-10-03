@@ -140,12 +140,16 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 
 // FindByTitle is the lookup behind a folder fragment on the command line, folded like the task lookup.
 func (f folderRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error) {
+	want := foldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains.
+	if want == "" {
+		return nil, nil
+	}
 	rows, err := f.r.QueryContext(ctx, `SELECT id, title FROM folders ORDER BY title`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	want := foldTitle(fragment)
 	var ids []string
 	for rows.Next() && len(ids) < limit {
 		var id, title string
