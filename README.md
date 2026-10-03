@@ -75,7 +75,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-TODO: Add license information.
+Mozilla Public License 2.0, see [LICENSE](LICENSE).
+Changes to these files have to stay under this license when they are distributed.
+A larger program that includes them may use other terms.
 
 Wrike is a trademark of Wrike, Inc.
 This project is not affiliated with or endorsed by Wrike.
