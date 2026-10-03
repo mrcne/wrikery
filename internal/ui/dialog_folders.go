@@ -28,16 +28,8 @@ type foldersDialog struct {
 }
 
 func newFoldersDialog(task store.Task, nodes []treeNode, idx folderIndex, nodeID string) (foldersDialog, tea.Cmd) {
-	d := foldersDialog{taskID: task.ID, titles: map[string]string{}}
-	var rows []checkRow
-	for _, n := range nodes {
-		// The tree draws a folder once per parent, the checklist lists it once, where it first appears.
-		if n.kind == nodeMe || d.titles[n.id] != "" {
-			continue
-		}
-		rows = append(rows, checkRow{id: n.id, label: strings.Repeat("  ", n.depth) + n.title})
-		d.titles[n.id] = n.title
-	}
+	rows, titles := treeRows(nodes)
+	d := foldersDialog{taskID: task.ID, titles: titles}
 	var known []string
 	for _, id := range task.ParentIDs {
 		if d.titles[id] == "" {

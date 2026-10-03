@@ -232,6 +232,11 @@ func (m Model) loadTask(id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		task, err := st.Tasks().Get(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			// The task vanished between the selection and the read: a create swapped it for the server row,
+			// or a sweep or a 404 on its thread removed it. The list reload selects whatever sits there now.
+			return nil
+		}
 		if err != nil {
 			return errMsg{err}
 		}
@@ -290,14 +295,20 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 	}
 }
 
-// enqueue runs one outbox call, wakes the engine and reports back. Every write in the UI goes through here.
+func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd {
+	return m.enqueueSelecting(func(ctx context.Context) (string, error) { return "", op(ctx) }, toast)
+}
+
+// enqueueSelecting runs one outbox call, wakes the engine and reports back. Every write in the UI goes through here.
 // The counts are read right after, so the status bar reflects the new row without waiting for the
 // next OutboxChangedMsg from the sync engine.
-func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd {
+// The op hands back the id of a row the write added, so the list can land on it, or an empty string.
+func (m Model) enqueueSelecting(op func(ctx context.Context) (string, error), toast string) tea.Cmd {
 	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
 		ctx := context.Background()
-		if err := op(ctx); err != nil {
+		selectID, err := op(ctx)
+		if err != nil {
 			return errMsg{err}
 		}
 		if hooks.WakeOutbox != nil {
@@ -307,7 +318,7 @@ func (m Model) enqueue(op func(ctx context.Context) error, toast string) tea.Cmd
 		if err != nil {
 			return errMsg{err}
 		}
-		return writeQueuedMsg{toast: toast, pending: pending, failed: failed}
+		return writeQueuedMsg{toast: toast, pending: pending, failed: failed, selectID: selectID}
 	}
 }
 
@@ -354,6 +365,9 @@ func (m Model) loadIssues() tea.Cmd {
 				if l, err := st.Timelogs().Get(ctx, r.EntityID); err == nil {
 					ir.taskID = l.TaskID
 				}
+			case store.KindTaskCreate:
+				// The entity is the folder, the task is the local row the create made.
+				ir.taskID = store.LocalID(r.ID)
 			default:
 				ir.taskID = r.EntityID
 			}

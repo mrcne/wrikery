@@ -33,6 +33,7 @@ func (g groupKey) String() string {
 // taskGroup is one section of the list or one lane of the board.
 // rows index taskListModel.all, and a task can sit in more than one group.
 type taskGroup struct {
+	id    string // the folder of a by folder section, empty for the other groupings and for Elsewhere
 	title string
 	rows  []int
 }
@@ -174,7 +175,7 @@ func groupByFolder(all []taskRow, kept []int, nodeID string, idx folderIndex) []
 	out := make([]taskGroup, 0, len(keys))
 	for _, k := range keys {
 		g := byKey[k]
-		g.title = idx.title[k]
+		g.id, g.title = k, idx.title[k]
 		if k == "" {
 			g.title = elsewhere
 		}

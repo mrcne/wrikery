@@ -20,11 +20,12 @@ Reading:
 
 Writing:
 
+- create a task
 - add comments
 - change the title, description, status, importance, assignee, dates and folders of a task
 - log, edit and delete your own time entries
 
-Not in v1: creating tasks, managing subtasks, editing custom fields, dashboards, Gantt charts.
+Not in v1: managing subtasks, editing custom fields, dashboards, Gantt charts.
 The tool does not try to replace the web application for heavy project management.
 
 ## UX
@@ -106,6 +107,16 @@ The first line of the box says which of the two enter will do.
 Unchecking the last folder is refused: Wrike would put the task into the account root, which no followed scope covers, and the task would drop out of the cache at the next sync.
 A folder outside the followed scopes is not in the list, the box counts it and never touches it.
 
+`n` creates a task, from any pane of the main screen.
+The box asks for a title and shows the folder the task goes into, preset to the folder or project in view, or to the folder of the section under the cursor when the list is grouped by folder.
+Tab moves to the folder field, which narrows the followed tree as you type, enter picks and goes back to the title, and enter on the title creates.
+On My tasks no folder is in view, so the box asks for one, and the task is assigned to you so it stays in the view.
+Elsewhere nobody is assigned.
+`a`, `d`, `p` and `E` fill in the rest.
+The task shows at once with `(sending)` next to its title and is sent to Wrike in the background.
+Every key works on it right away and the writes wait in the queue until the create has landed, except `o`, `y`, `Y` and `i`, which say the task is not on Wrike yet.
+A create that Wrike rejects shows on the sync issues screen, and discarding it removes the task together with everything queued on it.
+
 ### Views
 
 The task list can be grouped, and the same tasks can be shown as a board.
@@ -129,7 +140,7 @@ A code in parentheses at the start of a title, `(MX)`, is drawn muted and a shor
 ### Sync issues
 
 `!` opens the list of writes the sync engine could not send.
-Each row shows the task title, a short summary of the write (a comment, a status, assignee or dates change, a time entry) and the error Wrike returned.
+Each row shows the task title, a short summary of the write (a new task, a comment, a status, assignee or dates change, a time entry) and the error Wrike returned.
 `r` retries the highlighted row, `x` asks for confirmation and then discards it, enter opens the task, esc goes back to the previous screen.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
 

@@ -283,3 +283,47 @@ func TestCountsSeparatesFailed(t *testing.T) {
 		t.Errorf("counts = %d pending %d failed, want 0 and 1", pending, failed)
 	}
 }
+
+func TestEnqueueTaskCreateWritesALocalTask(t *testing.T) {
+	st := newTestStore(t)
+	st.Now = func() time.Time { return time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC) }
+	ctx := context.Background()
+
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}}, "CS1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(id)
+	got, err := st.Tasks().Get(ctx, localID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "New one" || got.Status != "Active" || got.CustomStatusID != "CS1" || got.Importance != "Normal" {
+		t.Errorf("local task = %+v", got)
+	}
+	if strings.Join(got.ParentIDs, ",") != "F1" || strings.Join(got.ResponsibleIDs, ",") != "U1" {
+		t.Errorf("parents = %v, responsibles = %v, want the folder and the user", got.ParentIDs, got.ResponsibleIDs)
+	}
+	if got.CreatedDate != "2026-10-01T09:00:00Z" {
+		t.Errorf("created = %q, want the store clock", got.CreatedDate)
+	}
+	rows, err := st.Tasks().ListInFolder(ctx, "F1")
+	if err != nil || len(rows) != 1 || rows[0].ID != localID {
+		t.Errorf("list in F1 = %+v, %v, want the local task", rows, err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
+	if err != nil || row.Kind != KindTaskCreate || row.EntityID != "F1" {
+		t.Errorf("next due = %+v, %v, want the create keyed by its folder", row, err)
+	}
+	var p TaskCreatePayload
+	if err := json.Unmarshal(row.Payload, &p); err != nil || p.Title != "New one" || strings.Join(p.Responsibles, ",") != "U1" {
+		t.Errorf("payload = %s, %v", row.Payload, err)
+	}
+	states, err := st.Outbox().StatesByEntity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[localID] != StatePending || states["F1"] != "" {
+		t.Errorf("states = %v, want the local task pending and the folder untouched", states)
+	}
+}

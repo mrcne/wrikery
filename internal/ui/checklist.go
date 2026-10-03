@@ -24,6 +24,7 @@ type checklist struct {
 	cursor   int
 	query    string
 	filter   textinput.Model
+	single   bool // a pick, not a set: the rows are drawn without check boxes
 }
 
 func newChecklist(rows []checkRow, checkedIDs []string, placeholder string) (checklist, tea.Cmd) {
@@ -151,12 +152,16 @@ func (c checklist) view(th Theme, width, rows int) string {
 	first := min(max(c.cursor-window/2, 0), len(c.visible)-window)
 	for i := first; i < first+window; i++ {
 		r := c.rows[c.visible[i]]
-		mark := "[ ]"
-		if c.checked[r.id] {
-			mark = "[x]"
-		}
 		indent, title := splitIndent(r.label)
-		b.WriteString(rowLine(th, indent+mark+" "+title, width, i == c.cursor, true) + "\n")
+		line := indent + title
+		if !c.single {
+			mark := "[ ]"
+			if c.checked[r.id] {
+				mark = "[x]"
+			}
+			line = indent + mark + " " + title
+		}
+		b.WriteString(rowLine(th, line, width, i == c.cursor, true) + "\n")
 	}
 	if marker {
 		above, below := first, len(c.visible)-first-window
@@ -176,4 +181,19 @@ func (c checklist) view(th Theme, width, rows int) string {
 func splitIndent(label string) (indent, rest string) {
 	rest = strings.TrimLeft(label, " ")
 	return label[:len(label)-len(rest)], rest
+}
+
+// treeRows lists the sidebar tree for a box, indented by depth and once per folder.
+// The tree draws a folder under every parent, a list offers it where it first appears.
+func treeRows(nodes []treeNode) ([]checkRow, map[string]string) {
+	var rows []checkRow
+	titles := map[string]string{}
+	for _, n := range nodes {
+		if n.kind == nodeMe || titles[n.id] != "" {
+			continue
+		}
+		rows = append(rows, checkRow{id: n.id, label: strings.Repeat("  ", n.depth) + n.title})
+		titles[n.id] = n.title
+	}
+	return rows, titles
 }

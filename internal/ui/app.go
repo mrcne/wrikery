@@ -324,6 +324,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
+		if msg.selectID != "" {
+			m.pendingSelect = msg.selectID
+		}
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
 		if m.screen == screenIssues {
 			cmds = append(cmds, m.loadIssues())
@@ -386,6 +389,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitCreateMsg:
+		st, meID := m.opts.Store, m.ref.meID
+		p := store.TaskCreatePayload{Title: msg.title}
+		// The reference data may not have loaded yet, then there is nobody to assign.
+		if msg.assignMe && meID != "" {
+			p.Responsibles = []string{meID}
+		}
+		where := m.folderCrumbs()[msg.folderID]
+		return m, m.enqueueSelecting(func(ctx context.Context) (string, error) {
+			id, err := st.Outbox().EnqueueTaskCreate(ctx, msg.folderID, p, msg.statusID)
+			if err != nil {
+				return "", err
+			}
+			return store.LocalID(id), nil
+		}, "Task added to "+where)
 	case submitTitleMsg:
 		st := m.opts.Store
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -664,6 +682,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if open == nil {
 				return m.status.show("browser not available", true)
 			}
+			if unconfirmed(t) {
+				return m.status.show(notOnWrike, true)
+			}
 			if t.Permalink == "" {
 				return m.status.show(noPermalink, true)
 			}
@@ -758,6 +779,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.openDialog(newImportanceDialog(t, m.keys))
 			return nil
 		})
+		return m, cmd
+	case key.Matches(msg, m.keys.New):
+		d, cmd := newCreateDialog(m.sidebar.nodes, m.folderCrumbs(), m.createPreset(), m.statusGuess(),
+			m.selectedNode.kind == nodeMe, min(m.width-4, 80))
+		m.openDialog(d)
 		return m, cmd
 	case key.Matches(msg, m.keys.Folders):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
@@ -882,8 +908,16 @@ func (m *Model) withTask(f func(store.Task) tea.Cmd) tea.Cmd {
 
 const noPermalink = "this task has no permalink yet"
 
+const notOnWrike = "not on Wrike yet"
+
+// unconfirmed tells a task whose create is still in the outbox: no permalink and an id Wrike does not know.
+func unconfirmed(t store.Task) bool { return strings.HasPrefix(t.ID, store.LocalIDPrefix) }
+
 func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
 	return m.withTask(func(t store.Task) tea.Cmd {
+		if unconfirmed(t) {
+			return m.status.show(notOnWrike, true)
+		}
 		cp := m.opts.Hooks.Copy
 		if cp == nil {
 			return m.status.show("clipboard not available", true)
@@ -1041,6 +1075,57 @@ func (m Model) hintBindings() []key.Binding {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
 	}
 	return base
+}
+
+// createPreset is the folder the new task goes into before the user changes it:
+// the folder of the group under the cursor when the rows are grouped by folder, else the node in view.
+// My tasks is no folder, there the box starts empty.
+func (m Model) createPreset() string {
+	if m.list.groupBy == groupFolder {
+		if g := m.list.groupOf(m.list.cursor); g >= 0 && m.list.groups[g].id != "" {
+			return m.list.groups[g].id
+		}
+	}
+	if m.selectedNode.kind == nodeMe || m.selectedNode.kind == nodeNone {
+		return ""
+	}
+	return m.selectedNode.id
+}
+
+// statusGuess is the status the new row shows until Wrike answers: the first Active status of the workflow
+// the board columns use for the rows in view, or of the standard workflow when the view has no rows to tell.
+// It is not sent, Wrike applies the folder's default, which is the same status in nearly every account.
+func (m Model) statusGuess() string {
+	for _, c := range m.list.columns {
+		if !c.bucket && c.status.Group == "Active" {
+			return c.status.ID
+		}
+	}
+	for _, wf := range m.ref.workflows {
+		if !wf.Standard {
+			continue
+		}
+		for _, cs := range wf.CustomStatuses {
+			if cs.Group == "Active" && !cs.Hidden {
+				return cs.ID
+			}
+		}
+	}
+	return ""
+}
+
+// folderCrumbs is the path of every sidebar node by id, for the folder line of the create box.
+func (m Model) folderCrumbs() map[string]string {
+	out := map[string]string{}
+	for _, n := range m.sidebar.nodes {
+		if n.kind == nodeMe {
+			continue
+		}
+		if _, ok := out[n.id]; !ok {
+			out[n.id] = m.sidebar.crumb(n)
+		}
+	}
+	return out
 }
 
 func (m Model) helpGroups() [][]key.Binding {

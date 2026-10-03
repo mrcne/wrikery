@@ -235,3 +235,60 @@ func TestTasksOmitsEmptyResponsibles(t *testing.T) {
 		t.Error("responsibles sent for an empty filter")
 	}
 }
+
+func TestCreateTaskPostsTheFormAndParsesTheTask(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/folders/IEAAAAFD1/tasks" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.PostForm.Get("title"); got != "Fix login" {
+			t.Errorf("title = %q", got)
+		}
+		if got := r.PostForm.Get("customStatus"); got != "IEAAACS1" {
+			t.Errorf("customStatus = %q", got)
+		}
+		if got := r.PostForm.Get("responsibles"); got != `["KUAAAA01"]` {
+			t.Errorf("responsibles = %q", got)
+		}
+		if got := r.PostForm.Get("parents"); got != `["IEAAAAFD2"]` {
+			t.Errorf("parents = %q", got)
+		}
+		if got := r.PostForm.Get("importance"); got != "High" {
+			t.Errorf("importance = %q", got)
+		}
+		if r.PostForm.Has("description") || r.PostForm.Has("dates") {
+			t.Errorf("unset fields must be omitted, form = %v", r.PostForm)
+		}
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[
+  {"id":"IEAAAATSK9","title":"Fix login","status":"Active","customStatusId":"IEAAACS1","importance":"High",
+   "responsibleIds":["KUAAAA01"],"parentIds":["IEAAAAFD1","IEAAAAFD2"],
+   "createdDate":"2026-10-01T08:00:00Z","updatedDate":"2026-10-01T08:00:00Z",
+   "permalink":"https://www.wrike.com/open.htm?id=9"}]}`))
+	}))
+
+	got, err := c.CreateTask(context.Background(), "IEAAAAFD1", TaskCreate{
+		Title: "Fix login", CustomStatusID: "IEAAACS1", Importance: "High",
+		Responsibles: []string{"KUAAAA01"}, Parents: []string{"IEAAAAFD2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "IEAAAATSK9" || len(got.ParentIDs) != 2 || got.Permalink == "" {
+		t.Errorf("task = %+v", got)
+	}
+}
+
+func TestCreateTaskRejectsAnEmptyTitleOrFolder(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("no request must be sent")
+	}))
+	if _, err := c.CreateTask(context.Background(), "", TaskCreate{Title: "x"}); err == nil {
+		t.Error("want error for empty folder id, got nil")
+	}
+	if _, err := c.CreateTask(context.Background(), "IEAAAAFD1", TaskCreate{}); err == nil {
+		t.Error("want error for empty title, got nil")
+	}
+}

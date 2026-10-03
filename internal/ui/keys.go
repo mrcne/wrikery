@@ -3,13 +3,13 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Quit, Help, Search, Timesheet, Issues, Refresh, NextPane, PrevPane, Back                                        key.Binding
-	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone                                 key.Binding
-	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open key.Binding
-	CopyLink, CopyBranch, CopyID                                                                                    key.Binding
-	Retry, Discard                                                                                                  key.Binding
-	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                              key.Binding
-	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                  key.Binding
+	Quit, Help, Search, Timesheet, Issues, Refresh, NextPane, PrevPane, Back                                             key.Binding
+	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone                                      key.Binding
+	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open, New key.Binding
+	CopyLink, CopyBranch, CopyID                                                                                         key.Binding
+	Retry, Discard                                                                                                       key.Binding
+	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                                   key.Binding
+	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                       key.Binding
 }
 
 func b(help, desc string, keys ...string) key.Binding {
@@ -33,6 +33,7 @@ func defaultKeyMap() KeyMap {
 
 		Comment: b("c", "comment", "c"), CommentEditor: b("C", "comment in $EDITOR", "C"), LogTime: b("t", "log time", "t"),
 		Status: b("s", "status", "s"), Assignee: b("a", "assignee", "a"), Dates: b("d", "dates", "d"), EditTitle: b("e", "title", "e"), EditDescription: b("E", "description in $EDITOR", "E"), Importance: b("p", "importance", "p"), Folders: b("m", "folders", "m"),
+		New:  b("n", "new task", "n"),
 		Open: b("o", "open in browser", "o"), CopyLink: b("y", "copy permalink", "y"), CopyBranch: b("Y", "copy branch name", "Y"), CopyID: b("i", "copy task id", "i"),
 
 		Retry: b("r", "retry", "r"), Discard: b("x", "discard", "x"),
@@ -48,7 +49,7 @@ func (k KeyMap) global() []key.Binding {
 }
 
 func (k KeyMap) list() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board}
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board, k.New}
 }
 
 func (k KeyMap) task() []key.Binding {
@@ -56,7 +57,7 @@ func (k KeyMap) task() []key.Binding {
 }
 
 func (k KeyMap) board() []key.Binding {
-	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.ToggleDone, k.GroupBy, k.Board, k.Enter}
+	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.ToggleDone, k.GroupBy, k.Board, k.Enter, k.New}
 }
 
 func (k KeyMap) timesheet() []key.Binding {

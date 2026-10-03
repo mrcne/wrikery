@@ -40,6 +40,10 @@ func summarize(row store.OutboxRow) string {
 		var p store.CommentCreatePayload
 		_ = json.Unmarshal(row.Payload, &p)
 		return "comment: " + ansi.Truncate(p.Text, 42, "...")
+	case store.KindTaskCreate:
+		var p store.TaskCreatePayload
+		_ = json.Unmarshal(row.Payload, &p)
+		return "new task: " + ansi.Truncate(p.Title, 42, "...")
 	case store.KindTaskUpdate:
 		var p store.TaskUpdatePayload
 		_ = json.Unmarshal(row.Payload, &p)

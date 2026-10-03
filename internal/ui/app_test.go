@@ -162,6 +162,17 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 // columns and up, so the dialog or the issues screen is captured over a fully drawn frame
 // and not one still mid-load.
 func TestTaskActionGoldens(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "n")
+		waitAfter(t, tm, from, "New task")
+		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+	})
 	t.Run("status", func(t *testing.T) {
 		st := seededStore(t)
 		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
@@ -1044,4 +1055,107 @@ func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
 	from := mark(t, tm)
 	press(tm, "E")
 	waitAfter(t, tm, from, "set $EDITOR to write in an editor")
+}
+
+// The demo opens on My tasks, so the box starts without a folder and the create assigns the task to the user.
+func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "n")
+	waitAfter(t, tm, from, "pick a folder")
+	press(tm, "tab", "api", "enter")
+	waitAfter(t, tm, from, "Platform / API")
+	press(tm, "Ship it", "enter")
+	waitAfter(t, tm, from, "Task added to Platform / API")
+	waitAfter(t, tm, from, "(sending)")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+
+	ctx := context.Background()
+	tasks, err := st.Tasks().ListForResponsible(ctx, demo.MeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(tasks, func(task store.Task) bool { return task.Title == "Ship it" })
+	if i < 0 {
+		t.Fatalf("the new task is not among my tasks: %d rows", len(tasks))
+	}
+	got := tasks[i]
+	if !strings.HasPrefix(got.ID, store.LocalIDPrefix) || got.CustomStatusID != "IEAAST11" || strings.Join(got.ParentIDs, ",") != demo.ProjectAPI {
+		t.Errorf("new task = %+v, want a local id, the first Active status of the workflow in view and the picked folder", got)
+	}
+	// The demo seeds older queued writes, so the create is looked up by its local id and not taken from the head of the queue.
+	states, err := st.Outbox().StatesByEntity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := states[got.ID]; !ok {
+		t.Errorf("no queued create under %s, states: %v", got.ID, states)
+	}
+	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
+	if !strings.Contains(final, "Ship it") || !strings.Contains(final, "(sending)") {
+		t.Errorf("final view should show the new task selected and sending:\n%s", final)
+	}
+}
+
+func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, demo.ProjectAPI, store.TaskCreatePayload{Title: "Swapped", Responsibles: []string{demo.MeID}}, "IEAAST11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "/", "Swapped", "enter")
+	waitFor(t, tm, "(sending)")
+
+	real := store.Task{
+		ID: "IEAATASK99", Title: "Swapped", Status: "Active", CustomStatusID: "IEAAST11", Importance: "Normal",
+		ResponsibleIDs: []string{demo.MeID}, ParentIDs: []string{demo.ProjectAPI},
+		Permalink: "https://www.wrike.com/open.htm?id=1299999", CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z",
+	}
+	if err := st.Outbox().CompleteTaskCreate(ctx, id, real); err != nil {
+		t.Fatal(err)
+	}
+	tm.Send(ui.OutboxChangedMsg{Pending: 0, Failed: 0})
+	tm.Send(ui.StoreChangedMsg{Entities: []string{"tasks", "comments", "timelogs"}})
+	waitFor(t, tm, "#1299999")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+
+	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
+	for _, want := range []string{"Swapped", "#1299999"} {
+		if !strings.Contains(final, want) {
+			t.Errorf("final view should contain %q:\n%s", want, final)
+		}
+	}
+	for _, bad := range []string{"(sending)", "not found"} {
+		if strings.Contains(final, bad) {
+			t.Errorf("final view should not contain %q:\n%s", bad, final)
+		}
+	}
+}
+
+func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
+	st := seededStore(t)
+	if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}, "IEAAST11"); err != nil {
+		t.Fatal(err)
+	}
+	opts, copied := testOptionsWithCopy(st)
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "/", "Unsent", "enter")
+	waitAfter(t, tm, from, "(sending)")
+	press(tm, "i")
+	waitAfter(t, tm, from, "not on Wrike yet")
+	press(tm, "Y")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+	if len(*copied) != 0 {
+		t.Errorf("copied %v, want nothing for a task that has no id yet", *copied)
+	}
 }

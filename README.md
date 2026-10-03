@@ -35,6 +35,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - instant full text search over everything cached
 - a timesheet view of your own logged time
 - a board over workflow statuses, plain or with a lane per person or per folder
+- create tasks
 - add comments
 - change task title, description, importance, status, assignee and dates
 - move a task between folders, or put it in several
@@ -55,6 +56,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `E` | edit the description in `$EDITOR` |
 | `p` | importance |
 | `m` | move, or add to folders |
+| `n` | new task |
 | `t` | log time |
 | `T` | timesheet |
 | `?` | every key for the current screen |

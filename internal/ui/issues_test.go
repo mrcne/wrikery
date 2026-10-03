@@ -114,3 +114,10 @@ func TestEnqueueIssueOpMapsNotFoundToAPlainToast(t *testing.T) {
 		t.Errorf("toast = %q, want a plain sentence rather than the raw store error", got.toast)
 	}
 }
+
+func TestSummarizeNamesANewTask(t *testing.T) {
+	row := store.OutboxRow{Kind: store.KindTaskCreate, Payload: []byte(`{"title":"Ship it"}`)}
+	if got := summarize(row); got != "new task: Ship it" {
+		t.Errorf("summary = %q", got)
+	}
+}

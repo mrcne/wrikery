@@ -183,6 +183,63 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	return out[0], nil
 }
 
+// TaskCreate holds the fields of a new task. Only Title is required, Wrike fills the rest from the folder's defaults.
+// Parents are folders next to the one in the request path, the task sits in all of them.
+type TaskCreate struct {
+	Title          string
+	Description    string // HTML, as in TaskUpdate
+	CustomStatusID string
+	Importance     string // High, Normal or Low
+	Responsibles   []string
+	Parents        []string
+	Dates          *TaskDates
+}
+
+// CreateTask creates a task in a folder and returns it as Wrike stored it.
+// Reference: https://developers.wrike.com/reference/postfolderssingletasks .
+// The status goes as customStatus, the parameter is not named like the customStatusId field the task carries.
+// A POST is never retried after a network error, see do, the caller decides whether to send it again.
+func (c *Client) CreateTask(ctx context.Context, folderID string, t TaskCreate) (Task, error) {
+	if folderID == "" {
+		return Task{}, errors.New("wrike: folder id is required")
+	}
+	if t.Title == "" {
+		return Task{}, errors.New("wrike: task title is required")
+	}
+	form := url.Values{}
+	form.Set("title", t.Title)
+	if t.Description != "" {
+		form.Set("description", t.Description)
+	}
+	if t.CustomStatusID != "" {
+		form.Set("customStatus", t.CustomStatusID)
+	}
+	if t.Importance != "" {
+		form.Set("importance", t.Importance)
+	}
+	if len(t.Responsibles) > 0 {
+		form.Set("responsibles", jsonArray(t.Responsibles))
+	}
+	if len(t.Parents) > 0 {
+		form.Set("parents", jsonArray(t.Parents))
+	}
+	if t.Dates != nil {
+		raw, err := json.Marshal(t.Dates)
+		if err != nil {
+			return Task{}, err
+		}
+		form.Set("dates", string(raw))
+	}
+	var out []Task
+	if _, err := c.do(ctx, http.MethodPost, "/folders/"+folderID+"/tasks", nil, form, &out); err != nil {
+		return Task{}, err
+	}
+	if len(out) == 0 {
+		return Task{}, errors.New("wrike: empty response to task create")
+	}
+	return out[0], nil
+}
+
 // jsonArray renders a string slice as the JSON array Wrike expects in query and form parameters.
 func jsonArray(items []string) string {
 	raw, _ := json.Marshal(items)

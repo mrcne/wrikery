@@ -429,3 +429,48 @@ func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
 		t.Errorf("comments for T3 = %+v, %v, the task after the rejected one must still refresh", comments, err)
 	}
 }
+
+func TestSweepKeepsAnUnconfirmedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	sc := mustScope(t, st, "F1", store.ScopeKindProject)
+	seedTask(t, st, "T1", "keep")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
+	}}
+	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Tasks().Get(ctx, store.LocalID(id)); err != nil {
+		t.Errorf("the unconfirmed task was swept: %v", err)
+	}
+}
+
+func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := store.LocalID(id)
+	if err := st.Tasks().MarkOpened(ctx, localID, rfc3339(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+
+	fc := &fakeClient{}
+	if _, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+		t.Fatal(err)
+	}
+	if log := fc.callLog(); len(log) != 0 {
+		t.Errorf("calls = %v, a local task has no thread to ask for", log)
+	}
+	if _, err := st.Tasks().Get(ctx, localID); err != nil {
+		t.Errorf("the unconfirmed task is gone: %v", err)
+	}
+}

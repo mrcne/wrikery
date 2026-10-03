@@ -336,3 +336,130 @@ func TestCompleteTaskSwapsInServerVersion(t *testing.T) {
 		t.Fatalf("task = %+v, %v, want the server version in the cache", task, err)
 	}
 }
+
+func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "CS1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	commentID, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTimelogCreate(ctx, localID, "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, localID, TaskUpdatePayload{Importance: "High"}); err != nil {
+		t.Fatal(err)
+	}
+	if row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z"); err != nil || row.ID != createID {
+		t.Fatalf("next due = %+v, %v, the dependents must wait for the create", row, err)
+	}
+
+	if err := st.Tasks().MarkOpened(ctx, localID, "2026-10-01T09:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	real := Task{ID: "T9", Title: "New one", Status: "Active", CustomStatusID: "CS1", Importance: "Normal",
+		ParentIDs: []string{"F1"}, Permalink: "https://www.wrike.com/open.htm?id=9",
+		CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z"}
+	if err := st.Outbox().CompleteTaskCreate(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("local task after the swap: %v, want gone", err)
+	}
+	if got, err := st.Tasks().Get(ctx, "T9"); err != nil || got.Permalink == "" {
+		t.Errorf("server task = %+v, %v", got, err)
+	}
+	if opened, err := st.Tasks().RecentlyOpenedIDs(ctx, "2026-10-01T00:00:00Z", 10); err != nil || len(opened) != 1 || opened[0] != "T9" {
+		t.Errorf("recently opened after the swap = %v, %v, want T9", opened, err)
+	}
+	comments, err := st.Comments().ListForTask(ctx, "T9")
+	if err != nil || len(comments) != 1 || comments[0].ID != LocalID(commentID) {
+		t.Errorf("comments on T9 = %+v, %v, want the queued one re-pointed", comments, err)
+	}
+	logs, err := st.Timelogs().ListForTask(ctx, "T9")
+	if err != nil || len(logs) != 1 {
+		t.Errorf("timelogs on T9 = %+v, %v, want the queued one re-pointed", logs, err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
+	if err != nil || row.ID != commentID || row.EntityID != "T9" {
+		t.Errorf("next due = %+v, %v, want the comment against T9", row, err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 3 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want the three dependents pending", pending, failed, err)
+	}
+}
+
+func TestDiscardTaskCreateDropsTheTaskAndItsDependents(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	if _, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, createID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want the dependent gone with the create", pending, failed, err)
+	}
+	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("local task after discard: %v, want gone", err)
+	}
+	if comments, _ := st.Comments().ListForTask(ctx, localID); len(comments) != 0 {
+		t.Errorf("comments after discard = %+v, want none", comments)
+	}
+}
+
+func TestDiscardTaskCreateDropsEditsQueuedOnItsTimelog(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	logID, err := st.Outbox().EnqueueTimelogCreate(ctx, localID, "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTimelogUpdate(ctx, LocalID(logID), TimelogUpdatePayload{Hours: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, createID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want nothing left queued", pending, failed, err)
+	}
+	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("local task after discard: %v, want gone", err)
+	}
+	if logs, _ := st.Timelogs().ListForTask(ctx, localID); len(logs) != 0 {
+		t.Errorf("timelogs after discard = %+v, want none", logs)
+	}
+}
