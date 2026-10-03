@@ -192,3 +192,25 @@ func TestTaskRowCarriesNamesAndPrintsJSON(t *testing.T) {
 		t.Errorf("JSON output missing empty responsibles array for TASK2: %s", output)
 	}
 }
+
+func TestResolveTaskRefusesAnEmptyArgument(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	for _, arg := range []string{"", "  "} {
+		_, err := resolveTask(context.Background(), env.Store, arg)
+		if err == nil || !strings.Contains(err.Error(), "a task is needed") {
+			t.Errorf("resolveTask(%q) error = %v", arg, err)
+		}
+	}
+}
+
+func TestResolveFolderRefusesAnEmptyArgument(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	for _, arg := range []string{"", "  "} {
+		_, err := resolveFolder(context.Background(), env.Store, arg)
+		if err == nil || !strings.Contains(err.Error(), "a folder is needed") {
+			t.Errorf("resolveFolder(%q) error = %v", arg, err)
+		}
+	}
+}
