@@ -27,10 +27,10 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/mrcne/wrikery
-    description: Terminal client for Wrike
+    description: Unofficial terminal client for Wrike
     hooks:
       post:
-        # The binary is not signed, so a cask download would stop at Gatekeeper on first run.
+        # The binary is not notarized, so Gatekeeper refuses its first run while the quarantine attribute is set.
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wrikery"]
