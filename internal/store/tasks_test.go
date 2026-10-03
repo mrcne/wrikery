@@ -371,3 +371,128 @@ func TestRecentlyOpenedIDsSkipsLocalTasks(t *testing.T) {
 		t.Errorf("ids = %v, %v, want only T1, the local task has no thread on the server", ids, err)
 	}
 }
+
+func TestFindByTitleFoldsCaseAndDiacriticsLikeTheSearch(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	err := st.Tasks().Upsert(ctx, []Task{
+		makeTask("T1", "Plan \u0141\u00f3d\u017a"),
+		makeTask("T2", "\u015awi\u0119ty list"),
+		makeTask("T3", "Write docs"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := func(fragment string) []string {
+		t.Helper()
+		got, err := st.Tasks().FindByTitle(ctx, fragment, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, task := range got {
+			out = append(out, task.ID)
+		}
+		return out
+	}
+	for fragment, want := range map[string]string{
+		"\u0142\u00f3d\u017a": "T1",
+		"\u0142odz":           "T1",
+		"\u015aWIETY":         "T2",
+		"swiety":              "T2",
+		"DOCS":                "T3",
+	} {
+		if got := ids(fragment); len(got) != 1 || got[0] != want {
+			t.Errorf("FindByTitle(%q) = %v, want %s alone", fragment, got, want)
+		}
+	}
+	// The search index does not fold the l with stroke into l, so the lookup must not either.
+	got, err := st.Tasks().Search(ctx, "lodz", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 || len(ids("lodz")) != 0 {
+		t.Errorf("lodz: search found %d, lookup found %v, want both to find nothing", len(got), ids("lodz"))
+	}
+}
+
+func TestFindByTitleTreatsWildcardsAsCharactersAndKeepsListOrderAndLimit(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	old := makeTask("T1", "Login copy 100% done")
+	fresh := makeTask("T2", "Fix the login page")
+	fresh.UpdatedDate = "2026-09-05T10:00:00Z"
+	done := makeTask("T3", "Login archive")
+	done.Status = "Completed"
+	done.UpdatedDate = "2026-09-09T10:00:00Z"
+	if err := st.Tasks().Upsert(ctx, []Task{old, fresh, done}); err != nil {
+		t.Fatal(err)
+	}
+	for fragment, want := range map[string]int{"100%": 1, "l_gin": 0, "%": 1, "_": 0} {
+		got, err := st.Tasks().FindByTitle(ctx, fragment, 10)
+		if err != nil || len(got) != want {
+			t.Errorf("FindByTitle(%q) = %d rows, %v, want %d", fragment, len(got), err, want)
+		}
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "login", 10)
+	if err != nil || len(got) != 3 || got[0].ID != "T2" || got[1].ID != "T1" || got[2].ID != "T3" {
+		t.Errorf("order = %+v, %v, want T2 T1 T3: open tasks first, newest change first, done last", got, err)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "login", 2)
+	if err != nil || len(got) != 2 || got[0].ID != "T2" || got[1].ID != "T1" {
+		t.Errorf("limit 2 = %+v, %v", got, err)
+	}
+}
+
+func TestFindByTitleFillsTheDescription(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "Fix the login page")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "login", 10)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if got[0].Description != "<p>body of Fix the login page</p>" {
+		t.Errorf("description = %q", got[0].Description)
+	}
+}
+
+func TestByPermalinkIDMatchesTheNumberOnAnyHost(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	eu, com, long := makeTask("EU", "On the eu host"), makeTask("COM", "On the main host"), makeTask("LONG", "Number with a longer neighbour")
+	eu.Permalink = "https://app-eu.wrike.com/open.htm?id=4552825748"
+	com.Permalink = "https://www.wrike.com/open.htm?id=77"
+	long.Permalink = "https://www.wrike.com/open.htm?id=12"
+	if err := st.Tasks().Upsert(ctx, []Task{eu, com, long}); err != nil {
+		t.Fatal(err)
+	}
+	for number, want := range map[string]string{"4552825748": "EU", "77": "COM", "12": "LONG"} {
+		got, err := st.Tasks().ByPermalinkID(ctx, number)
+		if err != nil || got.ID != want {
+			t.Errorf("ByPermalinkID(%s) = %q, %v, want %s", number, got.ID, err, want)
+		}
+		if err == nil && got.Description == "" {
+			t.Errorf("ByPermalinkID(%s) came without the description", number)
+		}
+	}
+	for _, number := range []string{"1", "2", "99", "552825748"} {
+		if _, err := st.Tasks().ByPermalinkID(ctx, number); !errors.Is(err, ErrNotFound) {
+			t.Errorf("ByPermalinkID(%s) error = %v, want ErrNotFound", number, err)
+		}
+	}
+}
+
+func TestFindByTitleMatchesNothingForAFragmentThatFoldsToEmpty(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "Plan")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "\u0301", 10)
+	if err != nil || len(got) != 0 {
+		t.Errorf("FindByTitle(combining mark) = %v, %v, want no rows", got, err)
+	}
+}

@@ -1,0 +1,18 @@
+Headless commands for scripts
+id          TASK1
+status      o New (Default Workflow)
+importance  High
+assignees   Marcin Tester
+dates       2026-10-01 -> 2026-10-03
+folders     4 Later
+link        https://www.wrike.com/open.htm?id=1
+
+  Three flags, **no** subcommands.
+
+comments
+Anna Nowak  2026-10-01 09:30
+Can the list print JSON?
+
+Marcin Tester  2026-10-02 08:00
+Yes, with --json.
+

@@ -1105,17 +1105,7 @@ func (m Model) statusGuess() string {
 			return c.status.ID
 		}
 	}
-	for _, wf := range m.ref.workflows {
-		if !wf.Standard {
-			continue
-		}
-		for _, cs := range wf.CustomStatuses {
-			if cs.Group == "Active" && !cs.Hidden {
-				return cs.ID
-			}
-		}
-	}
-	return ""
+	return store.FirstActiveStatus(m.ref.workflows)
 }
 
 // folderCrumbs is the path of every sidebar node by id, for the folder line of the create box.

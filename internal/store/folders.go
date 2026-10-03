@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 type FolderRepo interface {
@@ -11,6 +12,7 @@ type FolderRepo interface {
 	Get(ctx context.Context, id string) (Folder, error)
 	Children(ctx context.Context, parentID string) ([]Folder, error)
 	Subtree(ctx context.Context, rootID string) ([]Folder, error)
+	FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error)
 }
 
 func (s *Store) Folders() FolderRepo { return folderRepo{w: s.writer, r: s.reader} }
@@ -134,6 +136,43 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 		out = append(out, fo)
 	}
 	return out, rows.Err()
+}
+
+// FindByTitle is the lookup behind a folder fragment on the command line, folded like the task lookup.
+func (f folderRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error) {
+	want := foldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains.
+	if want == "" {
+		return nil, nil
+	}
+	rows, err := f.r.QueryContext(ctx, `SELECT id, title FROM folders ORDER BY title`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() && len(ids) < limit {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		if strings.Contains(foldTitle(title), want) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close()
+	out := make([]Folder, 0, len(ids))
+	for _, id := range ids {
+		fo, err := f.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fo)
+	}
+	return out, nil
 }
 
 // Subtree returns the root and everything under it, parents before children, siblings by title.

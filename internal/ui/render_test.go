@@ -10,7 +10,7 @@ import (
 
 func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
 	html := `<h2>Steps</h2><ol><li>Generate the new key pair</li><li>Deploy</li></ol><pre><code>make rotate</code></pre><p>` + strings.Repeat("word ", 30) + `</p>`
-	out := renderDescription(html, "", 40, "dark")
+	out := RenderDescription(html, "", 40, "dark")
 	for _, want := range []string{"Steps", "1. Generate", "make rotate"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered lacks %q:\n%s", want, out)
@@ -24,7 +24,7 @@ func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
 }
 
 func TestRenderDescriptionFallsBackToPlain(t *testing.T) {
-	if out := renderDescription("", "plain text", 40, "dark"); !strings.Contains(out, "plain text") {
+	if out := RenderDescription("", "plain text", 40, "dark"); !strings.Contains(out, "plain text") {
 		t.Errorf("empty html should show the plain text: %q", out)
 	}
 }
@@ -34,7 +34,7 @@ func TestRenderDescriptionStaysASCII(t *testing.T) {
 	html := `<p>Steps</p><ul><li>stop after the first 401</li></ul>` +
 		`<table><tr><th>Code</th><th>Meaning</th></tr><tr><td>429</td><td>rate limit</td></tr></table>` +
 		`<p><img alt="diagram" src="x"></p>`
-	out := renderDescription(html, "", 40, "ascii")
+	out := RenderDescription(html, "", 40, "ascii")
 	drawing := []rune{
 		'\u2500', '\u2502',
 		'\u250c', '\u2510', '\u2514', '\u2518',
@@ -51,7 +51,7 @@ func TestRenderDescriptionStaysASCII(t *testing.T) {
 // A description is text from Wrike, not decoration, so the ascii setting has no business rewriting it.
 func TestRenderDescriptionKeepsLetters(t *testing.T) {
 	const city = "\u0142\u00f3d\u017a"
-	out := renderDescription("<p>Deploy in "+city+" on Friday</p>", "", 40, "ascii")
+	out := RenderDescription("<p>Deploy in "+city+" on Friday</p>", "", 40, "ascii")
 	if !strings.Contains(out, city) {
 		t.Errorf("ascii mode should leave the words alone:\n%s", out)
 	}
@@ -71,7 +71,7 @@ func TestUnderlineMarksArmAfterEveryReset(t *testing.T) {
 func TestRenderDescriptionShowsStrikeUnderlineAndBoxes(t *testing.T) {
 	src := `<p>keep <u>under</u> and <s>gone</s></p>` +
 		`<ul class="checklist" style="list-style-type: none;"><li><label><input type="checkbox" checked="checked" />done</label></li><li><label><input type="checkbox" />open</label></li></ul>`
-	out := renderDescription(src, "", 60, "dark")
+	out := RenderDescription(src, "", 60, "dark")
 	if !strings.Contains(out, "\x1b[4munder") || !strings.Contains(out, ";9mgone") {
 		t.Errorf("dark render lacks the underline or the crossed out attribute:\n%q", out)
 	}
@@ -86,7 +86,7 @@ func TestRenderDescriptionShowsStrikeUnderlineAndBoxes(t *testing.T) {
 		t.Errorf("markers or markup leaked into the render:\n%q", out)
 	}
 	// The ascii style marks instead of styling, the way it does for bold.
-	ascii := ansi.Strip(renderDescription(src, "", 60, "ascii"))
+	ascii := ansi.Strip(RenderDescription(src, "", 60, "ascii"))
 	for _, want := range []string{"keep _under_ and ~~gone~~", "[x] done"} {
 		if !strings.Contains(ascii, want) {
 			t.Errorf("ascii render lacks %q:\n%s", want, ascii)
@@ -103,18 +103,18 @@ func TestRenderDescriptionPrintsARepeatedAddressOnce(t *testing.T) {
 		`<p>Docs: <a href="` + url + `" target="_blank">https://developers.wrike.com</a></p>`,
 		`<p>Docs: <a href="` + url + `"> <b>` + url + `</b> </a>.</p>`,
 	} {
-		out := ansi.Strip(renderDescription(html, "", 80, "dark"))
+		out := ansi.Strip(RenderDescription(html, "", 80, "dark"))
 		if strings.Count(out, "developers.wrike.com") != 1 || !strings.Contains(out, "Docs: "+url) {
 			t.Errorf("%s\nshould print the address once, after the text before it:\n%s", html, out)
 		}
 	}
-	out := ansi.Strip(renderDescription(`<p>See the <a href="`+url+`">API reference</a>.</p>`, "", 80, "dark"))
+	out := ansi.Strip(RenderDescription(`<p>See the <a href="`+url+`">API reference</a>.</p>`, "", 80, "dark"))
 	if !strings.Contains(out, "API reference "+url) {
 		t.Errorf("a link with its own text should keep both:\n%s", out)
 	}
 	// A no-break space pasted into the address is not an autolink to commonmark, so such a link keeps the ordinary form.
 	odd := "https://developers.wrike.com/a\u00a0b"
-	out = ansi.Strip(renderDescription(`<p><a href="`+odd+`">`+odd+`</a></p>`, "", 80, "dark"))
+	out = ansi.Strip(RenderDescription(`<p><a href="`+odd+`">`+odd+`</a></p>`, "", 80, "dark"))
 	if strings.Contains(out, "<") || !strings.Contains(out, "developers.wrike.com/a") {
 		t.Errorf("an address with whitespace should not become a bare autolink:\n%s", out)
 	}

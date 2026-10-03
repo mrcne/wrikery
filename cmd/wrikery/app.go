@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -35,6 +37,7 @@ type app struct {
 	st     *store.Store
 	tokens auth.Tokens
 	prog   *tea.Program
+	lock   string
 
 	mu     sync.Mutex
 	closed bool
@@ -54,7 +57,7 @@ func (a *app) startEngine(token, host string) {
 	}
 	a.stopLocked()
 	client := newClient(token, host)
-	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval}, slog.Default())
+	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	a.engine, a.cancel, a.done = eng, cancel, done
@@ -144,4 +147,33 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 	}
 	a.startEngine(token, host)
 	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
+}
+
+// resolveHost is the chain run uses before starting the engine:
+// the config wins, then the host remembered from a previous probe,
+// and only when both are empty is the network touched, once, under a short deadline.
+// The app must open on the cache when offline, so the probe cannot have the client's full retry budget:
+// a GET retries a network failure three times with backoff on top of the 30s client timeout.
+func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, token string) (string, error) {
+	if cfg.Host != "" {
+		return cfg.Host, nil
+	}
+	if host, _ := st.GetMeta(ctx, store.MetaKeyHost); host != "" {
+		return host, nil
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	host, _, err := probeHost(probeCtx, token, apiHosts, nil)
+	if err != nil {
+		return "", err
+	}
+	if err := st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
+		slog.Warn("could not store the detected Wrike host", "error", err)
+	}
+	return host, nil
+}
+
+// lockPath is the sync lock file, next to the database so two data directories never share one.
+func lockPath(p config.Paths) string {
+	return filepath.Join(filepath.Dir(p.DBFile), "sync.lock")
 }

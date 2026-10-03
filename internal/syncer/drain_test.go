@@ -44,7 +44,7 @@ func TestDrainSendsInOrderAndCompletes(t *testing.T) {
 				UpdatedDate: time.Date(2026, 9, 3, 10, 5, 0, 0, time.UTC)}, nil
 		},
 	}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v, want changed and no error", changed, err)
 	}
@@ -88,7 +88,7 @@ func TestDrainRejectedWriteFailsRowAndContinues(t *testing.T) {
 		return wrike.Comment{ID: "C2", TaskID: taskID, Text: text}, nil
 	}}
 
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v", changed, err)
 	}
@@ -119,7 +119,7 @@ func TestDrainTransientStopsAndReschedules(t *testing.T) {
 		return wrike.Comment{}, &wrike.APIError{StatusCode: 429, Code: "rate_limit_exceeded"}
 	}}
 
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err == nil {
 		t.Fatal("want the transient error back so the engine goes to backoff")
 	}
@@ -162,7 +162,7 @@ func TestDrainCompletesCreateThenDependentEdit(t *testing.T) {
 			return wrike.Timelog{ID: timelogID, TaskID: "T1", UserID: "U1", TrackedDate: "2026-09-03", Hours: u.Hours}, nil
 		},
 	}
-	if _, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute); err != nil {
+	if _, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute); err != nil {
 		t.Fatal(err)
 	}
 
@@ -191,7 +191,7 @@ func TestDrainDeleteAlreadyGoneCompletes(t *testing.T) {
 	fc := &fakeClient{deleteTimelog: func(timelogID string) error {
 		return &wrike.APIError{StatusCode: 404, Code: "resource_not_found"}
 	}}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v, a delete of a vanished timelog is success", changed, err)
 	}
@@ -204,7 +204,7 @@ func TestDrainDeleteAlreadyGoneCompletes(t *testing.T) {
 func TestDrainEmptyQueueIsQuiet(t *testing.T) {
 	st := newTestStore(t)
 	fc := &fakeClient{}
-	changed, err := drainOutbox(context.Background(), fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(context.Background(), context.Background(), fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || changed {
 		t.Fatalf("drain = %v, %v, want a no-op", changed, err)
 	}
@@ -241,7 +241,7 @@ func TestDrainCorruptRowFailsAndContinues(t *testing.T) {
 	}
 
 	fc := &fakeClient{}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v, a corrupt row must not stop the drain", changed, err)
 	}
@@ -270,7 +270,7 @@ func TestDrainAuthFailureLeavesRowDue(t *testing.T) {
 	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
 		return wrike.Comment{}, &wrike.APIError{StatusCode: 401, Code: "not_authorized"}
 	}}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if classify(err) != failAuth || changed {
 		t.Fatalf("drain = %v, %v, want the auth error back and nothing changed", changed, err)
 	}
@@ -310,7 +310,7 @@ func TestDrainCreatesATaskThenItsDependents(t *testing.T) {
 	}, updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
 		return wrike.Task{ID: taskID, Title: "New one", Importance: u.Importance}, nil
 	}}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v", changed, err)
 	}
@@ -347,7 +347,7 @@ func TestDrainRejectedCreateKeepsTheLocalTaskAndItsDependents(t *testing.T) {
 	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
 		return wrike.Task{}, &wrike.APIError{StatusCode: 403, Code: "access_forbidden", Description: "no"}
 	}}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v", changed, err)
 	}
@@ -376,7 +376,7 @@ func TestDrainCorruptCreateFailsAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	fc := &fakeClient{}
-	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	if err != nil || !changed {
 		t.Fatalf("drain = %v, %v", changed, err)
 	}

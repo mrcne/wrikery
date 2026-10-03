@@ -25,20 +25,9 @@ const noWorkflowKnown = "no workflow known for this task yet, refresh and try ag
 // newStatusDialog offers the statuses of the workflow the task is in, and nothing when the cache holds no such workflow.
 // Any other workflow would be the wrong offer: a status picked from it moves the task onto that workflow.
 func newStatusDialog(task store.Task, ref refData, keys KeyMap) statusDialog {
-	var wf *store.Workflow
-	for i := range ref.workflows {
-		for _, cs := range ref.workflows[i].CustomStatuses {
-			if cs.ID == task.CustomStatusID {
-				wf = &ref.workflows[i]
-				break
-			}
-		}
-		if wf != nil {
-			break
-		}
-	}
+	wf, found := store.WorkflowFor(ref.workflows, task.CustomStatusID)
 	d := statusDialog{taskID: task.ID, keys: keys}
-	if wf == nil {
+	if !found {
 		return d
 	}
 	for _, cs := range wf.CustomStatuses {

@@ -60,7 +60,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
 	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
 	if renderKey != d.renderKey || d.task.Description != d.renderedFrom {
-		d.rendered = renderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)
+		d.rendered = RenderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)
 		d.renderKey, d.renderedFrom = renderKey, d.task.Description
 	}
 	bold := lipgloss.NewStyle().Bold(true)
@@ -163,7 +163,7 @@ func contactName(id string, ref refData) string {
 	if !ok {
 		return id
 	}
-	return strings.TrimSpace(c.FirstName + " " + c.LastName)
+	return c.Name()
 }
 
 // dateRange writes the arrow only when a task has both ends, so a single date does not trail off into nothing.

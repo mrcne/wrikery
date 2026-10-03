@@ -18,6 +18,7 @@ type Config struct {
 	BackoffCeil    time.Duration // outbox row backoff cap, default 5m
 	ReconnectBase  time.Duration // engine wait after a failed cycle, default 1s
 	ReconnectCeil  time.Duration // cap for that wait, default 2m
+	LockFile       string        // the cross-process sync lock next to the database, empty means none
 }
 
 func (c Config) withDefaults() Config {
@@ -49,7 +50,8 @@ func (c Config) withDefaults() Config {
 }
 
 // Engine keeps the store and the API in step from one goroutine.
-// All the mutable fields below the channels are owned by Run and never touched from outside it.
+// The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
+// Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
 type Engine struct {
 	client Client
 	st     *store.Store
@@ -64,6 +66,7 @@ type Engine struct {
 	meID          string
 	lastReference time.Time
 	failures      int
+	lockWarned    bool
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -102,6 +105,60 @@ func (e *Engine) WakeOutbox() {
 	}
 }
 
+// Once runs one cycle and reports the state it ended in, the deletion sweep and a forced reference pull only when full is set.
+// The reference data is still pulled on a fresh engine, lastReference is zero, which is what a command wants.
+// A command uses it where the TUI uses Run.
+// Like every drain pass it first puts the in-flight rows of a dead process back to pending.
+// A create already on the wire is not cut off by a Ctrl-C, see Drain.
+func (e *Engine) Once(ctx context.Context, full bool) (SyncState, error) {
+	if err := e.ensureMeScope(ctx); err != nil {
+		e.setState(stateAfter(err))
+		return e.state, err
+	}
+	err := e.cycle(ctx, context.WithoutCancel(ctx), full)
+	e.setState(stateAfter(err))
+	return e.state, err
+}
+
+// postCeiling is three times the client's request timeout, the longest one create may take from the moment it is sent.
+const postCeiling = 90 * time.Second
+
+// Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
+// Like every drain pass it first puts the in-flight rows of a dead process back to pending.
+// The budget bounds the wait for the lock and the start of each row, zero means only ctx does.
+// A create that has started runs to Wrike's answer, neither the budget nor a cancelled ctx cuts it off, up to postCeiling.
+// ErrLocked means the lock was held by another process until the budget or the deadline of ctx ran out and nothing was sent.
+// A cancelled ctx returns context.Canceled instead.
+// When the budget ends while a create is still running past it, the next NextDue fails on the ended context and the context error comes back, a caller that reads the row's state can ignore it.
+// A row that finishes inside the budget gives nil.
+func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
+	start := ctx
+	if budget > 0 {
+		var cancel context.CancelFunc
+		start, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
+	// A POST may have reached Wrike when the context ends, so cutting it off would leave a row the next drain sends again.
+	// sendRow puts a ceiling on each create, see there.
+	post := context.WithoutCancel(ctx)
+	_, err := e.drain(start, post)
+	return err
+}
+
+// stateAfter is the state a cycle outcome puts the engine in.
+// A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
+func stateAfter(err error) SyncState {
+	switch {
+	case err == nil:
+		return StateIdle
+	case classify(err) == failAuth:
+		return StateAuthRequired
+	case classify(err) == failPermanent:
+		return StateFailed
+	}
+	return StateOffline
+}
+
 func (e *Engine) emit(ev Event) {
 	select {
 	case e.events <- ev:
@@ -134,30 +191,24 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 	manual := true
 	for {
-		err := e.cycle(ctx, manual)
+		err := e.cycle(ctx, ctx, manual)
 		manual = false
 		var wait time.Duration
+		state := stateAfter(err)
 		switch {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case err == nil:
 			e.failures = 0
-			e.setState(StateIdle)
 			wait = e.cfg.PollInterval
-		case classify(err) == failAuth:
+		case state == StateAuthRequired:
 			e.failures = 0
-			e.setState(StateAuthRequired)
 		default:
 			e.failures++
-			// A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
-			if classify(err) == failPermanent {
-				e.setState(StateFailed)
-			} else {
-				e.setState(StateOffline)
-			}
 			e.log.Warn("sync cycle failed", "error", err)
 			wait = backoff(e.failures-1, e.cfg.ReconnectBase, e.cfg.ReconnectCeil)
 		}
+		e.setState(state)
 		if e.state == StateAuthRequired {
 			// Only a new token can help, so only a manual refresh or the end of the program wakes the engine.
 			select {
@@ -179,29 +230,57 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// startupLocal prepares the store before the first network call: crashed inflight rows go back to pending,
-// the me scope always exists, and the UI gets its first outbox counts.
+// startupLocal prepares the store before the first network call: the me scope always exists,
+// and the UI gets its first outbox counts.
+// It resets nothing, the first drain pass puts crashed inflight rows back to pending under the sync lock.
 //
 // It does not also emit a state event: e.state already defaults to Idle, and setState only emits on a real transition.
 // Broadcasting that same Idle value here as well would be indistinguishable on the Events channel from the Idle
 // that setState emits once the first cycle actually finishes, which is what callers wait on to know a sync completed.
 func (e *Engine) startupLocal(ctx context.Context) error {
-	if _, err := e.st.Outbox().ResetInflight(ctx); err != nil {
-		return err
-	}
-	if err := e.st.Scopes().Upsert(ctx, store.Scope{
-		ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true,
-	}); err != nil {
+	if err := e.ensureMeScope(ctx); err != nil {
 		return err
 	}
 	e.emitOutboxCounts(ctx)
 	return nil
 }
 
-func (e *Engine) cycle(ctx context.Context, manual bool) error {
+// ensureMeScope makes sure the My tasks scope exists and is followed, without it a cycle pulls no task.
+func (e *Engine) ensureMeScope(ctx context.Context) error {
+	return e.st.Scopes().Upsert(ctx, store.Scope{
+		ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true,
+	})
+}
+
+// drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
+// start bounds the wait for the lock and whether another row is started, post is the context of a send that may have reached Wrike.
+func (e *Engine) drain(start, post context.Context) (bool, error) {
+	lock, err := acquire(start, e.cfg.LockFile)
+	if err != nil {
+		if errors.Is(err, ErrLocked) || start.Err() != nil {
+			return false, err
+		}
+		// The file system cannot take the lock: a file owned by another user, or flock unsupported on a network mount.
+		// Without it the engine is back to the behavior before the lock existed, which beats a sync that never runs.
+		if !e.lockWarned {
+			e.lockWarned = true
+			e.log.Warn("sync lock unavailable, continuing without it", "error", err, "path", e.cfg.LockFile)
+		}
+		lock = &syncLock{}
+	}
+	defer lock.release()
+	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.
+	// Sending it again is the crash ambiguity the drain already accepts.
+	if _, err := e.st.Outbox().ResetInflight(start); err != nil {
+		return false, err
+	}
+	return drainOutbox(start, post, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+}
+
+func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	e.setState(StateSyncing)
 
-	changed, err := drainOutbox(ctx, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+	changed, err := e.drain(ctx, post)
 	if changed {
 		e.emitOutboxCounts(ctx)
 		e.emit(Event{Kind: EventStoreChanged,

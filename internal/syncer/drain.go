@@ -20,31 +20,35 @@ var errCorruptRow = errors.New("sync: corrupt outbox row")
 // It stops at the first transient or auth failure so a backed off row can never be overtaken by a later one,
 // which the conflict policy depends on. changed reports whether any row completed or failed, so the caller knows to emit events.
 // Store failures after a successful send are returned like transient errors, the crash-retry ambiguity is accepted in the spec.
-func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
+// start bounds whether another row is started, post is the context a create runs on, see sendRow.
+func drainOutbox(start, post context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
+	// A command's deadline or a Ctrl-C can end start in the middle of a send.
+	// The row must still be put back to pending with its backoff, or it stays in flight and nothing sends it again.
+	bookkeeping := context.WithoutCancel(start)
 	changed := false
 	for {
-		row, err := st.Outbox().NextDue(ctx, rfc3339(time.Now()))
+		row, err := st.Outbox().NextDue(start, rfc3339(time.Now()))
 		if errors.Is(err, store.ErrNotFound) {
 			return changed, nil
 		}
 		if err != nil {
 			return changed, err
 		}
-		if err := st.Outbox().MarkInflight(ctx, row.ID); err != nil {
+		if err := st.Outbox().MarkInflight(start, row.ID); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				// Discarded from the sync issues view between the read and the claim.
 				continue
 			}
 			return changed, err
 		}
-		sendErr := sendRow(ctx, c, st, row)
+		sendErr := sendRow(start, post, c, st, row)
 		if sendErr == nil {
 			changed = true
 			continue
 		}
 		switch classify(sendErr) {
 		case failPermanent:
-			if err := st.Outbox().Fail(ctx, row.ID, sendErr.Error()); err != nil {
+			if err := st.Outbox().Fail(bookkeeping, row.ID, sendErr.Error()); err != nil {
 				return changed, err
 			}
 			changed = true
@@ -52,20 +56,36 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 		case failAuth:
 			// Nothing is wrong with the row, only the token. It goes back to pending untouched so it is due
 			// the moment a new token arrives. The drain stops at the first failure, so it is the only inflight row.
-			if _, err := st.Outbox().ResetInflight(ctx); err != nil {
+			if _, err := st.Outbox().ResetInflight(bookkeeping); err != nil {
 				return changed, err
 			}
 			return changed, sendErr
 		}
 		next := rfc3339(time.Now().Add(backoff(row.Attempts, backoffBase, backoffCeil)))
-		if err := st.Outbox().Reschedule(ctx, row.ID, sendErr.Error(), next); err != nil {
+		if err := st.Outbox().Reschedule(bookkeeping, row.ID, sendErr.Error(), next); err != nil {
 			return changed, err
 		}
 		return changed, sendErr
 	}
 }
 
-func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+func sendRow(start, post context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+	// A create may have reached Wrike when its context ends, and the client does not retry a POST after a network or server error, so it runs on post.
+	// Cancelling an update or a delete is harmless, they can be sent again, and the retry backoff must not outlive the budget.
+	// Each create gets its own ceiling from the moment it is sent.
+	// The ceiling ends the sleeps of rate limit retries, which are safe to cut because Wrike answers 429 instead of processing the request,
+	// see https://developers.wrike.com/faq/.
+	// A late retry attempt can still be cut on the wire, which is the crash ambiguity the drain accepts.
+	ctx := start
+	switch row.Kind {
+	case store.KindTaskCreate, store.KindCommentCreate, store.KindTimelogCreate:
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(post, postCeiling)
+		defer cancel()
+	}
+	// Once Wrike has answered the write has landed, so the local commit must not fail on a context that ended meanwhile.
+	// A context error there would reschedule the row and the next drain would send it again.
+	done := context.WithoutCancel(ctx)
 	switch row.Kind {
 	case store.KindTaskCreate:
 		var p store.TaskCreatePayload
@@ -81,7 +101,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTaskCreate(ctx, row.ID, taskFromWrike(task))
+		return st.Outbox().CompleteTaskCreate(done, row.ID, taskFromWrike(task))
 	case store.KindTaskUpdate:
 		var p store.TaskUpdatePayload
 		if err := json.Unmarshal(row.Payload, &p); err != nil {
@@ -105,7 +125,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTask(ctx, row.ID, taskFromWrike(task))
+		return st.Outbox().CompleteTask(done, row.ID, taskFromWrike(task))
 
 	case store.KindCommentCreate:
 		var p store.CommentCreatePayload
@@ -116,7 +136,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteComment(ctx, row.ID, commentFromWrike(cm))
+		return st.Outbox().CompleteComment(done, row.ID, commentFromWrike(cm))
 
 	case store.KindTimelogCreate:
 		var p store.TimelogCreatePayload
@@ -127,7 +147,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTimelog(ctx, row.ID, timelogFromWrike(tl))
+		return st.Outbox().CompleteTimelog(done, row.ID, timelogFromWrike(tl))
 
 	case store.KindTimelogUpdate:
 		var p store.TimelogUpdatePayload
@@ -141,17 +161,17 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		}
 		// CompleteTimelog drops the row and writes the server version in one transaction.
 		// Its local id cleanup matches nothing for an update, the row never had a local timelog.
-		return st.Outbox().CompleteTimelog(ctx, row.ID, timelogFromWrike(tl))
+		return st.Outbox().CompleteTimelog(done, row.ID, timelogFromWrike(tl))
 
 	case store.KindTimelogDelete:
 		if err := c.DeleteTimelog(ctx, row.EntityID); err != nil {
 			if isNotFound(err) {
 				// Already gone on the server, which is what we wanted.
-				return st.Outbox().Complete(ctx, row.ID)
+				return st.Outbox().Complete(done, row.ID)
 			}
 			return err
 		}
-		return st.Outbox().Complete(ctx, row.ID)
+		return st.Outbox().Complete(done, row.ID)
 	}
 	return fmt.Errorf("%w %d: unknown kind %q", errCorruptRow, row.ID, row.Kind)
 }

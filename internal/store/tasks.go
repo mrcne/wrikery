@@ -20,6 +20,8 @@ type TaskRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
+	FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error)
+	ByPermalinkID(ctx context.Context, numeric string) (Task, error)
 }
 
 func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader} }
@@ -319,6 +321,60 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 		SELECT `+taskListColumns+` FROM tasks t
 		JOIN task_responsibles tr ON tr.task_id = t.id
 		WHERE tr.contact_id = ? `+taskListOrder, contactID)
+}
+
+// FindByTitle is the lookup behind a title fragment on the command line.
+// It is a plain substring on the folded title, the search index would match descriptions too.
+// The whole table is read, the cache holds a few thousand tasks at most.
+func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
+	want := foldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains.
+	if want == "" {
+		return nil, nil
+	}
+	rows, err := t.r.QueryContext(ctx, `SELECT t.id, t.title FROM tasks t `+taskListOrder)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []string
+	for rows.Next() && len(ids) < limit {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		if strings.Contains(foldTitle(title), want) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close()
+	out := make([]Task, 0, len(ids))
+	for _, id := range ids {
+		task, err := t.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	return out, nil
+}
+
+// ByPermalinkID finds the task whose permalink ends in open.htm?id=<numeric>, the caller passes digits only.
+// The suffix is matched because the numeric id is the one in links, the API carries it only inside the permalink and in the id conversion call, see https://developers.wrike.com/api/v4/ids/.
+// The host differs per data center.
+func (t taskRepo) ByPermalinkID(ctx context.Context, numeric string) (Task, error) {
+	var id string
+	err := t.r.QueryRowContext(ctx, `SELECT t.id FROM tasks t WHERE t.permalink LIKE '%open.htm?id=' || ? ESCAPE '\' LIMIT 1`, numeric).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, ErrNotFound
+	}
+	if err != nil {
+		return Task{}, err
+	}
+	return t.Get(ctx, id)
 }
 
 func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, error) {

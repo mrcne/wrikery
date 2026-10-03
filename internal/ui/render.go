@@ -10,10 +10,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// renderDescription turns Wrike's HTML into terminal text: html-to-markdown, then glamour at the pane width.
+// RenderDescription turns Wrike's HTML into terminal text: html-to-markdown, then glamour at the given width.
 // plain is the store's stripped text, used when the HTML is empty or the conversion fails.
 // An empty description renders as an empty string, so the caller can leave the block out instead of drawing a blank box.
-func renderDescription(html, plain string, width int, mode string) string {
+// mode is dark, light or ascii. The commands render through it too, so a description looks the same in both front ends.
+func RenderDescription(html, plain string, width int, mode string) string {
 	out := renderMarkup(html, plain, width, mode)
 	if mode == "ascii" {
 		// glamour's ascii style still draws a bullet and an arrow of its own, and a description body can carry drawing characters too.
