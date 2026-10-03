@@ -75,3 +75,53 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 	printTaskList(env, tasks, &ref, hidden)
 	return exitOK
 }
+
+const showUsage = `usage: wrikery task show T [--json]
+
+Prints one task: the header fields, the description and the comments the cache holds.
+`
+
+func runTaskShow(ctx context.Context, env Env, args []string) int {
+	fs := flag.NewFlagSet("task show", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print JSON")
+	if code, done := parse(env, fs, showUsage, args); done {
+		return code
+	}
+	rest := fs.Args()
+	if len(rest) > 1 {
+		// The flag package stops at the first argument that is not a flag, and a script writes the task first.
+		if code, done := parse(env, fs, showUsage, rest[1:]); done {
+			return code
+		}
+		rest = append(rest[:1], fs.Args()...)
+	}
+	if len(rest) != 1 {
+		return usageError(env, fs, showUsage, "task show takes one task, an id or a part of its title")
+	}
+	t, err := resolveTask(ctx, env.Store, rest[0])
+	if err != nil {
+		return fail(env, err)
+	}
+	comments, err := env.Store.Comments().ListForTask(ctx, t.ID)
+	if err != nil {
+		return fail(env, err)
+	}
+	ref, err := loadRef(ctx, env.Store)
+	if err != nil {
+		return fail(env, err)
+	}
+	if *asJSON {
+		d := taskDetailJSON{
+			taskJSON:        taskRow(ctx, env, t, &ref),
+			DescriptionText: t.DescriptionPlain,
+			DescriptionHTML: t.Description,
+			Comments:        make([]commentJSON, 0, len(comments)),
+		}
+		for _, c := range comments {
+			d.Comments = append(d.Comments, commentJSON{ID: c.ID, AuthorID: c.AuthorID, Author: contactName(ref, c.AuthorID), Created: c.CreatedDate, Text: c.Text})
+		}
+		return printJSON(env, d)
+	}
+	printTaskShow(ctx, env, t, comments, &ref)
+	return exitOK
+}

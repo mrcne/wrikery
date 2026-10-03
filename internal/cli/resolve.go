@@ -30,7 +30,8 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	case 0:
 		return store.Task{}, fmt.Errorf("no task matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
-		return hits[0], nil
+		// The search rows come without the description columns, so read the whole task by its id.
+		return st.Tasks().Get(ctx, hits[0].ID)
 	}
 	lines := make([]string, 0, len(hits))
 	for _, h := range hits {

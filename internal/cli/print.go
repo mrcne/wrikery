@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/ui"
 )
 
 // The JSON shapes are the contract a script reads, snake case and stable. Slices are never null.
@@ -44,7 +47,6 @@ type datesJSON struct {
 	Duration int    `json:"duration"`
 }
 
-//nolint:unused // the show command fills it, it has no caller yet
 type taskDetailJSON struct {
 	taskJSON
 	DescriptionText string        `json:"description_text"`
@@ -52,7 +54,6 @@ type taskDetailJSON struct {
 	Comments        []commentJSON `json:"comments"`
 }
 
-//nolint:unused // the show command fills it, it has no caller yet
 type commentJSON struct {
 	ID       string `json:"id"`
 	AuthorID string `json:"author_id"`
@@ -141,4 +142,89 @@ func padRight(s string, width int) string {
 		return s + strings.Repeat(" ", width-n)
 	}
 	return s
+}
+
+// renderMode is the glamour style the description uses, the rule the detail pane applies:
+// a terminal that cannot draw the theme glyphs cannot draw glamour's bullets and rules either.
+func renderMode(cfg config.UIConfig) string {
+	if cfg.ASCII {
+		return "ascii"
+	}
+	return cfg.Theme
+}
+
+func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.Comment, ref *refData) {
+	th := env.Theme
+	label := lipgloss.NewStyle().Foreground(th.Muted)
+	dim := lipgloss.NewStyle().Foreground(th.Dim)
+	w := env.Stdout
+	_, _ = fmt.Fprintln(w, lipgloss.NewStyle().Bold(true).Render(t.Title))
+	line := func(name, value string) {
+		if value == "" {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "%s%s\n", label.Render(padRight(name, 12)), value)
+	}
+	line("id", t.ID)
+	cs := ref.statuses[t.CustomStatusID]
+	if cs.ID == "" {
+		cs.Group = t.Status
+	}
+	status := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group) + " " + ref.statusName(t))
+	if wf := ref.workflowOf[t.CustomStatusID]; wf != "" {
+		status += " " + dim.Render("("+wf+")")
+	}
+	line("status", status)
+	line("importance", t.Importance)
+	names := make([]string, 0, len(t.ResponsibleIDs))
+	for _, id := range t.ResponsibleIDs {
+		names = append(names, contactName(*ref, id))
+	}
+	line("assignees", strings.Join(names, ", "))
+	if t.Dates != nil {
+		line("dates", dateRange(t.Dates.Start, t.Dates.Due))
+	}
+	titles := make([]string, 0, len(t.ParentIDs))
+	for _, id := range t.ParentIDs {
+		titles = append(titles, ref.folderTitle(ctx, env.Store, id))
+	}
+	line("folders", strings.Join(titles, ", "))
+	line("link", t.Permalink)
+
+	body := t.DescriptionPlain
+	if env.Width > 0 {
+		body = ui.RenderDescription(t.Description, t.DescriptionPlain, min(env.Width, 100), renderMode(env.Config.UI))
+	}
+	if strings.TrimSpace(body) != "" {
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, body)
+	}
+	if len(comments) > 0 {
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, label.Render("comments"))
+	}
+	accent := lipgloss.NewStyle().Foreground(th.Accent)
+	for _, c := range comments {
+		_, _ = fmt.Fprintf(w, "%s  %s\n%s\n\n", accent.Render(contactName(*ref, c.AuthorID)), dim.Render(commentTime(c.CreatedDate)), c.Text)
+	}
+}
+
+// dateRange writes the arrow only when a task has both ends, so a single date does not trail off into nothing.
+func dateRange(start, due string) string {
+	switch {
+	case start == "":
+		return shortDate(due)
+	case due == "":
+		return shortDate(start)
+	}
+	return shortDate(start) + " -> " + shortDate(due)
+}
+
+// commentTime is the stamp in the local zone to the minute, the rest of the precision says nothing to a reader.
+func commentTime(rfc string) string {
+	ts, err := time.Parse(time.RFC3339, rfc)
+	if err != nil {
+		return rfc
+	}
+	return ts.Local().Format("2006-01-02 15:04")
 }

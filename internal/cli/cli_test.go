@@ -16,6 +16,8 @@ import (
 // testEnv is an Env on a fresh store with the output captured, no token and no network.
 // Width 0 means a pipe, so the text output is the bare form without header lines.
 func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
+	// The golden holds comment times, so the zone must not depend on the machine.
+	time.Local = time.UTC
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "wrike.db"))
 	if err != nil {
