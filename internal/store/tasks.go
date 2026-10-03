@@ -333,7 +333,8 @@ func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) (
 }
 
 // ByPermalinkID finds the task whose permalink ends in open.htm?id=<numeric>, the caller passes digits only.
-// The suffix is matched because the numeric id appears in links and nowhere else in the API, and the host differs per data center.
+// The suffix is matched because the numeric id is the one in links, the API carries it only inside the permalink and in the id conversion call, see https://developers.wrike.com/api/v4/ids/.
+// The host differs per data center.
 func (t taskRepo) ByPermalinkID(ctx context.Context, numeric string) (Task, error) {
 	var id string
 	err := t.r.QueryRowContext(ctx, `SELECT t.id FROM tasks t WHERE t.permalink LIKE '%open.htm?id=' || ? ESCAPE '\' LIMIT 1`, numeric).Scan(&id)

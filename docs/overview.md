@@ -204,7 +204,7 @@ A read never waits for the network and prints the cache, so the comments a comma
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
-A task can also be given as the number from its link in the browser or as the whole link, both are looked up in the cached permalinks.
+A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
 A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
