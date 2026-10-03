@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -51,6 +52,12 @@ func TestCreateDialogPicksAnotherFolder(t *testing.T) {
 	if view := createView(dl); !strings.Contains(view, "Platform / Design system") {
 		t.Errorf("enter on the tree should pick and show the folder:\n%s", view)
 	}
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if view := createView(dl); !strings.Contains(view, "On-call") || !regexp.MustCompile(`> +Design system`).MatchString(view) {
+		t.Errorf("a second visit to the folder field should show the whole tree with the cursor on the pick:\n%s", view)
+	}
+	// Enter on the cursor row picks the same folder again.
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", statusID: "CS1"}) {

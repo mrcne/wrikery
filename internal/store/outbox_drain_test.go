@@ -360,6 +360,10 @@ func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
 		t.Fatalf("next due = %+v, %v, the dependents must wait for the create", row, err)
 	}
 
+	if err := st.Tasks().MarkOpened(ctx, localID, "2026-10-01T09:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+
 	real := Task{ID: "T9", Title: "New one", Status: "Active", CustomStatusID: "CS1", Importance: "Normal",
 		ParentIDs: []string{"F1"}, Permalink: "https://www.wrike.com/open.htm?id=9",
 		CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z"}
@@ -372,6 +376,9 @@ func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
 	}
 	if got, err := st.Tasks().Get(ctx, "T9"); err != nil || got.Permalink == "" {
 		t.Errorf("server task = %+v, %v", got, err)
+	}
+	if opened, err := st.Tasks().RecentlyOpenedIDs(ctx, "2026-10-01T00:00:00Z", 10); err != nil || len(opened) != 1 || opened[0] != "T9" {
+		t.Errorf("recently opened after the swap = %v, %v, want T9", opened, err)
 	}
 	comments, err := st.Comments().ListForTask(ctx, "T9")
 	if err != nil || len(comments) != 1 || comments[0].ID != LocalID(commentID) {

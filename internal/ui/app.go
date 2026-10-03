@@ -392,7 +392,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case submitCreateMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		p := store.TaskCreatePayload{Title: msg.title}
-		if msg.assignMe {
+		// The reference data may not have loaded yet, then there is nobody to assign.
+		if msg.assignMe && meID != "" {
 			p.Responsibles = []string{meID}
 		}
 		where := m.folderCrumbs()[msg.folderID]
@@ -1081,8 +1082,8 @@ func (m Model) hintBindings() []key.Binding {
 // My tasks is no folder, there the box starts empty.
 func (m Model) createPreset() string {
 	if m.list.groupBy == groupFolder {
-		if g, ok := m.list.groupAt(m.list.cursor); ok && g.id != "" {
-			return g.id
+		if g := m.list.groupOf(m.list.cursor); g >= 0 && m.list.groups[g].id != "" {
+			return m.list.groups[g].id
 		}
 	}
 	if m.selectedNode.kind == nodeMe || m.selectedNode.kind == nodeNone {

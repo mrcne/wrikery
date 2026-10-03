@@ -227,10 +227,11 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 	if err != nil {
 		return 0, err
 	}
+	now := o.stamp()
 	local := Task{
 		ID: LocalID(id), Title: p.Title, Status: "Active", CustomStatusID: localStatusID, Importance: "Normal",
 		ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
-		CreatedDate: o.stamp(), UpdatedDate: o.stamp(),
+		CreatedDate: now, UpdatedDate: now,
 	}
 	if err := upsertTasksTx(ctx, tx, []Task{local}); err != nil {
 		return 0, err
@@ -427,6 +428,10 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 		if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET task_id = ? WHERE task_id = ?`, real.ID, localID); err != nil {
 			return err
 		}
+	}
+	// The user may be looking at the task, the thread refresh must keep fetching its comments after the swap.
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET last_opened_at = (SELECT last_opened_at FROM tasks WHERE id = ?) WHERE id = ?`, localID, real.ID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {
 		return err

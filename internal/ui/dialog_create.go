@@ -77,6 +77,9 @@ func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 			return d, nil
 		}
 		d.folderID = r.id
+		d.folders.filter.SetValue("")
+		d.folders.applyFilter()
+		d.folders.selectID(r.id)
 		d.errText = ""
 		return d.focus(fieldTitle)
 	case msg.Type == tea.KeyEnter:
