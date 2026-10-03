@@ -112,3 +112,19 @@ func findStatus(workflows []store.Workflow, currentID, name string) (store.Custo
 	}
 	return store.CustomStatus{}, fmt.Errorf("no status %q in workflow %s, it has: %s", name, wf.Name, strings.Join(names, ", "))
 }
+
+// statusGuess is the status the optimistic row shows until Wrike answers, the TUI's fallback rule:
+// the first visible Active status of the standard workflow. It is not sent, Wrike applies the folder's default.
+func statusGuess(workflows []store.Workflow) string {
+	for _, wf := range workflows {
+		if !wf.Standard {
+			continue
+		}
+		for _, cs := range wf.CustomStatuses {
+			if cs.Group == "Active" && !cs.Hidden {
+				return cs.ID
+			}
+		}
+	}
+	return ""
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -190,4 +191,72 @@ func currentTask(ctx context.Context, env Env, id string) (store.Task, error) {
 		}
 	}
 	return env.Store.Tasks().Get(ctx, id)
+}
+
+const createUsage = `usage: wrikery task create --folder F [--json] TITLE...
+
+Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
+Nobody is assigned, the status is the folder's default on Wrike.
+`
+
+func runTaskCreate(ctx context.Context, env Env, args []string) int {
+	fs := flag.NewFlagSet("task create", flag.ContinueOnError)
+	folder := fs.String("folder", "", "the folder, project or space, by id or by a part of its title")
+	asJSON := fs.Bool("json", false, "print JSON")
+	positional, code, done := parse(env, fs, createUsage, args)
+	if done {
+		return code
+	}
+	title := strings.TrimSpace(strings.Join(positional, " "))
+	if *folder == "" {
+		return usageError(env, fs, createUsage, "task create needs --folder")
+	}
+	if title == "" {
+		return usageError(env, fs, createUsage, "task create needs a title")
+	}
+	host, code := preflight(ctx, env)
+	if code != exitOK {
+		return code
+	}
+	fo, err := resolveFolder(ctx, env.Store, *folder)
+	if err != nil {
+		return fail(env, err)
+	}
+	ref, err := loadRef(ctx, env.Store)
+	if err != nil {
+		return fail(env, err)
+	}
+	rowID, err := env.Store.Outbox().EnqueueTaskCreate(ctx, fo.ID, store.TaskCreatePayload{Title: title}, statusGuess(ref.workflows))
+	if err != nil {
+		return fail(env, err)
+	}
+	out, reason, err := send(ctx, env, host, rowID)
+	if err != nil {
+		return fail(env, err)
+	}
+	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
+	ctx = context.WithoutCancel(ctx)
+	task, err := currentTask(ctx, env, store.LocalID(rowID))
+	if err != nil {
+		return fail(env, fmt.Errorf("the create is %s, reading the task back: %w", out, err))
+	}
+	if *asJSON {
+		// The pending marks changed under the drain, read them again.
+		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
+			return fail(env, fmt.Errorf("the create is %s, reading the queue back: %w", out, err))
+		}
+	}
+	if *asJSON || out == rejected {
+		return reportWrite(ctx, env, out, reason, *asJSON, task, &ref, "")
+	}
+	word := "created"
+	if out == queued {
+		word = "queued"
+		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
+	}
+	_, _ = fmt.Fprintf(env.Stdout, "%s %s  %s  in %s\n", word, task.ID, task.Title, fo.Title)
+	if out == queued {
+		return exitQueued
+	}
+	return exitOK
 }

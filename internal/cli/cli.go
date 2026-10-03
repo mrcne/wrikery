@@ -156,5 +156,3 @@ func fail(env Env, err error) int {
 var errNotBuilt = errors.New("not built yet")
 
 func runSync(_ context.Context, env Env, _ []string) int { return fail(env, errNotBuilt) }
-
-func runTaskCreate(_ context.Context, env Env, _ []string) int { return fail(env, errNotBuilt) }
