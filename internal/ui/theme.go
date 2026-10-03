@@ -184,8 +184,9 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 	return top + "\n" + sides
 }
 
-// importanceMark is the one cell column that flags a High task in list rows and on cards, blank for the rest.
-func (t Theme) importanceMark(importance string) string {
+// ImportanceMark is the one cell column that flags a High task in list rows and on cards, blank for the rest.
+// The commands print it in their list too, so the two front ends mark a task the same way.
+func (t Theme) ImportanceMark(importance string) string {
 	if importance != "High" {
 		return " "
 	}

@@ -493,7 +493,7 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		titleWidth := width - 2 - 2 - 2 - 2 - (whoWidth + 1) - 7
 		title := ansi.Truncate(th.styledTitle(r.task.Title), max(titleWidth, 4), "...")
 		title += strings.Repeat(" ", max(0, titleWidth-ansi.StringWidth(title)))
-		label := fmt.Sprintf("%s %s %s %s %s %s", glyph, th.importanceMark(r.task.Importance), title, mark, whoCell, dueStyle.Render(fmt.Sprintf("%6s", due)))
+		label := fmt.Sprintf("%s %s %s %s %s %s", glyph, th.ImportanceMark(r.task.Importance), title, mark, whoCell, dueStyle.Render(fmt.Sprintf("%6s", due)))
 		b.WriteString(rowLine(th, label, width, ln.row == l.cursor, focused))
 		if row < listHeight-1 {
 			b.WriteByte('\n')

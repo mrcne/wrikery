@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mrcne/wrikery/internal/store"
 )
 
@@ -41,7 +42,7 @@ type datesJSON struct {
 	Duration int    `json:"duration"`
 }
 
-//nolint:unused // used in task show command, task 5
+//nolint:unused // the show command fills it, it has no caller yet
 type taskDetailJSON struct {
 	taskJSON
 	DescriptionText string        `json:"description_text"`
@@ -49,7 +50,7 @@ type taskDetailJSON struct {
 	Comments        []commentJSON `json:"comments"`
 }
 
-//nolint:unused // used in task show command, task 5
+//nolint:unused // the show command fills it, it has no caller yet
 type commentJSON struct {
 	ID       string `json:"id"`
 	AuthorID string `json:"author_id"`
@@ -86,4 +87,46 @@ func printJSON(env Env, v any) int {
 	}
 	_, _ = fmt.Fprintln(env.Stdout, string(b))
 	return exitOK
+}
+
+// printTaskList writes one row per task. On a terminal a dim header and a count line frame the rows,
+// in a pipe only the rows go out so cut and grep work on them.
+func printTaskList(ctx context.Context, env Env, tasks []store.Task, ref *refData, hidden int, all bool) {
+	th := env.Theme
+	dim := lipgloss.NewStyle().Foreground(th.Dim)
+	idW, statusW := 2, 6
+	names := make([]string, len(tasks))
+	for i, t := range tasks {
+		names[i] = ref.statusName(t)
+		idW = max(idW, len(t.ID)+1)
+		statusW = max(statusW, len(names[i])+2)
+	}
+	tty := env.Width > 0
+	if tty {
+		_, _ = fmt.Fprintln(env.Stdout, dim.Render(fmt.Sprintf("%-*s  %-*s  %s", idW, "ID", statusW, "STATUS", "TITLE")))
+	}
+	for i, t := range tasks {
+		mark := " "
+		if _, ok := ref.pending[t.ID]; ok {
+			mark = th.Glyphs.Pending
+		}
+		id := dim.Render(fmt.Sprintf("%-*s", idW, t.ID+" "+mark))
+		cs := ref.statuses[t.CustomStatusID]
+		if cs.ID == "" {
+			cs.Group = t.Status
+		}
+		status := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).
+			Render(fmt.Sprintf("%-*s", statusW, th.StatusGlyph(cs.Group)+" "+names[i]))
+		_, _ = fmt.Fprintf(env.Stdout, "%s  %s  %s %s\n", id, status, th.ImportanceMark(t.Importance), t.Title)
+	}
+	if tty {
+		count := fmt.Sprintf("%d tasks", len(tasks))
+		if len(tasks) == 1 {
+			count = "1 task"
+		}
+		if hidden > 0 && !all {
+			count += fmt.Sprintf(", %d done hidden", hidden)
+		}
+		_, _ = fmt.Fprintln(env.Stdout, dim.Render(count))
+	}
 }

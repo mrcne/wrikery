@@ -128,7 +128,6 @@ func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
 	fs.PrintDefaults()
 }
 
-//nolint:unused // the task commands added next report a wrong argument count through it
 func usageError(env Env, fs *flag.FlagSet, usage, msg string) int {
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: %s\n", msg)
 	printUsage(env.Stderr, fs, usage)
@@ -143,21 +142,6 @@ func fail(env Env, err error) int {
 var errNotBuilt = errors.New("not built yet")
 
 func runSync(_ context.Context, env Env, _ []string) int { return fail(env, errNotBuilt) }
-
-func runTaskList(_ context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task list", flag.ContinueOnError)
-	fs.String("folder", "", "a folder, project or space, by id or by a part of its title")
-	fs.Bool("me", false, "your own tasks, the default")
-	fs.Bool("all", false, "include completed and cancelled tasks")
-	fs.Bool("json", false, "print JSON")
-	if code, done := parse(env, fs, listUsage, args); done {
-		return code
-	}
-	return fail(env, errNotBuilt)
-}
-
-const listUsage = `usage: wrikery task list [--folder F | --me] [--all] [--json]
-`
 
 func runTaskShow(_ context.Context, env Env, _ []string) int   { return fail(env, errNotBuilt) }
 func runTaskStatus(_ context.Context, env Env, _ []string) int { return fail(env, errNotBuilt) }
