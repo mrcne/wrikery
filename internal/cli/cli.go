@@ -28,7 +28,6 @@ const (
 
 // Env is what main prepares for a command: the pieces it builds for the TUI anyway, plus the two output writers.
 type Env struct {
-	Version  string
 	Config   config.Config
 	Store    *store.Store
 	Token    string                                                  // empty when none is stored

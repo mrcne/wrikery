@@ -218,3 +218,24 @@ func TestTaskStatusJSONReportsQueued(t *testing.T) {
 		t.Errorf("got = %v", got)
 	}
 }
+
+func TestTaskStatusAuthFailureIsAnErrorNotQueued(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = fmt.Fprint(w, `{"errorDescription":"Token is invalid","error":"not_authorized"}`)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitError {
+		t.Fatalf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut.String(), "token rejected, run wrikery to sign in again, the change stays queued") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("stdout = %q, want nothing", out.String())
+	}
+	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 1 {
+		t.Errorf("%d rows pending, want the one that stays queued", pending)
+	}
+}

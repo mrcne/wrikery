@@ -205,7 +205,7 @@ A write is queued and then sent at once, and the command reports the result: sen
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
-`wrikery sync` reports "another wrikery is sending" when the interface held the sync lock for the whole run, which only happens when the run was interrupted while waiting.
+A title that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
 On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
 Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.

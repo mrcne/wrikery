@@ -173,7 +173,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
 			return fail(env, fmt.Errorf("the change is %s, reading the queue back: %w", out, err))
 		}
-	} else if out != rejected {
+	} else if out != rejected && out != blocked {
 		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
 	}
 	return reportWrite(ctx, env, out, reason, *asJSON, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
@@ -197,6 +197,7 @@ const createUsage = `usage: wrikery task create --folder F [--json] TITLE...
 
 Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
 Nobody is assigned, the status is the folder's default on Wrike.
+Put -- before a title that starts with a dash, everything after it is title.
 `
 
 func runTaskCreate(ctx context.Context, env Env, args []string) int {
@@ -245,6 +246,9 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 		if ref.pending, err = env.Store.Outbox().StatesByEntity(ctx); err != nil {
 			return fail(env, fmt.Errorf("the create is %s, reading the queue back: %w", out, err))
 		}
+	}
+	if out == blocked {
+		return reportBlocked(env)
 	}
 	if *asJSON || out == rejected {
 		return reportWrite(ctx, env, out, reason, *asJSON, task, &ref, "")

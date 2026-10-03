@@ -8,6 +8,7 @@ import (
 
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/syncer"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 type outcome int
@@ -16,10 +17,11 @@ const (
 	queued   outcome = iota // the row is still pending, Wrike was not reached inside the deadline
 	sent                    // the row completed, the change is on Wrike
 	rejected                // Wrike refused the write, the row is failed and listed under sync issues
+	blocked                 // the token was rejected, the row is pending but only a new sign in in the interface sends it
 )
 
 func (o outcome) String() string {
-	return [...]string{"queued", "sent", "rejected"}[o]
+	return [...]string{"queued", "sent", "rejected", "blocked"}[o]
 }
 
 // preflight checks the token and resolves the host before anything is queued,
@@ -56,6 +58,11 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	if row.State == store.StateFailed {
 		return rejected, row.LastError, nil
 	}
+	var apiErr *wrike.APIError
+	if errors.As(drainErr, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()) {
+		// Nothing sends the row until a person signs in again, so a script must not read this as "goes out with the next sync".
+		return blocked, "", nil
+	}
 	var reason string
 	switch {
 	case errors.Is(drainErr, syncer.ErrLocked):
@@ -72,10 +79,17 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	return queued, reason, nil
 }
 
+func reportBlocked(env Env) int {
+	_, _ = fmt.Fprintln(env.Stderr, "wrikery: token rejected, run wrikery to sign in again, the change stays queued")
+	return exitError
+}
+
 // reportWrite is the common ending of a write command. text is the line for the sent and queued cases
 // without its leading word, the function adds "now:" or "queued:".
 func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSON bool, t store.Task, ref *refData, text string) int {
 	switch out {
+	case blocked:
+		return reportBlocked(env)
 	case rejected:
 		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed under sync issues in wrikery", reason))
 	case queued:

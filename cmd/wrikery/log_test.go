@@ -81,3 +81,24 @@ func TestOpenLogKeepsDemoRunsOutOfTheRealLog(t *testing.T) {
 		t.Errorf("rotated log = %q, want the previous real run", got)
 	}
 }
+
+func TestOpenCommandLogAppendsAndNeverRotates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wrikery.log")
+	for _, line := range []string{"one\n", "two\n"} {
+		f, err := openCommandLog(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "one\ntwo\n" {
+		t.Errorf("log = %q, %v, want both lines", got, err)
+	}
+	if _, err := os.Stat(path + ".1"); !os.IsNotExist(err) {
+		t.Errorf("a command rotated the log: %v", err)
+	}
+}

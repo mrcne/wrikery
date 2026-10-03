@@ -38,6 +38,7 @@ A new token rebuilds the client and the engine, because the client holds the tok
 Wrike serves accounts from more than one data center under a different host, so the first run probes the known hosts and keeps the one that accepted the token in the store meta table.
 Later runs read that host back instead of probing again, and the `host` config key overrides both when set.
 When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the token, the client constructor and the host resolver instead of starting the program.
+A command appends to the same log file and never rotates it, the interface does the rotation at its start.
 
 ## What gets cached
 

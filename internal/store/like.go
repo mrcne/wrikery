@@ -7,7 +7,6 @@ import "strings"
 // The fragment is lowercased for ASCII letters only ('A'..'Z' to 'a'..'z'), matching how SQLite's lower() and LIKE fold case.
 // Non-ASCII letters are not folded and must match exactly as stored.
 func likePattern(fragment string) string {
-	// Lowercase ASCII letters only, matching SQLite's case folding.
 	var buf strings.Builder
 	for i := 0; i < len(fragment); i++ {
 		b := fragment[i]

@@ -115,3 +115,18 @@ func TestTaskStatusOnALocalIdLandsAfterItsCreate(t *testing.T) {
 		t.Errorf("task = %+v, %v, want ST_PROG", task, err)
 	}
 }
+
+func TestTaskCreateAuthFailureIsAnErrorInJSONToo(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = fmt.Fprint(w, `{"errorDescription":"Token is invalid","error":"not_authorized"}`)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "later", "--json", "Try it"}); code != exitError {
+		t.Fatalf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut.String(), "token rejected") || out.Len() != 0 {
+		t.Errorf("stderr %q, stdout %q", errOut.String(), out.String())
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -100,7 +101,7 @@ func main() {
 		os.Exit(2)
 	}
 	if fs.NArg() > 0 {
-		os.Exit(runCommand(fs.Args(), *configPath, *noColor, *demoMode))
+		os.Exit(runCommand(fs.Args(), *configPath, *noColor, *demoMode, *showVersion, *logout))
 	}
 	if *showVersion {
 		fmt.Println(versionLine(buildVersion(), buildCommit(), runtime.Version()))
@@ -214,9 +215,13 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 
 // runCommand prepares what a command needs, the first half of run without the program, and hands over to internal/cli.
 // The theme is resolved by asking the terminal only when stdout is one, a pipe gets no color anyway.
-func runCommand(args []string, configPath string, noColor, demo bool) int {
+func runCommand(args []string, configPath string, noColor, demo, showVersion, logout bool) int {
 	if demo {
 		fmt.Fprintln(os.Stderr, "wrikery: --demo runs the interface on sample data, it cannot run a command")
+		return 2
+	}
+	if showVersion || logout {
+		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
 	if noColor {
@@ -227,7 +232,7 @@ func runCommand(args []string, configPath string, noColor, demo bool) int {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		return 1
 	}
-	logFile, err := openLog(paths.LogFile, false)
+	logFile, err := openCommandLog(paths.LogFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		return 1
@@ -265,10 +270,9 @@ func runCommand(args []string, configPath string, noColor, demo bool) int {
 		return 1
 	}
 	a := &app{cfg: cfg, st: st, tokens: tokens}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	return cli.Run(ctx, cli.Env{
-		Version:  buildVersion(),
 		Config:   cfg,
 		Store:    st,
 		Token:    token,

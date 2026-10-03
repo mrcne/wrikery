@@ -36,7 +36,6 @@ func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 	cfg := config.Config{}
 	cfg.UI = config.UIConfig{Theme: "dark", ASCII: true}
 	env := Env{
-		Version:  "test",
 		Config:   cfg,
 		Store:    st,
 		Theme:    ui.NewTheme(cfg.UI),

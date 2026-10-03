@@ -54,8 +54,16 @@ func TestVersionLine(t *testing.T) {
 }
 
 func TestRunCommandRefusesDemoMode(t *testing.T) {
-	if code := runCommand([]string{"help"}, "", true, true); code != 2 {
+	if code := runCommand([]string{"help"}, "", true, true, false, false); code != 2 {
 		t.Errorf("code = %d, want 2", code)
+	}
+}
+
+func TestRunCommandRefusesVersionAndLogout(t *testing.T) {
+	for name, c := range map[string][2]bool{"version": {true, false}, "logout": {false, true}} {
+		if code := runCommand([]string{"help"}, "", true, false, c[0], c[1]); code != 2 {
+			t.Errorf("--%s: code = %d, want 2", name, code)
+		}
 	}
 }
 
@@ -66,7 +74,7 @@ func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("HOME", dir)
-	if code := runCommand([]string{"help"}, "", true, false); code != 0 {
+	if code := runCommand([]string{"help"}, "", true, false, false, false); code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "wrikery", "wrike.db")); err != nil {
