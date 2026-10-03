@@ -42,6 +42,52 @@ func TestSyncRunsOneCycleAndPrintsTheCounts(t *testing.T) {
 	}
 }
 
+func TestSyncFullRunsTheSweep(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	var taskRequests int
+	stub := stubAccount()
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			taskRequests++
+		}
+		stub.ServeHTTP(w, r)
+	}))
+	ctx := context.Background()
+	// The first run pulls the me scope from scratch and gives it a cursor, so a sweep has to request it again.
+	if code := Run(ctx, env, []string{"sync"}); code != exitOK {
+		t.Fatalf("first sync: code = %d\n%s", code, out.String())
+	}
+	taskRequests = 0
+	if code := Run(ctx, env, []string{"sync"}); code != exitOK {
+		t.Fatalf("plain sync: code = %d\n%s", code, out.String())
+	}
+	if taskRequests != 1 {
+		t.Errorf("plain sync made %d task requests, want the one pull", taskRequests)
+	}
+	taskRequests = 0
+	if code := Run(ctx, env, []string{"sync", "--full"}); code != exitOK {
+		t.Fatalf("full sync: code = %d\n%s", code, out.String())
+	}
+	if taskRequests != 2 {
+		t.Errorf("sync --full made %d task requests, want the pull and the sweep", taskRequests)
+	}
+}
+
+func TestSyncInterruptedSaysSo(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, stubAccount())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code := Run(ctx, env, []string{"sync"}); code != exitError {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "sync interrupted") {
+		t.Errorf("out:\n%s", out.String())
+	}
+}
+
 func TestSyncOfflineIsAnError(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)

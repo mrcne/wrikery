@@ -44,7 +44,7 @@ type Env struct {
 const rootUsage = `usage: wrikery <command> [flags] [arguments]
 
 Commands:
-  wrikery sync                              run one sync cycle, then exit
+  wrikery sync [--full]                     run one sync cycle, then exit, --full also checks for deleted tasks
   wrikery task list [--folder F] [--me] [--all]
                                             list tasks, your own by default
   wrikery task show T                       print one task with its description and comments

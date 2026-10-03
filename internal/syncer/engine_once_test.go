@@ -29,7 +29,7 @@ func TestOnceResendsARowADeadProcessLeftInFlight(t *testing.T) {
 		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
 	}}
 	e := New(fc, st, Config{}, nil)
-	state, err := e.Once(ctx)
+	state, err := e.Once(ctx, true)
 	if err != nil || state != StateIdle {
 		t.Fatalf("Once = %q, %v, want idle and no error", state, err)
 	}
@@ -45,7 +45,7 @@ func TestOnceCreatesTheMeScopeOnAFreshStore(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	e := New(&fakeClient{}, st, Config{}, nil)
-	if _, err := e.Once(ctx); err != nil {
+	if _, err := e.Once(ctx, true); err != nil {
 		t.Fatal(err)
 	}
 	scopes, err := st.Scopes().Followed(ctx)
@@ -57,11 +57,45 @@ func TestOnceCreatesTheMeScopeOnAFreshStore(t *testing.T) {
 	}
 }
 
+func TestOnceWithoutFullSkipsTheSweep(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	fc := &fakeClient{}
+	e := New(fc, st, Config{}, nil)
+	// The first cycle pulls the me scope from scratch and sets its cursor, so a sweep has to crawl it again.
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	countTasks := func() int {
+		n := 0
+		for _, c := range fc.callLog() {
+			if strings.HasPrefix(c, "Tasks") {
+				n++
+			}
+		}
+		return n
+	}
+	before := countTasks()
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := countTasks() - before; got != 1 {
+		t.Errorf("plain Once made %d task requests, want the one pull and no sweep", got)
+	}
+	before = countTasks()
+	if _, err := e.Once(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if got := countTasks() - before; got != 2 {
+		t.Errorf("full Once made %d task requests, want the pull and the sweep", got)
+	}
+}
+
 func TestOnceReportsOfflineWhenWrikeIsUnreachable(t *testing.T) {
 	st := newTestStore(t)
 	fc := &fakeClient{me: func() (wrike.Contact, error) { return wrike.Contact{}, errors.New("dial tcp: connection refused") }}
 	e := New(fc, st, Config{}, nil)
-	state, err := e.Once(context.Background())
+	state, err := e.Once(context.Background(), true)
 	if err == nil || state != StateOffline {
 		t.Errorf("Once = %q, %v, want offline with the error", state, err)
 	}

@@ -69,7 +69,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 With a command it runs one operation on the same local cache and exits.
 
 ```sh
-wrikery sync                                 # one sync cycle
+wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
 wrikery task list --folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

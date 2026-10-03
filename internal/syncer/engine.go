@@ -104,16 +104,17 @@ func (e *Engine) WakeOutbox() {
 	}
 }
 
-// Once runs one full cycle, reference pull and sweep included, and reports the state it ended in.
+// Once runs one cycle and reports the state it ended in, the deletion sweep and a forced reference pull only when full is set.
+// The reference data is still pulled on a fresh engine, lastReference is zero, which is what a command wants.
 // A command uses it where the TUI uses Run.
 // Like every drain pass it first puts the in-flight rows of a dead process back to pending.
 // A create already on the wire is not cut off by a Ctrl-C, see Drain.
-func (e *Engine) Once(ctx context.Context) (SyncState, error) {
+func (e *Engine) Once(ctx context.Context, full bool) (SyncState, error) {
 	if err := e.ensureMeScope(ctx); err != nil {
 		e.setState(stateAfter(err))
 		return e.state, err
 	}
-	err := e.cycle(ctx, context.WithoutCancel(ctx), true)
+	err := e.cycle(ctx, context.WithoutCancel(ctx), full)
 	e.setState(stateAfter(err))
 	return e.state, err
 }
