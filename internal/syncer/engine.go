@@ -104,7 +104,8 @@ func (e *Engine) WakeOutbox() {
 }
 
 // Once runs one full cycle, reference pull and sweep included, and reports the state it ended in.
-// A command uses it where the TUI uses Run. It never resets in-flight rows, another process may be sending them.
+// A command uses it where the TUI uses Run.
+// Like every drain pass it first puts the in-flight rows of a dead process back to pending.
 func (e *Engine) Once(ctx context.Context) (SyncState, error) {
 	err := e.cycle(ctx, true)
 	e.setState(stateAfter(err))
@@ -112,6 +113,7 @@ func (e *Engine) Once(ctx context.Context) (SyncState, error) {
 }
 
 // Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
+// Like every drain pass it first puts the in-flight rows of a dead process back to pending.
 // ErrLocked means the lock was held by another process until the deadline of ctx and nothing was sent.
 // A cancelled ctx returns context.Canceled instead.
 func (e *Engine) Drain(ctx context.Context) error {
@@ -204,23 +206,14 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// startupLocal prepares the store before the first network call: crashed inflight rows go back to pending,
-// the me scope always exists, and the UI gets its first outbox counts.
-// The reset waits for the sync lock, a command may be mid-send on one of those rows.
+// startupLocal prepares the store before the first network call: the me scope always exists,
+// and the UI gets its first outbox counts.
+// It resets nothing, the first drain pass puts crashed inflight rows back to pending under the sync lock.
 //
 // It does not also emit a state event: e.state already defaults to Idle, and setState only emits on a real transition.
 // Broadcasting that same Idle value here as well would be indistinguishable on the Events channel from the Idle
 // that setState emits once the first cycle actually finishes, which is what callers wait on to know a sync completed.
 func (e *Engine) startupLocal(ctx context.Context) error {
-	lock, err := acquire(ctx, e.cfg.LockFile)
-	if err != nil {
-		return err
-	}
-	_, err = e.st.Outbox().ResetInflight(ctx)
-	lock.release()
-	if err != nil {
-		return err
-	}
 	if err := e.st.Scopes().Upsert(ctx, store.Scope{
 		ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true,
 	}); err != nil {
@@ -237,6 +230,11 @@ func (e *Engine) drain(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	defer lock.release()
+	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.
+	// Sending it again is the crash ambiguity the drain already accepts.
+	if _, err := e.st.Outbox().ResetInflight(ctx); err != nil {
+		return false, err
+	}
 	return drainOutbox(ctx, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
 }
 

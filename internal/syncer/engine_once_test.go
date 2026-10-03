@@ -11,11 +11,10 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-func TestOnceRunsOneCycleAndLeavesInflightRowsAlone(t *testing.T) {
+func TestOnceResendsARowADeadProcessLeftInFlight(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTask(t, st, "T1", "One")
-	// A row another process is sending right now. Run would reset it at startup, Once must not.
 	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "Two"})
 	if err != nil {
 		t.Fatal(err)
@@ -23,18 +22,16 @@ func TestOnceRunsOneCycleAndLeavesInflightRowsAlone(t *testing.T) {
 	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	fc := &fakeClient{}
+	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
+	}}
 	e := New(fc, st, Config{}, nil)
 	state, err := e.Once(ctx)
 	if err != nil || state != StateIdle {
 		t.Fatalf("Once = %q, %v, want idle and no error", state, err)
 	}
-	row, err := st.Outbox().Get(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if row.State != store.StateInflight {
-		t.Errorf("row state = %q, want inflight untouched", row.State)
+	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("row after Once: err = %v, want ErrNotFound, the row was sent", err)
 	}
 	if me, err := st.GetMeta(ctx, store.MetaKeyMe); err != nil || me != "U1" {
 		t.Errorf("me = %q, %v, want U1 from the cycle", me, err)
@@ -85,6 +82,9 @@ func TestDrainGivesUpWhenTheLockIsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+		t.Fatal(err)
+	}
 	lockPath := filepath.Join(t.TempDir(), "sync.lock")
 	held, err := acquire(ctx, lockPath)
 	if err != nil {
@@ -102,8 +102,8 @@ func TestDrainGivesUpWhenTheLockIsHeld(t *testing.T) {
 		t.Errorf("calls = %v, want none while locked", calls)
 	}
 	row, err := st.Outbox().Get(ctx, id)
-	if err != nil || row.State != store.StatePending {
-		t.Errorf("row = %+v, %v, want still pending", row, err)
+	if err != nil || row.State != store.StateInflight {
+		t.Errorf("row = %+v, %v, want still inflight, the reset needs the lock", row, err)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestDrainReschedulesTheRowWhenTheContextEndsMidSend(t *testing.T) {
 	}
 }
 
-func TestRunWaitsForTheLockBeforeResettingInflightRows(t *testing.T) {
+func TestRunWaitsForTheLockBeforeTheFirstDrainPass(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTask(t, st, "T1", "One")

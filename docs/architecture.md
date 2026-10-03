@@ -103,9 +103,9 @@ The deletion sweep and the thread refresh never see a local id: the first would 
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.
 The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.
-An advisory lock file next to the database covers what the claim cannot: the TUI's startup reset of in-flight rows, which would resend a row a command is mid-way through, and the order of two rows on one task.
-The engine holds the lock for the reset and for each drain pass, a command for its pass, and the kernel releases it when a holder dies.
-A command that cannot take the lock inside its deadline leaves the write queued for the TUI to send.
+An advisory lock file next to the database covers what the claim cannot: the reset of in-flight rows, which would resend a row a command is mid-way through, and the order of two rows on one task.
+Every drain pass takes the lock, puts back to pending the rows a process that died mid-send left in flight, and then sends.
+A command that cannot take the lock inside its deadline leaves its write queued.
 
 A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
 The UI cuts the stored HTML into top level blocks, a block element or a run of text between two line breaks, and hands the editor one piece of markdown per block.
