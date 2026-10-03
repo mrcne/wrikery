@@ -109,7 +109,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	for _, c := range d.comments {
 		who := bold.Render(contactName(c.AuthorID, ref))
 		// A queued comment carries the local clock, not the server's, so it is marked instead of dated.
-		if strings.HasPrefix(c.ID, store.LocalIDPrefix) {
+		if store.IsLocalID(c.ID) {
 			who += " " + sending
 		} else {
 			who += muted.Render(", " + relTime(c.CreatedDate, now))
@@ -123,7 +123,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		if l.Comment != "" {
 			line += "  " + l.Comment
 		}
-		if strings.HasPrefix(l.ID, store.LocalIDPrefix) {
+		if store.IsLocalID(l.ID) {
 			line += " " + sending
 		}
 		if l.UserID == ref.meID {

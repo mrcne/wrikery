@@ -36,9 +36,12 @@ type tasksLoadedMsg struct {
 	nodeID, crumb string
 	tasks         []store.Task
 	states        map[string]store.OutboxState
+	selectID      string // the row to land on: a create just queued, a jump, or the task on screen after a swap
 }
 type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
+type taskGoneMsg struct{ id string }     // the task is no longer in the cache and no swap explains it
 type taskLoadedMsg struct {
+	asked    string // the id the read was asked for, the task's own unless a swap stepped in
 	task     store.Task
 	comments []store.Comment
 	logs     []store.Timelog

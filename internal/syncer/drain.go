@@ -72,6 +72,11 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err := json.Unmarshal(row.Payload, &p); err != nil {
 			return fmt.Errorf("%w %d: payload: %w", errCorruptRow, row.ID, err)
 		}
+		// The client refuses an empty title or folder with a plain error, which classify would retry forever.
+		// Only a damaged row has one, the box never queues it.
+		if p.Title == "" || row.EntityID == "" {
+			return fmt.Errorf("%w %d: create without a title or a folder", errCorruptRow, row.ID)
+		}
 		task, err := c.CreateTask(ctx, row.EntityID, wrike.TaskCreate{Title: p.Title, Responsibles: p.Responsibles})
 		if err != nil {
 			return err

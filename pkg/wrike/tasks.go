@@ -142,17 +142,8 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 		return Task{}, errors.New("wrike: task id is required")
 	}
 	form := url.Values{}
-	if u.Title != "" {
-		form.Set("title", u.Title)
-	}
-	if u.Description != "" {
-		form.Set("description", u.Description)
-	}
-	if u.CustomStatusID != "" {
-		form.Set("customStatus", u.CustomStatusID)
-	}
-	if u.Importance != "" {
-		form.Set("importance", u.Importance)
+	if err := taskFields(form, u.Title, u.Description, u.CustomStatusID, u.Importance, u.Dates); err != nil {
+		return Task{}, err
 	}
 	if len(u.AddResponsibles) > 0 {
 		form.Set("addResponsibles", jsonArray(u.AddResponsibles))
@@ -165,13 +156,6 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	}
 	if len(u.RemoveParents) > 0 {
 		form.Set("removeParents", jsonArray(u.RemoveParents))
-	}
-	if u.Dates != nil {
-		raw, err := json.Marshal(u.Dates)
-		if err != nil {
-			return Task{}, err
-		}
-		form.Set("dates", string(raw))
 	}
 	var out []Task
 	if _, err := c.do(ctx, http.MethodPut, "/tasks/"+taskID, nil, form, &out); err != nil {
@@ -197,7 +181,6 @@ type TaskCreate struct {
 
 // CreateTask creates a task in a folder and returns it as Wrike stored it.
 // Reference: https://developers.wrike.com/reference/postfolderssingletasks .
-// The status goes as customStatus, the parameter is not named like the customStatusId field the task carries.
 // A POST is never retried after a network error, see do, the caller decides whether to send it again.
 func (c *Client) CreateTask(ctx context.Context, folderID string, t TaskCreate) (Task, error) {
 	if folderID == "" {
@@ -207,28 +190,14 @@ func (c *Client) CreateTask(ctx context.Context, folderID string, t TaskCreate) 
 		return Task{}, errors.New("wrike: task title is required")
 	}
 	form := url.Values{}
-	form.Set("title", t.Title)
-	if t.Description != "" {
-		form.Set("description", t.Description)
-	}
-	if t.CustomStatusID != "" {
-		form.Set("customStatus", t.CustomStatusID)
-	}
-	if t.Importance != "" {
-		form.Set("importance", t.Importance)
+	if err := taskFields(form, t.Title, t.Description, t.CustomStatusID, t.Importance, t.Dates); err != nil {
+		return Task{}, err
 	}
 	if len(t.Responsibles) > 0 {
 		form.Set("responsibles", jsonArray(t.Responsibles))
 	}
 	if len(t.Parents) > 0 {
 		form.Set("parents", jsonArray(t.Parents))
-	}
-	if t.Dates != nil {
-		raw, err := json.Marshal(t.Dates)
-		if err != nil {
-			return Task{}, err
-		}
-		form.Set("dates", string(raw))
 	}
 	var out []Task
 	if _, err := c.do(ctx, http.MethodPost, "/folders/"+folderID+"/tasks", nil, form, &out); err != nil {
@@ -238,6 +207,31 @@ func (c *Client) CreateTask(ctx context.Context, folderID string, t TaskCreate) 
 		return Task{}, errors.New("wrike: empty response to task create")
 	}
 	return out[0], nil
+}
+
+// taskFields puts the fields a create and an update send the same way into the form, an empty one is left out.
+// The status goes as customStatus, the parameter is not named like the customStatusId field the task carries.
+func taskFields(form url.Values, title, description, customStatusID, importance string, dates *TaskDates) error {
+	if title != "" {
+		form.Set("title", title)
+	}
+	if description != "" {
+		form.Set("description", description)
+	}
+	if customStatusID != "" {
+		form.Set("customStatus", customStatusID)
+	}
+	if importance != "" {
+		form.Set("importance", importance)
+	}
+	if dates != nil {
+		raw, err := json.Marshal(dates)
+		if err != nil {
+			return err
+		}
+		form.Set("dates", string(raw))
+	}
+	return nil
 }
 
 // jsonArray renders a string slice as the JSON array Wrike expects in query and form parameters.

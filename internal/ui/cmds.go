@@ -203,7 +203,11 @@ func firstParent(t store.Task) string {
 	return t.ParentIDs[0]
 }
 
-func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
+// loadTasks reads a node's rows. selectID names the row the list should land on, when there is one:
+// the create just queued, the target of a jump, or the task on screen while its create may land any moment.
+// It travels with the load, so an older load that is still in flight cannot use it up.
+// A local id the rows no longer hold is looked up in the swap table, so the cursor follows the task and not its old position.
+func (m Model) loadTasks(node treeNode, crumb, selectID string) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -221,7 +225,15 @@ func (m Model) loadTasks(node treeNode, crumb string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states}
+		if store.IsLocalID(selectID) && !slices.ContainsFunc(tasks, func(t store.Task) bool { return t.ID == selectID }) {
+			real, err := st.Outbox().RealID(ctx, selectID)
+			if err != nil {
+				// Still queued but not in this node, or discarded: nothing to land on.
+				real = ""
+			}
+			selectID = real
+		}
+		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states, selectID: selectID}
 	}
 }
 
@@ -231,11 +243,18 @@ func (m Model) loadTask(id string) tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
 		ctx := context.Background()
+		asked := id
 		task, err := st.Tasks().Get(ctx, id)
+		if errors.Is(err, store.ErrNotFound) && store.IsLocalID(id) {
+			// The create landed between the selection and the read, the detail follows the swap.
+			if real, rerr := st.Outbox().RealID(ctx, id); rerr == nil {
+				id = real
+				task, err = st.Tasks().Get(ctx, id)
+			}
+		}
 		if errors.Is(err, store.ErrNotFound) {
-			// The task vanished between the selection and the read: a create swapped it for the server row,
-			// or a sweep or a 404 on its thread removed it. The list reload selects whatever sits there now.
-			return nil
+			// A sweep or a 404 on its thread removed the task, or its create was discarded.
+			return taskGoneMsg{id: asked}
 		}
 		if err != nil {
 			return errMsg{err}
@@ -259,7 +278,7 @@ func (m Model) loadTask(id string) tea.Cmd {
 				crumbs = append(crumbs, f.Title)
 			}
 		}
-		return taskLoadedMsg{task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
+		return taskLoadedMsg{asked: asked, task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
 	}
 }
 
@@ -308,6 +327,10 @@ func (m Model) enqueueSelecting(op func(ctx context.Context) (string, error), to
 	return func() tea.Msg {
 		ctx := context.Background()
 		selectID, err := op(ctx)
+		if errors.Is(err, store.ErrNotFound) {
+			// The write named a local id whose create was discarded meanwhile, there is no task to write to.
+			return toastMsg{text: "nothing queued, the task is gone", isErr: true}
+		}
 		if err != nil {
 			return errMsg{err}
 		}
@@ -337,13 +360,25 @@ func (m Model) loadCounts() tea.Cmd {
 }
 
 // reloadCurrent re-reads the task and the list a write may have changed the outbox state of.
+// selectID is the row the list should land on, the create just queued, or empty to keep the task on screen.
 // The zero node has no folder to list, the same guard reload and OutboxChangedMsg use before the first selection.
-func (m Model) reloadCurrent() tea.Cmd {
+func (m Model) reloadCurrent(selectID string) tea.Cmd {
+	if selectID == "" {
+		selectID = m.swapWatch()
+	}
 	cmds := []tea.Cmd{m.reloadTask()}
 	if m.selectedNode.kind != nodeNone {
-		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), selectID))
 	}
 	return tea.Batch(cmds...)
+}
+
+// swapWatch is the selected task's id while its create is still queued, so a reload can follow the swap when it lands.
+func (m Model) swapWatch() string {
+	if store.IsLocalID(m.selectedTaskID) {
+		return m.selectedTaskID
+	}
+	return ""
 }
 
 // loadIssues reads the failed outbox rows for the sync issues screen.

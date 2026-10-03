@@ -287,7 +287,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			sum, pending, locked := 0.0, false, false
 			for _, l := range logs {
 				sum += l.Hours
-				pending = pending || strings.HasPrefix(l.ID, store.LocalIDPrefix) || t.states[l.ID] != ""
+				pending = pending || store.IsLocalID(l.ID) || t.states[l.ID] != ""
 				locked = locked || timelogLocked(l)
 			}
 			dayTotals[di] += sum

@@ -36,6 +36,9 @@ const LocalIDPrefix = "local:"
 // LocalID is the cache id of the row an outbox create made, from the outbox row's id.
 func LocalID(id int64) string { return fmt.Sprintf("%s%d", LocalIDPrefix, id) }
 
+// IsLocalID tells a row an outbox create made from one Wrike has confirmed.
+func IsLocalID(id string) bool { return strings.HasPrefix(id, LocalIDPrefix) }
+
 type OutboxRow struct {
 	ID            int64
 	Kind          OutboxKind
@@ -112,6 +115,7 @@ type OutboxRepo interface {
 	ListFailed(ctx context.Context) ([]OutboxRow, error)
 	ResetInflight(ctx context.Context) (int64, error)
 	StatesByEntity(ctx context.Context) (map[string]OutboxState, error)
+	RealID(ctx context.Context, localID string) (string, error)
 }
 
 func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader, now: s.Now} }
@@ -137,12 +141,54 @@ func (o outboxRepo) insertOutboxTx(ctx context.Context, tx *sql.Tx, kind OutboxK
 	return res.LastInsertId()
 }
 
+// resolveTx turns a local target into the real id when its create has landed since the caller read it.
+// A dialog takes the task id when it opens and the create is often sent and swapped while the user types,
+// so a write against the old id would name a row that no longer exists.
+// A local id with no swap and no row behind it belongs to a discarded create, the write is refused.
+func resolveTx(ctx context.Context, tx *sql.Tx, table, id string) (string, error) {
+	if !IsLocalID(id) {
+		return id, nil
+	}
+	var real string
+	err := tx.QueryRowContext(ctx, `SELECT real_id FROM local_ids WHERE local_id = ?`, id).Scan(&real)
+	if err == nil {
+		return real, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	var one int
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return id, err
+}
+
+func recordSwapTx(ctx context.Context, tx *sql.Tx, localID, realID string) error {
+	_, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO local_ids (local_id, real_id) VALUES (?, ?)`, localID, realID)
+	return err
+}
+
+// RealID is the server id a local one was swapped for, ErrNotFound while the create is still queued.
+func (o outboxRepo) RealID(ctx context.Context, localID string) (string, error) {
+	var real string
+	err := o.r.QueryRowContext(ctx, `SELECT real_id FROM local_ids WHERE local_id = ?`, localID).Scan(&real)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return real, err
+}
+
 func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p TaskUpdatePayload) (int64, error) {
 	tx, err := o.w.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
+		return 0, err
+	}
 	id, err := o.insertOutboxTx(ctx, tx, KindTaskUpdate, taskID, p)
 	if err != nil {
 		return 0, err
@@ -245,6 +291,9 @@ func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text s
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
+		return 0, err
+	}
 	id, err := o.insertOutboxTx(ctx, tx, KindCommentCreate, taskID, CommentCreatePayload{Text: text})
 	if err != nil {
 		return 0, err
@@ -264,6 +313,9 @@ func (o outboxRepo) EnqueueTimelogCreate(ctx context.Context, taskID, userID str
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
+		return 0, err
+	}
 	id, err := o.insertOutboxTx(ctx, tx, KindTimelogCreate, taskID, p)
 	if err != nil {
 		return 0, err
@@ -285,6 +337,9 @@ func (o outboxRepo) EnqueueTimelogUpdate(ctx context.Context, timelogID string, 
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if timelogID, err = resolveTx(ctx, tx, "timelogs", timelogID); err != nil {
+		return 0, err
+	}
 	id, err := o.insertOutboxTx(ctx, tx, KindTimelogUpdate, timelogID, p)
 	if err != nil {
 		return 0, err
@@ -318,6 +373,9 @@ func (o outboxRepo) EnqueueTimelogDelete(ctx context.Context, timelogID string) 
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if timelogID, err = resolveTx(ctx, tx, "timelogs", timelogID); err != nil {
+		return 0, err
+	}
 	id, err := o.insertOutboxTx(ctx, tx, KindTimelogDelete, timelogID, struct{}{})
 	if err != nil {
 		return 0, err
@@ -439,6 +497,9 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 	if _, err := tx.ExecContext(ctx, `UPDATE outbox SET entity_id = ? WHERE entity_id = ?`, real.ID, localID); err != nil {
 		return err
 	}
+	if err := recordSwapTx(ctx, tx, localID, real.ID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -463,6 +524,9 @@ func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment)
 		real.ID, real.TaskID, real.AuthorID, real.Text, real.CreatedDate); err != nil {
 		return err
 	}
+	if err := recordSwapTx(ctx, tx, LocalID(id), real.ID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -475,8 +539,12 @@ func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`,
-		LocalID(id)); err != nil {
+	res, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`, LocalID(id))
+	if err != nil {
+		return err
+	}
+	swapped, err := res.RowsAffected()
+	if err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -500,6 +568,12 @@ func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog)
 		`UPDATE outbox SET entity_id = ? WHERE entity_id = ?`,
 		real.ID, LocalID(id)); err != nil {
 		return err
+	}
+	// An update completes through here too and never had a local row, only a create's swap is worth recording.
+	if swapped > 0 {
+		if err := recordSwapTx(ctx, tx, LocalID(id), real.ID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -554,10 +628,11 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		// The comments go with the task through the cascade, the writes queued on it are dropped here,
 		// their target never existed on the server.
 		// Time entries have no foreign key to tasks, so they are deleted by hand.
-		// Edits queued under such an entry name its local id, they go before the entry does.
+		// Edits and deletes queued under such an entry name its local id, which only the queue still knows:
+		// a queued delete has already taken the entry's own row out of the timelogs table.
 		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM outbox WHERE entity_id IN (SELECT id FROM timelogs WHERE task_id = ? AND id LIKE ?)`,
-			localID, LocalIDPrefix+"%"); err != nil {
+			`DELETE FROM outbox WHERE entity_id IN (SELECT ? || id FROM outbox WHERE kind = ? AND entity_id = ?)`,
+			LocalIDPrefix, string(KindTimelogCreate), localID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE task_id = ?`, localID); err != nil {
