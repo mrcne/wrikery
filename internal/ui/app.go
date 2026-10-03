@@ -85,7 +85,6 @@ type Model struct {
 
 	selectedNode   treeNode
 	selectedTaskID string
-	pendingSelect  string // task id to reselect once the next tasksLoadedMsg lands, set by reload after an outbox or task change
 	pendingDate    string // date a new timesheet entry is for, set while search stands in as its task picker
 }
 
@@ -159,7 +158,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.reloadTask()
 		}
 		// The pending and failed markers live on the task row and on the detail header, so a queue change rereads both.
-		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)), m.reloadTask())
+		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch()), m.reloadTask())
 	case toastMsg:
 		return m, m.status.show(msg.text, msg.isErr)
 	case toastExpiredMsg:
@@ -202,20 +201,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openedOnFocus(prev)
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
-		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node))
+		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node), "")
 	case tasksLoadedMsg:
 		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
 		// or two quick moves could leave the list showing the folder passed on the way.
-		// A pending selection belongs to the load it was set with and goes with it.
 		if msg.nodeID != m.selectedNode.id {
-			m.pendingSelect = ""
 			return m, nil
 		}
-		if m.list.nodeID != msg.nodeID && m.pendingSelect == "" {
+		if m.list.nodeID != msg.nodeID && msg.selectID == "" {
 			m.list.cursor = 0
 		}
-		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, m.pendingSelect)
-		m.pendingSelect = ""
+		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, msg.selectID)
 		if !found && m.shape == shapeBoard {
 			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
 			m.list.cursor = m.board.fallback(&m.list)
@@ -236,12 +232,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:
 		// The cursor is free to move while the read runs, so an answer for a task nobody is on any more is dropped.
-		if msg.task.ID != m.selectedTaskID {
+		if msg.asked != m.selectedTaskID {
 			return m, nil
 		}
+		// The read may have followed a swap, the selection follows it too.
+		m.selectedTaskID = msg.task.ID
 		m.detail.set(msg)
 		m.syncPaneSizes()
 		return m, nil
+	case taskGoneMsg:
+		if msg.id != m.selectedTaskID {
+			return m, nil
+		}
+		// Without this the detail and the action keys would stay on the task from before.
+		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+		return m, m.status.show("that task is no longer in the cache", true)
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
 	case firstRunConfirmScopesMsg:
@@ -324,10 +330,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
-		if msg.selectID != "" {
-			m.pendingSelect = msg.selectID
-		}
-		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent()}
+		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent(msg.selectID)}
 		if m.screen == screenIssues {
 			cmds = append(cmds, m.loadIssues())
 		}
@@ -396,14 +399,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.assignMe && meID != "" {
 			p.Responsibles = []string{meID}
 		}
-		where := m.folderCrumbs()[msg.folderID]
+		toast := "Task added"
+		if msg.where != "" {
+			toast += " to " + msg.where
+		}
 		return m, m.enqueueSelecting(func(ctx context.Context) (string, error) {
 			id, err := st.Outbox().EnqueueTaskCreate(ctx, msg.folderID, p, msg.statusID)
 			if err != nil {
 				return "", err
 			}
 			return store.LocalID(id), nil
-		}, "Task added to "+where)
+		}, toast)
 	case submitTitleMsg:
 		st := m.opts.Store
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -486,7 +492,7 @@ func (m Model) reload(entities []string) tea.Cmd {
 	}
 	// The first sync writes tasks before the tree is on screen, and the zero node has no folder to list.
 	if slices.Contains(entities, "tasks") && m.selectedNode.kind != nodeNone {
-		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode)))
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch()))
 	}
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
 		cmds = append(cmds, m.reloadTask())
@@ -528,9 +534,7 @@ func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
 		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
-		// pendingSelect is read by the next tasksLoadedMsg, so it is set only where a load is actually issued.
-		m.pendingSelect = id
-		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n)))
+		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id))
 	}
 	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
@@ -911,7 +915,7 @@ const noPermalink = "this task has no permalink yet"
 const notOnWrike = "not on Wrike yet"
 
 // unconfirmed tells a task whose create is still in the outbox: no permalink and an id Wrike does not know.
-func unconfirmed(t store.Task) bool { return strings.HasPrefix(t.ID, store.LocalIDPrefix) }
+func unconfirmed(t store.Task) bool { return store.IsLocalID(t.ID) }
 
 func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
 	return m.withTask(func(t store.Task) tea.Cmd {
@@ -1115,14 +1119,18 @@ func (m Model) statusGuess() string {
 }
 
 // folderCrumbs is the path of every sidebar node by id, for the folder line of the create box.
+// The nodes come in tree order with their depth, so one walk with the path so far gives every crumb.
+// A folder under two parents is listed where it first appears, as the box lists it.
 func (m Model) folderCrumbs() map[string]string {
 	out := map[string]string{}
+	var path []string
 	for _, n := range m.sidebar.nodes {
 		if n.kind == nodeMe {
 			continue
 		}
+		path = append(path[:n.depth], n.title)
 		if _, ok := out[n.id]; !ok {
-			out[n.id] = m.sidebar.crumb(n)
+			out[n.id] = strings.Join(path, " / ")
 		}
 	}
 	return out

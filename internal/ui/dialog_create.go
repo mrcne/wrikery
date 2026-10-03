@@ -10,6 +10,7 @@ import (
 
 type submitCreateMsg struct {
 	folderID, title, statusID string
+	where                     string // the folder's path, for the toast
 	assignMe                  bool
 }
 
@@ -30,6 +31,7 @@ type createDialog struct {
 	statusID string
 	mine     bool // the view is My tasks, the task is assigned to the user so it stays in that view
 	field    createField
+	done     bool // submitted, a second enter already in the queue must not create the task twice
 	errText  string
 }
 
@@ -53,16 +55,23 @@ func newCreateDialog(nodes []treeNode, crumbs map[string]string, presetID, statu
 
 // focus moves the cursor between the two fields, the one left behind stops drawing a cursor.
 func (d createDialog) focus(f createField) (createDialog, tea.Cmd) {
+	// The cmd is taken before the return copies d, the order inside one return is not specified.
 	d.field = f
 	if f == fieldFolder {
 		d.title.Blur()
-		return d, d.folders.filter.Focus()
+		cmd := d.folders.filter.Focus()
+		return d, cmd
 	}
 	d.folders.filter.Blur()
-	return d, d.title.Focus()
+	cmd := d.title.Focus()
+	return d, cmd
 }
 
 func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+	if d.done {
+		// The close travels through the queue, a key that arrives before it must not act.
+		return d, nil
+	}
 	switch {
 	case msg.Type == tea.KeyTab:
 		d.errText = ""
@@ -93,13 +102,15 @@ func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 			d.errText = "pick a folder"
 			return d.focus(fieldFolder)
 		}
+		d.done = true
 		return d, tea.Batch(
-			intent(submitCreateMsg{folderID: d.folderID, title: title, statusID: d.statusID, assignMe: d.mine}),
+			intent(submitCreateMsg{folderID: d.folderID, title: title, statusID: d.statusID, where: d.crumbs[d.folderID], assignMe: d.mine}),
 			intent(closeDialogMsg{}))
 	}
 	d.errText = ""
 	if d.field == fieldFolder {
-		return d, d.folders.update(msg)
+		cmd := d.folders.update(msg)
+		return d, cmd
 	}
 	var cmd tea.Cmd
 	d.title, cmd = d.title.Update(msg)

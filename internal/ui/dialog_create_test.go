@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -34,7 +35,7 @@ func TestCreateDialogPresetsTheFolderInView(t *testing.T) {
 	dl = typeRunes(dl, "Fix it")
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitCreateMsg{folderID: "API", title: "Fix it", statusID: "CS1"}
+	want := submitCreateMsg{folderID: "API", title: "Fix it", statusID: "CS1", where: "Platform / API"}
 	if len(msgs) != 2 || msgs[0] != want || msgs[1] != (closeDialogMsg{}) {
 		t.Errorf("enter -> %#v", msgs)
 	}
@@ -60,7 +61,7 @@ func TestCreateDialogPicksAnotherFolder(t *testing.T) {
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", statusID: "CS1"}) {
+	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", statusID: "CS1", where: "Platform / Design system"}) {
 		t.Errorf("enter -> %#v", msgs)
 	}
 }
@@ -96,7 +97,28 @@ func TestCreateDialogOnMyTasksNeedsAFolderAndAssignsMe(t *testing.T) {
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "IOS", title: "Fix it", statusID: "CS1", assignMe: true}) {
+	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "IOS", title: "Fix it", statusID: "CS1", where: "Mobile / iOS app", assignMe: true}) {
 		t.Errorf("enter -> %#v", msgs)
+	}
+}
+
+func TestCreateDialogSubmitsOnce(t *testing.T) {
+	dl := createDialogFor("API", false)
+	dl = typeRunes(dl, "Fix it")
+	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); len(msgs) != 2 {
+		t.Fatalf("first enter -> %#v", msgs)
+	}
+	// The close is still in the queue when a second enter arrives, it must not create the task twice.
+	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); len(msgs) != 0 {
+		t.Errorf("second enter -> %#v, want nothing", msgs)
+	}
+}
+
+func TestFolderCrumbsFollowTheTree(t *testing.T) {
+	m := Model{sidebar: sidebarModel{nodes: testTree()}}
+	if got := m.folderCrumbs(); !reflect.DeepEqual(got, testCrumbs()) {
+		t.Errorf("crumbs = %v, want %v", got, testCrumbs())
 	}
 }

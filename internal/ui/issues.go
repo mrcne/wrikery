@@ -126,9 +126,13 @@ func (s issuesModel) Update(msg tea.KeyMsg) (issuesModel, tea.Cmd) {
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
 			// store.Outbox().Discard only rolls back the optimistic row for a create,
-			// a task update leaves the cache ahead of the server until the next pull corrects it,
-			// so the prompt makes no promise that does not hold for every kind.
-			prompt := "Discard this write? The next refresh brings back the server state.\n" + r.summary
+			// a task update leaves the cache ahead of the server until the next pull corrects it.
+			// A new task has no server state to come back to, and the comments and time entries queued on it exist nowhere else.
+			prompt := "Discard this write? The next refresh brings back the server state."
+			if r.row.Kind == store.KindTaskCreate {
+				prompt = "Discard this new task? Its queued comments and time entries go with it."
+			}
+			prompt += "\n" + r.summary
 			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardIssueMsg{id: r.row.ID}})
 		}
 	case key.Matches(msg, s.keys.Enter):

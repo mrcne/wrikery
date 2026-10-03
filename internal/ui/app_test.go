@@ -1094,9 +1094,10 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 	if _, ok := states[got.ID]; !ok {
 		t.Errorf("no queued create under %s, states: %v", got.ID, states)
 	}
+	// The detail header follows the cursor, so the title with the mark there proves the new row is the selected one.
 	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
-	if !strings.Contains(final, "Ship it") || !strings.Contains(final, "(sending)") {
-		t.Errorf("final view should show the new task selected and sending:\n%s", final)
+	if !strings.Contains(final, "Ship it (sending)") {
+		t.Errorf("final view should show the new task in the detail header with the sending mark:\n%s", final)
 	}
 }
 
@@ -1139,23 +1140,28 @@ func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
 	}
 }
 
+// One run per key: the toast is the proof the key was refused, and a second press of a refused key
+// draws the same toast again, which is no new frame to wait for.
 func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
-	st := seededStore(t)
-	if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}, "IEAAST11"); err != nil {
-		t.Fatal(err)
-	}
-	opts, copied := testOptionsWithCopy(st)
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 40))
-	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
-	press(tm, "/", "Unsent", "enter")
-	waitAfter(t, tm, from, "(sending)")
-	press(tm, "i")
-	waitAfter(t, tm, from, "not on Wrike yet")
-	press(tm, "Y")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-	if len(*copied) != 0 {
-		t.Errorf("copied %v, want nothing for a task that has no id yet", *copied)
+	for _, k := range []string{"i", "Y", "y"} {
+		t.Run(k, func(t *testing.T) {
+			st := seededStore(t)
+			if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}, "IEAAST11"); err != nil {
+				t.Fatal(err)
+			}
+			opts, copied := testOptionsWithCopy(st)
+			tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 40))
+			waitFor(t, tm, "-- Comments (")
+			from := mark(t, tm)
+			press(tm, "/", "Unsent", "enter")
+			waitAfter(t, tm, from, "(sending)")
+			press(tm, k)
+			waitAfter(t, tm, from, "not on Wrike yet")
+			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+			tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+			if len(*copied) != 0 {
+				t.Errorf("copied %v, want nothing for a task that has no id yet", *copied)
+			}
+		})
 	}
 }

@@ -289,8 +289,8 @@ func TestJumpKeepsItsTaskUnderAFilter(t *testing.T) {
 	m := New(rootTestOptions(t))
 	m.selectedNode = treeNode{id: "F1"}
 	m.list.filter.SetValue("zzz")
-	m.selectedTaskID, m.pendingSelect = "T1", "T1"
-	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "one", Status: "Active"}}})
+	m.selectedTaskID = "T1"
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "one", Status: "Active"}}, selectID: "T1"})
 	if m = next.(Model); m.selectedTaskID != "T1" || m.list.count != 1 {
 		t.Errorf("the jump should stand: selected %q, %d rows", m.selectedTaskID, m.list.count)
 	}
@@ -330,9 +330,8 @@ func TestStaleListLoadAndTaskSelectionAreDropped(t *testing.T) {
 		t.Errorf("a selection for a row the list no longer has should be dropped, selected %q", got)
 	}
 	m = next.(Model)
-	m.pendingSelect = "T1"
-	next, cmd = m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks})
-	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil || m.pendingSelect != "" {
-		t.Errorf("a late load for the node left behind should be dropped with its pending selection, list shows %s with %d rows, pending %q", m.list.nodeID, m.list.count, m.pendingSelect)
+	next, cmd = m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks, selectID: "T1"})
+	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil {
+		t.Errorf("a late load for the node left behind should be dropped with its selection, list shows %s with %d rows", m.list.nodeID, m.list.count)
 	}
 }
