@@ -51,14 +51,14 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	case 0:
 		return store.Task{}, fmt.Errorf("no task matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
-		return st.Tasks().Get(ctx, hits[0].ID)
+		return hits[0], nil
 	}
 	titles := make([]string, len(hits))
 	for i, h := range hits {
 		titles[i] = h.Title
 	}
 	if i := exactTitle(arg, titles); i >= 0 {
-		return st.Tasks().Get(ctx, hits[i].ID)
+		return hits[i], nil
 	}
 	lines := make([]string, 0, len(hits))
 	for _, h := range hits {

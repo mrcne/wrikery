@@ -204,7 +204,7 @@ A read never waits for the network and prints the cache, so the comments a comma
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, a create already sent is waited for up to a minute and a half when Wrike rate limits, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 `wrikery sync` sends the queue, refreshes the reference data and pulls the changes, and `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
-A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
+A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, the match ignores case and accents as the search does, several matches are refused with the candidates listed.
 When one of the matches has exactly the given title, ignoring case, that one is taken.
 A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
 A bare number is only ever that number, it is never tried as a part of a title.

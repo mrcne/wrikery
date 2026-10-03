@@ -324,12 +324,38 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 }
 
 // FindByTitle is the lookup behind a title fragment on the command line.
-// It is a plain substring on the title, the search index would match descriptions too.
+// It is a plain substring on the folded title, the search index would match descriptions too.
+// The whole table is read, the cache holds a few thousand tasks at most.
 func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
-	return t.list(ctx, `
-		SELECT `+taskListColumns+` FROM tasks t
-		WHERE lower(t.title) LIKE ? ESCAPE '\'
-		`+taskListOrder+` LIMIT ?`, likePattern(fragment), limit)
+	rows, err := t.r.QueryContext(ctx, `SELECT t.id, t.title FROM tasks t `+taskListOrder)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	want := foldTitle(fragment)
+	var ids []string
+	for rows.Next() && len(ids) < limit {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		if strings.Contains(foldTitle(title), want) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close()
+	out := make([]Task, 0, len(ids))
+	for _, id := range ids {
+		task, err := t.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	return out, nil
 }
 
 // ByPermalinkID finds the task whose permalink ends in open.htm?id=<numeric>, the caller passes digits only.

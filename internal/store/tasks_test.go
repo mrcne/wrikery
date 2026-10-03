@@ -372,96 +372,90 @@ func TestRecentlyOpenedIDsSkipsLocalTasks(t *testing.T) {
 	}
 }
 
-func TestFindByTitleMatchesACaseInsensitiveFragmentAndEscapesWildcards(t *testing.T) {
+func TestFindByTitleFoldsCaseAndDiacriticsLikeTheSearch(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	err := st.Tasks().Upsert(ctx, []Task{
-		makeTask("T1", "Fix the login page"),
-		makeTask("T2", "Login copy 100% done"),
+		makeTask("T1", "Plan \u0141\u00f3d\u017a"),
+		makeTask("T2", "\u015awi\u0119ty list"),
 		makeTask("T3", "Write docs"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Tasks().FindByTitle(ctx, "LOGIN", 10)
+	ids := func(fragment string) []string {
+		t.Helper()
+		got, err := st.Tasks().FindByTitle(ctx, fragment, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, task := range got {
+			out = append(out, task.ID)
+		}
+		return out
+	}
+	for fragment, want := range map[string]string{
+		"\u0142\u00f3d\u017a": "T1",
+		"\u0142odz":           "T1",
+		"\u015aWIETY":         "T2",
+		"swiety":              "T2",
+		"DOCS":                "T3",
+	} {
+		if got := ids(fragment); len(got) != 1 || got[0] != want {
+			t.Errorf("FindByTitle(%q) = %v, want %s alone", fragment, got, want)
+		}
+	}
+	// The search index does not fold the l with stroke into l, so the lookup must not either.
+	got, err := st.Tasks().Search(ctx, "lodz", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("LOGIN matched %d tasks, want 2: %+v", len(got), got)
-	}
-	// A percent sign is a character in the title, not a wildcard.
-	got, err = st.Tasks().FindByTitle(ctx, "100%", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "T2" {
-		t.Errorf("100%% matched %+v, want T2 alone", got)
-	}
-	// An underscore is not a single character wildcard either.
-	got, err = st.Tasks().FindByTitle(ctx, "l_gin", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Errorf("l_gin matched %+v, want nothing", got)
-	}
-	got, err = st.Tasks().FindByTitle(ctx, "o", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 {
-		t.Errorf("limit 2 returned %d rows", len(got))
+	if len(got) != 0 || len(ids("lodz")) != 0 {
+		t.Errorf("lodz: search found %d, lookup found %v, want both to find nothing", len(got), ids("lodz"))
 	}
 }
 
-func TestFindByTitleNonASCIILettersMatchExactly(t *testing.T) {
+func TestFindByTitleTreatsWildcardsAsCharactersAndKeepsListOrderAndLimit(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	err := st.Tasks().Upsert(ctx, []Task{
-		makeTask("T1", "Fix the \u017b\u00f3\u0142w issue"),
-	})
-	if err != nil {
+	old := makeTask("T1", "Login copy 100% done")
+	fresh := makeTask("T2", "Fix the login page")
+	fresh.UpdatedDate = "2026-09-05T10:00:00Z"
+	done := makeTask("T3", "Login archive")
+	done.Status = "Completed"
+	done.UpdatedDate = "2026-09-09T10:00:00Z"
+	if err := st.Tasks().Upsert(ctx, []Task{old, fresh, done}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.Tasks().FindByTitle(ctx, "LOGIN", 10)
-	if err != nil {
+	for fragment, want := range map[string]int{"100%": 1, "l_gin": 0, "%": 1, "_": 0} {
+		got, err := st.Tasks().FindByTitle(ctx, fragment, 10)
+		if err != nil || len(got) != want {
+			t.Errorf("FindByTitle(%q) = %d rows, %v, want %d", fragment, len(got), err, want)
+		}
+	}
+	got, err := st.Tasks().FindByTitle(ctx, "login", 10)
+	if err != nil || len(got) != 3 || got[0].ID != "T2" || got[1].ID != "T1" || got[2].ID != "T3" {
+		t.Errorf("order = %+v, %v, want T2 T1 T3: open tasks first, newest change first, done last", got, err)
+	}
+	got, err = st.Tasks().FindByTitle(ctx, "login", 2)
+	if err != nil || len(got) != 2 || got[0].ID != "T2" || got[1].ID != "T1" {
+		t.Errorf("limit 2 = %+v, %v", got, err)
+	}
+}
+
+func TestFindByTitleFillsTheDescription(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "Fix the login page")}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 0 {
-		t.Errorf("LOGIN matched %+v, want nothing", got)
+	got, err := st.Tasks().FindByTitle(ctx, "login", 10)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("got %+v, %v", got, err)
 	}
-	got, err = st.Tasks().FindByTitle(ctx, "\u017b\u00f3\u0142w", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "T1" {
-		t.Errorf("non-ASCII fragment matched %+v, want T1", got)
-	}
-	got, err = st.Tasks().FindByTitle(ctx, "\u0140gin", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Errorf("wrong non-ASCII case matched %+v, want nothing", got)
-	}
-	got, err = st.Tasks().FindByTitle(ctx, "LOGIN", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Errorf("login matched %+v, want nothing", got)
-	}
-	task := makeTask("T2", "Login page fix")
-	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
-		t.Fatal(err)
-	}
-	got, err = st.Tasks().FindByTitle(ctx, "LOGIN", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].ID != "T2" {
-		t.Errorf("LOGIN matched %+v, want T2", got)
+	if got[0].Description != "<p>body of Fix the login page</p>" {
+		t.Errorf("description = %q", got[0].Description)
 	}
 }
 

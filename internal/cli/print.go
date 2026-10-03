@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
@@ -107,8 +107,8 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 		}
 		ids[i] = t.ID + " " + mark
 		names[i] = ref.statusName(t)
-		idW = max(idW, utf8.RuneCountInString(ids[i]))
-		statusW = max(statusW, utf8.RuneCountInString(names[i])+2)
+		idW = max(idW, ansi.StringWidth(ids[i]))
+		statusW = max(statusW, ansi.StringWidth(names[i])+2)
 	}
 	tty := env.Width > 0
 	if tty {
@@ -136,9 +136,9 @@ func printTaskList(env Env, tasks []store.Task, ref *refData, hidden int) {
 	}
 }
 
-// padRight pads by runes, fmt pads by bytes and would misalign a non-ASCII status name.
+// padRight pads by terminal cells, fmt pads by bytes and would misalign a non-ASCII or wide status name.
 func padRight(s string, width int) string {
-	if n := utf8.RuneCountInString(s); n < width {
+	if n := ansi.StringWidth(s); n < width {
 		return s + strings.Repeat(" ", width-n)
 	}
 	return s
