@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ErrLocked is returned when another wrikery process held the sync lock for the whole wait.
+// ErrLocked is returned when another wrikery process held the sync lock until the deadline of the wait.
 var ErrLocked = errors.New("sync: another wrikery is sending")
 
 // syncLock is the advisory lock on the file next to the database.
@@ -22,6 +22,7 @@ var ErrLocked = errors.New("sync: another wrikery is sending")
 type syncLock struct{ f *os.File }
 
 // acquire tries the lock every 100ms until it has it or ctx ends.
+// A deadline gives ErrLocked, a cancellation gives the context error so a quit is not reported as a held lock.
 // An empty path means no lock, which demo mode and most tests use.
 func acquire(ctx context.Context, path string) (*syncLock, error) {
 	if path == "" {
@@ -43,6 +44,9 @@ func acquire(ctx context.Context, path string) (*syncLock, error) {
 		select {
 		case <-ctx.Done():
 			_ = f.Close()
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, ctx.Err()
+			}
 			return nil, ErrLocked
 		case <-time.After(100 * time.Millisecond):
 		}

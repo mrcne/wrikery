@@ -69,6 +69,9 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 }
 
 func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+	// Once Wrike has answered the write has landed, so the local commit must not fail on a context that ended meanwhile.
+	// A context error there would reschedule the row and the next drain would send it again.
+	done := context.WithoutCancel(ctx)
 	switch row.Kind {
 	case store.KindTaskCreate:
 		var p store.TaskCreatePayload
@@ -84,7 +87,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTaskCreate(ctx, row.ID, taskFromWrike(task))
+		return st.Outbox().CompleteTaskCreate(done, row.ID, taskFromWrike(task))
 	case store.KindTaskUpdate:
 		var p store.TaskUpdatePayload
 		if err := json.Unmarshal(row.Payload, &p); err != nil {
@@ -108,7 +111,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTask(ctx, row.ID, taskFromWrike(task))
+		return st.Outbox().CompleteTask(done, row.ID, taskFromWrike(task))
 
 	case store.KindCommentCreate:
 		var p store.CommentCreatePayload
@@ -119,7 +122,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteComment(ctx, row.ID, commentFromWrike(cm))
+		return st.Outbox().CompleteComment(done, row.ID, commentFromWrike(cm))
 
 	case store.KindTimelogCreate:
 		var p store.TimelogCreatePayload
@@ -130,7 +133,7 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		if err != nil {
 			return err
 		}
-		return st.Outbox().CompleteTimelog(ctx, row.ID, timelogFromWrike(tl))
+		return st.Outbox().CompleteTimelog(done, row.ID, timelogFromWrike(tl))
 
 	case store.KindTimelogUpdate:
 		var p store.TimelogUpdatePayload
@@ -144,17 +147,17 @@ func sendRow(ctx context.Context, c Client, st *store.Store, row store.OutboxRow
 		}
 		// CompleteTimelog drops the row and writes the server version in one transaction.
 		// Its local id cleanup matches nothing for an update, the row never had a local timelog.
-		return st.Outbox().CompleteTimelog(ctx, row.ID, timelogFromWrike(tl))
+		return st.Outbox().CompleteTimelog(done, row.ID, timelogFromWrike(tl))
 
 	case store.KindTimelogDelete:
 		if err := c.DeleteTimelog(ctx, row.EntityID); err != nil {
 			if isNotFound(err) {
 				// Already gone on the server, which is what we wanted.
-				return st.Outbox().Complete(ctx, row.ID)
+				return st.Outbox().Complete(done, row.ID)
 			}
 			return err
 		}
-		return st.Outbox().Complete(ctx, row.ID)
+		return st.Outbox().Complete(done, row.ID)
 	}
 	return fmt.Errorf("%w %d: unknown kind %q", errCorruptRow, row.ID, row.Kind)
 }

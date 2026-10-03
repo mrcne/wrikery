@@ -112,7 +112,8 @@ func (e *Engine) Once(ctx context.Context) (SyncState, error) {
 }
 
 // Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
-// ErrLocked means the lock was held by another process until ctx ended and nothing was sent.
+// ErrLocked means the lock was held by another process until the deadline of ctx and nothing was sent.
+// A cancelled ctx returns context.Canceled instead.
 func (e *Engine) Drain(ctx context.Context) error {
 	_, err := e.drain(ctx)
 	return err

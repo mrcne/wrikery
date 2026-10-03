@@ -179,3 +179,31 @@ func TestRunWaitsForTheLockBeforeResettingInflightRows(t *testing.T) {
 		t.Errorf("Run returned %v", err)
 	}
 }
+
+func TestDrainCommitsASendThatOutlivedTheContext(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "One")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "Two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// Wrike answers and the command's context ends before the local commit.
+	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		cancel()
+		return wrike.Task{ID: taskID, Title: u.Title, Status: "Active"}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	// The loop then reads the next row on the ended context, so Drain may return the context error.
+	// The commit is what counts here.
+	_ = e.Drain(dctx)
+	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("row after the drain: err = %v, want ErrNotFound", err)
+	}
+	task, err := st.Tasks().Get(ctx, "T1")
+	if err != nil || task.Title != "Two" {
+		t.Errorf("task = %+v, %v, want the new title", task, err)
+	}
+}
