@@ -25,6 +25,11 @@ Writing:
 - change the title, description, status, importance, assignee, dates and folders of a task
 - log, edit and delete your own time entries
 
+From a shell, for scripts and agents:
+
+- list tasks, show one, change its status and create one, as text or JSON
+- run one sync cycle
+
 Not in v1: managing subtasks, editing custom fields, dashboards, Gantt charts.
 The tool does not try to replace the web application for heavy project management.
 
@@ -189,3 +194,19 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title and the branch name `Y` copies leaves the prefix out too.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
+
+### Commands
+
+`wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
+The commands are `sync`, `task list`, `task show`, `task status` and `task create`, and `wrikery help` prints them with their flags.
+They read the same local cache and queue writes through the same outbox as the interface, so a command never waits for a network round trip to show something.
+A read prints the cache and never touches the network, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
+A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, or rejected.
+A queued write goes out with the next sync, from the interface or from `wrikery sync`.
+A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
+A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
+`wrikery sync` reports "another wrikery is sending" when the interface held the sync lock for the whole run, which only happens when the run was interrupted while waiting.
+Output is text for a person and `--json` for a script.
+On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
+Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.
+The interface, when it is running at the same time, shows a command's change at its next poll or at once on `R`.

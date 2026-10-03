@@ -40,6 +40,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - change task title, description, importance, status, assignee and dates
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
+- commands for scripts and agents: list, show, move and create tasks from a shell, with JSON output
 - offline: reads come from the local cache, writes are queued and sent later, and a sync issues screen lists any that failed for a retry or a discard
 
 ## Keys
@@ -61,6 +62,25 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `T` | timesheet |
 | `?` | every key for the current screen |
 | `q` | quit |
+
+## Commands
+
+`wrikery` alone opens the interface.
+With a command it runs one operation on the same local cache and exits.
+
+```sh
+wrikery sync                                 # one sync cycle
+wrikery task list --folder "4 Later"         # tasks of a folder, project or space
+wrikery task list                            # your own open tasks
+wrikery task show "licence file"             # one task with its description and comments
+wrikery task status MAAAAAEPXpuT "In Progress"
+wrikery task create --folder Sandbox Try the new command
+```
+
+A task or a folder is an id or a part of its title that matches exactly one cached row.
+Every command takes `--json`.
+A write is sent right away and reported as sent, queued when Wrike could not be reached, or rejected.
+Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 
 ## Config
 

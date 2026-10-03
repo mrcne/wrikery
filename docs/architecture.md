@@ -24,6 +24,9 @@ The code is split into four parts with strict boundaries, plus a small config pa
   When sync changes the store, the UI hears about it through a bubbletea message and refreshes.
   The task list owns the rows and their order, grouped or not, and two views draw them: the list with sections and a board with a column per workflow status and a lane per group.
   The board moves the list's own cursor, so there is one selection and no state to carry across when the shape changes.
+- `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
+  It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
+  It imports the TUI's theme and description renderer so both front ends look the same, and nothing flows the other way.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
@@ -34,6 +37,7 @@ The UI gets a few callbacks (refresh, wake the outbox, verify a token), so it ne
 A new token rebuilds the client and the engine, because the client holds the token.
 Wrike serves accounts from more than one data center under a different host, so the first run probes the known hosts and keeps the one that accepted the token in the store meta table.
 Later runs read that host back instead of probing again, and the `host` config key overrides both when set.
+When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the token, the client constructor and the host resolver instead of starting the program.
 
 ## What gets cached
 
@@ -94,6 +98,13 @@ A created task has no id until Wrike answers, so the store gives it a local one,
 Writes queued on that task name the local id and are not sent until the create has landed.
 The completion then swaps the local row for the server's and points the comments, time entries and queued writes at the real id, in one transaction.
 The deletion sweep and the thread refresh never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for its comments and get a 404.
+
+A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
+Two processes can therefore drain one outbox, a running TUI and a command.
+The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.
+An advisory lock file next to the database covers what the claim cannot: the TUI's startup reset of in-flight rows, which would resend a row a command is mid-way through, and the order of two rows on one task.
+The engine holds the lock for the reset and for each drain pass, a command for its pass, and the kernel releases it when a holder dies.
+A command that cannot take the lock inside its deadline leaves the write queued for the TUI to send.
 
 A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
 The UI cuts the stored HTML into top level blocks, a block element or a run of text between two line breaks, and hands the editor one piece of markdown per block.
