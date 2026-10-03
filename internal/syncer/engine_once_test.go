@@ -38,6 +38,22 @@ func TestOnceResendsARowADeadProcessLeftInFlight(t *testing.T) {
 	}
 }
 
+func TestOnceCreatesTheMeScopeOnAFreshStore(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	e := New(&fakeClient{}, st, Config{}, nil)
+	if _, err := e.Once(ctx); err != nil {
+		t.Fatal(err)
+	}
+	scopes, err := st.Scopes().Followed(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 1 || scopes[0].ID != store.ScopeKindMe {
+		t.Errorf("followed scopes = %+v, want the me scope", scopes)
+	}
+}
+
 func TestOnceReportsOfflineWhenWrikeIsUnreachable(t *testing.T) {
 	st := newTestStore(t)
 	fc := &fakeClient{me: func() (wrike.Contact, error) { return wrike.Contact{}, errors.New("dial tcp: connection refused") }}

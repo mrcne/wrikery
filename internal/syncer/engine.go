@@ -108,6 +108,10 @@ func (e *Engine) WakeOutbox() {
 // Like every drain pass it first puts the in-flight rows of a dead process back to pending.
 // A create already on the wire is not cut off by a Ctrl-C, see Drain.
 func (e *Engine) Once(ctx context.Context) (SyncState, error) {
+	if err := e.ensureMeScope(ctx); err != nil {
+		e.setState(stateAfter(err))
+		return e.state, err
+	}
 	err := e.cycle(ctx, context.WithoutCancel(ctx), true)
 	e.setState(stateAfter(err))
 	return e.state, err
@@ -226,13 +230,18 @@ func (e *Engine) Run(ctx context.Context) error {
 // Broadcasting that same Idle value here as well would be indistinguishable on the Events channel from the Idle
 // that setState emits once the first cycle actually finishes, which is what callers wait on to know a sync completed.
 func (e *Engine) startupLocal(ctx context.Context) error {
-	if err := e.st.Scopes().Upsert(ctx, store.Scope{
-		ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true,
-	}); err != nil {
+	if err := e.ensureMeScope(ctx); err != nil {
 		return err
 	}
 	e.emitOutboxCounts(ctx)
 	return nil
+}
+
+// ensureMeScope makes sure the My tasks scope exists and is followed, without it a cycle pulls no task.
+func (e *Engine) ensureMeScope(ctx context.Context) error {
+	return e.st.Scopes().Upsert(ctx, store.Scope{
+		ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true,
+	})
 }
 
 // drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
