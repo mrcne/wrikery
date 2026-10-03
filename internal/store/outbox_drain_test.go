@@ -463,3 +463,132 @@ func TestDiscardTaskCreateDropsEditsQueuedOnItsTimelog(t *testing.T) {
 		t.Errorf("timelogs after discard = %+v, want none", logs)
 	}
 }
+
+// A dialog opened on a new task keeps its local id, and the create usually lands while the user types.
+func TestEnqueueAfterTheSwapLandsOnTheRealTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	real := Task{ID: "T9", Title: "New one", Status: "Active", ParentIDs: []string{"F1"},
+		CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z"}
+	if err := st.Outbox().CompleteTaskCreate(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Outbox().RealID(ctx, localID); err != nil || got != "T9" {
+		t.Fatalf("RealID = %q, %v, want T9", got, err)
+	}
+
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, localID, TaskUpdatePayload{Title: "after"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "late"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTimelogCreate(ctx, localID, "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"}); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := st.Tasks().Get(ctx, "T9")
+	if err != nil || task.Title != "after" {
+		t.Errorf("task = %+v, %v, want the late edit applied to the server row", task, err)
+	}
+	if comments, err := st.Comments().ListForTask(ctx, "T9"); err != nil || len(comments) != 1 {
+		t.Errorf("comments on T9 = %+v, %v, want the late comment", comments, err)
+	}
+	if logs, err := st.Timelogs().ListForTask(ctx, "T9"); err != nil || len(logs) != 1 {
+		t.Errorf("timelogs on T9 = %+v, %v, want the late entry", logs, err)
+	}
+	for i := 0; i < 3; i++ {
+		row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
+		if err != nil || row.EntityID != "T9" {
+			t.Fatalf("due row %d = %+v, %v, want every late write against T9", i, row, err)
+		}
+		if err := st.Outbox().MarkInflight(ctx, row.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestEnqueueAgainstADiscardedCreateIsRefused(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, localID, TaskUpdatePayload{Title: "after"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("update against a discarded create: %v, want ErrNotFound", err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "late"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("comment against a discarded create: %v, want ErrNotFound", err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want nothing queued for a task that is gone", pending, failed, err)
+	}
+}
+
+func TestEnqueueAfterATimelogSwapLandsOnTheRealEntry(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	real := Timelog{ID: "L9", TaskID: "T1", UserID: "U1", TrackedDate: "2026-10-01", Hours: 1,
+		CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}
+	if err := st.Outbox().CompleteTimelog(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTimelogUpdate(ctx, localID, TimelogUpdatePayload{Hours: 2}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
+	if err != nil || row.Kind != KindTimelogUpdate || row.EntityID != "L9" {
+		t.Fatalf("due row = %+v, %v, want the late edit against L9", row, err)
+	}
+	if logs, err := st.Timelogs().ListForTask(ctx, "T1"); err != nil || len(logs) != 1 || logs[0].Hours != 2 {
+		t.Errorf("timelogs = %+v, %v, want the edit applied to L9", logs, err)
+	}
+}
+
+func TestDiscardTaskCreateDropsADeleteQueuedOnItsTimelog(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	logID, err := st.Outbox().EnqueueTimelogCreate(ctx, localID, "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The delete takes the entry's row out of the timelogs table at once, only the queue still names it.
+	if _, err := st.Outbox().EnqueueTimelogDelete(ctx, LocalID(logID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, createID, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want the queued delete gone with the create", pending, failed, err)
+	}
+}
