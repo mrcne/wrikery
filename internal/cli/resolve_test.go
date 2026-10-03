@@ -253,12 +253,87 @@ func TestResolveTaskTakesABrowserNumberOrLink(t *testing.T) {
 	}
 }
 
-func TestResolveTaskNumberFallsThroughToTheTitle(t *testing.T) {
+func TestResolveTaskTreatsABareNumberAsANumberOnly(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
-	_, err := resolveTask(context.Background(), env.Store, "99")
-	if err == nil || !strings.Contains(err.Error(), `no task matching "99"`) {
+	ctx := context.Background()
+	if err := env.Store.Tasks().Upsert(ctx, []store.Task{
+		{ID: "TASK12", Title: "Release 1.99", Status: "Active", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+		{ID: "TASK13", Title: "2026", Status: "Active", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolveTask(ctx, env.Store, "99")
+	if err == nil || !strings.Contains(err.Error(), `no task with the number "99" in the cache`) {
 		t.Errorf("error = %v", err)
+	}
+	if got, err := resolveTask(ctx, env.Store, "TASK13"); err != nil || got.Title != "2026" {
+		t.Errorf("by id = %+v, %v", got, err)
+	}
+	if got, err := resolveTask(ctx, env.Store, "2026"); err == nil {
+		t.Errorf("a bare number reached the title: %+v", got)
+	}
+	if got, err := resolveTask(ctx, env.Store, "release 1.99"); err != nil || got.ID != "TASK12" {
+		t.Errorf("more of the title = %+v, %v", got, err)
+	}
+}
+
+func TestTaskStatusWithAnUnknownNumberQueuesNothing(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.Tasks().Upsert(context.Background(), []store.Task{
+		{ID: "TASK12", Title: "Release 1.99", Status: "Active", CustomStatusID: "ST_NEW", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env = withNetwork(t, env, nil)
+	if code := Run(context.Background(), env, []string{"task", "status", "99", "Completed"}); code != exitError {
+		t.Errorf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), `no task with the number "99"`) {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if pending, failed, err := env.Store.Outbox().Counts(context.Background()); err != nil || pending != 0 || failed != 0 {
+		t.Errorf("outbox = %d pending, %d failed, %v", pending, failed, err)
+	}
+}
+
+func TestResolveTaskPrefersAnExactTitleAndRefusesTwo(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	add := func(id, title string) {
+		t.Helper()
+		if err := env.Store.Tasks().Upsert(ctx, []store.Task{
+			{ID: id, Title: title, Status: "Active", CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-09-08T10:00:00Z"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("REL1", "Release")
+	add("REL2", "Release notes")
+	if got, err := resolveTask(ctx, env.Store, "release"); err != nil || got.ID != "REL1" {
+		t.Errorf("resolveTask(release) = %q, %v, want REL1", got.ID, err)
+	}
+	add("REL3", "RELEASE")
+	if _, err := resolveTask(ctx, env.Store, "Release"); err == nil || !strings.Contains(err.Error(), "be more specific") {
+		t.Errorf("two exact titles: err = %v", err)
+	}
+}
+
+func TestResolveFolderPrefersAnExactTitle(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	if err := env.Store.Folders().ReplaceTree(ctx, []store.Folder{
+		{ID: "SPACE1", Title: "Wrikery", Space: true, ChildIDs: []string{"PROJ1", "PROJ3"}},
+		{ID: "PROJ1", Title: "4 Later", Project: &store.Project{Status: "Green"}},
+		{ID: "PROJ3", Title: "4 Later archive", Project: &store.Project{Status: "Green"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if fo, err := resolveFolder(ctx, env.Store, "4 later"); err != nil || fo.ID != "PROJ1" {
+		t.Errorf("resolveFolder(4 later) = %+v, %v", fo, err)
 	}
 }
 

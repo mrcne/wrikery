@@ -36,14 +36,12 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 		}
 		return t, err
 	} else if isDigits(arg) {
-		// A title may be a number too, so a miss goes on to the fragment.
+		// A number is never a title fragment, "12" would otherwise pick the one task titled "Release 1.12" when task 12 is not cached.
 		t, err := st.Tasks().ByPermalinkID(ctx, arg)
-		if err == nil {
-			return t, nil
+		if errors.Is(err, store.ErrNotFound) {
+			return store.Task{}, fmt.Errorf("no task with the number %q in the cache, follow its space or run wrikery sync, a title that is a number needs more of it or the id", arg)
 		}
-		if !errors.Is(err, store.ErrNotFound) {
-			return store.Task{}, err
-		}
+		return t, err
 	}
 	hits, err := st.Tasks().FindByTitle(ctx, arg, candidateLimit+1)
 	if err != nil {
@@ -53,8 +51,14 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	case 0:
 		return store.Task{}, fmt.Errorf("no task matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
-		// The search rows come without the description columns, so read the whole task by its id.
 		return st.Tasks().Get(ctx, hits[0].ID)
+	}
+	titles := make([]string, len(hits))
+	for i, h := range hits {
+		titles[i] = h.Title
+	}
+	if i := exactTitle(arg, titles); i >= 0 {
+		return st.Tasks().Get(ctx, hits[i].ID)
 	}
 	lines := make([]string, 0, len(hits))
 	for _, h := range hits {
@@ -75,6 +79,24 @@ func linkNumber(arg string) (number string, isLink bool) {
 		end++
 	}
 	return rest[:end], true
+}
+
+// exactTitle gives the index of the one title equal to arg ignoring case, or -1 when there is none or more than one.
+// It lets a full title win over longer titles that contain it.
+// The hits are cut at candidateLimit+1, so an exact title past that cut is missed, which only happens with a fragment that is too short to have been meant as a title.
+func exactTitle(arg string, titles []string) int {
+	arg = strings.TrimSpace(arg)
+	found := -1
+	for i, title := range titles {
+		if !strings.EqualFold(strings.TrimSpace(title), arg) {
+			continue
+		}
+		if found >= 0 {
+			return -1
+		}
+		found = i
+	}
+	return found
 }
 
 func isDigits(s string) bool {
@@ -109,6 +131,13 @@ func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Fold
 		return store.Folder{}, fmt.Errorf("no folder matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
 		return hits[0], nil
+	}
+	titles := make([]string, len(hits))
+	for i, h := range hits {
+		titles[i] = h.Title
+	}
+	if i := exactTitle(arg, titles); i >= 0 {
+		return hits[i], nil
 	}
 	lines := make([]string, 0, len(hits))
 	for _, h := range hits {

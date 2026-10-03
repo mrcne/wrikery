@@ -205,7 +205,9 @@ A write is queued and then sent at once, and the command reports the result: sen
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 `wrikery sync` sends the queue, refreshes the reference data and pulls the changes, and `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, several matches are refused with the candidates listed.
+When one of the matches has exactly the given title, ignoring case, that one is taken.
 A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
+A bare number is only ever that number, it is never tried as a part of a title.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
 A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
