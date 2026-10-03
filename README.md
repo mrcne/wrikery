@@ -16,7 +16,9 @@ The current version is v0.1.0, the first release.
 
 ## Install
 
-Download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.1.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
+With Homebrew: `brew install mrcne/tap/wrikery`.
+
+Or download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.1.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
 Unpack it and put the `wrikery` binary on your PATH.
 
 With Go 1.26 or newer installed, `go install github.com/mrcne/wrikery/cmd/wrikery@latest` builds it from source instead.
