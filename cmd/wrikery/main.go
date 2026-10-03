@@ -224,6 +224,10 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		// Help prints a constant, so it must not create the data directory, open the store or read the token.
+		return cli.Run(context.Background(), cli.Env{Stdout: os.Stdout, Stderr: os.Stderr}, args)
+	}
 	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -264,11 +268,6 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	}
 	defer func() { _ = st.Close() }()
 	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
-	token, err := tokens.Load()
-	if err != nil && !errors.Is(err, auth.ErrNoToken) {
-		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
-		return 1
-	}
 	a := &app{cfg: cfg, st: st, tokens: tokens}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.
@@ -280,9 +279,15 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
 	go func() { <-ctx.Done(); stop() }()
 	return cli.Run(ctx, cli.Env{
-		Config:   cfg,
-		Store:    st,
-		Token:    token,
+		Config: cfg,
+		Store:  st,
+		Token: func() (string, error) {
+			token, err := tokens.Load()
+			if errors.Is(err, auth.ErrNoToken) {
+				return "", nil
+			}
+			return token, err
+		},
 		Client:   func(token, host string) *wrike.Client { return newClient(token, host) },
 		Host:     a.resolveHost,
 		LockFile: lockPath(paths),

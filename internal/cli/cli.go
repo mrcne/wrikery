@@ -30,7 +30,7 @@ const (
 type Env struct {
 	Config   config.Config
 	Store    *store.Store
-	Token    string                                                  // empty when none is stored
+	Token    func() (string, error)                                  // read only by the commands that send, empty when none is stored
 	Client   func(token, host string) *wrike.Client                  // main's constructor, it carries the User-Agent
 	Host     func(ctx context.Context, token string) (string, error) // main's config, meta, probe chain
 	LockFile string                                                  // the sync lock next to the database

@@ -35,11 +35,11 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if len(positional) > 0 {
 		return usageError(env, fs, syncUsage, "sync takes no arguments")
 	}
-	host, code := preflight(ctx, env)
+	token, host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
-	eng := syncer.New(env.Client(env.Token, host), env.Store,
+	eng := syncer.New(env.Client(token, host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
 	state, cycleErr := eng.Once(ctx, *full)
 	shown := string(state)

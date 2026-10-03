@@ -1,9 +1,12 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 func TestVersionLine(t *testing.T) {
@@ -67,17 +70,38 @@ func TestRunCommandRefusesVersionAndLogout(t *testing.T) {
 	}
 }
 
-func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
+// isolate points every directory the app resolves at a temp dir and keeps the keychain out of the test.
+func isolate(t *testing.T) string {
+	t.Helper()
+	keyring.MockInit()
 	dir := t.TempDir()
 	t.Setenv("WRIKERY_TOKEN", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
 	t.Setenv("HOME", dir)
-	if code := runCommand([]string{"help"}, "", true, false, false, false); code != 0 {
-		t.Errorf("code = %d, want 0", code)
+	// runCommand points the default logger at a file that is closed when it returns.
+	logger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(logger) })
+	return dir
+}
+
+func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
+	dir := isolate(t)
+	for _, arg := range []string{"help", "-h", "--help"} {
+		if code := runCommand([]string{arg}, "", true, false, false, false); code != 0 {
+			t.Errorf("%s: code = %d, want 0", arg, code)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "data", "wrikery", "wrike.db")); err != nil {
-		t.Errorf("the command did not open the store: %v", err)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("help created %v under the temp dir, err %v", entries, err)
+	}
+}
+
+func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
+	isolate(t)
+	if code := runCommand([]string{"task"}, "", true, false, false, false); code != 2 {
+		t.Errorf("code = %d, want 2", code)
 	}
 }

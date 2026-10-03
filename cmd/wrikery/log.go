@@ -7,6 +7,7 @@ import (
 )
 
 // openLog opens the log file for this run, truncated.
+// O_APPEND makes every write land at the current end, so a line a command appended meanwhile is not overwritten.
 // A demo run writes demo.log next to the real log and rotates nothing,
 // so trying the demo does not throw away the log of the last real run.
 func openLog(path string, demo bool) (*os.File, error) {
@@ -15,7 +16,7 @@ func openLog(path string, demo bool) (*os.File, error) {
 	} else if err := rotateLog(path); err != nil {
 		return nil, err
 	}
-	return os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	return os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
 // openCommandLog opens the log file for appending.

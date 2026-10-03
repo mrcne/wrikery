@@ -137,7 +137,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 2 {
 		return usageError(env, fs, statusUsage, "task status takes a task and a status name")
 	}
-	host, code := preflight(ctx, env)
+	token, host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -158,7 +158,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, host, rowID)
+	out, reason, err := send(ctx, env, token, host, rowID)
 	if err != nil {
 		return fail(env, err)
 	}
@@ -207,7 +207,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if title == "" {
 		return usageError(env, fs, createUsage, "task create needs a title")
 	}
-	host, code := preflight(ctx, env)
+	token, host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -223,7 +223,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, host, rowID)
+	out, reason, err := send(ctx, env, token, host, rowID)
 	if err != nil {
 		return fail(env, err)
 	}

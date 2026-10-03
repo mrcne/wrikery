@@ -21,11 +21,16 @@ import (
 // testEnv is an Env on a fresh store with the output captured, no token and no network.
 // Width 0 means a pipe, so the text output is the bare form without header lines.
 func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
 	// The golden holds comment times, so the zone must not depend on the machine.
+	local, profile := time.Local, lipgloss.ColorProfile()
 	time.Local = time.UTC
 	// Colors would put escape codes into the text the tests compare.
 	lipgloss.SetColorProfile(termenv.Ascii)
-	t.Helper()
+	t.Cleanup(func() {
+		time.Local = local
+		lipgloss.SetColorProfile(profile)
+	})
 	st, err := store.Open(filepath.Join(t.TempDir(), "wrike.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +44,7 @@ func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 		Config:   cfg,
 		Store:    st,
 		Theme:    ui.NewTheme(cfg.UI),
+		Token:    func() (string, error) { return "", nil },
 		Deadline: 300 * time.Millisecond,
 		Stdout:   &out,
 		Stderr:   &errOut,
@@ -68,6 +74,20 @@ func TestRunHelpPrintsTheUsageOnStdout(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage lacks %q:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestReadsAndUsageErrorsNeverAskForTheToken(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env.Token = func() (string, error) {
+		t.Error("the token was read")
+		return "", nil
+	}
+	for _, args := range [][]string{
+		{"help"}, {"task", "list"}, {"task", "show", "TASK1"}, {"task", "status", "TASK1"}, {"task", "create", "x"}, {"frobnicate"},
+	} {
+		Run(context.Background(), env, args)
 	}
 }
 

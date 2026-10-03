@@ -102,3 +102,29 @@ func TestOpenCommandLogAppendsAndNeverRotates(t *testing.T) {
 		t.Errorf("a command rotated the log: %v", err)
 	}
 }
+
+func TestOpenLogDoesNotOverwriteWhatACommandAppended(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wrikery.log")
+	ui, err := openLog(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ui.Close() }()
+	cmd, err := openCommandLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Close() }()
+	for _, w := range []struct {
+		f    *os.File
+		line string
+	}{{ui, "ui one\n"}, {cmd, "cmd one\n"}, {ui, "ui two\n"}} {
+		if _, err := w.f.WriteString(w.line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if want := "ui one\ncmd one\nui two\n"; err != nil || string(got) != want {
+		t.Errorf("log = %q, %v, want %q", got, err, want)
+	}
+}

@@ -26,7 +26,7 @@ func withNetwork(t *testing.T, env Env, handler http.Handler) Env {
 	} else {
 		t.Cleanup(srv.Close)
 	}
-	env.Token = "test-token"
+	env.Token = func() (string, error) { return "test-token", nil }
 	env.Host = func(ctx context.Context, token string) (string, error) { return "stub", nil }
 	env.Client = func(token, host string) *wrike.Client { return wrike.New(token, wrike.WithBaseURL(srv.URL)) }
 	env.LockFile = filepath.Join(t.TempDir(), "sync.lock")
