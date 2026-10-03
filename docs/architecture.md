@@ -117,7 +117,7 @@ Two people editing different fields of the same task both keep their change.
 If they edit the same field, the last write wins, which is also what the web application does in practice.
 A description edit is that case with a longer window, since the whole field is sent when the editor closes.
 
-A create sent again after a network error can land twice, when the first attempt reached Wrike before the connection broke.
+A create sent again because the answer was lost or not understood, a network error, a server error or a response that does not decode, can land twice when the first attempt had reached Wrike.
 The second copy shows up with the next pull and is deleted in the web application, the same ambiguity a comment or a time entry has.
 
 Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.

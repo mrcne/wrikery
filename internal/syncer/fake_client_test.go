@@ -133,7 +133,8 @@ func (f *fakeClient) UpdateTask(ctx context.Context, taskID string, u wrike.Task
 func (f *fakeClient) CreateTask(ctx context.Context, folderID string, t wrike.TaskCreate) (wrike.Task, error) {
 	f.record("CreateTask " + folderID)
 	if f.createTask == nil {
-		return wrike.Task{ID: "T1", Title: t.Title, Status: "Active", ParentIDs: []string{folderID}}, nil
+		// Not T1, which seedTask uses, a defaulted create must never overwrite a seeded task in silence.
+		return wrike.Task{ID: "TNEW", Title: t.Title, Status: "Active", ParentIDs: []string{folderID}}, nil
 	}
 	return f.createTask(folderID, t)
 }

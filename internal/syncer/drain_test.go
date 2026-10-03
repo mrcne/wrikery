@@ -362,3 +362,29 @@ func TestDrainRejectedCreateKeepsTheLocalTaskAndItsDependents(t *testing.T) {
 		t.Errorf("calls = %v, the dependent must not be sent", log)
 	}
 }
+
+func TestDrainCorruptCreateFailsAndContinues(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+
+	// The box never queues an empty title, only a damaged row has one, and the client would refuse it with a plain error.
+	if _, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "fine"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{}
+	changed, err := drainOutbox(ctx, fc, st, 2*time.Second, 5*time.Minute)
+	if err != nil || !changed {
+		t.Fatalf("drain = %v, %v", changed, err)
+	}
+	if log := fc.callLog(); len(log) != 1 || log[0] != "CreateComment T1" {
+		t.Errorf("calls = %v, the damaged create must fail without a request and the next row must drain", log)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 1 {
+		t.Errorf("counts = %d, %d, %v, want the create failed for good", pending, failed, err)
+	}
+}
