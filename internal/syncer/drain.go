@@ -21,6 +21,9 @@ var errCorruptRow = errors.New("sync: corrupt outbox row")
 // which the conflict policy depends on. changed reports whether any row completed or failed, so the caller knows to emit events.
 // Store failures after a successful send are returned like transient errors, the crash-retry ambiguity is accepted in the spec.
 func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
+	// A command's deadline or a Ctrl-C can end ctx in the middle of a send.
+	// The row must still be put back to pending with its backoff, or it stays in flight and nothing sends it again.
+	bookkeeping := context.WithoutCancel(ctx)
 	changed := false
 	for {
 		row, err := st.Outbox().NextDue(ctx, rfc3339(time.Now()))
@@ -44,7 +47,7 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 		}
 		switch classify(sendErr) {
 		case failPermanent:
-			if err := st.Outbox().Fail(ctx, row.ID, sendErr.Error()); err != nil {
+			if err := st.Outbox().Fail(bookkeeping, row.ID, sendErr.Error()); err != nil {
 				return changed, err
 			}
 			changed = true
@@ -52,13 +55,13 @@ func drainOutbox(ctx context.Context, c Client, st *store.Store, backoffBase, ba
 		case failAuth:
 			// Nothing is wrong with the row, only the token. It goes back to pending untouched so it is due
 			// the moment a new token arrives. The drain stops at the first failure, so it is the only inflight row.
-			if _, err := st.Outbox().ResetInflight(ctx); err != nil {
+			if _, err := st.Outbox().ResetInflight(bookkeeping); err != nil {
 				return changed, err
 			}
 			return changed, sendErr
 		}
 		next := rfc3339(time.Now().Add(backoff(row.Attempts, backoffBase, backoffCeil)))
-		if err := st.Outbox().Reschedule(ctx, row.ID, sendErr.Error(), next); err != nil {
+		if err := st.Outbox().Reschedule(bookkeeping, row.ID, sendErr.Error(), next); err != nil {
 			return changed, err
 		}
 		return changed, sendErr

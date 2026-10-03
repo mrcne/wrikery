@@ -18,6 +18,7 @@ type Config struct {
 	BackoffCeil    time.Duration // outbox row backoff cap, default 5m
 	ReconnectBase  time.Duration // engine wait after a failed cycle, default 1s
 	ReconnectCeil  time.Duration // cap for that wait, default 2m
+	LockFile       string        // the cross-process sync lock next to the database, empty means none
 }
 
 func (c Config) withDefaults() Config {
@@ -102,6 +103,35 @@ func (e *Engine) WakeOutbox() {
 	}
 }
 
+// Once runs one full cycle, reference pull and sweep included, and reports the state it ended in.
+// A command uses it where the TUI uses Run. It never resets in-flight rows, another process may be sending them.
+func (e *Engine) Once(ctx context.Context) (SyncState, error) {
+	err := e.cycle(ctx, true)
+	e.setState(stateAfter(err))
+	return e.state, err
+}
+
+// Drain runs one outbox pass under the sync lock and returns the error that stopped it, if any.
+// ErrLocked means the lock was held by another process until ctx ended and nothing was sent.
+func (e *Engine) Drain(ctx context.Context) error {
+	_, err := e.drain(ctx)
+	return err
+}
+
+// stateAfter is the state a cycle outcome puts the engine in.
+// A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
+func stateAfter(err error) SyncState {
+	switch {
+	case err == nil:
+		return StateIdle
+	case classify(err) == failAuth:
+		return StateAuthRequired
+	case classify(err) == failPermanent:
+		return StateFailed
+	}
+	return StateOffline
+}
+
 func (e *Engine) emit(ev Event) {
 	select {
 	case e.events <- ev:
@@ -137,27 +167,21 @@ func (e *Engine) Run(ctx context.Context) error {
 		err := e.cycle(ctx, manual)
 		manual = false
 		var wait time.Duration
+		state := stateAfter(err)
 		switch {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case err == nil:
 			e.failures = 0
-			e.setState(StateIdle)
 			wait = e.cfg.PollInterval
-		case classify(err) == failAuth:
+		case state == StateAuthRequired:
 			e.failures = 0
-			e.setState(StateAuthRequired)
 		default:
 			e.failures++
-			// A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
-			if classify(err) == failPermanent {
-				e.setState(StateFailed)
-			} else {
-				e.setState(StateOffline)
-			}
 			e.log.Warn("sync cycle failed", "error", err)
 			wait = backoff(e.failures-1, e.cfg.ReconnectBase, e.cfg.ReconnectCeil)
 		}
+		e.setState(state)
 		if e.state == StateAuthRequired {
 			// Only a new token can help, so only a manual refresh or the end of the program wakes the engine.
 			select {
@@ -181,12 +205,19 @@ func (e *Engine) Run(ctx context.Context) error {
 
 // startupLocal prepares the store before the first network call: crashed inflight rows go back to pending,
 // the me scope always exists, and the UI gets its first outbox counts.
+// The reset waits for the sync lock, a command may be mid-send on one of those rows.
 //
 // It does not also emit a state event: e.state already defaults to Idle, and setState only emits on a real transition.
 // Broadcasting that same Idle value here as well would be indistinguishable on the Events channel from the Idle
 // that setState emits once the first cycle actually finishes, which is what callers wait on to know a sync completed.
 func (e *Engine) startupLocal(ctx context.Context) error {
-	if _, err := e.st.Outbox().ResetInflight(ctx); err != nil {
+	lock, err := acquire(ctx, e.cfg.LockFile)
+	if err != nil {
+		return err
+	}
+	_, err = e.st.Outbox().ResetInflight(ctx)
+	lock.release()
+	if err != nil {
 		return err
 	}
 	if err := e.st.Scopes().Upsert(ctx, store.Scope{
@@ -198,10 +229,20 @@ func (e *Engine) startupLocal(ctx context.Context) error {
 	return nil
 }
 
+// drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
+func (e *Engine) drain(ctx context.Context) (bool, error) {
+	lock, err := acquire(ctx, e.cfg.LockFile)
+	if err != nil {
+		return false, err
+	}
+	defer lock.release()
+	return drainOutbox(ctx, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+}
+
 func (e *Engine) cycle(ctx context.Context, manual bool) error {
 	e.setState(StateSyncing)
 
-	changed, err := drainOutbox(ctx, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+	changed, err := e.drain(ctx)
 	if changed {
 		e.emitOutboxCounts(ctx)
 		e.emit(Event{Kind: EventStoreChanged,
