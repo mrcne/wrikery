@@ -222,7 +222,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	rowID, err := env.Store.Outbox().EnqueueTaskCreate(ctx, fo.ID, store.TaskCreatePayload{Title: title}, statusGuess(ref.workflows))
+	rowID, err := env.Store.Outbox().EnqueueTaskCreate(ctx, fo.ID, store.TaskCreatePayload{Title: title}, store.FirstActiveStatus(ref.workflows))
 	if err != nil {
 		return fail(env, err)
 	}

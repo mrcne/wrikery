@@ -163,7 +163,7 @@ func contactName(id string, ref refData) string {
 	if !ok {
 		return id
 	}
-	return strings.TrimSpace(c.FirstName + " " + c.LastName)
+	return c.Name()
 }
 
 // dateRange writes the arrow only when a task has both ends, so a single date does not trail off into nothing.

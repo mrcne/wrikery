@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -72,7 +71,7 @@ func contactName(ref refData, id string) string {
 	if !ok {
 		return id
 	}
-	return strings.TrimSpace(c.FirstName + " " + c.LastName)
+	return c.Name()
 }
 
 func isDone(t store.Task) bool {

@@ -161,14 +161,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
 		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
 
-	// Resolving the auto theme queries the terminal, which is too slow for the render path, so it happens here and once.
-	if cfg.UI.Theme == "auto" {
-		if lipgloss.HasDarkBackground() {
-			cfg.UI.Theme = "dark"
-		} else {
-			cfg.UI.Theme = "light"
-		}
-	}
+	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
 		st, _, cleanup, err := openDemoStore(time.Now())
@@ -201,7 +194,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		Version: buildVersion(), Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if !firstRun {
-		host, err := a.resolveHost(context.Background(), token)
+		host, err := resolveHost(context.Background(), cfg, st, token)
 		if err != nil {
 			slog.Warn("could not detect the Wrike data center", "error", err)
 			host = wrike.DefaultHost
@@ -214,7 +207,6 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 }
 
 // runCommand prepares what a command needs, the first half of run without the program, and hands over to internal/cli.
-// The theme is resolved by asking the terminal only when stdout is one, a pipe gets no color anyway.
 func runCommand(args []string, configPath string, noColor, demo, showVersion, logout bool) int {
 	if demo {
 		fmt.Fprintln(os.Stderr, "wrikery: --demo runs the interface on sample data, it cannot run a command")
@@ -246,20 +238,13 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 
 	width := 0
 	fd := int(os.Stdout.Fd())
-	if term.IsTerminal(fd) {
+	terminal := term.IsTerminal(fd)
+	if terminal {
 		if w, _, err := term.GetSize(fd); err == nil {
 			width = w
 		}
-		if cfg.UI.Theme == "auto" {
-			cfg.UI.Theme = "light"
-			if lipgloss.HasDarkBackground() {
-				cfg.UI.Theme = "dark"
-			}
-		}
 	}
-	if cfg.UI.Theme == "auto" {
-		cfg.UI.Theme = "dark"
-	}
+	cfg.UI = resolveTheme(cfg.UI, terminal)
 
 	st, err := store.Open(paths.DBFile)
 	if err != nil {
@@ -268,7 +253,6 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	}
 	defer func() { _ = st.Close() }()
 	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
-	a := &app{cfg: cfg, st: st, tokens: tokens}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.
 	if !signal.Ignored(syscall.SIGHUP) {
@@ -289,7 +273,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 			return token, err
 		},
 		Client:   func(token, host string) *wrike.Client { return newClient(token, host) },
-		Host:     a.resolveHost,
+		Host:     func(ctx context.Context, token string) (string, error) { return resolveHost(ctx, cfg, st, token) },
 		LockFile: lockPath(paths),
 		Theme:    ui.NewTheme(cfg.UI),
 		Width:    width,
@@ -297,4 +281,18 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Stdout:   os.Stdout,
 		Stderr:   os.Stderr,
 	}, args)
+}
+
+// resolveTheme turns the auto theme into dark or light.
+// It queries the terminal, which is too slow for the render path, so it happens once and only when there is a terminal to ask.
+// A pipe gets no color anyway, dark is the default there.
+func resolveTheme(ui config.UIConfig, terminal bool) config.UIConfig {
+	if ui.Theme != "auto" {
+		return ui
+	}
+	ui.Theme = "dark"
+	if terminal && !lipgloss.HasDarkBackground() {
+		ui.Theme = "light"
+	}
+	return ui
 }

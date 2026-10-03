@@ -154,11 +154,11 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 // and only when both are empty is the network touched, once, under a short deadline.
 // The app must open on the cache when offline, so the probe cannot have the client's full retry budget:
 // a GET retries a network failure three times with backoff on top of the 30s client timeout.
-func (a *app) resolveHost(ctx context.Context, token string) (string, error) {
-	if a.cfg.Host != "" {
-		return a.cfg.Host, nil
+func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, token string) (string, error) {
+	if cfg.Host != "" {
+		return cfg.Host, nil
 	}
-	if host, _ := a.st.GetMeta(ctx, store.MetaKeyHost); host != "" {
+	if host, _ := st.GetMeta(ctx, store.MetaKeyHost); host != "" {
 		return host, nil
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -167,7 +167,7 @@ func (a *app) resolveHost(ctx context.Context, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := a.st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
+	if err := st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
 		slog.Warn("could not store the detected Wrike host", "error", err)
 	}
 	return host, nil

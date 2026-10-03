@@ -9,7 +9,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
 )
@@ -154,15 +153,6 @@ func padRight(s string, width int) string {
 	return s
 }
 
-// renderMode is the glamour style the description uses, the rule the detail pane applies:
-// a terminal that cannot draw the theme glyphs cannot draw glamour's bullets and rules either.
-func renderMode(cfg config.UIConfig) string {
-	if cfg.ASCII {
-		return "ascii"
-	}
-	return cfg.Theme
-}
-
 func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.Comment, ref *refData) {
 	th := env.Theme
 	label := lipgloss.NewStyle().Foreground(th.Muted)
@@ -209,7 +199,12 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 
 	body := t.DescriptionPlain
 	if env.Width > 0 {
-		body = ui.RenderDescription(t.Description, t.DescriptionPlain, min(env.Width, 100), renderMode(env.Config.UI))
+		// The detail pane's rule: a terminal that cannot draw the theme glyphs cannot draw glamour's bullets and rules either.
+		mode := env.Config.UI.Theme
+		if env.Theme.ASCII {
+			mode = "ascii"
+		}
+		body = ui.RenderDescription(t.Description, t.DescriptionPlain, min(env.Width, 100), mode)
 	}
 	if strings.TrimSpace(body) != "" {
 		_, _ = fmt.Fprintln(w)

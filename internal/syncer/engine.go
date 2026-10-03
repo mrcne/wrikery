@@ -50,7 +50,8 @@ func (c Config) withDefaults() Config {
 }
 
 // Engine keeps the store and the API in step from one goroutine.
-// All the mutable fields below the channels are owned by Run and never touched from outside it.
+// The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
+// Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
 type Engine struct {
 	client Client
 	st     *store.Store

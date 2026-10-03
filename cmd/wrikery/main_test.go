@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/mrcne/wrikery/internal/config"
 )
 
 func TestVersionLine(t *testing.T) {
@@ -103,5 +105,18 @@ func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 	isolate(t)
 	if code := runCommand([]string{"task"}, "", true, false, false, false); code != 2 {
 		t.Errorf("code = %d, want 2", code)
+	}
+}
+
+func TestResolveThemeGivesDarkInAPipeAndKeepsAnExplicitTheme(t *testing.T) {
+	if got := resolveTheme(config.UIConfig{Theme: "auto", ASCII: true}, false); got.Theme != "dark" || !got.ASCII {
+		t.Errorf("auto in a pipe = %+v, want dark with the other fields kept", got)
+	}
+	for _, theme := range []string{"light", "dark", "mono"} {
+		for _, terminal := range []bool{false, true} {
+			if got := resolveTheme(config.UIConfig{Theme: theme}, terminal); got.Theme != theme {
+				t.Errorf("theme %q, terminal %v resolved to %q", theme, terminal, got.Theme)
+			}
+		}
 	}
 }

@@ -159,19 +159,8 @@ func ambiguous(arg, what string, lines []string) error {
 // findStatus picks the status called name inside the workflow holding currentID, the status dialog's rule:
 // any other workflow would be the wrong offer, a status picked from it moves the task onto that workflow.
 func findStatus(workflows []store.Workflow, currentID, name string) (store.CustomStatus, error) {
-	var wf *store.Workflow
-	for i := range workflows {
-		for _, cs := range workflows[i].CustomStatuses {
-			if cs.ID == currentID {
-				wf = &workflows[i]
-				break
-			}
-		}
-		if wf != nil {
-			break
-		}
-	}
-	if wf == nil {
+	wf, found := store.WorkflowFor(workflows, currentID)
+	if !found {
 		return store.CustomStatus{}, errors.New("no workflow known for this task yet, run wrikery sync")
 	}
 	want := strings.ToLower(strings.TrimSpace(name))
@@ -186,20 +175,4 @@ func findStatus(workflows []store.Workflow, currentID, name string) (store.Custo
 		names = append(names, cs.Name)
 	}
 	return store.CustomStatus{}, fmt.Errorf("no status %q in workflow %s, it has: %s", name, wf.Name, strings.Join(names, ", "))
-}
-
-// statusGuess is the status the optimistic row shows until Wrike answers, the TUI's fallback rule:
-// the first visible Active status of the standard workflow. It is not sent, Wrike applies the folder's default.
-func statusGuess(workflows []store.Workflow) string {
-	for _, wf := range workflows {
-		if !wf.Standard {
-			continue
-		}
-		for _, cs := range wf.CustomStatuses {
-			if cs.Group == "Active" && !cs.Hidden {
-				return cs.ID
-			}
-		}
-	}
-	return ""
 }
