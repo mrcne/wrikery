@@ -21,6 +21,27 @@ archives:
 checksum:
   name_template: checksums.txt
 
+homebrew_casks:
+  - repository:
+      owner: mrcne
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/mrcne/wrikery
+    description: Unofficial terminal client for Wrike
+    skip_upload: auto
+    hooks:
+      post:
+        # The binary is not notarized, so Gatekeeper refuses its first run while the quarantine attribute is set.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}"]
+          end
+    zap:
+      trash:
+        - ~/.config/wrikery
+        - ~/.local/share/wrikery
+        - ~/.local/state/wrikery
+
 changelog:
   use: github
   groups:

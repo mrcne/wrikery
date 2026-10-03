@@ -22,6 +22,10 @@ jobs:
           version: v2.11.3
           install-only: true
       - run: make check
+      # A missing or expired tap token would fail the release after the GitHub release is already public.
+      - run: curl -fsS -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" https://api.github.com/repos/mrcne/homebrew-tap | jq -e .permissions.push
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
   goreleaser:
     needs: check
@@ -40,3 +44,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

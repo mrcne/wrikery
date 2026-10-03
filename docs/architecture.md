@@ -182,3 +182,4 @@ CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, w
 The same job checks that go.mod and go.sum are tidy, and two more jobs run the tests under the race detector with cgo on and run govulncheck.
 Releases are single static binaries for Linux and macOS on amd64 and arm64.
 `make cross` builds all four.
+A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`.
