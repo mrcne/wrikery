@@ -93,7 +93,7 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
-	m.sidebar.keys = m.keys
+	m.sidebar = newSidebar(m.keys, m.theme.HidePrefixes)
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
@@ -179,7 +179,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
 		return m, m.loadTree()
 	case treeLoadedMsg:
-		m.sidebar.setNodes(msg.nodes)
+		m.sidebar.setTree(msg.nodes, msg.pins)
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
@@ -511,6 +511,38 @@ func (m Model) reload(entities []string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// updateSidebar hands the key to the sidebar and writes the pin changes it made before the update returns.
+// An intent message could land after a quit key, so the writes do not travel as commands.
+func (m *Model) updateSidebar(msg tea.KeyMsg) tea.Cmd {
+	var cmd tea.Cmd
+	m.sidebar, cmd = m.sidebar.Update(msg)
+	m.syncPaneSizes()
+	return tea.Batch(cmd, m.flushPins())
+}
+
+// flushPins writes what the sidebar changed about the pins, in the order it happened.
+// The writes are small and local, a sync transaction can hold the writer for a moment and no longer.
+func (m *Model) flushPins() tea.Cmd {
+	ctx := context.Background()
+	for _, c := range m.sidebar.takeChanges() {
+		var err error
+		if c.id == "" {
+			value := "0"
+			if c.on {
+				value = "1"
+			}
+			err = m.opts.Store.SetMeta(ctx, store.MetaKeySidebarPinned, value)
+		} else {
+			err = m.opts.Store.Pins().Set(ctx, c.id, c.on)
+		}
+		if err != nil {
+			slog.Error("ui", "error", err)
+			return m.status.show("could not save the pin: "+err.Error(), true)
+		}
+	}
+	return nil
+}
+
 // openedOnFocus marks the selected task opened when focus has just arrived at the detail pane, and does nothing otherwise.
 func (m Model) openedOnFocus(prev pane) tea.Cmd {
 	if m.focus != paneDetail || prev == paneDetail || m.selectedTaskID == "" {
@@ -529,12 +561,12 @@ func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
 	var cmds []tea.Cmd
-	if parentID != "" && m.sidebar.selectByID(parentID) {
+	if parentID != "" && m.sidebar.reveal(parentID) {
 		n, _ := m.sidebar.current()
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
 		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
-		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id))
+		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id), m.flushPins())
 	}
 	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
@@ -615,6 +647,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.clearIfListEmpty()
 		return m, cmd
+	}
+	if m.sidebar.filtering {
+		return m, m.updateSidebar(msg)
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
 		// Only the keys that make sense with no task on screen fall through:
@@ -798,14 +833,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
-	// The sizes are computed after the child handled the key, not before:
-	// expanding a sidebar node widens the sidebar, and the detail would otherwise be laid out for the previous width.
+	// The sizes are computed after the child handled the key, not before,
+	// the scroll clamp in syncPaneSizes wants the rows as the key left them.
 	switch m.focus {
 	case paneSidebar:
-		var cmd tea.Cmd
-		m.sidebar, cmd = m.sidebar.Update(msg)
-		m.syncPaneSizes()
-		return m, tea.Batch(opened, cmd)
+		return m, tea.Batch(opened, m.updateSidebar(msg))
 	case paneList:
 		var cmd tea.Cmd
 		m.list, cmd = m.list.Update(msg)
@@ -981,7 +1013,7 @@ func (m Model) View() string {
 func (m *Model) syncPaneSizes() {
 	lay := m.layout()
 	if r, ok := lay.rects[paneSidebar]; ok {
-		m.sidebar.height = r.h - 2
+		m.sidebar.setSize(r.w-2, r.h-2)
 	}
 	if r, ok := lay.rects[paneList]; ok {
 		m.list.height = r.h - 2
@@ -1035,6 +1067,9 @@ func (m Model) viewMain() string {
 func (m Model) paneTitle(p pane) string {
 	switch p {
 	case paneSidebar:
+		if m.sidebar.pinnedOnly {
+			return "Pinned"
+		}
 		return "Spaces"
 	case paneList:
 		return m.list.title()
@@ -1078,7 +1113,7 @@ func (m Model) hintBindings() []key.Binding {
 	if m.focus == paneDetail {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
 	}
-	return base
+	return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.Pin, m.keys.Pinned}, base...)
 }
 
 // createPreset is the folder the new task goes into before the user changes it:

@@ -71,6 +71,7 @@ Descriptions have their HTML stripped before they are stored, and the stripped t
 
 The scopes table lists the followed spaces and projects, plus one row for the user's own tasks.
 Each row remembers how far the last sync got.
+The pins table lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
 The outbox table holds the queued writes and is described below.
 
 ## Getting changes from Wrike

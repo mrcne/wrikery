@@ -49,7 +49,8 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | --- | --- |
 | `j` `k` | move |
 | `enter` | open |
-| `/` | filter the list |
+| `/` | filter the list, or the tree |
+| `space` `P` | pin a folder, show only the pinned ones |
 | `ctrl+f` | search |
 | `c` | comment |
 | `s` | status |

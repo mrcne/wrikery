@@ -104,6 +104,8 @@ func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
 // then each followed space's subtree, then followed projects that are not inside a followed space.
 func (m Model) loadTree() tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
+	// The pins are read once. A later load keeps the ones in memory, a key pressed while the load ran would otherwise be undone on screen.
+	needPins := !m.sidebar.pinsLoaded
 	return func() tea.Msg {
 		ctx := context.Background()
 		scopes, err := st.Scopes().Followed(ctx)
@@ -188,7 +190,18 @@ func (m Model) loadTree() tea.Cmd {
 				}
 			}
 		}
-		return treeLoadedMsg{nodes: nodes}
+		if !needPins {
+			return treeLoadedMsg{nodes: nodes}
+		}
+		pinned, err := st.Pins().List(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		only, err := st.GetMeta(ctx, store.MetaKeySidebarPinned)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return errMsg{err}
+		}
+		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}}
 	}
 }
 

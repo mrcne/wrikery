@@ -38,6 +38,7 @@ The tool does not try to replace the web application for heavy project managemen
 ### Layout
 
 Three panes: a sidebar with the followed spaces and projects, a task list and a detail pane for the selected task.
+A name wider than the sidebar is cut in the middle, so its start and its end stay readable, and the list pane title shows the full path.
 A wide terminal shows all three panes, a medium one shows two, and a terminal narrower than eighty columns shows one, so the app stays usable in a small tmux split.
 The visible panes always include the one in focus, so moving focus can slide the window forward or back by one pane.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
@@ -47,6 +48,10 @@ When Wrike rejects a request the bar says the sync is failing instead of offline
 
 Vim style keys (j, k, h, l, g, G) and arrow keys both work. `?` shows a help overlay with every binding for the current screen.
 `/` filters the current list as you type. Tab cycles through the panes, Enter goes one level deeper, Esc goes back.
+In the sidebar `/` filters the tree by name and shows the matches with the folders above them, Enter keeps the filter and Esc clears it with the match still selected.
+Space in the sidebar pins the space, project or folder under the cursor, and `P` shows only the pinned ones, with their parents and whatever is open under them.
+The pins and the toggle are kept across restarts.
+A jump to a task, from the search, the sync issues screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
 A jump to a completed task, from the search, the sync issues screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
