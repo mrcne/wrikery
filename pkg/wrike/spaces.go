@@ -11,6 +11,9 @@ type Space struct {
 	Title      string `json:"title"`
 	AccessType string `json:"accessType"`
 	Archived   bool   `json:"archived"`
+	// DefaultTaskWorkflowID is the workflow a task created anywhere in the space starts in.
+	// GET /spaces returns it without a fields parameter, checked against a live account on 2026-10-04.
+	DefaultTaskWorkflowID string `json:"defaultTaskWorkflowId"`
 }
 
 // Spaces lists the spaces the token can see.

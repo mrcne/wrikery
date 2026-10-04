@@ -9,9 +9,9 @@ import (
 )
 
 type submitCreateMsg struct {
-	folderID, title, statusID string
-	where                     string // the folder's path, for the toast
-	assignMe                  bool
+	folderID, title string
+	where           string // the folder's path, for the toast
+	assignMe        bool
 }
 
 type createField int
@@ -28,14 +28,13 @@ type createDialog struct {
 	folders  checklist
 	crumbs   map[string]string // the path of every folder, as the pane title shows it
 	folderID string
-	statusID string
 	mine     bool // the view is My tasks, the task is assigned to the user so it stays in that view
 	field    createField
 	done     bool // submitted, a second enter already in the queue must not create the task twice
 	errText  string
 }
 
-func newCreateDialog(nodes []treeNode, crumbs map[string]string, presetID, statusID string, mine bool, width int) (createDialog, tea.Cmd) {
+func newCreateDialog(nodes []treeNode, crumbs map[string]string, presetID string, mine bool, width int) (createDialog, tea.Cmd) {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Placeholder = "task title"
@@ -46,10 +45,15 @@ func newCreateDialog(nodes []treeNode, crumbs map[string]string, presetID, statu
 	list, _ := newChecklist(rows, nil, "type a folder name")
 	list.single = true
 	list.filter.Blur()
+	folderID := ""
 	if presetID != "" {
+		// A preset the tree no longer holds stays unpicked, the dialog asks for a folder rather than creating into it blind.
 		list.selectID(presetID)
+		if r, ok := list.current(); ok && r.id == presetID {
+			folderID = presetID
+		}
 	}
-	d := createDialog{title: in, folders: list, crumbs: crumbs, folderID: presetID, statusID: statusID, mine: mine}
+	d := createDialog{title: in, folders: list, crumbs: crumbs, folderID: folderID, mine: mine}
 	return d, cmd
 }
 
@@ -104,7 +108,7 @@ func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		}
 		d.done = true
 		return d, tea.Batch(
-			intent(submitCreateMsg{folderID: d.folderID, title: title, statusID: d.statusID, where: d.crumbs[d.folderID], assignMe: d.mine}),
+			intent(submitCreateMsg{folderID: d.folderID, title: title, where: d.crumbs[d.folderID], assignMe: d.mine}),
 			intent(closeDialogMsg{}))
 	}
 	d.errText = ""

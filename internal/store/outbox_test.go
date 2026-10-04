@@ -29,7 +29,10 @@ func TestEnqueueStampsRowsFromTheStoreClock(t *testing.T) {
 	if row.CreatedAt != "2026-09-03T12:00:00Z" {
 		t.Errorf("outbox created_at = %q, want the store clock", row.CreatedAt)
 	}
-	comments, _ := st.Comments().ListForTask(ctx, "T1")
+	comments, err := st.Comments().ListForTask(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(comments) != 1 || comments[0].CreatedDate != "2026-09-03T12:00:00Z" {
 		t.Errorf("optimistic comment = %+v, want created at the store clock", comments)
 	}
@@ -289,8 +292,12 @@ func TestEnqueueTaskCreateWritesALocalTask(t *testing.T) {
 	st := newTestStore(t)
 	st.Now = func() time.Time { return time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC) }
 	ctx := context.Background()
+	if err := st.Workflows().ReplaceAll(ctx, []Workflow{{ID: "W1", Name: "Default", Standard: true,
+		CustomStatuses: []CustomStatus{{ID: "CS1", Name: "New", Group: "Active"}}}}); err != nil {
+		t.Fatal(err)
+	}
 
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}}, "CS1")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +333,61 @@ func TestEnqueueTaskCreateWritesALocalTask(t *testing.T) {
 	}
 	if states[localID] != StatePending || states["F1"] != "" {
 		t.Errorf("states = %v, want the local task pending and the folder untouched", states)
+	}
+}
+
+// The status of the local row is the first visible Active status of the workflow the folder's space gives new tasks.
+// Wrike's Space object names that workflow in defaultTaskWorkflowId, and on the live account it was the standard one
+// even in a space that owns a workflow of its own, so the guess has to read the field rather than the view.
+func TestEnqueueTaskCreateGuessesTheStatusFromTheSpaceWorkflow(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Workflows().ReplaceAll(ctx, []Workflow{
+		{ID: "W1", Name: "Default", Standard: true, CustomStatuses: []CustomStatus{
+			{ID: "CS1", Name: "New", Group: "Active"}}},
+		{ID: "W2", Name: "Space flow", CustomStatuses: []CustomStatus{
+			{ID: "CS20", Name: "Backlog", Group: "Active", Hidden: true},
+			{ID: "CS21", Name: "Done", Group: "Completed"},
+			{ID: "CS22", Name: "Todo", Group: "Active"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Spaces().ReplaceAll(ctx, []Space{
+		{ID: "S1", Title: "Dev", DefaultTaskWorkflowID: "W2"},
+		{ID: "S2", Title: "Ops", DefaultTaskWorkflowID: "W404"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Folders().ReplaceTree(ctx, []Folder{
+		{ID: "S1", Title: "Dev", Space: true, ChildIDs: []string{"F1"}},
+		{ID: "F1", Title: "Api", ChildIDs: []string{"F2"}},
+		{ID: "F2", Title: "Deep"},
+		{ID: "S2", Title: "Ops", Space: true, ChildIDs: []string{"F3"}},
+		{ID: "F3", Title: "Alerts"},
+		{ID: "F9", Title: "Loose"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, folder, want string }{
+		{"a folder two levels under the space", "F2", "CS22"},
+		{"the space root itself", "S1", "CS22"},
+		{"a space whose workflow the cache lacks", "F3", "CS1"},
+		{"a folder under no cached space", "F9", "CS1"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			id, err := st.Outbox().EnqueueTaskCreate(ctx, c.folder, TaskCreatePayload{Title: "New one"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := st.Tasks().Get(ctx, LocalID(id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.CustomStatusID != c.want {
+				t.Errorf("status = %q, want %q", got.CustomStatusID, c.want)
+			}
+		})
 	}
 }
 

@@ -12,7 +12,7 @@ func TestSpaces(t *testing.T) {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		_, _ = w.Write([]byte(`{"kind":"spaces","data":[
-  {"id":"IEAAAASPACE1","title":"Engineering","accessType":"Private","archived":false},
+  {"id":"IEAAAASPACE1","title":"Engineering","accessType":"Private","archived":false,"defaultTaskWorkflowId":"IEAAWF01","defaultProjectWorkflowId":"IEAAWF02"},
   {"id":"IEAAAASPACE2","title":"Old Stuff","accessType":"Public","archived":true}]}`))
 	}))
 
@@ -20,7 +20,7 @@ func TestSpaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Title != "Engineering" || !got[1].Archived {
+	if len(got) != 2 || got[0].Title != "Engineering" || got[0].DefaultTaskWorkflowID != "IEAAWF01" || !got[1].Archived {
 		t.Errorf("spaces = %+v", got)
 	}
 }

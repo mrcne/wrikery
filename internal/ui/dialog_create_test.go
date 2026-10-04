@@ -19,7 +19,7 @@ func testCrumbs() map[string]string {
 }
 
 func createDialogFor(presetID string, mine bool) dialog {
-	d, _ := newCreateDialog(testTree(), testCrumbs(), presetID, "CS1", mine, 60)
+	d, _ := newCreateDialog(testTree(), testCrumbs(), presetID, mine, 60)
 	return d
 }
 
@@ -35,7 +35,7 @@ func TestCreateDialogPresetsTheFolderInView(t *testing.T) {
 	dl = typeRunes(dl, "Fix it")
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	want := submitCreateMsg{folderID: "API", title: "Fix it", statusID: "CS1", where: "Platform / API"}
+	want := submitCreateMsg{folderID: "API", title: "Fix it", where: "Platform / API"}
 	if len(msgs) != 2 || msgs[0] != want || msgs[1] != (closeDialogMsg{}) {
 		t.Errorf("enter -> %#v", msgs)
 	}
@@ -61,7 +61,7 @@ func TestCreateDialogPicksAnotherFolder(t *testing.T) {
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", statusID: "CS1", where: "Platform / Design system"}) {
+	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", where: "Platform / Design system"}) {
 		t.Errorf("enter -> %#v", msgs)
 	}
 }
@@ -97,8 +97,56 @@ func TestCreateDialogOnMyTasksNeedsAFolderAndAssignsMe(t *testing.T) {
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "IOS", title: "Fix it", statusID: "CS1", where: "Mobile / iOS app", assignMe: true}) {
+	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "IOS", title: "Fix it", where: "Mobile / iOS app", assignMe: true}) {
 		t.Errorf("enter -> %#v", msgs)
+	}
+}
+
+func TestCreateDialogSaysWhenNoFolderMatches(t *testing.T) {
+	dl := createDialogFor("API", false)
+	dl = typeRunes(dl, "Fix it")
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl = typeRunes(dl, "zzz")
+	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); len(msgs) != 0 {
+		t.Errorf("enter on an empty match list -> %#v, want nothing", msgs)
+	}
+	if view := createView(dl); !strings.Contains(view, "no folder matches") {
+		t.Errorf("view should say that nothing matches:\n%s", view)
+	}
+}
+
+func TestCreateDialogWithAnEmptyTreeAsksForAFolder(t *testing.T) {
+	dl, _ := newCreateDialog(nil, nil, "", false, 60)
+	var d dialog = dl
+	d = typeRunes(d, "Fix it")
+	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, m := range collect(cmd) {
+		if _, ok := m.(submitCreateMsg); ok {
+			t.Errorf("enter with no folder to pick submitted %#v", m)
+		}
+	}
+	if view := createView(d); !strings.Contains(view, "no folder") && !strings.Contains(view, "pick a folder") {
+		t.Errorf("view should say there is no folder to pick:\n%s", view)
+	}
+}
+
+// The preset is the sidebar's selected node, which can be gone from the tree by the time the dialog opens.
+func TestCreateDialogIgnoresAPresetTheTreeLacks(t *testing.T) {
+	dl, _ := newCreateDialog(testTree(), testCrumbs(), "GONE", false, 60)
+	var d dialog = dl
+	if view := createView(d); !strings.Contains(view, "pick a folder") {
+		t.Errorf("a preset outside the tree should leave the folder unpicked:\n%s", view)
+	}
+	d = typeRunes(d, "Fix it")
+	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, m := range collect(cmd) {
+		if _, ok := m.(submitCreateMsg); ok {
+			t.Errorf("enter submitted into a folder the tree does not hold: %#v", m)
+		}
+	}
+	if view := createView(d); !strings.Contains(view, "iOS app") {
+		t.Errorf("enter should open the tree instead:\n%s", view)
 	}
 }
 

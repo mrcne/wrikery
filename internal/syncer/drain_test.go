@@ -288,7 +288,7 @@ func TestDrainCreatesATaskThenItsDependents(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}}, "CS1")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one", Responsibles: []string{"U1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +336,7 @@ func TestDrainRejectedCreateKeepsTheLocalTaskAndItsDependents(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestDrainCorruptCreateFailsAndContinues(t *testing.T) {
 	seedTask(t, st, "T1", "a")
 
 	// The box never queues an empty title, only a damaged row has one, and the client would refuse it with a plain error.
-	if _, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{}, ""); err != nil {
+	if _, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "fine"); err != nil {

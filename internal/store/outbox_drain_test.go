@@ -341,7 +341,7 @@ func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "CS1")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +402,7 @@ func TestDiscardTaskCreateDropsTheTaskAndItsDependents(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,8 +424,8 @@ func TestDiscardTaskCreateDropsTheTaskAndItsDependents(t *testing.T) {
 	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("local task after discard: %v, want gone", err)
 	}
-	if comments, _ := st.Comments().ListForTask(ctx, localID); len(comments) != 0 {
-		t.Errorf("comments after discard = %+v, want none", comments)
+	if comments, err := st.Comments().ListForTask(ctx, localID); err != nil || len(comments) != 0 {
+		t.Errorf("comments after discard = %+v, %v, want none", comments, err)
 	}
 }
 
@@ -433,7 +433,7 @@ func TestDiscardTaskCreateDropsEditsQueuedOnItsTimelog(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,8 +459,8 @@ func TestDiscardTaskCreateDropsEditsQueuedOnItsTimelog(t *testing.T) {
 	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("local task after discard: %v, want gone", err)
 	}
-	if logs, _ := st.Timelogs().ListForTask(ctx, localID); len(logs) != 0 {
-		t.Errorf("timelogs after discard = %+v, want none", logs)
+	if logs, err := st.Timelogs().ListForTask(ctx, localID); err != nil || len(logs) != 0 {
+		t.Errorf("timelogs after discard = %+v, %v, want none", logs, err)
 	}
 }
 
@@ -469,7 +469,7 @@ func TestEnqueueAfterTheSwapLandsOnTheRealTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestEnqueueAgainstADiscardedCreateIsRefused(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestDiscardTaskCreateDropsADeleteQueuedOnItsTimelog(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"}, "")
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
 	if err != nil {
 		t.Fatal(err)
 	}

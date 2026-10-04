@@ -1106,7 +1106,7 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
 	st := seededStore(t)
 	ctx := context.Background()
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, demo.ProjectAPI, store.TaskCreatePayload{Title: "Swapped", Responsibles: []string{demo.MeID}}, "IEAAST11")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, demo.ProjectAPI, store.TaskCreatePayload{Title: "Swapped", Responsibles: []string{demo.MeID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1148,7 +1148,7 @@ func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 	for _, k := range []string{"i", "Y", "y"} {
 		t.Run(k, func(t *testing.T) {
 			st := seededStore(t)
-			if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}, "IEAAST11"); err != nil {
+			if _, err := st.Outbox().EnqueueTaskCreate(context.Background(), demo.ProjectAPI, store.TaskCreatePayload{Title: "Unsent", Responsibles: []string{demo.MeID}}); err != nil {
 				t.Fatal(err)
 			}
 			opts, copied := testOptionsWithCopy(st)

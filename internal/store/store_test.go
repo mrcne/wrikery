@@ -260,7 +260,7 @@ func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
 		t.Fatalf("failed rows after the rebuild = %+v, %v, want row 1 as it was", rows, err)
 	}
-	id, err := st.Outbox().EnqueueTaskCreate(context.Background(), "F1", TaskCreatePayload{Title: "new"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(context.Background(), "F1", TaskCreatePayload{Title: "new"})
 	if err != nil {
 		t.Fatal(err)
 	}

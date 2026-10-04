@@ -106,8 +106,8 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		return err
 	}
 	if err := st.Spaces().ReplaceAll(ctx, []store.Space{
-		{ID: SpacePlatform, Title: "Platform", AccessType: "Private"},
-		{ID: SpaceMobile, Title: "Mobile", AccessType: "Public"},
+		{ID: SpacePlatform, Title: "Platform", AccessType: "Private", DefaultTaskWorkflowID: "IEAAWF02"},
+		{ID: SpaceMobile, Title: "Mobile", AccessType: "Public", DefaultTaskWorkflowID: "IEAAWF01"},
 	}); err != nil {
 		return err
 	}

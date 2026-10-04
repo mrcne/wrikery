@@ -102,7 +102,7 @@ func TestResolveTaskAcceptsALocalId(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	ctx := context.Background()
-	id, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}, "ST_NEW")
+	id, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"})
 	if err != nil {
 		t.Fatal(err)
 	}

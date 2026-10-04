@@ -404,7 +404,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			toast += " to " + msg.where
 		}
 		return m, m.enqueueSelecting(func(ctx context.Context) (string, error) {
-			id, err := st.Outbox().EnqueueTaskCreate(ctx, msg.folderID, p, msg.statusID)
+			id, err := st.Outbox().EnqueueTaskCreate(ctx, msg.folderID, p)
 			if err != nil {
 				return "", err
 			}
@@ -785,7 +785,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		})
 		return m, cmd
 	case key.Matches(msg, m.keys.New):
-		d, cmd := newCreateDialog(m.sidebar.nodes, m.folderCrumbs(), m.createPreset(), m.statusGuess(),
+		d, cmd := newCreateDialog(m.sidebar.nodes, m.folderCrumbs(), m.createPreset(),
 			m.selectedNode.kind == nodeMe, min(m.width-4, 80))
 		m.openDialog(d)
 		return m, cmd
@@ -1094,18 +1094,6 @@ func (m Model) createPreset() string {
 		return ""
 	}
 	return m.selectedNode.id
-}
-
-// statusGuess is the status the new row shows until Wrike answers: the first Active status of the workflow
-// the board columns use for the rows in view, or of the standard workflow when the view has no rows to tell.
-// It is not sent, Wrike applies the folder's default, which is the same status in nearly every account.
-func (m Model) statusGuess() string {
-	for _, c := range m.list.columns {
-		if !c.bucket && c.status.Group == "Active" {
-			return c.status.ID
-		}
-	}
-	return store.FirstActiveStatus(m.ref.workflows)
 }
 
 // folderCrumbs is the path of every sidebar node by id, for the folder line of the create box.
