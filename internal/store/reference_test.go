@@ -56,7 +56,7 @@ func TestSpacesAndContactsReplaceAll(t *testing.T) {
 	ctx := context.Background()
 
 	if err := st.Spaces().ReplaceAll(ctx, []Space{
-		{ID: "S1", Title: "Ops", AccessType: "Public"},
+		{ID: "S1", Title: "Ops", AccessType: "Public", DefaultTaskWorkflowID: "W9"},
 		{ID: "S2", Title: "Dev", AccessType: "Private", Archived: true},
 	}); err != nil {
 		t.Fatal(err)
@@ -67,6 +67,9 @@ func TestSpacesAndContactsReplaceAll(t *testing.T) {
 	}
 	if len(spaces) != 2 || spaces[0].Title != "Dev" {
 		t.Errorf("spaces = %+v, want Dev first by title", spaces)
+	}
+	if spaces[1].DefaultTaskWorkflowID != "W9" || spaces[0].DefaultTaskWorkflowID != "" {
+		t.Errorf("default task workflows = %q, %q, want W9 on Ops and none on Dev", spaces[1].DefaultTaskWorkflowID, spaces[0].DefaultTaskWorkflowID)
 	}
 
 	if err := st.Contacts().ReplaceAll(ctx, []Contact{

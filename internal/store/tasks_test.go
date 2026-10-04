@@ -337,7 +337,7 @@ func TestPruneExceptKeepsLocalTasks(t *testing.T) {
 	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a"), makeTask("T2", "b")}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestRecentlyOpenedIDsSkipsLocalTasks(t *testing.T) {
 	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
 	if err != nil {
 		t.Fatal(err)
 	}

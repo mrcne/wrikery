@@ -41,10 +41,11 @@ type Project struct {
 }
 
 type Space struct {
-	ID         string
-	Title      string
-	AccessType string
-	Archived   bool
+	ID                    string
+	Title                 string
+	AccessType            string
+	Archived              bool
+	DefaultTaskWorkflowID string // the workflow a task created in the space starts in, empty when unknown
 }
 
 type Contact struct {

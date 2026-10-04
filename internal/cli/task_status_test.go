@@ -127,7 +127,7 @@ func TestTaskStatusOnALocalIdWaitsForTheCreate(t *testing.T) {
 	ctx := context.Background()
 	// The create itself is blocked by a closed port, so the dependent status change has to stay queued too.
 	env = withNetwork(t, env, nil)
-	id, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}, "ST_NEW")
+	id, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"})
 	if err != nil {
 		t.Fatal(err)
 	}

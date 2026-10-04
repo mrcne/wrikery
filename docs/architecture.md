@@ -96,6 +96,7 @@ A status change also applies the workflow group to the local task alongside the 
 The drain sends Wrike only the custom status id and lets it derive the group.
 
 A created task has no id until Wrike answers, so the store gives it a local one, the outbox row's number behind a `local:` prefix, the same way a queued comment or time entry gets its row.
+Until then the row shows the first Active status of the default task workflow of the folder's space, which the sync stores with the space, so the row keeps its place when the answer lands.
 Writes queued on that task name the local id and are not sent until the create has landed.
 The completion then swaps the local row for the server's and points the comments, time entries and queued writes at the real id, in one transaction.
 The deletion sweep and the thread refresh never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for its comments and get a 404.

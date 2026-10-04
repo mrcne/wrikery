@@ -112,7 +112,7 @@ func TestTaskStatusOnALocalIdLandsAfterItsCreate(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	ctx := context.Background()
-	if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}, "ST_NEW"); err != nil {
+	if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}); err != nil {
 		t.Fatal(err)
 	}
 	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -68,7 +68,8 @@ func foldersFromWrike(in []wrike.Folder) []store.Folder {
 func spacesFromWrike(in []wrike.Space) []store.Space {
 	out := make([]store.Space, len(in))
 	for i, s := range in {
-		out[i] = store.Space{ID: s.ID, Title: s.Title, AccessType: s.AccessType, Archived: s.Archived}
+		out[i] = store.Space{ID: s.ID, Title: s.Title, AccessType: s.AccessType, Archived: s.Archived,
+			DefaultTaskWorkflowID: s.DefaultTaskWorkflowID}
 	}
 	return out
 }

@@ -181,7 +181,7 @@ func TestTaskListAlignsTheStatusColumnForIdsOfDifferentLength(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	ctx := context.Background()
-	if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}, "ST_NEW"); err != nil {
+	if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"}); err != nil {
 		t.Fatal(err)
 	}
 	if code := Run(ctx, env, []string{"task", "list", "--folder", "later"}); code != exitOK {

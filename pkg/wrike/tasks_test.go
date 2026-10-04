@@ -281,6 +281,33 @@ func TestCreateTaskPostsTheFormAndParsesTheTask(t *testing.T) {
 	}
 }
 
+func TestCreateTaskSendsDatesAsJSON(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.PostForm.Get("dates"); got != `{"type":"Planned","duration":480,"start":"2026-10-06T09:00:00","due":"2026-10-07T17:00:00"}` {
+			t.Errorf("dates = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[
+  {"id":"IEAAAATSK9","title":"Plan it","status":"Active","customStatusId":"IEAAACS1","importance":"Normal",
+   "dates":{"type":"Planned","duration":480,"start":"2026-10-06T09:00:00","due":"2026-10-07T17:00:00"},
+   "parentIds":["IEAAAAFD1"],"createdDate":"2026-10-01T08:00:00Z","updatedDate":"2026-10-01T08:00:00Z",
+   "permalink":"https://www.wrike.com/open.htm?id=9"}]}`))
+	}))
+
+	got, err := c.CreateTask(context.Background(), "IEAAAAFD1", TaskCreate{
+		Title: "Plan it",
+		Dates: &TaskDates{Type: "Planned", Duration: 480, Start: "2026-10-06T09:00:00", Due: "2026-10-07T17:00:00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Dates == nil || got.Dates.Due != "2026-10-07T17:00:00" || got.Dates.Duration != 480 {
+		t.Errorf("dates = %+v, want the ones Wrike stored", got.Dates)
+	}
+}
+
 func TestCreateTaskRejectsAnEmptyTitleOrFolder(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("no request must be sent")

@@ -55,7 +55,10 @@ func TestSeedFillsEveryTable(t *testing.T) {
 			t.Errorf("scope %s has no cursor, first run would show it as syncing", sc.ID)
 		}
 	}
-	logs, _ := st.Timelogs().ListForTask(ctx, "IEAATASK00")
+	logs, err := st.Timelogs().ListForTask(ctx, "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(logs) == 0 {
 		t.Error("no timelogs on the first task")
 	}

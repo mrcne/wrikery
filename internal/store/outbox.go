@@ -94,7 +94,7 @@ type TimelogUpdatePayload struct {
 }
 
 type OutboxRepo interface {
-	EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload, localStatusID string) (int64, error)
+	EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload) (int64, error)
 	CompleteTaskCreate(ctx context.Context, id int64, real Task) error
 	EnqueueTaskUpdate(ctx context.Context, taskID string, p TaskUpdatePayload) (int64, error)
 	EnqueueComment(ctx context.Context, taskID, authorID, text string) (int64, error)
@@ -262,9 +262,9 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 }
 
 // EnqueueTaskCreate queues a create in folderID and writes the task under a local id so the list shows it at once.
-// localStatusID is a guess for that row only, the first Active status of the workflow in view.
-// It is not sent, Wrike picks the folder's own default and the swap brings the real one.
-func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload, localStatusID string) (int64, error) {
+// The local row carries the status Wrike will give the task, see statusForNewTask, the create itself sends none
+// and the swap brings the real one.
+func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p TaskCreatePayload) (int64, error) {
 	tx, err := o.w.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -274,9 +274,13 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 	if err != nil {
 		return 0, err
 	}
+	statusID, err := statusForNewTask(ctx, tx, folderID)
+	if err != nil {
+		return 0, err
+	}
 	now := o.stamp()
 	local := Task{
-		ID: LocalID(id), Title: p.Title, Status: "Active", CustomStatusID: localStatusID, Importance: "Normal",
+		ID: LocalID(id), Title: p.Title, Status: "Active", CustomStatusID: statusID, Importance: "Normal",
 		ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
 		CreatedDate: now, UpdatedDate: now,
 	}
@@ -284,6 +288,43 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 		return 0, err
 	}
 	return id, tx.Commit()
+}
+
+// statusForNewTask is the status a task created in folderID starts in on Wrike: the first visible Active status
+// of the default task workflow of the folder's space, the one the Space object names in defaultTaskWorkflowId.
+// On the live account that was the standard workflow even in a space that owns a workflow of its own,
+// checked on 2026-10-01 and 2026-10-04, so the workflow the view shows is no guide.
+// A folder under no cached space, or a space whose default the cache lacks, falls back to the standard workflow.
+// A folder shared by two spaces takes the first space by id.
+func statusForNewTask(ctx context.Context, tx *sql.Tx, folderID string) (string, error) {
+	var id string
+	err := tx.QueryRowContext(ctx, `
+		WITH RECURSIVE up(id) AS (
+			SELECT ?
+			UNION
+			SELECT fc.parent_id FROM folder_children fc JOIN up ON fc.child_id = up.id
+		)
+		SELECT cs.id FROM up
+		JOIN spaces sp ON sp.id = up.id
+		JOIN custom_statuses cs ON cs.workflow_id = sp.default_task_workflow_id
+		WHERE cs.status_group = 'Active' AND cs.hidden = 0
+		ORDER BY sp.id, cs.position
+		LIMIT 1`, folderID).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	err = tx.QueryRowContext(ctx, `
+		SELECT cs.id FROM custom_statuses cs JOIN workflows w ON w.id = cs.workflow_id
+		WHERE w.standard = 1 AND cs.status_group = 'Active' AND cs.hidden = 0
+		ORDER BY cs.position
+		LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text string) (int64, error) {

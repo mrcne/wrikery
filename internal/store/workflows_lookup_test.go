@@ -28,29 +28,6 @@ func TestWorkflowFor(t *testing.T) {
 	}
 }
 
-func TestFirstActiveStatus(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		wfs  []Workflow
-		want string
-	}{
-		{"none", nil, ""},
-		{"standard workflow first visible active", []Workflow{{Standard: true, CustomStatuses: []CustomStatus{
-			{ID: "n", Group: "New"}, {ID: "h", Group: "Active", Hidden: true}, {ID: "a", Group: "Active"}, {ID: "b", Group: "Active"}}}}, "a"},
-		{"custom workflow ignored", []Workflow{{CustomStatuses: []CustomStatus{{ID: "x", Group: "Active"}}}}, ""},
-		{"standard after custom", []Workflow{
-			{CustomStatuses: []CustomStatus{{ID: "x", Group: "Active"}}},
-			{Standard: true, CustomStatuses: []CustomStatus{{ID: "s", Group: "Active"}}}}, "s"},
-		{"standard without active", []Workflow{{Standard: true, CustomStatuses: []CustomStatus{{ID: "n", Group: "New"}}}}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := FirstActiveStatus(tc.wfs); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestContactName(t *testing.T) {
 	for _, tc := range []struct {
 		c    Contact

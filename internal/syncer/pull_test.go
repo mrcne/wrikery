@@ -305,7 +305,7 @@ func TestPullReferenceReplacesAll(t *testing.T) {
 			return []wrike.Contact{{ID: "U1", FirstName: "Anna", Me: true}}, nil
 		},
 		spaces: func() ([]wrike.Space, error) {
-			return []wrike.Space{{ID: "S1", Title: "Dev"}}, nil
+			return []wrike.Space{{ID: "S1", Title: "Dev", DefaultTaskWorkflowID: "W1"}}, nil
 		},
 		workflows: func() ([]wrike.Workflow, error) {
 			return []wrike.Workflow{{ID: "W1", Name: "Default",
@@ -321,8 +321,8 @@ func TestPullReferenceReplacesAll(t *testing.T) {
 	if cs, err := st.Contacts().List(ctx); err != nil || len(cs) != 1 || !cs[0].Me {
 		t.Errorf("contacts = %+v, %v", cs, err)
 	}
-	if ss, err := st.Spaces().List(ctx); err != nil || len(ss) != 1 {
-		t.Errorf("spaces = %+v, %v", ss, err)
+	if ss, err := st.Spaces().List(ctx); err != nil || len(ss) != 1 || ss[0].DefaultTaskWorkflowID != "W1" {
+		t.Errorf("spaces = %+v, %v, want the default task workflow carried over", ss, err)
 	}
 	if ws, err := st.Workflows().List(ctx); err != nil || len(ws) != 1 || len(ws[0].CustomStatuses) != 1 {
 		t.Errorf("workflows = %+v, %v", ws, err)
@@ -435,7 +435,7 @@ func TestSweepKeepsAnUnconfirmedTask(t *testing.T) {
 	ctx := context.Background()
 	sc := mustScope(t, st, "F1", store.ScopeKindProject)
 	seedTask(t, st, "T1", "keep")
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ func TestSweepKeepsAnUnconfirmedTask(t *testing.T) {
 func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"})
 	if err != nil {
 		t.Fatal(err)
 	}

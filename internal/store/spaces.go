@@ -27,8 +27,8 @@ func (s spaceRepo) ReplaceAll(ctx context.Context, spaces []Space) error {
 	}
 	for _, sp := range spaces {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO spaces (id, title, access_type, archived)
-			VALUES (?, ?, ?, ?)`, sp.ID, sp.Title, sp.AccessType, sp.Archived); err != nil {
+			INSERT INTO spaces (id, title, access_type, archived, default_task_workflow_id)
+			VALUES (?, ?, ?, ?, ?)`, sp.ID, sp.Title, sp.AccessType, sp.Archived, sp.DefaultTaskWorkflowID); err != nil {
 			return err
 		}
 	}
@@ -37,7 +37,7 @@ func (s spaceRepo) ReplaceAll(ctx context.Context, spaces []Space) error {
 
 func (s spaceRepo) List(ctx context.Context) ([]Space, error) {
 	rows, err := s.r.QueryContext(ctx,
-		`SELECT id, title, access_type, archived FROM spaces ORDER BY title`)
+		`SELECT id, title, access_type, archived, default_task_workflow_id FROM spaces ORDER BY title`)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func (s spaceRepo) List(ctx context.Context) ([]Space, error) {
 	var out []Space
 	for rows.Next() {
 		var sp Space
-		if err := rows.Scan(&sp.ID, &sp.Title, &sp.AccessType, &sp.Archived); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.Title, &sp.AccessType, &sp.Archived, &sp.DefaultTaskWorkflowID); err != nil {
 			return nil, err
 		}
 		out = append(out, sp)

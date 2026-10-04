@@ -189,7 +189,7 @@ func TestDrainCutsAStartedUpdateAtTheBudget(t *testing.T) {
 func TestDrainLetsAStartedCreateFinishPastTheBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"}, "")
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestDrainStopsStartingRowsAtTheBudget(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTask(t, st, "T2", "Two")
-	first, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"}, "")
+	first, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "New"})
 	if err != nil {
 		t.Fatal(err)
 	}
