@@ -37,6 +37,7 @@ type treeNode struct {
 type sidebarModel struct {
 	nodes      []treeNode
 	visible    []int
+	open       []bool // per node, whether its children are drawn, which the chevron follows
 	cursor     int
 	offset     int
 	height     int // set by the root from the computed layout, View cannot remember it on its own
@@ -44,53 +45,117 @@ type sidebarModel struct {
 	hide       []string // title prefixes the rows leave out, the filter matches what is shown
 	filter     textinput.Model
 	filtering  bool
+	anchor     string // the node selected when / opened the input, esc goes back to it when nothing matches
 	pinned     map[string]bool
 	pinnedOnly bool
+	pinsLoaded bool        // the pins came from the store once, later tree loads keep the ones in memory
+	changes    []pinChange // pin and toggle changes the root has not written yet
+}
+
+// pinState is what the store holds about pins, the ids and the pinned-only toggle.
+type pinState struct {
+	ids  []string
+	only bool
+}
+
+// pinChange is one write the root owes the store: a pin for id, or the toggle when id is empty.
+type pinChange struct {
+	id string
+	on bool
 }
 
 func newSidebar(keys KeyMap, hide []string) sidebarModel {
 	in := textinput.New()
-	in.Prompt = "> "
+	in.Prompt = "/"
 	in.Placeholder = "filter"
 	in.CharLimit = 60
 	return sidebarModel{keys: keys, hide: hide, filter: in, pinned: map[string]bool{}}
 }
 
-// setPins replaces the pins and the toggle with what the store holds.
-// The toggle without a pin would show My tasks alone, so it only counts with one.
-func (s *sidebarModel) setPins(ids []string, only bool) {
-	s.pinned = map[string]bool{}
-	for _, id := range ids {
-		s.pinned[id] = true
+// setTree replaces the nodes, and the pins when the load carried them, with one rebuild for both.
+// Expansion state and the selection are kept by id across the reload.
+// The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
+func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
+	prev := ""
+	if n, ok := s.current(); ok {
+		prev = n.id
 	}
-	s.pinnedOnly = only && len(ids) > 0
-	s.rebuildKeeping()
-}
-
-// reveal selects a node whatever hides it: the filter is cleared, collapsed ancestors are expanded,
-// and pinned-only is left when the node is outside it. False when the id is not in the tree.
-func (s *sidebarModel) reveal(id string) bool {
-	s.filter.SetValue("")
-	s.filtering = false
-	s.filter.Blur()
-	idx := -1
-	for i, n := range s.nodes {
-		if n.id == id {
-			idx = i
-			break
+	expanded := map[string]bool{}
+	for _, n := range s.nodes {
+		expanded[n.id] = n.expanded
+	}
+	for i := range nodes {
+		if was, ok := expanded[nodes[i].id]; ok {
+			nodes[i].expanded = was
 		}
 	}
+	s.nodes = nodes
+	if pins != nil {
+		s.pinned = map[string]bool{}
+		for _, id := range pins.ids {
+			s.pinned[id] = true
+		}
+		s.pinnedOnly, s.pinsLoaded = pins.only, true
+	}
+	if s.pinCount() == 0 {
+		s.pinnedOnly = false
+	}
+	s.rebuild()
+	s.reselect(prev)
+	s.scroll()
+}
+
+// setSize hands the pane size down. The input gets the width so it scrolls a long query instead of running out of the pane.
+func (s *sidebarModel) setSize(width, height int) {
+	s.height = height
+	s.filter.Width = max(1, width-lipgloss.Width(s.filter.Prompt)-1)
+}
+
+// takeChanges hands the pending pin writes to the root, once.
+func (s *sidebarModel) takeChanges() []pinChange {
+	out := s.changes
+	s.changes = nil
+	return out
+}
+
+// pinCount is the number of pins that are nodes of the tree. A pin whose folder left the followed scopes counts for nothing.
+func (s sidebarModel) pinCount() int {
+	seen := map[string]bool{}
+	for _, n := range s.nodes {
+		if s.pinned[n.id] && !seen[n.id] {
+			seen[n.id] = true
+		}
+	}
+	return len(seen)
+}
+
+func (s sidebarModel) indexOf(id string) int {
+	for i, n := range s.nodes {
+		if n.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// reveal selects a node whatever hides it: collapsed ancestors are expanded, the filter is cleared when the node
+// is not among its matches, and pinned-only is left when the node is outside it. False when the id is not in the tree,
+// and then nothing changes.
+func (s *sidebarModel) reveal(id string) bool {
+	idx := s.indexOf(id)
 	if idx < 0 {
-		s.rebuild()
-		s.scroll()
 		return false
 	}
 	for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
 		s.nodes[p].expanded = true
 	}
 	s.rebuild()
-	if !s.selectByID(id) {
+	if !s.selectByID(id) && s.query() != "" {
+		s.clearFilter()
+	}
+	if !s.selectByID(id) && s.pinnedOnly {
 		s.pinnedOnly = false
+		s.changes = append(s.changes, pinChange{})
 		s.rebuild()
 		s.selectByID(id)
 	}
@@ -98,17 +163,38 @@ func (s *sidebarModel) reveal(id string) bool {
 	return true
 }
 
-// rebuildKeeping rebuilds the rows and keeps the selected node when it is still among them.
+func (s *sidebarModel) clearFilter() {
+	s.filter.SetValue("")
+	s.filtering = false
+	s.filter.Blur()
+	s.rebuild()
+}
+
+// rebuildKeeping rebuilds the rows and keeps the selection, see reselect.
 func (s *sidebarModel) rebuildKeeping() {
 	prev := ""
 	if n, ok := s.current(); ok {
 		prev = n.id
 	}
 	s.rebuild()
-	if !s.selectByID(prev) {
-		s.cursor = 0
-	}
+	s.reselect(prev)
 	s.scroll()
+}
+
+// reselect puts the cursor back on the node selected before a rebuild, or on its nearest drawn ancestor,
+// or leaves it at the same height clamped to the rows that are left, so a vanished row does not throw the selection to the top.
+func (s *sidebarModel) reselect(prev string) {
+	if s.selectByID(prev) {
+		return
+	}
+	if idx := s.indexOf(prev); idx >= 0 {
+		for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
+			if s.selectByID(s.nodes[p].id) {
+				return
+			}
+		}
+	}
+	s.cursor = min(s.cursor, max(0, len(s.visible)-1))
 }
 
 func (s sidebarModel) query() string { return strings.ToLower(strings.TrimSpace(s.filter.Value())) }
@@ -125,30 +211,7 @@ func (s sidebarModel) rows(height int) int {
 	return height
 }
 
-func (s *sidebarModel) setNodes(nodes []treeNode) {
-	prev := ""
-	if n, ok := s.current(); ok {
-		prev = n.id
-	}
-	// Keep expansion state across reloads, nodes are matched by id.
-	expanded := map[string]bool{}
-	for _, n := range s.nodes {
-		expanded[n.id] = n.expanded
-	}
-	for i := range nodes {
-		if was, ok := expanded[nodes[i].id]; ok {
-			nodes[i].expanded = was
-		}
-	}
-	s.nodes = nodes
-	s.rebuild()
-	if !s.selectByID(prev) {
-		s.cursor = 0
-	}
-	s.scroll()
-}
-
-// scroll clamps offset so the cursor row stays inside the pane.
+// scroll keeps the cursor row inside the pane and the window inside the rows.
 // View has a value receiver, so it cannot persist the offset it would otherwise compute itself, this is done here instead.
 func (s *sidebarModel) scroll() {
 	rows := s.rows(s.height)
@@ -161,16 +224,22 @@ func (s *sidebarModel) scroll() {
 	if s.cursor >= s.offset+rows {
 		s.offset = s.cursor - rows + 1
 	}
+	// A query can shorten the tree under a window that was scrolled down, which would hide the ancestors above it.
+	if top := max(0, len(s.visible)-rows); s.offset > top {
+		s.offset = top
+	}
 }
 
 // rebuild flattens the tree into draw order.
 // Without a query it skips the children of collapsed nodes, and in pinned-only mode everything but My tasks,
 // the pinned nodes, their ancestors and what hangs under a pinned node.
 // A query opens the path to every match and keeps the matches with their ancestors, nothing else.
+// The pinned view opens the path to every pin the same way, since expansion lives in memory and a restart collapses it.
 func (s *sidebarModel) rebuild() {
 	s.visible = s.visible[:0]
 	q := s.query()
 	n := len(s.nodes)
+	s.open = make([]bool, n)
 	under := make([]bool, n)  // an ancestor is pinned
 	hasPin := make([]bool, n) // the node or a descendant is pinned
 	keep := make([]bool, n)   // the node is drawn, once its parents are open
@@ -198,8 +267,10 @@ func (s *sidebarModel) rebuild() {
 			return
 		}
 		s.visible = append(s.visible, i)
-		if s.nodes[i].expanded || q != "" {
-			for _, c := range s.nodes[i].children {
+		all := s.nodes[i].expanded || q != ""
+		for _, c := range s.nodes[i].children {
+			if all || (s.pinnedOnly && hasPin[c]) {
+				s.open[i] = true
 				walk(c)
 			}
 		}
@@ -244,16 +315,8 @@ func (s sidebarModel) parentOf(idx int) int {
 
 // The list pane title shows the path from the space down to the selected node.
 func (s sidebarModel) crumb(n treeNode) string {
-	var titles []string
-	idx := -1
-	for i, cand := range s.nodes {
-		if cand.id == n.id {
-			idx = i
-			break
-		}
-	}
-	titles = append(titles, n.title)
-	for idx >= 0 {
+	titles := []string{n.title}
+	for idx := s.indexOf(n.id); idx >= 0; {
 		p := s.parentOf(idx)
 		if p < 0 {
 			break
@@ -270,7 +333,13 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyEsc:
 			// The match under the cursor stays selected, which may mean opening its parents.
-			s.reveal(before.id)
+			// With no match the cursor goes back to where / was pressed.
+			id := s.anchor
+			if cur, ok := s.current(); ok {
+				id = cur.id
+			}
+			s.clearFilter()
+			s.reveal(id)
 		case tea.KeyEnter:
 			s.filtering = false
 			s.filter.Blur()
@@ -288,15 +357,17 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, s.keys.Filter):
 		s.filtering = true
+		s.anchor = before.id
 		s.scroll()
 		return s, s.filter.Focus()
 	case key.Matches(msg, s.keys.Pinned):
-		if len(s.pinned) == 0 {
+		if s.pinCount() == 0 {
 			return s, intent(toastMsg{text: "Nothing pinned, space pins the row under the cursor"})
 		}
 		s.pinnedOnly = !s.pinnedOnly
+		s.changes = append(s.changes, pinChange{on: s.pinnedOnly})
 		s.rebuildKeeping()
-		return s.afterMove(before, intent(pinnedOnlyMsg{on: s.pinnedOnly}))
+		return s.afterMove(before, nil)
 	}
 	n, ok := s.current()
 	if !ok {
@@ -342,19 +413,20 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 		if n.kind == nodeMe {
 			return s, nil
 		}
-		cmds := []tea.Cmd{intent(pinChangedMsg{id: n.id, pinned: !s.pinned[n.id]})}
-		if s.pinned[n.id] {
-			delete(s.pinned, n.id)
-		} else {
+		on := !s.pinned[n.id]
+		if on {
 			s.pinned[n.id] = true
+		} else {
+			delete(s.pinned, n.id)
 		}
+		s.changes = append(s.changes, pinChange{id: n.id, on: on})
 		// The last pin going would leave My tasks alone in the pane, so the toggle goes with it.
-		if len(s.pinned) == 0 && s.pinnedOnly {
+		if s.pinnedOnly && s.pinCount() == 0 {
 			s.pinnedOnly = false
-			cmds = append(cmds, intent(pinnedOnlyMsg{on: false}))
+			s.changes = append(s.changes, pinChange{})
 		}
 		s.rebuildKeeping()
-		return s.afterMove(before, tea.Batch(cmds...))
+		return s.afterMove(before, nil)
 	default:
 		return s, nil
 	}
@@ -389,11 +461,11 @@ func (s *sidebarModel) cursorToFirstMatch(prev string) {
 	s.cursor = 0
 }
 
+// width sizes the pane from the whole tree, not from the rows on screen, so a filter or an expand does not lay the panes out again.
 func (s sidebarModel) width() int {
 	longest := 0
-	for _, i := range s.visible {
-		n := s.nodes[i]
-		if w := lipgloss.Width(n.title) + 2*n.depth + 8; w > longest {
+	for _, n := range s.nodes {
+		if w := lipgloss.Width(displayTitle(n.title, s.hide)) + 2*n.depth + 8; w > longest {
 			longest = w
 		}
 	}
@@ -419,7 +491,8 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 			lines = append(lines, "")
 			continue
 		}
-		n := s.nodes[s.visible[vi]]
+		ni := s.visible[vi]
+		n := s.nodes[ni]
 		// My tasks carries no chevron. A project shows its status glyph instead of expand state.
 		// A space or folder shows the expand/collapse chevron only when it actually has children,
 		// everything else gets a blank space so titles still line up.
@@ -434,7 +507,7 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 				marker = lipgloss.NewStyle().Foreground(th.StatusColor(store.CustomStatus{Group: n.statusGroup})).Render(th.StatusGlyph(n.statusGroup))
 			case len(n.children) > 0:
 				marker = th.Glyphs.Collapsed
-				if n.expanded {
+				if s.open[ni] {
 					marker = th.Glyphs.Expanded
 				}
 			default:
@@ -446,7 +519,7 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 				mark = " " + muted.Render("*")
 			}
 			// The cursor prefix takes two cells in front of the label.
-			label = lead + fitName(displayTitle(n.title, th.HidePrefixes), width-2-lipgloss.Width(lead)-lipgloss.Width(mark)) + mark
+			label = lead + fitName(displayTitle(n.title, s.hide), width-2-lipgloss.Width(lead)-lipgloss.Width(mark)) + mark
 		}
 		if n.kind == nodeMe {
 			count := fmt.Sprintf("%d", n.count)
@@ -466,22 +539,30 @@ func (s sidebarModel) View(th Theme, width, height int, focused bool) string {
 // rowLine renders one list row and is shared by every list in the package.
 // The row is cut to the width here, because Width() word wraps a longer label onto a second line,
 // and every list scrolls by counting one line per row.
-// A selected row drops the styling its parts brought along: a glyph rendered on its own ends in a reset,
-// which would end the selection background right after it.
+// A part the caller styled on its own ends in a reset, which would end the selection style with it,
+// so the row style is opened again behind every reset: the part keeps its color and the highlight runs to the end.
 func rowLine(th Theme, label string, width int, selected, focused bool) string {
 	prefix := "  "
 	if selected {
 		prefix = th.Glyphs.Cursor + " "
-		label = ansi.Strip(label)
 	}
 	line := ansi.Truncate(prefix+label, width, "...")
-	style := lipgloss.NewStyle().MaxWidth(width).Width(width)
+	style := lipgloss.NewStyle()
 	if selected && focused {
 		style = style.Background(th.Accent).Foreground(th.Text)
 	} else if selected {
 		style = style.Foreground(th.Accent)
 	}
-	return style.Render(line)
+	var b strings.Builder
+	for _, piece := range strings.SplitAfter(line, "\x1b[0m") {
+		if piece != "" {
+			b.WriteString(style.Render(piece))
+		}
+	}
+	if pad := width - ansi.StringWidth(line); pad > 0 {
+		b.WriteString(style.Render(strings.Repeat(" ", pad)))
+	}
+	return b.String()
 }
 
 // fitName cuts a name that does not fit to its start, three dots and its end.

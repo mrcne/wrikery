@@ -1175,7 +1175,7 @@ func TestSidebarFilterTakesTheKeysWhileTyping(t *testing.T) {
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "shift+tab", "/", "q")
-	waitFor(t, tm, "> q")
+	waitFor(t, tm, "/q")
 	from := mark(t, tm)
 	press(tm, "esc", "/", "m", "o", "b")
 	waitAfter(t, tm, from, "Tasks: Mobile (")
@@ -1195,22 +1195,17 @@ func TestPinsSurviveARestart(t *testing.T) {
 	waitFor(t, tm, "Mobile *")
 	press(tm, "P")
 	waitFor(t, tm, "Pinned")
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		pins, err := st.Pins().List(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if slices.Equal(pins, []string{demo.SpaceMobile}) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("pins in the store = %v, want Mobile", pins)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
 	if view := finalView(t, tm); strings.Contains(view, "v Platform") {
 		t.Errorf("pinned only should hide Platform:\n%s", view)
+	}
+	// The writes happen in the update that took the key, so once the program is done they are in the store.
+	pins, err := st.Pins().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	only, err := st.GetMeta(ctx, store.MetaKeySidebarPinned)
+	if err != nil || !slices.Equal(pins, []string{demo.SpaceMobile}) || only != "1" {
+		t.Fatalf("store after quitting: pins %v, toggle %q, err %v", pins, only, err)
 	}
 	tm = teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "Mobile *")

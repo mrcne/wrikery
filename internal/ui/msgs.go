@@ -30,15 +30,9 @@ type refData struct {
 type refLoadedMsg struct{ ref refData }
 type scopesLoadedMsg struct{ scopes []store.Scope }
 type treeLoadedMsg struct {
-	nodes      []treeNode
-	pinned     []string
-	pinnedOnly bool
+	nodes []treeNode
+	pins  *pinState // nil keeps the pins the sidebar has
 }
-type pinChangedMsg struct { // intent: remember that the node was pinned or unpinned
-	id     string
-	pinned bool
-}
-type pinnedOnlyMsg struct{ on bool }         // intent: remember the pinned-only toggle
 type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
 type focusMsg struct{ pane pane }            // intent: move focus
 type tasksLoadedMsg struct {
