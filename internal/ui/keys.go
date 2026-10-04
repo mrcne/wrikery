@@ -4,7 +4,7 @@ import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
 	Quit, Help, Search, Timesheet, Issues, Refresh, NextPane, PrevPane, Back                                             key.Binding
-	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone                                      key.Binding
+	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone, Pin, Pinned                         key.Binding
 	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open, New key.Binding
 	CopyLink, CopyBranch, CopyID                                                                                         key.Binding
 	Retry, Discard                                                                                                       key.Binding
@@ -25,8 +25,8 @@ func defaultKeyMap() KeyMap {
 		Up: b("k", "up", "k", "up"), Down: b("j", "down", "j", "down"), Top: b("g", "first", "g", "home"), Bottom: b("G", "last", "G", "end"),
 		HalfDown: b("ctrl+d", "half page down", "ctrl+d", "pgdown"), HalfUp: b("ctrl+u", "half page up", "ctrl+u", "pgup"),
 		Filter: b("/", "filter", "/"), Enter: b("enter", "open", "enter"), Left: b("h", "collapse / left", "h", "left"), Right: b("l", "expand / right", "l", "right"),
-		ToggleDone: b("z", "show completed", "z"),
-		Board:      b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
+		ToggleDone: b("z", "show completed", "z"), Pin: b("space", "pin / unpin", " "), Pinned: b("P", "pinned only", "P"),
+		Board: b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
 		PrevGroup: b("{", "previous group", "{"), NextGroup: b("}", "next group", "}"),
 		StatusPrev: b("H", "previous status", "H"), StatusNext: b("L", "next status", "L"),
 		ColPrev: b("h", "previous column", "h", "left"), ColNext: b("l", "next column", "l", "right"),
@@ -49,7 +49,7 @@ func (k KeyMap) global() []key.Binding {
 }
 
 func (k KeyMap) list() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board, k.New}
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board, k.New, k.Pin, k.Pinned}
 }
 
 func (k KeyMap) task() []key.Binding {

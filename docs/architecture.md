@@ -70,6 +70,7 @@ It cannot drift, no matter which code path writes a task.
 Descriptions have their HTML stripped before they are stored, and the stripped text is indexed.
 
 The scopes table lists the followed spaces and projects, plus one row for the user's own tasks.
+The pins table lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
 Each row remembers how far the last sync got.
 The outbox table holds the queued writes and is described below.
 

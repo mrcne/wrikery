@@ -93,7 +93,7 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
-	m.sidebar.keys = m.keys
+	m.sidebar = newSidebar(m.keys, m.theme.HidePrefixes)
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
@@ -179,6 +179,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
 		return m, m.loadTree()
 	case treeLoadedMsg:
+		m.sidebar.setPins(msg.pinned, msg.pinnedOnly)
 		m.sidebar.setNodes(msg.nodes)
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
@@ -202,6 +203,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
 		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node), "")
+	case pinChangedMsg:
+		return m, m.savePin(msg.id, msg.pinned)
+	case pinnedOnlyMsg:
+		return m, m.savePinnedOnly(msg.on)
 	case tasksLoadedMsg:
 		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
 		// or two quick moves could leave the list showing the folder passed on the way.
@@ -529,12 +534,16 @@ func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
 	var cmds []tea.Cmd
-	if parentID != "" && m.sidebar.selectByID(parentID) {
+	wasPinnedOnly := m.sidebar.pinnedOnly
+	if parentID != "" && m.sidebar.reveal(parentID) {
 		n, _ := m.sidebar.current()
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
 		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id))
+	}
+	if wasPinnedOnly && !m.sidebar.pinnedOnly {
+		cmds = append(cmds, m.savePinnedOnly(false))
 	}
 	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
@@ -614,6 +623,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
 		m.clearIfListEmpty()
+		return m, cmd
+	}
+	if m.sidebar.filtering {
+		var cmd tea.Cmd
+		m.sidebar, cmd = m.sidebar.Update(msg)
+		m.syncPaneSizes()
 		return m, cmd
 	}
 	if m.screen == screenIssues || m.screen == screenTimesheet {
@@ -1035,6 +1050,9 @@ func (m Model) viewMain() string {
 func (m Model) paneTitle(p pane) string {
 	switch p {
 	case paneSidebar:
+		if m.sidebar.pinnedOnly {
+			return "Pinned"
+		}
 		return "Spaces"
 	case paneList:
 		return m.list.title()
@@ -1078,7 +1096,7 @@ func (m Model) hintBindings() []key.Binding {
 	if m.focus == paneDetail {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
 	}
-	return base
+	return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.Pin, m.keys.Pinned}, base...)
 }
 
 // createPreset is the folder the new task goes into before the user changes it:

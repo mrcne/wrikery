@@ -1167,3 +1167,73 @@ func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 		})
 	}
 }
+
+// Typing into the sidebar filter must reach the input and nothing else: q is a letter there, not quit.
+// The list follows the first match while typing, and esc hands the keys back.
+func TestSidebarFilterTakesTheKeysWhileTyping(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks (")
+	press(tm, "shift+tab", "/", "q")
+	waitFor(t, tm, "> q")
+	from := mark(t, tm)
+	press(tm, "esc", "/", "m", "o", "b")
+	waitAfter(t, tm, from, "Tasks: Mobile (")
+	press(tm, "esc")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "Tasks: Mobile (") {
+		t.Errorf("esc should keep the match selected:\n%s", view)
+	}
+}
+
+func TestPinsSurviveARestart(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks (")
+	press(tm, "shift+tab", "j", "space") // Mobile is the second row, pin it
+	waitFor(t, tm, "Mobile *")
+	press(tm, "P")
+	waitFor(t, tm, "Pinned")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pins, err := st.Pins().List(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Equal(pins, []string{demo.SpaceMobile}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pins in the store = %v, want Mobile", pins)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if view := finalView(t, tm); strings.Contains(view, "v Platform") {
+		t.Errorf("pinned only should hide Platform:\n%s", view)
+	}
+	tm = teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Mobile *")
+	if view := finalView(t, tm); !strings.Contains(view, "Pinned") || strings.Contains(view, "v Platform") {
+		t.Errorf("the toggle and the pin should come back after a restart:\n%s", view)
+	}
+}
+
+// On-call sits under Infra, which starts collapsed. A jump into it has to open the way, or the list stays where it was.
+func TestJumpOpensTheWayToACollapsedFolder(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks (")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "refactor sync cursor") // IEAATASK04, the only task with all three words, lives in On-call
+	waitAfter(t, tm, from, "Refactor sync cursor")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "Tasks: Platform / Infra / On-call (")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "#1200004") || !strings.Contains(view, "On-call") {
+		t.Errorf("the jump should select On-call in the tree and show the task:\n%s", view)
+	}
+}

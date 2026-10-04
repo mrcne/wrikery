@@ -69,3 +69,13 @@ func TestChecklistSingleDrawsNoBoxes(t *testing.T) {
 		t.Errorf("single pick view = %q, want the rows without boxes", view)
 	}
 }
+
+func TestChecklistKeepsOneLineForALongLabel(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	c, _ := newChecklist([]checkRow{{id: "1", label: strings.Repeat("Long label ", 8)}}, nil, "")
+	out := c.view(th, 20, 5)
+	// The filter line, a blank line and one row, each closed by a newline.
+	if got := strings.Count(out, "\n"); got != 3 {
+		t.Errorf("view has %d newlines, want 3:\n%s", got, out)
+	}
+}

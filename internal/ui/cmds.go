@@ -188,7 +188,39 @@ func (m Model) loadTree() tea.Cmd {
 				}
 			}
 		}
-		return treeLoadedMsg{nodes: nodes}
+		pinned, err := st.Pins().List(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		only, err := st.GetMeta(ctx, store.MetaKeySidebarPinned)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return errMsg{err}
+		}
+		return treeLoadedMsg{nodes: nodes, pinned: pinned, pinnedOnly: only == "1"}
+	}
+}
+
+func (m Model) savePin(id string, pinned bool) tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		if err := st.Pins().Set(context.Background(), id, pinned); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}
+
+func (m Model) savePinnedOnly(on bool) tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		value := "0"
+		if on {
+			value = "1"
+		}
+		if err := st.SetMeta(context.Background(), store.MetaKeySidebarPinned, value); err != nil {
+			return errMsg{err}
+		}
+		return nil
 	}
 }
 
