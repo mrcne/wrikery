@@ -10,8 +10,11 @@ import (
 // displayTitle drops a configured prefix from what rows and cards draw, a project code every task starts with for example.
 // The detail pane keeps the full title, this is for the places where width is short.
 func displayTitle(title string, hide []string) string {
+	title = stableWidth(title)
 	shown := title
 	for _, p := range hide {
+		// The prefix is compared with the stripped title, so it is stripped too, a configured emoji may carry its selector.
+		p = stableWidth(p)
 		if p == "" || !strings.HasPrefix(title, p) {
 			continue
 		}

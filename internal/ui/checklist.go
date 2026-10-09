@@ -41,13 +41,14 @@ func newChecklist(rows []checkRow, checkedIDs []string, placeholder string) (che
 }
 
 func (c *checklist) applyFilter() {
-	q := strings.ToLower(strings.TrimSpace(c.filter.Value()))
+	// The labels are drawn stripped, see stableWidth, so both sides of the match are stripped the same way.
+	q := stableWidth(strings.ToLower(strings.TrimSpace(c.filter.Value())))
 	if q != c.query {
 		c.query, c.cursor = q, 0
 	}
 	c.visible = c.visible[:0]
 	for i, r := range c.rows {
-		if q == "" || wordPrefix(strings.ToLower(r.label), q) {
+		if q == "" || wordPrefix(stableWidth(strings.ToLower(r.label)), q) {
 			c.visible = append(c.visible, i)
 		}
 	}

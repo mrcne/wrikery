@@ -12,9 +12,9 @@ It keeps a local copy of what you follow, so browsing and search are instant and
 
 ## Install
 
-With Homebrew: `brew install mrcne/tap/wrikery`.
+On macOS with Homebrew: `brew install mrcne/tap/wrikery`.
 
-Or download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.1.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
+On Linux, or without Homebrew, download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.3.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
 Unpack it and put the `wrikery` binary on your PATH.
 On macOS a browser download is quarantined and Gatekeeper refuses the first run.
 Run `xattr -d com.apple.quarantine wrikery` once after unpacking.

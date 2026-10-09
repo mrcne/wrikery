@@ -97,3 +97,13 @@ func TestFitHintsShrinksFromTheRight(t *testing.T) {
 		t.Errorf("fitHints(%v, 3) = %q, want an empty string when even the first binding does not fit", bindings, out)
 	}
 }
+
+func TestStatusBarHoldsItsWidthForEmojiATerminalDrawsApart(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	var s statusModel
+	_ = s.show("Moved to \U0001F468\u200d\U0001F469\u200d\U0001F467 Family", false)
+	line := s.View(th, 40, "", time.Time{})
+	if joined, apart := lipgloss.Width(line), apartWidth(line); joined != 40 || apart != 40 {
+		t.Errorf("line measures %d joined and %d apart, want 40 both: %q", joined, apart, line)
+	}
+}

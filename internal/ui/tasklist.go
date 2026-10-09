@@ -306,9 +306,9 @@ func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
 	case key.Matches(msg, l.keys.Bottom):
 		l.cursor = max(0, len(l.rows)-1)
 	case key.Matches(msg, l.keys.HalfDown):
-		l.cursor = min(len(l.rows)-1, l.cursor+10)
+		l.cursor = min(len(l.rows)-1, l.cursor+max(1, l.listHeight()/2))
 	case key.Matches(msg, l.keys.HalfUp):
-		l.cursor = max(0, l.cursor-10)
+		l.cursor = max(0, l.cursor-max(1, l.listHeight()/2))
 	case key.Matches(msg, l.keys.PrevGroup):
 		g := l.groupOf(l.cursor)
 		if g >= 0 && l.cursor > l.groupStart[g] {

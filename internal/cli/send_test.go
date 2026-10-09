@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
@@ -110,5 +111,76 @@ func TestReportWriteWithoutReadBackPrintsOnlyTheFate(t *testing.T) {
 				t.Errorf("json = %v, want only id, sent and read_back false", got)
 			}
 		})
+	}
+}
+
+// The drain stops at the first write Wrike could not take. When that write is not the command's own,
+// the reason has to say so, or the command prints another task's failure as its own.
+func TestSendNamesTheEarlierWriteTheDrainStoppedAt(t *testing.T) {
+	unavailable := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("no healthy upstream"))
+	})
+	ctx := context.Background()
+	t.Run("behind another write", func(t *testing.T) {
+		env, _, _ := testEnv(t)
+		env = withNetwork(t, env, unavailable)
+		if _, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "Earlier"}); err != nil {
+			t.Fatal(err)
+		}
+		second, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Later"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, reason, err := send(ctx, env, "test-token", "stub", second)
+		want := `waiting behind an earlier write that failed, a new task "Earlier": wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream`
+		if err != nil || out != queued || reason != want {
+			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
+		}
+	})
+	t.Run("own write", func(t *testing.T) {
+		env, _, _ := testEnv(t)
+		env = withNetwork(t, env, unavailable)
+		first, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "Mine"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, reason, err := send(ctx, env, "test-token", "stub", first)
+		want := "wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream"
+		if err != nil || out != queued || reason != want {
+			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
+		}
+	})
+}
+
+// A time entry row holds the timelog id, which nobody can place, so the message names the task the entry is on,
+// and a title is quoted as it is, %q would print the parts of a joined emoji with an escape between them.
+func TestSubjectNamesTheWriteByItsKindAndItsTask(t *testing.T) {
+	ctx := context.Background()
+	env, _, _ := testEnv(t)
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	if err := env.Store.Tasks().Upsert(ctx, []store.Task{{ID: "T9", Title: "Plan " + family + " trip", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Timelogs().Upsert(ctx, []store.Timelog{{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: "2026-10-01", Hours: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	title := `"Plan ` + family + ` trip"`
+	cases := []struct {
+		e    *syncer.SendError
+		want string
+	}{
+		{&syncer.SendError{Kind: store.KindTaskUpdate, EntityID: "T9"}, "a change to " + title},
+		{&syncer.SendError{Kind: store.KindCommentCreate, EntityID: "T9"}, "a comment on " + title},
+		{&syncer.SendError{Kind: store.KindTimelogCreate, EntityID: "T9"}, "a time entry on " + title},
+		{&syncer.SendError{Kind: store.KindTimelogUpdate, EntityID: "L1"}, "a time entry on " + title},
+		{&syncer.SendError{Kind: store.KindTimelogDelete, EntityID: "L1"}, "a time entry delete"},
+		{&syncer.SendError{Kind: store.KindTaskCreate, RowID: 7}, "a new task local:7"},
+		{&syncer.SendError{Kind: store.KindTaskUpdate, EntityID: "T0"}, "a change to T0"},
+	}
+	for _, c := range cases {
+		if got := subject(ctx, env, c.e); got != c.want {
+			t.Errorf("subject(%s %s) = %q, want %q", c.e.Kind, c.e.EntityID, got, c.want)
+		}
 	}
 }

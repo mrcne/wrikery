@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -74,5 +76,36 @@ func TestDetailIgnoresALateLoadForAnotherTask(t *testing.T) {
 	next, _ := m.Update(taskLoadedMsg{task: store.Task{ID: "A", Title: "Late answer"}})
 	if got := next.(Model).detail.task.ID; got == "A" {
 		t.Errorf("a load for A landed while B is selected, detail task = %q", got)
+	}
+}
+
+// boxText is the text inside a drawn box with the frame and the padding gone, so a wrapped sentence can be found whole.
+func boxText(out string) string {
+	var words []string
+	for _, line := range strings.Split(ansi.Strip(out), "\n") {
+		if r := []rune(line); len(r) > 2 {
+			words = append(words, strings.Fields(string(r[1:len(r)-1]))...)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// The pane wraps and pads its lines before the box strips the joiners, so the strip has to come first or the end of a line is cut.
+func TestDetailKeepsItsLinesWholeWithAJoinedEmoji(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task:     store.Task{ID: "T1", Title: "Plan " + family + " trip with the kids ab END1 second line", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z"},
+		comments: []store.Comment{{ID: "C1", AuthorID: "U1", Text: "We take " + family + " to the lake and swim", CreatedDate: "2026-09-02T11:00:00Z"}},
+		crumb:    "Platform / " + family + " Family",
+	})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 30, 30, "dark")
+	out := th.box("T", d.View(), 32, 32, true)
+	text := boxText(out)
+	for _, want := range []string{"kids ab END1 second line", "to the lake and swim", "Family"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the box cut %q off its line:\n%s", want, ansi.Strip(out))
+		}
 	}
 }

@@ -7,10 +7,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // APIError is any non-2xx answer from the Wrike API.
 // Code and Description carry the API's own error fields when the body was parseable.
+// A body that is not JSON but one short line of plain text, a load balancer's "no healthy upstream" for example,
+// goes into Description on its own, since that line is the whole explanation.
 // Method and Path name the request, since the API's own text rarely does and a log line is all a reader gets.
 type APIError struct {
 	StatusCode  int
@@ -34,7 +38,16 @@ func (e *APIError) Error() string {
 			// Wrike answers 300 with an empty body when the token's account lives in another data center.
 			return prefix + "http 300, the account is served by another data center"
 		}
-		return fmt.Sprintf("%shttp %d", prefix, e.StatusCode)
+		msg := fmt.Sprintf("%shttp %d", prefix, e.StatusCode)
+		if e.StatusCode == http.StatusBadGateway || e.StatusCode == http.StatusServiceUnavailable || e.StatusCode == http.StatusGatewayTimeout {
+			// An answer of the API itself carries error and errorDescription for every 4XX and 5XX status (https://developers.wrike.com/errors/),
+			// so a 502, 503 or 504 without them comes from the edge in front of it, and a reader would otherwise suspect the request or the token.
+			msg += ", Wrike is unavailable"
+		}
+		if e.Description != "" {
+			msg += ": " + e.Description
+		}
+		return msg
 	}
 	return fmt.Sprintf("%s%s (http %d): %s", prefix, e.Code, e.StatusCode, e.Description)
 }
@@ -61,9 +74,19 @@ func parseAPIError(method, path string, status int, header http.Header, body []b
 	if json.Unmarshal(body, &payload) == nil {
 		apiErr.Code = payload.Code
 		apiErr.Description = payload.Description
+	} else if text := strings.TrimSpace(string(body)); shortText(text) {
+		apiErr.Description = text
 	}
 	if secs, err := strconv.Atoi(header.Get("Retry-After")); err == nil && secs > 0 {
 		apiErr.RetryAfter = time.Duration(secs) * time.Second
 	}
 	return apiErr
+}
+
+// shortText is true for one line of plain text short enough to print after the status: not HTML, not binary, not a page.
+func shortText(s string) bool {
+	if s == "" || len(s) > 100 || strings.HasPrefix(s, "<") || !utf8.ValidString(s) {
+		return false
+	}
+	return strings.IndexFunc(s, unicode.IsControl) < 0
 }

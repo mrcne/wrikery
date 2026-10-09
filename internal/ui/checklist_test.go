@@ -79,3 +79,12 @@ func TestChecklistKeepsOneLineForALongLabel(t *testing.T) {
 		t.Errorf("view has %d newlines, want 3:\n%s", got, out)
 	}
 }
+
+// A typed emoji usually carries its variation selector, which the drawn label no longer has, so the query is stripped the same way.
+func TestChecklistMatchesATypedEmojiWithItsSelector(t *testing.T) {
+	c, _ := newChecklist([]checkRow{{id: "1", label: "\u26a0\ufe0f Risks"}, {id: "2", label: "Plain"}}, nil, "")
+	c.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\u26a0\ufe0f")})
+	if len(c.visible) != 1 || c.rows[c.visible[0]].id != "1" {
+		t.Errorf("the typed sign should match its row, visible %v", c.visible)
+	}
+}

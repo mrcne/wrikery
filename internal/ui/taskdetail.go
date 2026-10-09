@@ -59,8 +59,10 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
 	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
+	// Everything below is wrapped or padded to the width before the box strips the joiners,
+	// so the text is stripped first, see stableWidth, or the end of a wrapped line is cut.
 	if renderKey != d.renderKey || d.task.Description != d.renderedFrom {
-		d.rendered = RenderDescription(d.task.Description, d.task.DescriptionPlain, width, mode)
+		d.rendered = RenderDescription(stableWidth(d.task.Description), stableWidth(d.task.DescriptionPlain), width, mode)
 		d.renderKey, d.renderedFrom = renderKey, d.task.Description
 	}
 	bold := lipgloss.NewStyle().Bold(true)
@@ -70,7 +72,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	label := func(s string) string { return muted.Render(fmt.Sprintf("%-11s", s)) }
 
 	var b strings.Builder
-	title := bold.Render(d.task.Title)
+	title := bold.Render(stableWidth(d.task.Title))
 	switch d.state {
 	case store.StatePending:
 		title += " " + sending
@@ -78,7 +80,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		title += " " + lipgloss.NewStyle().Foreground(th.Error).Render("(failed, ! to review)")
 	}
 	b.WriteString(wordWrap(title, width) + "\n")
-	b.WriteString(muted.Render(strings.TrimSpace(d.title()+"  "+d.crumb)) + "\n\n")
+	b.WriteString(muted.Render(strings.TrimSpace(d.title()+"  "+stableWidth(d.crumb))) + "\n\n")
 
 	cs := ref.statuses[d.task.CustomStatusID]
 	if cs.Name == "" {
@@ -87,7 +89,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	b.WriteString(label("Status") + lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group)+" "+cs.Name) + "\n")
 	names := make([]string, 0, len(d.task.ResponsibleIDs))
 	for _, id := range d.task.ResponsibleIDs {
-		names = append(names, contactName(id, ref))
+		names = append(names, stableWidth(contactName(id, ref)))
 	}
 	if len(names) == 0 {
 		names = []string{"nobody"}
@@ -115,13 +117,13 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 			who += muted.Render(", " + relTime(c.CreatedDate, now))
 		}
 		b.WriteString(who + "\n")
-		b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(c.Text) + "\n")
+		b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(stableWidth(c.Text)) + "\n")
 	}
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	for _, l := range d.logs {
 		line := fmt.Sprintf("%s  %s  %.1f h", shortDate(l.TrackedDate), contactName(l.UserID, ref), l.Hours)
 		if l.Comment != "" {
-			line += "  " + l.Comment
+			line += "  " + stableWidth(l.Comment)
 		}
 		if store.IsLocalID(l.ID) {
 			line += " " + sending

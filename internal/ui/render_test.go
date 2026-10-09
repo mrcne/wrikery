@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/mrcne/wrikery/internal/config"
 )
 
 func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
@@ -117,5 +119,62 @@ func TestRenderDescriptionPrintsARepeatedAddressOnce(t *testing.T) {
 	out = ansi.Strip(RenderDescription(`<p><a href="`+odd+`">`+odd+`</a></p>`, "", 80, "dark"))
 	if strings.Contains(out, "<") || !strings.Contains(out, "developers.wrike.com/a") {
 		t.Errorf("an address with whitespace should not become a bare autolink:\n%s", out)
+	}
+}
+
+// apartWidth is the width a terminal that joins nothing gives a line: every rune drawn on its own.
+func apartWidth(line string) int {
+	w := 0
+	for _, r := range ansi.Strip(line) {
+		w += ansi.StringWidth(string(r))
+	}
+	return w
+}
+
+func TestStableWidthDropsWhatTerminalsDrawDifferently(t *testing.T) {
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	cases := []struct{ in, want string }{
+		{"Platform", "Platform"},
+		{family, "\U0001F468\U0001F469\U0001F467"},
+		{"\u26a0\ufe0f Risky", "\u26a0 Risky"},
+		{"\U0001F44D\U0001F3FD", "\U0001F44D"},
+		{"1\ufe0f\u20e3", "1"},
+		{"\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F", "\U0001F3F4"},
+		{"\x1b[31mo\x1b[0m " + family, "\x1b[31mo\x1b[0m \U0001F468\U0001F469\U0001F467"},
+	}
+	for _, c := range cases {
+		if got := stableWidth(c.in); got != c.want {
+			t.Errorf("stableWidth(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if got := stableWidth(c.in); ansi.StringWidth(got) != apartWidth(got) {
+			t.Errorf("stableWidth(%q) still measures %d joined and %d apart", c.in, ansi.StringWidth(got), apartWidth(got))
+		}
+	}
+}
+
+// A family emoji is one symbol of two cells to the app and three symbols of six cells to a terminal that does not join them.
+// The box has to measure what such a terminal draws, or the row wraps and the whole frame moves up.
+func TestBoxHoldsItsWidthForEmojiATerminalDrawsApart(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	out := th.box("Tasks "+family, "x "+family+" y\nplain", 20, 4, true)
+	for i, line := range strings.Split(out, "\n") {
+		if joined, apart := lipgloss.Width(line), apartWidth(line); joined != 20 || apart != 20 {
+			t.Errorf("line %d measures %d joined and %d apart, want 20 both: %q", i, joined, apart, line)
+		}
+	}
+}
+
+// rowLine pads a label to the width and the board header pads a status name, so both have to measure what the box draws.
+func TestRowLineAndColumnHeaderMeasureWhatTheBoxDraws(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	line := rowLine(th, "x "+family+" y", 20, true, true)
+	if joined, apart := lipgloss.Width(line), apartWidth(line); joined != 20 || apart != 20 {
+		t.Errorf("row measures %d joined and %d apart, want 20 both: %q", joined, apart, line)
+	}
+	head := columnHeader(boardColumn{title: "\u26a0\ufe0f Risk"})
+	if joined, apart := ansi.StringWidth(head), apartWidth(head); joined != apart {
+		t.Errorf("header measures %d joined and %d apart: %q", joined, apart, head)
 	}
 }

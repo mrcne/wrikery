@@ -135,6 +135,7 @@ func (t Theme) box(title, body string, width, height int, focused bool) string {
 	if width < 4 || height < 2 {
 		return ""
 	}
+	title, body = stableWidth(title), stableWidth(body)
 	b := t.border()
 	color := t.Border
 	if focused {

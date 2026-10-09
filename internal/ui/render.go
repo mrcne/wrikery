@@ -160,3 +160,22 @@ func escapeLen(s string) int {
 	}
 	return len(s)
 }
+
+// stableWidth drops the characters whose support decides how wide a terminal draws an emoji:
+// the zero width joiner, the two variation selectors, the skin tone modifiers, the keycap mark and the tag characters.
+// uniseg counts a joined sequence as one symbol of two cells, a terminal without that support draws every part,
+// and a row drawn wider than the pane wraps and moves the whole frame up.
+// What is left, text, wide symbols and flag pairs, uniseg measures the way the terminals seen so far draw it.
+// The box strips what it frames as the guard for the frame, and text that is wrapped or padded before it gets there,
+// a row label, the detail pane's lines, a column header, goes through here first, so the measure and the drawing agree.
+func stableWidth(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == 0x200D, r == 0xFE0E, r == 0xFE0F, r == 0x20E3,
+			r >= 0x1F3FB && r <= 0x1F3FF,
+			r >= 0xE0020 && r <= 0xE007F:
+			return -1
+		}
+		return r
+	}, s)
+}

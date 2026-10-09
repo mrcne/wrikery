@@ -141,7 +141,10 @@ type boardWindow struct {
 	left, right int   // columns off screen on each side
 }
 
-func columnHeader(c boardColumn) string { return fmt.Sprintf("%s (%d)", c.title, len(c.rows)) }
+// The header is padded to the column width, so the name is stripped first, see stableWidth.
+func columnHeader(c boardColumn) string {
+	return fmt.Sprintf("%s (%d)", stableWidth(c.title), len(c.rows))
+}
 
 // fitColumns picks the columns drawn from firstCol on and their widths for the inner width.
 // A column with cards is at least cardWidth wide and an empty one only as wide as its header, so an unused status costs little.
