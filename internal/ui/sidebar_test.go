@@ -529,3 +529,35 @@ func TestSidebarRevealLeavesPinnedOnlyForANodeOutsideIt(t *testing.T) {
 		t.Errorf("cursor on %s, want P2", n.id)
 	}
 }
+
+func TestSidebarHalfPageMovesHalfTheVisibleRows(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setSize(28, 8)
+	s.setTree(flatNodes(20), nil)
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if s.cursor != 4 {
+		t.Fatalf("ctrl+d from the top lands on %d, want 4 with eight rows in view", s.cursor)
+	}
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	if s.cursor != 4 {
+		t.Errorf("pgdown then ctrl+u lands on %d, want 4", s.cursor)
+	}
+	s = typeKeys(s, "G")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if s.cursor != 19 {
+		t.Errorf("ctrl+d on the last row stays at 19, got %d", s.cursor)
+	}
+}
+
+// A typed emoji usually carries its variation selector, which the drawn title no longer has.
+func TestSidebarFilterMatchesATypedEmojiWithItsSelector(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	nodes := sampleNodes()
+	nodes[7].title = "\u26a0\ufe0f Risks"
+	s.setTree(nodes, nil)
+	s = typeKeys(s, "/\u26a0\ufe0f")
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"F9"}) {
+		t.Errorf("visible under the query = %v, want F9", got)
+	}
+}

@@ -105,3 +105,9 @@ func TestStyledTitleKeepsTheTextAndDropsHiddenCodes(t *testing.T) {
 		t.Error("a title without code or prefix is drawn as it is")
 	}
 }
+
+func TestDisplayTitleHidesAPrefixWithAVariationSelector(t *testing.T) {
+	if got := displayTitle("\u26a0\ufe0f Risks", []string{"\u26a0\ufe0f"}); got != "Risks" {
+		t.Errorf("displayTitle = %q, want Risks", got)
+	}
+}

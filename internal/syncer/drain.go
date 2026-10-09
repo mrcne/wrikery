@@ -16,9 +16,10 @@ import (
 // a transient error here would be retried first on every cycle forever.
 var errCorruptRow = errors.New("sync: corrupt outbox row")
 
-// drainOutbox sends queued writes oldest first.
-// It stops at the first transient or auth failure so a backed off row can never be overtaken by a later one,
-// which the conflict policy depends on. changed reports whether any row completed or failed, so the caller knows to emit events.
+// drainOutbox sends the due writes oldest first.
+// It stops at the first transient or auth failure, so within one pass a backed off row is not overtaken by a later one.
+// TODO: across passes it can be, NextDue skips a row still in backoff and a later write on the same task goes out first, so the older one lands last.
+// changed reports whether any row completed or failed, so the caller knows to emit events.
 // Store failures after a successful send are returned like transient errors, the crash-retry ambiguity is accepted in the spec.
 // start bounds whether another row is started, post is the context a create runs on, see sendRow.
 func drainOutbox(start, post context.Context, c Client, st *store.Store, backoffBase, backoffCeil time.Duration) (bool, error) {
@@ -59,13 +60,13 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 			if _, err := st.Outbox().ResetInflight(bookkeeping); err != nil {
 				return changed, err
 			}
-			return changed, sendErr
+			return changed, &SendError{RowID: row.ID, Kind: row.Kind, EntityID: row.EntityID, Err: sendErr}
 		}
 		next := rfc3339(time.Now().Add(backoff(row.Attempts, backoffBase, backoffCeil)))
 		if err := st.Outbox().Reschedule(bookkeeping, row.ID, sendErr.Error(), next); err != nil {
 			return changed, err
 		}
-		return changed, sendErr
+		return changed, &SendError{RowID: row.ID, Kind: row.Kind, EntityID: row.EntityID, Err: sendErr}
 	}
 }
 
@@ -175,3 +176,19 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 	}
 	return fmt.Errorf("%w %d: unknown kind %q", errCorruptRow, row.ID, row.Kind)
 }
+
+// SendError is the failure the drain stopped at, with the row it belongs to.
+// A pass sends the due rows oldest first and stops at the first one Wrike could not take,
+// so the error a later row's command sees may belong to another write, and the command needs to tell.
+// EntityID is what the outbox row keeps: the task of an update, a comment or a time entry create,
+// the folder of a task create, and the timelog of a time entry update or delete, Kind tells which.
+// Err is the client's error, reachable through Unwrap, so classify and the callers branch on it as before.
+type SendError struct {
+	RowID    int64
+	Kind     store.OutboxKind
+	EntityID string
+	Err      error
+}
+
+func (e *SendError) Error() string { return e.Err.Error() }
+func (e *SendError) Unwrap() error { return e.Err }

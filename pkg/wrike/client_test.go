@@ -193,3 +193,21 @@ func TestDo300WithEmptyBodyIsWrongHostErrorAndNotRetried(t *testing.T) {
 		t.Errorf("calls = %d, want 1: a 300 must not be retried", calls)
 	}
 }
+
+// A load balancer answers 503 with a line of text, not the API's JSON. The line says what is wrong and belongs in the error.
+func TestDoSaysWrikeIsUnavailableWithAShortTextBody(t *testing.T) {
+	for _, tc := range []struct{ body, want string }{
+		{"no healthy upstream", "wrike: GET /contacts: http 503, Wrike is unavailable: no healthy upstream"},
+		{"<html><body>Service Unavailable</body></html>", "wrike: GET /contacts: http 503, Wrike is unavailable"},
+		{strings.Repeat("x", 200), "wrike: GET /contacts: http 503, Wrike is unavailable"},
+	} {
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		_, err := c.do(context.Background(), http.MethodGet, "/contacts", nil, nil, nil)
+		if err == nil || err.Error() != tc.want {
+			t.Errorf("body %q: error = %v, want %q", tc.body, err, tc.want)
+		}
+	}
+}

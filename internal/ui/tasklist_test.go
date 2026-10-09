@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -333,5 +334,41 @@ func TestStaleListLoadAndTaskSelectionAreDropped(t *testing.T) {
 	next, cmd = m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks, selectID: "T1"})
 	if m = next.(Model); m.list.nodeID != "F2" || m.list.count != 0 || cmd != nil {
 		t.Errorf("a late load for the node left behind should be dropped with its selection, list shows %s with %d rows", m.list.nodeID, m.list.count)
+	}
+}
+
+// The title column is padded from the app's width of the title, so a title with joined emoji has to be measured
+// the way a terminal that draws the parts apart will draw it, or the row runs past the pane and the due date is cut.
+func TestTaskListRowKeepsItsColumnsWithJoinedEmoji(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	l.height = 5
+	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
+	l.setRows("F1", "crumb", []store.Task{{ID: "1", Title: "Fix " + family + " sync", Status: "Active",
+		Dates: &store.TaskDates{Type: "Planned", Due: "2026-10-09"}}}, nil, "")
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	row := strings.Split(l.View(th, l.ref, time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC), 60, 5, true), "\n")[0]
+	if joined, apart := lipgloss.Width(row), apartWidth(row); joined != 60 || apart != 60 {
+		t.Errorf("row measures %d joined and %d apart, want 60 both: %q", joined, apart, row)
+	}
+}
+
+// A half page is half of what is on screen, so the move reads the same on a short and on a tall terminal.
+func TestTaskListHalfPageIsHalfTheVisibleRows(t *testing.T) {
+	var tasks []store.Task
+	for i := range 30 {
+		tasks = append(tasks, store.Task{ID: fmt.Sprint(i), Title: fmt.Sprint("Task ", i), Status: "Active"})
+	}
+	for _, c := range []struct{ height, want int }{{8, 4}, {20, 10}, {1, 1}} {
+		l := newTaskList(defaultKeyMap())
+		l.height = c.height
+		l.setRows("F1", "", tasks, nil, "")
+		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+		if l.cursor != c.want {
+			t.Errorf("height %d: ctrl+d lands on %d, want %d", c.height, l.cursor, c.want)
+		}
+		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+		if l.cursor != 0 {
+			t.Errorf("height %d: ctrl+u goes back to 0, got %d", c.height, l.cursor)
+		}
 	}
 }

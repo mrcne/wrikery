@@ -388,3 +388,36 @@ func TestDrainCorruptCreateFailsAndContinues(t *testing.T) {
 		t.Errorf("counts = %d, %d, %v, want the create failed for good", pending, failed, err)
 	}
 }
+
+// The drain stops at the first write Wrike could not take, so the error has to say which row that was:
+// a command that queued a later row would otherwise print another task's failure as its own.
+func TestDrainNamesTheRowItStoppedAt(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "one")
+	seedTask(t, st, "T2", "two")
+	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.Outbox().EnqueueTaskUpdate(ctx, "T2", store.TaskUpdatePayload{Title: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		return wrike.Task{}, &wrike.APIError{StatusCode: 503, Method: "PUT", Path: "/tasks/" + taskID}
+	}}
+	_, err = drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
+	var se *SendError
+	if !errors.As(err, &se) || se.RowID != first || se.EntityID != "T1" {
+		t.Fatalf("drain error = %#v, want a SendError for row %d of T1", err, first)
+	}
+	var apiErr *wrike.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 503 {
+		t.Errorf("the cause should stay reachable through the error: %v", err)
+	}
+	row, err := st.Outbox().Get(ctx, second)
+	if err != nil || row.State != store.StatePending || row.Attempts != 0 {
+		t.Errorf("second row = %+v, %v, want untouched and pending", row, err)
+	}
+}

@@ -28,7 +28,7 @@ type toastExpiredMsg struct{ seq int }
 // The sequence number keeps an old timer from clearing a newer toast.
 func (s *statusModel) show(text string, isErr bool) tea.Cmd {
 	s.toastSeq++
-	s.toast, s.toastErr = text, isErr
+	s.toast, s.toastErr = stableWidth(text), isErr
 	seq := s.toastSeq
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg { return toastExpiredMsg{seq: seq} })
 }

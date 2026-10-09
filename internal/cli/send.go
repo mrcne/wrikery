@@ -68,6 +68,7 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 		return blocked, "", nil
 	}
 	var reason string
+	var sendErr *syncer.SendError
 	switch {
 	case errors.Is(drainErr, syncer.ErrLocked):
 		reason = "another wrikery is sending"
@@ -75,12 +76,47 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 		reason = "Wrike did not answer in time"
 	case errors.Is(drainErr, context.Canceled):
 		reason = "interrupted"
+	case errors.As(drainErr, &sendErr) && sendErr.RowID != rowID:
+		// The drain stopped at an earlier write, the error is that write's and not this command's.
+		reason = fmt.Sprintf("waiting behind an earlier write that failed, %s: %v", subject(ctx, env, sendErr), sendErr.Err)
 	case drainErr != nil:
 		reason = drainErr.Error()
 	default:
 		reason = "waiting for an earlier write"
 	}
 	return queued, reason, nil
+}
+
+// subject names the write the drain stopped at by its kind and the task it is on, as far as the cache can tell.
+// A time entry update still has its row in the cache, a delete took the row with it when it was queued.
+func subject(ctx context.Context, env Env, e *syncer.SendError) string {
+	ctx = context.WithoutCancel(ctx)
+	switch e.Kind {
+	case store.KindTaskCreate:
+		// A create row names the folder it goes into, the task it makes is the local row.
+		return "a new task " + taskName(ctx, env, store.LocalID(e.RowID))
+	case store.KindCommentCreate:
+		return "a comment on " + taskName(ctx, env, e.EntityID)
+	case store.KindTimelogCreate:
+		return "a time entry on " + taskName(ctx, env, e.EntityID)
+	case store.KindTimelogUpdate:
+		if l, err := env.Store.Timelogs().Get(ctx, e.EntityID); err == nil {
+			return "a time entry on " + taskName(ctx, env, l.TaskID)
+		}
+		return "a time entry"
+	case store.KindTimelogDelete:
+		return "a time entry delete"
+	}
+	return "a change to " + taskName(ctx, env, e.EntityID)
+}
+
+// taskName is the quoted title of a cached task, or the id as it is for anything the cache has no title for.
+// The quotes are plain, %q would write the parts of a joined emoji with an escape between them.
+func taskName(ctx context.Context, env Env, id string) string {
+	if t, err := env.Store.Tasks().Get(ctx, id); err == nil && t.Title != "" {
+		return `"` + t.Title + `"`
+	}
+	return id
 }
 
 // readBack reads the task and, for JSON, the pending marks after a write whose fate is known.

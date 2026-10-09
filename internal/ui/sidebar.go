@@ -197,11 +197,17 @@ func (s *sidebarModel) reselect(prev string) {
 	s.cursor = min(s.cursor, max(0, len(s.visible)-1))
 }
 
-func (s sidebarModel) query() string { return strings.ToLower(strings.TrimSpace(s.filter.Value())) }
+// The titles are matched as drawn, stripped, so the typed text is stripped the same way, an emoji from a picker carries its selector.
+func (s sidebarModel) query() string {
+	return stableWidth(strings.ToLower(strings.TrimSpace(s.filter.Value())))
+}
 
 func (s sidebarModel) matches(n treeNode, q string) bool {
 	return strings.Contains(strings.ToLower(displayTitle(n.title, s.hide)), q)
 }
+
+// halfPage is half of the rows on screen, so the move reads the same on a short and on a tall terminal.
+func (s sidebarModel) halfPage() int { return max(1, s.rows(s.height)/2) }
 
 // rows is the line count left for the tree once the filter takes the last line.
 func (s sidebarModel) rows(height int) int {
@@ -388,6 +394,10 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 		s.cursor = 0
 	case key.Matches(msg, s.keys.Bottom):
 		s.cursor = len(s.visible) - 1
+	case key.Matches(msg, s.keys.HalfDown):
+		s.cursor = min(len(s.visible)-1, s.cursor+s.halfPage())
+	case key.Matches(msg, s.keys.HalfUp):
+		s.cursor = max(0, s.cursor-s.halfPage())
 	case key.Matches(msg, s.keys.Right):
 		// Under a query every path is open already, so the key goes on to the list.
 		if q == "" && len(n.children) > 0 && !n.expanded {
@@ -546,7 +556,8 @@ func rowLine(th Theme, label string, width int, selected, focused bool) string {
 	if selected {
 		prefix = th.Glyphs.Cursor + " "
 	}
-	line := ansi.Truncate(prefix+label, width, "...")
+	// The label is padded to the width below, so it is stripped first, see stableWidth.
+	line := ansi.Truncate(prefix+stableWidth(label), width, "...")
 	style := lipgloss.NewStyle()
 	if selected && focused {
 		style = style.Background(th.Accent).Foreground(th.Text)
