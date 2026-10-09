@@ -12,7 +12,7 @@ import (
 
 type checkRow struct{ id, label string }
 
-// checklist is the filterable list of rows the assignee and the folders boxes share, with a check box each,
+// checklist is the filterable list of rows the assignee, the folders and the Follow boxes share, with a check box each,
 // and the create box as a single pick without boxes.
 // The cursor is a position in visible and goes back to the top whenever the query changes,
 // so after typing the highlighted row is the first match and never the row that slid under the old position.

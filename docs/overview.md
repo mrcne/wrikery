@@ -181,10 +181,25 @@ Editing or deleting it is refused with a message instead, nothing is queued for 
 
 Enter on a row leaves the grid for the task behind it, shown on the main screen with its folder selected, the way the search does.
 
+### Settings
+
+`,` opens the settings screen, esc goes back.
+The first row lists the followed spaces and projects, and enter on it opens the Follow box: the spaces and projects the first run offers, as a list narrowed down by typing, the followed ones checked, space toggles a row, enter applies, esc cancels.
+A followed project the list does not offer on its own, one moved deeper into a folder, keeps a row at the end so it can be unfollowed too.
+Right after a cache reset the box says the spaces are still to come, and fills in when they arrive.
+The first line of the box says what enter will do, for example that it follows one and unfollows two.
+Your own tasks are always included and have no row.
+Applying runs a full refresh: a newly followed scope is pulled from the start, and the tasks of an unfollowed scope leave the cache, unless they are your own.
+The sidebar drops an unfollowed space at once and shows a newly followed one right away, its tasks arrive with the refresh.
+
+The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
+The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
+
 ### First run
 
 Paste a Wrike API token. The app checks it and stores it in the system keychain.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
+The choice can be changed later from the settings screen.
 The goal is less than a minute from install to a working app.
 
 ### Demo mode

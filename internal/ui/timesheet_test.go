@@ -27,7 +27,7 @@ func rootTestOptions(t *testing.T) Options {
 	t.Cleanup(func() { _ = st.Close() })
 	return Options{
 		Store:  st,
-		Config: config.UIConfig{Theme: "dark", ASCII: true},
+		Config: config.Config{UI: config.UIConfig{Theme: "dark", ASCII: true}},
 		Now:    func() time.Time { return time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) },
 		Hooks:  Hooks{Refresh: func() {}, WakeOutbox: func() {}},
 	}

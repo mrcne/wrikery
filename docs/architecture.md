@@ -42,7 +42,7 @@ A command appends to the same log file and never rotates it, the interface does 
 
 ## What gets cached
 
-On the first run the user picks which spaces and projects to follow.
+On the first run, and later from the settings screen, the user picks which spaces and projects to follow.
 Only these are synced and searchable, which keeps the database small and the first sync short even on a larger Wrike account.
 The user own tasks are always included, and anything outside the followed set can still be fetched on demand while online.
 
@@ -71,6 +71,7 @@ Descriptions have their HTML stripped before they are stored, and the stripped t
 
 The scopes table lists the followed spaces and projects, plus one row for the user's own tasks.
 Each row remembers how far the last sync got.
+Unfollowing a scope clears that memory, so following it again later pulls it from the start instead of asking only for the changes since the day it was dropped.
 The pins table lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
 The outbox table holds the queued writes and is described below.
 
@@ -80,6 +81,7 @@ The first sync fetches everything in the followed scopes.
 After that the engine polls, every 60 seconds by default, and there is a key for a manual refresh.
 A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
+A change of the followed set asks the engine for a full cycle, the kind the refresh key asks for: a newly followed scope is pulled from the start, and the sweep at the end of such a cycle removes the tasks of an unfollowed scope, which is why a scope followed again later starts from scratch as well.
 Comments and timelogs are synced only for tasks the user recently viewed or touched, not for the whole account.
 Every cycle also pulls the user's own timelogs for the current week and the eight weeks before it, on top of that per-task pull.
 That pull stops at an empty page, because Wrike answers an empty window with a page token and refuses the token on the next request.

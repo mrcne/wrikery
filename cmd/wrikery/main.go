@@ -161,6 +161,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
 		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
 
+	theme := cfg.UI.Theme
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
@@ -170,7 +171,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		}
 		defer cleanup()
 		p := tea.NewProgram(ui.New(ui.Options{
-			Version: buildVersion(), Store: st, Config: cfg.UI, Demo: true,
+			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		_, err = p.Run()
@@ -191,7 +192,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		return err
 	}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg.UI, FirstRun: firstRun, Hooks: a.hooks(),
+		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if !firstRun {
 		host, err := resolveHost(context.Background(), cfg, st, token)
