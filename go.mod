@@ -2,6 +2,8 @@ module github.com/mrcne/wrikery
 
 go 1.26.0
 
+toolchain go1.26.9
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
@@ -15,7 +17,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/yuin/goldmark v1.8.6
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
 	modernc.org/sqlite v1.60.1
