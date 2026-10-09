@@ -76,10 +76,7 @@ func newSidebar(keys KeyMap, hide []string) sidebarModel {
 // Expansion state and the selection are kept by id across the reload.
 // The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
 func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
-	prev := ""
-	if n, ok := s.current(); ok {
-		prev = n.id
-	}
+	chain := s.ancestry()
 	expanded := map[string]bool{}
 	for _, n := range s.nodes {
 		expanded[n.id] = n.expanded
@@ -101,7 +98,10 @@ func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 		s.pinnedOnly = false
 	}
 	s.rebuild()
-	s.reselect(prev)
+	if !s.reselect(chain) && len(chain) > 0 {
+		// The whole branch left with its space, and the row at the old height would be a folder of another space.
+		s.selectByID(store.ScopeKindMe)
+	}
 	s.scroll()
 }
 
@@ -172,29 +172,37 @@ func (s *sidebarModel) clearFilter() {
 
 // rebuildKeeping rebuilds the rows and keeps the selection, see reselect.
 func (s *sidebarModel) rebuildKeeping() {
-	prev := ""
-	if n, ok := s.current(); ok {
-		prev = n.id
-	}
+	chain := s.ancestry()
 	s.rebuild()
-	s.reselect(prev)
+	s.reselect(chain)
 	s.scroll()
 }
 
-// reselect puts the cursor back on the node selected before a rebuild, or on its nearest drawn ancestor,
-// or leaves it at the same height clamped to the rows that are left, so a vanished row does not throw the selection to the top.
-func (s *sidebarModel) reselect(prev string) {
-	if s.selectByID(prev) {
-		return
+// ancestry is the selected node and its parents, nearest first, as the tree stands now.
+// It is taken before a rebuild, the parents of a node that leaves the tree cannot be looked up afterwards.
+func (s sidebarModel) ancestry() []string {
+	n, ok := s.current()
+	if !ok {
+		return nil
 	}
-	if idx := s.indexOf(prev); idx >= 0 {
-		for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
-			if s.selectByID(s.nodes[p].id) {
-				return
-			}
+	chain := []string{n.id}
+	for p := s.parentOf(s.indexOf(n.id)); p >= 0; p = s.parentOf(p) {
+		chain = append(chain, s.nodes[p].id)
+	}
+	return chain
+}
+
+// reselect puts the cursor back on the node selected before a rebuild, or on its nearest ancestor still drawn, and reports which.
+// With none of them left it keeps the cursor at the same height clamped to the rows that are left,
+// so a vanished row does not throw the selection to the top.
+func (s *sidebarModel) reselect(chain []string) bool {
+	for _, id := range chain {
+		if s.selectByID(id) {
+			return true
 		}
 	}
 	s.cursor = min(s.cursor, max(0, len(s.visible)-1))
+	return false
 }
 
 // The titles are matched as drawn, stripped, so the typed text is stripped the same way, an emoji from a picker carries its selector.

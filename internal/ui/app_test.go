@@ -45,9 +45,10 @@ func seededStore(t *testing.T) *store.Store {
 func testOptions(st *store.Store) ui.Options {
 	return ui.Options{
 		Version: "test", Store: st, Demo: true,
-		Config: config.UIConfig{Theme: "dark", ASCII: true, BranchTemplate: "{id}-{slug}"},
-		Now:    func() time.Time { return fixedNow },
-		Hooks:  ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+		Config:     config.Config{PollInterval: 60 * time.Second, UI: config.UIConfig{Theme: "dark", ASCII: true, BranchTemplate: "{id}-{slug}"}},
+		ConfigFile: "/home/ada/.config/wrikery/config.toml",
+		Now:        func() time.Time { return fixedNow },
+		Hooks:      ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
 	}
 }
 
@@ -1230,5 +1231,59 @@ func TestJumpOpensTheWayToACollapsedFolder(t *testing.T) {
 	view := finalView(t, tm)
 	if !strings.Contains(view, "#1200004") || !strings.Contains(view, "On-call") {
 		t.Errorf("the jump should select On-call in the tree and show the task:\n%s", view)
+	}
+}
+
+func TestSettingsScreenUnfollowsASpace(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks: My tasks (")
+	press(tm, ",")
+	waitFor(t, tm, "Mobile, Platform")
+	press(tm, "enter")
+	waitFor(t, tm, "[x] Mobile")
+	press(tm, "mob", "space")
+	waitFor(t, tm, "enter unfollows 1")
+	press(tm, "enter")
+	waitFor(t, tm, "No longer following Mobile")
+
+	scopes, err := st.Scopes().Followed(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, sc := range scopes {
+		ids = append(ids, sc.ID)
+	}
+	if slices.Contains(ids, demo.SpaceMobile) || !slices.Contains(ids, demo.SpacePlatform) {
+		t.Fatalf("followed = %v", ids)
+	}
+	press(tm, "esc")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Wishlist") || !strings.Contains(view, "Design system") {
+		t.Errorf("the sidebar should have dropped the Mobile space and kept Platform:\n%s", view)
+	}
+}
+
+// A write that fails must not be followed by the success toast, the store still follows the scope and the user has to know.
+func TestSettingsBoxReportsAFailedWrite(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks: My tasks (")
+	press(tm, ",")
+	waitFor(t, tm, "Mobile, Platform")
+	press(tm, "enter")
+	waitFor(t, tm, "[x] Mobile")
+	press(tm, "mob", "space")
+	waitFor(t, tm, "enter unfollows 1")
+	// Closing the store makes the write fail the way a busy database would.
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	press(tm, "enter")
+	waitFor(t, tm, "database is closed")
+	view := finalView(t, tm)
+	if strings.Contains(view, "No longer following") || !strings.Contains(view, "Mobile, Platform") {
+		t.Errorf("a failed write should leave the error on screen and the row unchanged:\n%s", view)
 	}
 }

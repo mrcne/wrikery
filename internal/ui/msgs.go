@@ -54,7 +54,9 @@ type taskLoadedMsg struct {
 type pickerLoadedMsg struct {
 	spaces   []store.Space
 	projects map[string][]store.Folder // per space id, projects directly under the root
+	followed []store.Scope             // read in the same command, so the Follow box ticks the set as it stands at the read
 }
+type hostLoadedMsg struct{ host string } // the Wrike host the token probe found, shown on the settings screen
 type tokenVerifiedMsg struct {
 	name string
 	err  error
@@ -81,5 +83,12 @@ type openConfirmMsg struct {
 type firstRunSubmitTokenMsg struct{ token string }
 type firstRunConfirmScopesMsg struct{ scopes []store.Scope }
 type firstRunFinishedMsg struct{}
+
+// scopesSavedMsg lands once the followed set chosen on the settings screen or the first run is written and read back,
+// so the tree is built again from the new set only after the write is through, and a failed write never reports a success.
+type scopesSavedMsg struct {
+	scopes []store.Scope
+	toast  string
+}
 
 func intent(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }

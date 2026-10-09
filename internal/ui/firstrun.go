@@ -144,14 +144,7 @@ func (f firstRunModel) mergePicker(msg pickerLoadedMsg) []pickerItem {
 	for _, it := range f.items {
 		checked[it.scope.ID] = it.checked
 	}
-	items := []pickerItem{{scope: store.Scope{ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true}, checked: true, disabled: true}}
-	for _, sp := range msg.spaces {
-		items = append(items, pickerItem{scope: store.Scope{ID: sp.ID, Kind: store.ScopeKindSpace, Title: sp.Title, Followed: true}, checked: checked[sp.ID]})
-		for _, p := range msg.projects[sp.ID] {
-			items = append(items, pickerItem{scope: store.Scope{ID: p.ID, Kind: store.ScopeKindProject, Title: p.Title, Followed: true}, depth: 1, checked: checked[p.ID]})
-		}
-	}
-	return items
+	return pickerItems(msg, checked)
 }
 
 func (f firstRunModel) View(th Theme, width, height int) string {

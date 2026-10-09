@@ -71,7 +71,7 @@ func TestDetailMarksAQueuedTask(t *testing.T) {
 
 // A read runs while the cursor is free to move, so the answer can arrive for a task nobody is looking at any more.
 func TestDetailIgnoresALateLoadForAnotherTask(t *testing.T) {
-	m := New(Options{Config: config.UIConfig{Theme: "dark", ASCII: true}})
+	m := New(Options{Config: config.Config{UI: config.UIConfig{Theme: "dark", ASCII: true}}})
 	m.selectedTaskID = "B"
 	next, _ := m.Update(taskLoadedMsg{task: store.Task{ID: "A", Title: "Late answer"}})
 	if got := next.(Model).detail.task.ID; got == "A" {

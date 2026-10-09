@@ -30,7 +30,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 
 ## Features
 
-- browse the spaces, projects and folders you follow
+- browse the spaces, projects and folders you follow, and change that set from the settings screen
 - task list and task detail: description, status, assignee, dates, comments
 - instant full text search over everything cached
 - a timesheet view of your own logged time
@@ -61,6 +61,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `n` | new task |
 | `t` | log time |
 | `T` | timesheet |
+| `,` | settings, with the followed spaces and projects |
 | `?` | every key for the current screen |
 | `q` | quit |
 

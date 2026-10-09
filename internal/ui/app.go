@@ -31,13 +31,16 @@ type Hooks struct {
 }
 
 type Options struct {
-	Version  string
-	Store    *store.Store
-	Hooks    Hooks
-	Config   config.UIConfig
-	Demo     bool
-	FirstRun bool
-	Now      func() time.Time
+	Version string
+	Store   *store.Store
+	Hooks   Hooks
+	Config  config.Config
+	// ConfigFile is shown on the settings screen, the app reads it and never writes it.
+	ConfigFile   string
+	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
+	Demo         bool
+	FirstRun     bool
+	Now          func() time.Time
 }
 
 type screen int
@@ -46,6 +49,7 @@ const (
 	screenMain screen = iota
 	screenTimesheet
 	screenIssues
+	screenSettings
 	screenFirstRun
 )
 
@@ -81,6 +85,7 @@ type Model struct {
 	search    searchModel
 	issues    issuesModel
 	timesheet timesheetModel
+	settings  settingsModel
 	dialog    dialog
 
 	selectedNode   treeNode
@@ -92,13 +97,14 @@ func New(o Options) Model {
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	m := Model{opts: o, theme: NewTheme(o.Config), keys: defaultKeyMap(), help: help.New(), focus: paneList}
+	m := Model{opts: o, theme: NewTheme(o.Config.UI), keys: defaultKeyMap(), help: help.New(), focus: paneList}
 	m.sidebar = newSidebar(m.keys, m.theme.HidePrefixes)
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
 	m.issues.keys = m.keys
 	m.timesheet.keys = m.keys
+	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
 	m.board.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
@@ -251,7 +257,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
 	case firstRunConfirmScopesMsg:
-		return m, tea.Batch(m.saveScopes(msg.scopes), m.firstRun.spinner.Tick)
+		return m, tea.Batch(m.saveScopes(msg.scopes, ""), m.firstRun.spinner.Tick)
+	case scopesLoadedMsg:
+		m.settings.setScopes(msg.scopes)
+		if m.screen == screenFirstRun {
+			var cmd tea.Cmd
+			m.firstRun, cmd = m.firstRun.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	case openScopesMsg:
+		return m, m.loadPicker()
+	case pickerLoadedMsg:
+		if m.screen == screenSettings {
+			if d, ok := m.dialog.(scopesDialog); ok && m.overlay == overlayDialog {
+				// The spaces landed while the box was open, see reload.
+				next, cmd := d.reload(msg)
+				m.dialog = next
+				return m, cmd
+			}
+			d, cmd := newScopesDialog(pickerItems(msg, followedSet(msg.followed)), msg.followed)
+			m.openDialog(d)
+			return m, cmd
+		}
+		if m.screen == screenFirstRun {
+			var cmd tea.Cmd
+			m.firstRun, cmd = m.firstRun.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	case submitScopesMsg:
+		return m, m.saveScopes(msg.scopes, msg.toast)
+	case scopesSavedMsg:
+		m.settings.setScopes(msg.scopes)
+		if m.screen == screenFirstRun {
+			var cmd tea.Cmd
+			m.firstRun, cmd = m.firstRun.Update(scopesLoadedMsg{scopes: msg.scopes})
+			return m, cmd
+		}
+		return m, tea.Batch(m.status.show(msg.toast, false), m.loadTree())
+	case hostLoadedMsg:
+		m.settings.host = msg.host
+		return m, nil
 	case firstRunFinishedMsg:
 		if m.firstRun.reauth {
 			// verifyToken restarted the engine, so a cycle is already running and the bar would otherwise still read as rejected.
@@ -500,6 +547,9 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "timelogs") && m.screen == screenTimesheet {
 		cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
 	}
+	if _, open := m.dialog.(scopesDialog); open && m.overlay == overlayDialog && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
+		cmds = append(cmds, m.loadPicker())
+	}
 	if m.screen == screenFirstRun {
 		if m.firstRun.step == stepScopes && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
 			cmds = append(cmds, m.loadPicker())
@@ -651,7 +701,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sidebar.filtering {
 		return m, m.updateSidebar(msg)
 	}
-	if m.screen == screenIssues || m.screen == screenTimesheet {
+	if m.screen == screenIssues || m.screen == screenTimesheet || m.screen == screenSettings {
 		// Only the keys that make sense with no task on screen fall through:
 		// everything else would otherwise reach whatever task the main screen had last selected,
 		// underneath the box this screen is showing instead, the task action keys below included.
@@ -672,15 +722,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
 			m.screen = screenTimesheet
 			return m, m.loadWeek(time.Time{})
+		case key.Matches(msg, m.keys.Settings) && m.screen != screenSettings:
+			m.screen = screenSettings
+			return m, tea.Batch(m.loadScopes(), m.loadHost())
 		case key.Matches(msg, m.keys.Back):
 			m.screen = screenMain
 			return m, nil
 		}
 		var cmd tea.Cmd
-		if m.screen == screenIssues {
+		switch m.screen {
+		case screenIssues:
 			m.issues, cmd = m.issues.Update(msg)
-		} else {
+		case screenTimesheet:
 			m.timesheet, cmd = m.timesheet.Update(msg)
+		default:
+			m.settings, cmd = m.settings.Update(msg)
 		}
 		return m, cmd
 	}
@@ -698,6 +754,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Issues):
 		m.screen = screenIssues
 		return m, m.loadIssues()
+	case key.Matches(msg, m.keys.Settings):
+		m.screen = screenSettings
+		return m, tea.Batch(m.loadScopes(), m.loadHost())
 	case key.Matches(msg, m.keys.Timesheet):
 		m.screen = screenTimesheet
 		return m, m.loadWeek(time.Time{})
@@ -741,7 +800,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.CopyBranch):
 		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.BranchTemplate, t, m.opts.Config.HidePrefixes)
+			name := branchName(m.opts.Config.UI.BranchTemplate, t, m.opts.Config.UI.HidePrefixes)
 			return name, "Copied " + name
 		})
 		return m, cmd
@@ -987,6 +1046,8 @@ func (m Model) View() string {
 		body = m.viewIssues(bodyHeight)
 	case screenTimesheet:
 		body = m.viewTimesheet(bodyHeight)
+	case screenSettings:
+		body = m.theme.box("Settings", m.settings.View(m.theme, m.width-2, bodyHeight-2), m.width, bodyHeight, true)
 	default:
 		body = m.viewMain()
 	}
@@ -1025,7 +1086,7 @@ func (m *Model) syncPaneSizes() {
 		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
 	if r, ok := lay.rects[paneDetail]; ok {
-		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.Theme)
+		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.UI.Theme)
 	}
 	// The issues screen replaces the whole body with one box, its inner height mirrors what viewIssues gives its View.
 	m.issues.height = max(0, m.height-3)
@@ -1103,6 +1164,9 @@ func (m Model) hintBindings() []key.Binding {
 			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Enter, m.keys.Back,
 		}
 	}
+	if m.screen == screenSettings {
+		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.Enter, m.keys.Back}
+	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.focus == paneBoard {
 		return append([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base...)
@@ -1155,6 +1219,9 @@ func (m Model) helpGroups() [][]key.Binding {
 	}
 	if m.screen == screenTimesheet {
 		return [][]key.Binding{m.keys.global(), m.keys.timesheet()}
+	}
+	if m.screen == screenSettings {
+		return [][]key.Binding{m.keys.global(), m.keys.settings()}
 	}
 	if m.shape == shapeBoard {
 		return [][]key.Binding{m.keys.global(), m.keys.board(), m.keys.task()}

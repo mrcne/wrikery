@@ -561,3 +561,21 @@ func TestSidebarFilterMatchesATypedEmojiWithItsSelector(t *testing.T) {
 		t.Errorf("visible under the query = %v, want F9", got)
 	}
 }
+
+// When the selected node leaves with its space, the cursor must not keep its index and land on a folder of another space.
+func TestTreeReplacementFallsBackToMyTasksWhenTheSpaceIsGone(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(sampleNodes(), nil)
+	if !s.selectByID("P1") {
+		t.Fatal("API should be visible under the expanded Platform")
+	}
+	s.setTree([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe, count: 12},
+		{id: "S2", title: "Mobile", kind: nodeSpace, children: []int{2}, expanded: true},
+		{id: "P2", title: "Android app", kind: nodeProject, depth: 1, statusGroup: "Active"},
+		{id: "F9", title: "Archive", kind: nodeFolder},
+	}, nil)
+	if n, _ := s.current(); n.id != "me" {
+		t.Errorf("cursor on %s after Platform left, want My tasks", n.id)
+	}
+}

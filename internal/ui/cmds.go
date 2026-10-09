@@ -54,7 +54,7 @@ func (m Model) loadScopes() tea.Cmd {
 	}
 }
 
-// loadPicker reads spaces and the projects right under each space root for the first run checklist.
+// loadPicker reads spaces and the projects right under each space root for the first run checklist and the Follow box.
 func (m Model) loadPicker() tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
@@ -63,7 +63,11 @@ func (m Model) loadPicker() tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		out := pickerLoadedMsg{spaces: spaces, projects: map[string][]store.Folder{}}
+		followed, err := st.Scopes().Followed(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		out := pickerLoadedMsg{spaces: spaces, projects: map[string][]store.Folder{}, followed: followed}
 		for _, sp := range spaces {
 			children, err := st.Folders().Children(ctx, sp.ID)
 			if err != nil {
@@ -79,15 +83,15 @@ func (m Model) loadPicker() tea.Cmd {
 	}
 }
 
-func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
+// saveScopes writes the followed set, asks the engine for a full cycle and reads the set back, all in one command,
+// so the error of a failed write is the only thing reported for it.
+func (m Model) saveScopes(selected []store.Scope, toast string) tea.Cmd {
 	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
 		ctx := context.Background()
 		all := append([]store.Scope{{ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true}}, selected...)
-		for _, sc := range all {
-			if err := st.Scopes().Upsert(ctx, sc); err != nil {
-				return errMsg{err}
-			}
+		if err := st.Scopes().SetFollowed(ctx, all); err != nil {
+			return errMsg{err}
 		}
 		if hooks.Refresh != nil {
 			hooks.Refresh()
@@ -96,7 +100,17 @@ func (m Model) saveScopes(selected []store.Scope) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return scopesLoadedMsg{scopes: scopes}
+		return scopesSavedMsg{scopes: scopes, toast: toast}
+	}
+}
+
+// loadHost reads the Wrike host the token probe kept, for the settings screen.
+// A read that fails only leaves the row at "not detected yet", the same as a cache without the key.
+func (m Model) loadHost() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		host, _ := st.GetMeta(context.Background(), store.MetaKeyHost)
+		return hostLoadedMsg{host: host}
 	}
 }
 
