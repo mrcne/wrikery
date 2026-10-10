@@ -96,7 +96,7 @@ func TestDrainRejectedWriteFailsRowAndContinues(t *testing.T) {
 	if err != nil || pending != 0 || failed != 1 {
 		t.Fatalf("counts = %d, %d, %v, want the rejection failed and the rest drained", pending, failed, err)
 	}
-	rows, err := st.Outbox().ListFailed(ctx)
+	rows, err := st.Outbox().ListIssues(ctx)
 	if err != nil || len(rows) != 1 || rows[0].LastError == "" {
 		t.Fatalf("failed rows = %+v, %v, want the error text kept", rows, err)
 	}
@@ -252,7 +252,7 @@ func TestDrainCorruptRowFailsAndContinues(t *testing.T) {
 	if err != nil || pending != 0 || failed != 1 {
 		t.Fatalf("counts = %d, %d, %v, want the corrupt row failed and the rest drained", pending, failed, err)
 	}
-	rows, err := st.Outbox().ListFailed(ctx)
+	rows, err := st.Outbox().ListIssues(ctx)
 	if err != nil || len(rows) != 1 || rows[0].ID != badID || rows[0].LastError == "" {
 		t.Fatalf("failed rows = %+v, %v", rows, err)
 	}
@@ -409,7 +409,7 @@ func TestDrainNamesTheRowItStoppedAt(t *testing.T) {
 	}}
 	_, err = drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
 	var se *SendError
-	if !errors.As(err, &se) || se.RowID != first || se.EntityID != "T1" {
+	if !errors.As(err, &se) || se.Row.ID != first || se.Row.EntityID != "T1" {
 		t.Fatalf("drain error = %#v, want a SendError for row %d of T1", err, first)
 	}
 	var apiErr *wrike.APIError
@@ -419,5 +419,48 @@ func TestDrainNamesTheRowItStoppedAt(t *testing.T) {
 	row, err := st.Outbox().Get(ctx, second)
 	if err != nil || row.State != store.StatePending || row.Attempts != 0 {
 		t.Errorf("second row = %+v, %v, want untouched and pending", row, err)
+	}
+}
+
+// A row in backoff is skipped by the due query, and a later row on the same task must not go out ahead of it,
+// Wrike would hold the older change in the end.
+// A row on another task still goes through.
+func TestDrainKeepsTheOrderOnATaskAcrossPasses(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+	seedTask(t, st, "T2", "b")
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "X"}); err != nil {
+		t.Fatal(err)
+	}
+	down := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+		return wrike.Task{}, &wrike.APIError{StatusCode: 503}
+	}}
+	if _, err := drainOutbox(ctx, ctx, down, st, time.Hour, time.Hour); err == nil {
+		t.Fatal("want the transient error back")
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Title: "Y"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T2", "U1", "unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	up := &fakeClient{
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			return wrike.Task{ID: taskID, Title: u.Title}, nil
+		},
+		createComment: func(taskID, text string) (wrike.Comment, error) {
+			return wrike.Comment{ID: "C1", TaskID: taskID, Text: text}, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, up, st, time.Hour, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if got := up.callLog(); len(got) != 1 || got[0] != "CreateComment T2" {
+		t.Errorf("calls = %v, want the unrelated comment alone, Y waits for X", got)
+	}
+	pending, _, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 2 {
+		t.Errorf("pending = %d, %v, want X and Y still queued in order", pending, err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -268,5 +269,54 @@ func TestTaskStatusTakesABrowserLink(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "was: Headless commands for scripts  [New]") {
 		t.Errorf("out:\n%s", out.String())
+	}
+}
+
+// The first change backs off after a 503.
+// The second one on the same task must not overtake it, and the command has to say what it waits for,
+// the drain itself never touched the older row.
+func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.T) {
+	var down atomic.Bool
+	var puts atomic.Int32
+	down.Store(true)
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			puts.Add(1)
+			if down.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("no healthy upstream"))
+				return
+			}
+		}
+		stubAccount().ServeHTTP(w, r)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitQueued {
+		t.Fatalf("first: code = %d, stderr %q", code, errOut.String())
+	}
+	// Wrike is back, but the first change is still backing off from its failure.
+	// Its next attempt is pinned far ahead, or a slow runner could pass the two seconds the drain gave it and send both.
+	down.Store(false)
+	rows, err := env.Store.Outbox().ListIssues(context.Background())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("issues = %+v, %v, want the first change in backoff", rows, err)
+	}
+	if err := env.Store.Outbox().Reschedule(context.Background(), rows[0].ID, rows[0].LastError, "2999-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	sent := puts.Load()
+	out.Reset()
+	errOut.Reset()
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "In Progress"}); code != exitQueued {
+		t.Fatalf("second: code = %d, the older write is backing off and this one must wait\nstdout %q\nstderr %q", code, out.String(), errOut.String())
+	}
+	// The client retried the 503 until the command's deadline, so the row holds the deadline as its last error.
+	want := `waiting behind an earlier write that failed, a change to "Headless commands for scripts": `
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr:\n%s\nwant %q", errOut.String(), want)
+	}
+	if n := puts.Load(); n != sent {
+		t.Errorf("%d PUTs after the second command, %d before, the second change must not be sent while the first backs off", n, sent)
 	}
 }

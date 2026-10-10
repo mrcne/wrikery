@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/mrcne/wrikery/internal/store"
-	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
@@ -167,20 +166,105 @@ func TestSubjectNamesTheWriteByItsKindAndItsTask(t *testing.T) {
 	}
 	title := `"Plan ` + family + ` trip"`
 	cases := []struct {
-		e    *syncer.SendError
+		row  store.OutboxRow
 		want string
 	}{
-		{&syncer.SendError{Kind: store.KindTaskUpdate, EntityID: "T9"}, "a change to " + title},
-		{&syncer.SendError{Kind: store.KindCommentCreate, EntityID: "T9"}, "a comment on " + title},
-		{&syncer.SendError{Kind: store.KindTimelogCreate, EntityID: "T9"}, "a time entry on " + title},
-		{&syncer.SendError{Kind: store.KindTimelogUpdate, EntityID: "L1"}, "a time entry on " + title},
-		{&syncer.SendError{Kind: store.KindTimelogDelete, EntityID: "L1"}, "a time entry delete"},
-		{&syncer.SendError{Kind: store.KindTaskCreate, RowID: 7}, "a new task local:7"},
-		{&syncer.SendError{Kind: store.KindTaskUpdate, EntityID: "T0"}, "a change to T0"},
+		{store.OutboxRow{Kind: store.KindTaskUpdate, EntityID: "T9"}, "a change to " + title},
+		{store.OutboxRow{Kind: store.KindCommentCreate, EntityID: "T9"}, "a comment on " + title},
+		{store.OutboxRow{Kind: store.KindTimelogCreate, EntityID: "T9"}, "a time entry on " + title},
+		{store.OutboxRow{Kind: store.KindTimelogUpdate, EntityID: "L1"}, "a time entry on " + title},
+		{store.OutboxRow{Kind: store.KindTimelogDelete, EntityID: "L1"}, "a time entry delete"},
+		{store.OutboxRow{Kind: store.KindTaskCreate, ID: 7}, "a new task local:7"},
+		{store.OutboxRow{Kind: store.KindTaskUpdate, EntityID: "T0"}, "a change to T0"},
 	}
 	for _, c := range cases {
-		if got := subject(ctx, env, c.e); got != c.want {
-			t.Errorf("subject(%s %s) = %q, want %q", c.e.Kind, c.e.EntityID, got, c.want)
+		if got := subject(ctx, env, c.row); got != c.want {
+			t.Errorf("subject(%s %s) = %q, want %q", c.row.Kind, c.row.EntityID, got, c.want)
 		}
+	}
+}
+
+// Only a store failure makes the read back fail, Run has no way to inject one, so the helper is tried on its own.
+func TestReadBackKeepsTheFateAndWarnsWhenTheStoreFails(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	before, err := env.Store.Tasks().Get(context.Background(), "TASK1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	task, ok := readBack(context.Background(), env, sent, "TASK1", before, &refData{}, false)
+	if ok || task.ID != "TASK1" {
+		t.Errorf("read back = %+v ok %v, want the fallback and ok false", task, ok)
+	}
+	if !strings.Contains(errOut.String(), "the change is sent, reading the task back:") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+}
+
+// The pass may stop at a failure on another task while this change is held behind a backed off write on its own task.
+// That write keeps holding the change after the other task's goes through, so it is the one the reason names.
+func TestSendNamesTheWriteOnItsOwnTaskOverTheOneThePassStoppedAt(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	// A comment create is not retried by the client, so the pass stops at it well inside the deadline.
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("no healthy upstream"))
+	}))
+	ctx := context.Background()
+	older, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Importance: "High"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Outbox().Reschedule(ctx, older, "wrike: 503 earlier", "2999-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Store.Outbox().EnqueueComment(ctx, "TASK2", "U1", "unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	change, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Importance: "Low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, host, code := preflight(ctx, env)
+	if code != exitOK {
+		t.Fatalf("preflight = %d", code)
+	}
+	out, reason, err := send(ctx, env, token, host, change)
+	want := `waiting behind an earlier write that failed, a change to "Headless commands for scripts": wrike: 503 earlier`
+	if err != nil || out != queued || reason != want {
+		t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
+	}
+}
+
+// A change to a task whose create is still queued waits for the create, which names the folder and not the task.
+// The reason names the create and its failure instead of the bare wait.
+func TestSendNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, nil)
+	ctx := context.Background()
+	create, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Outbox().Reschedule(ctx, create, "wrike: 503 no healthy upstream", "2999-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	change, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, store.LocalID(create), store.TaskUpdatePayload{Importance: "High"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, host, code := preflight(ctx, env)
+	if code != exitOK {
+		t.Fatalf("preflight = %d", code)
+	}
+	out, reason, err := send(ctx, env, token, host, change)
+	want := `waiting behind an earlier write that failed, a new task "Fresh": wrike: 503 no healthy upstream`
+	if err != nil || out != queued || reason != want {
+		t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
 	}
 }

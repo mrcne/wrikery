@@ -121,3 +121,32 @@ func TestSummarizeNamesANewTask(t *testing.T) {
 		t.Errorf("summary = %q", got)
 	}
 }
+
+// A row waiting for its next attempt after a failure is listed with the failed ones and marked as retrying,
+// so a write that fails the same way every time can be seen and discarded.
+func TestLoadIssuesListsARowStillRetrying(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "issues-retrying.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "GHOSTTASK1", store.TaskUpdatePayload{Title: "X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Reschedule(ctx, id, "wrike: 503 no healthy upstream", "2999-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	m := New(Options{Store: st, Now: func() time.Time { return time.Now() }})
+	loaded, ok := m.loadIssues()().(issuesLoadedMsg)
+	if !ok || len(loaded.rows) != 1 || loaded.rows[0].row.State != store.StatePending {
+		t.Fatalf("loadIssues() = %+v, want the one retrying row", loaded)
+	}
+	v := issuesModel{height: 5}
+	v.set(loaded.rows)
+	out := v.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), time.Now(), 80, 5)
+	if !strings.Contains(out, "retrying") || !strings.Contains(out, "no healthy upstream") {
+		t.Errorf("view should mark the row as retrying and show its error:\n%s", out)
+	}
+}

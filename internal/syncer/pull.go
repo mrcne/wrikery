@@ -23,6 +23,7 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 	if err != nil {
 		return err
 	}
+	// The client asks for the live folders only, a deleted folder found by title on the command line would take a new task with it.
 	if err := st.Folders().ReplaceTree(ctx, foldersFromWrike(folders)); err != nil {
 		return err
 	}
@@ -74,6 +75,9 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 func scopeParams(sc store.Scope, meID string) wrike.TaskParams {
 	// A subtask with no folder of its own is listed only with subTasks, and the sweep shares these parameters,
 	// so without it such a subtask would never be cached, or be pruned at the next sweep.
+	// The searches answer live tasks only, so a deleted task leaves the cache through the sweep and needs no guard here:
+	// a task in the Recycle Bin was absent from the space, folder and responsible searches while GET /tasks/{id}
+	// still answered it with scope RbTask, checked on the live account on 2026-10-08, the reference does not say.
 	p := wrike.TaskParams{PageSize: 1000, SubTasks: true}
 	switch sc.Kind {
 	case store.ScopeKindMe:

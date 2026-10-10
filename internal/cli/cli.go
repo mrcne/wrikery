@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -112,6 +113,10 @@ func runTask(ctx context.Context, env Env, args []string) int {
 func parse(env Env, fs *flag.FlagSet, usage string, args []string) ([]string, int, bool) {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
+	var tail []string
+	if end := terminator(fs, args); end >= 0 {
+		args, tail = args[:end], args[end+1:]
+	}
 	var positional []string
 	for {
 		err := fs.Parse(args)
@@ -125,15 +130,36 @@ func parse(env Env, fs *flag.FlagSet, usage string, args []string) ([]string, in
 			return nil, exitUsage, true
 		}
 		rest := fs.Args()
-		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
-			return append(positional, rest...), exitOK, false
-		}
 		if len(rest) == 0 {
-			return positional, exitOK, false
+			return append(positional, tail...), exitOK, false
 		}
 		positional = append(positional, rest[0])
 		args = rest[1:]
 	}
+}
+
+// terminator is the index of the bare "--" that ends the flags, or -1.
+// A "--" that is the value of a flag, "--folder --", is skipped, flag.Parse would take it as the value as well.
+func terminator(fs *flag.FlagSet, args []string) int {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return i
+		}
+		if len(a) < 2 || a[0] != '-' {
+			continue
+		}
+		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		f := fs.Lookup(name)
+		if f == nil || hasValue {
+			continue
+		}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			continue
+		}
+		i++
+	}
+	return -1
 }
 
 func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {

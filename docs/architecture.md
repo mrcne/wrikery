@@ -101,6 +101,9 @@ Every write becomes a row in the outbox: operation type, entity id, a JSON paylo
 The row and the matching change to the local cache are written in one transaction.
 The UI shows the change at once, and the queue can never disagree with the cache.
 The engine sends rows in order.
+A write waits while an earlier write on the same entity is backing off after a failure, where the entity is the task for an update, a comment or a time entry create, and the time entry for its own update or delete.
+Two changes to one task reach Wrike in the order they were made across sync cycles, and a command queued behind such a write says which write it waits for and why that one failed.
+A write Wrike rejected holds nothing, the writes after it go out, and a retry of it from the sync issues view lands after them.
 When a write succeeds, the temporary local row is swapped for the version the server returned, again in one transaction.
 A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
 The drain sends Wrike only the custom status id and lets it derive the group.
@@ -149,7 +152,8 @@ The second copy shows up with the next pull and is deleted in the web applicatio
 
 Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.
 Those rows move to the failed state.
-A sync issues view lists them and offers a retry or a discard.
+A sync issues view lists them, together with the rows still retrying after a failure, and offers a retry or a discard.
+The engine cannot tell a failure that passes from one the write earns on every attempt, a garbled answer or a server error for that one payload, and such a row holds the later writes on its entity, so the view is where it is seen and discarded.
 The status bar always shows the pending and failed counts, so nothing fails without the user seeing it.
 
 ## Error handling

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/zalando/go-keyring"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -111,6 +112,12 @@ func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 func TestResolveThemeGivesDarkInAPipeAndKeepsAnExplicitTheme(t *testing.T) {
 	if got := resolveTheme(config.UIConfig{Theme: "auto", ASCII: true}, false); got.Theme != "dark" || !got.ASCII {
 		t.Errorf("auto in a pipe = %+v, want dark with the other fields kept", got)
+	}
+	// The background answer is pinned, or the test would send the query to the real terminal and accept either answer.
+	lipgloss.SetHasDarkBackground(false)
+	t.Cleanup(func() { lipgloss.SetHasDarkBackground(true) })
+	if got := resolveTheme(config.UIConfig{Theme: "auto", ASCII: true}, true); got.Theme != "light" || !got.ASCII {
+		t.Errorf("auto on a light terminal = %+v, want light with the other fields kept", got)
 	}
 	for _, theme := range []string{"light", "dark", "mono"} {
 		for _, terminal := range []bool{false, true} {

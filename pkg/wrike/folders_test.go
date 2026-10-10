@@ -21,6 +21,9 @@ func TestFolderTree(t *testing.T) {
 		if got := r.URL.Query().Get("fields"); got != `["space"]` {
 			t.Errorf("fields = %q, want the space flag requested", got)
 		}
+		if got := r.URL.Query().Get("deleted"); got != "false" {
+			t.Errorf("deleted = %q, want false, the Recycle Bin left out of the answer", got)
+		}
 		_, _ = w.Write([]byte(foldersFixture))
 	}))
 

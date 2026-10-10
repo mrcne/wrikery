@@ -427,14 +427,14 @@ func (m Model) swapWatch() string {
 	return ""
 }
 
-// loadIssues reads the failed outbox rows for the sync issues screen.
+// loadIssues reads the failed outbox rows and the rows retrying after a failure for the sync issues screen.
 // A timelog edit or delete names the timelog as its entity, so its task is looked up through the
 // cached row, which is only there while nothing has evicted it yet.
 func (m Model) loadIssues() tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
 		ctx := context.Background()
-		failed, err := st.Outbox().ListFailed(ctx)
+		failed, err := st.Outbox().ListIssues(ctx)
 		if err != nil {
 			return errMsg{err}
 		}

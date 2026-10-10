@@ -9,11 +9,12 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// foldTitle lowercases s and strips combining marks, for the title lookups on the command line.
-// The search index folds the same way (FTS5 unicode61 removes case and diacritics), so a word finds the same task in the interface and on the command line.
+// FoldTitle lowercases s and strips combining marks, for the title lookups on the command line.
+// The search index folds the same way (FTS5 unicode61 removes case and diacritics), so a word finds the same task in the interface and on the command line,
+// and the exact match that settles an ambiguous fragment compares folded titles too, or a title typed without its accents would be refused.
 // LIKE would not do, it ignores case for ASCII only.
 // Letters that do not decompose, such as the Polish l with stroke, stay as they are in both places.
-func foldTitle(s string) string {
+func FoldTitle(s string) string {
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
 	out, _, err := transform.String(t, strings.ToLower(s))
 	if err != nil {

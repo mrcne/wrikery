@@ -226,7 +226,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		waitFor(t, tm, "-- Comments (")
 		from := mark(t, tm)
 		press(tm, "!")
-		waitAfter(t, tm, from, "Sync issues (2)")
+		waitAfter(t, tm, from, "Sync issues (3)")
 		golden.RequireEqual(t, []byte(finalView(t, tm)))
 	})
 }
@@ -675,7 +675,7 @@ func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
 
 	from := mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (2)")
+	waitAfter(t, tm, from, "Sync issues (3)")
 	waitAfter(t, tm, from, "Task not found")
 
 	// Move to the second failure and confirm it is listed too, before acting on it.
@@ -689,8 +689,13 @@ func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
 
 	from = mark(t, tm)
 	press(tm, "y")
+	waitAfter(t, tm, from, "Sync issues (2)")
+
+	from = mark(t, tm)
+	press(tm, "r")
 	waitAfter(t, tm, from, "Sync issues (1)")
 
+	// The comment retrying after a failure is the last row, a retry sends it at once and takes it off the list.
 	from = mark(t, tm)
 	press(tm, "r")
 	waitAfter(t, tm, from, "Sync issues (0)")
@@ -723,7 +728,7 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 
 	from = mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (2)")
+	waitAfter(t, tm, from, "Sync issues (3)")
 
 	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
 	from = mark(t, tm)
@@ -816,7 +821,7 @@ func TestSyncIssuesRoutesKeysToTheScreen(t *testing.T) {
 
 	from := mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (2)")
+	waitAfter(t, tm, from, "Sync issues (3)")
 
 	press(tm, "s")
 	// Give a stray Update a moment to land before asserting nothing happened.

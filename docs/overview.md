@@ -172,7 +172,8 @@ A code in parentheses at the start of a title, `(MX)`, is drawn muted and a shor
 
 `!` opens the list of writes the sync engine could not send.
 Each row shows the task title, a short summary of the write (a new task, a comment, a status, assignee or dates change, a time entry) and the error Wrike returned.
-`r` retries the highlighted row, `x` asks for confirmation and then discards it, enter opens the task, esc goes back to the previous screen.
+A write that failed and waits for its next attempt is listed as well, marked retrying, so one that fails the same way every time can be discarded instead of holding the later writes on its task.
+`r` retries the highlighted row, a retrying one at once, `x` asks for confirmation and then discards it, enter opens the task, esc goes back to the previous screen.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
 
 ### Timesheet
@@ -242,12 +243,12 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 The commands are `sync`, `task list`, `task show`, `task status` and `task create`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
 A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
-A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
+A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
 `wrikery sync` sends the queue, refreshes the reference data and pulls the changes, and `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, the match ignores case and accents as the search does, several matches are refused with the candidates listed.
-When one of the matches has exactly the given title, ignoring case, that one is taken.
+When one of the matches has exactly the given title, ignoring case, that one is taken, and ignoring accents as well when none has it letter for letter.
 A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
 A bare number is only ever that number, it is never tried as a part of a title.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.

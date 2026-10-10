@@ -24,7 +24,9 @@ func classify(err error) failureClass {
 	var apiErr *wrike.APIError
 	if !errors.As(err, &apiErr) {
 		// Network trouble or a malformed response.
-		// Retrying is right for the first and harmless for the second thanks to the backoff cap.
+		// Retrying is right for the first, and the second is retried as well: the engine cannot tell an answer
+		// garbled once from one this payload earns every time, and a row in backoff holds the later writes on its entity.
+		// It shows under sync issues while it retries, so a person can discard it.
 		return failTransient
 	}
 	switch {

@@ -166,11 +166,12 @@ func TestSeedIsInternallyConsistent(t *testing.T) {
 	if states["IEAATASK00"] != store.StatePending {
 		t.Errorf("IEAATASK00 outbox state = %s, want %s", states["IEAATASK00"], store.StatePending)
 	}
-	failed, err := st.Outbox().ListFailed(ctx)
+	issues, err := st.Outbox().ListIssues(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(failed) != 2 || failed[0].Kind != store.KindTaskUpdate || failed[1].Kind != store.KindTimelogCreate {
-		t.Errorf("failed outbox rows = %+v", failed)
+	if len(issues) != 3 || issues[0].Kind != store.KindTaskUpdate || issues[1].Kind != store.KindTimelogCreate ||
+		issues[2].Kind != store.KindCommentCreate || issues[2].State != store.StatePending || issues[2].LastError == "" {
+		t.Errorf("issue rows = %+v, want two failed and the comment retrying", issues)
 	}
 }

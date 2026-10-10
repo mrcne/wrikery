@@ -36,16 +36,12 @@ func TestNextDueOrderAndBackoff(t *testing.T) {
 		t.Fatalf("row = %+v, want the oldest comment", row)
 	}
 
-	// A transient failure pushes the row past now, the next one surfaces.
+	// A transient failure pushes the row past now, and the next one on the same task waits for it.
 	if err := st.Outbox().Reschedule(ctx, first, "boom", "2026-09-03T10:05:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	row, err = st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if row.ID != second {
-		t.Fatalf("row = %+v, want the second while the first backs off", row)
+	if _, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want nothing due, the second comment must not overtake the first", err)
 	}
 	// Time passes, the first is due again and still wins on age.
 	row, err = st.Outbox().NextDue(ctx, "2026-09-03T10:06:00Z")
@@ -54,6 +50,75 @@ func TestNextDueOrderAndBackoff(t *testing.T) {
 	}
 	if row.ID != first || row.Attempts != 1 || row.LastError != "boom" {
 		t.Fatalf("row = %+v, want first with attempts 1", row)
+	}
+	// Once the first has landed the second is free to go.
+	if err := st.Outbox().Complete(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	row, err = st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
+	if err != nil || row.ID != second {
+		t.Fatalf("row = %+v, %v, want the second comment once the first is done", row, err)
+	}
+}
+
+// A row that failed and waits for its next attempt is listed next to the failed ones,
+// so a write that fails the same way every time can be seen and discarded, and a retry sends it without the wait.
+func TestListIssuesNamesARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := st.Outbox().ListIssues(ctx); err != nil || len(rows) != 0 {
+		t.Fatalf("issues before any failure = %+v, %v, want none", rows, err)
+	}
+	if err := st.Outbox().Reschedule(ctx, id, "decoding PUT response: unexpected end of JSON input", "2026-09-03T10:05:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Outbox().ListIssues(ctx)
+	if err != nil || len(rows) != 1 || rows[0].ID != id || rows[0].State != StatePending || rows[0].Attempts != 1 {
+		t.Fatalf("issues = %+v, %v, want the retrying row with its attempt", rows, err)
+	}
+	if err := st.Outbox().Retry(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
+	if err != nil || row.ID != id || row.Attempts != 0 || row.LastError != "" {
+		t.Fatalf("row = %+v, %v, want the retried row due at once and clean", row, err)
+	}
+	if rows, err := st.Outbox().ListIssues(ctx); err != nil || len(rows) != 0 {
+		t.Fatalf("issues after the retry = %+v, %v, want none", rows, err)
+	}
+}
+
+// A change to a task that is still a local row waits for the create, which names the folder and not the task.
+// The blocker is that create, whatever its state, since the change waits until the create lands or is discarded.
+func TestBlockerNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Folders().ReplaceTree(ctx, []Folder{{ID: "F1", Title: "Inbox"}}); err != nil {
+		t.Fatal(err)
+	}
+	create, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "Fresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	change, err := st.Outbox().EnqueueTaskUpdate(ctx, LocalID(create), TaskUpdatePayload{Title: "Fresher"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.Outbox().Blocker(ctx, change)
+	if err != nil || b.ID != create {
+		t.Fatalf("blocker = %+v, %v, want the create row %d", b, err, create)
+	}
+	if err := st.Outbox().Fail(ctx, create, "wrike: 403 access forbidden"); err != nil {
+		t.Fatal(err)
+	}
+	b, err = st.Outbox().Blocker(ctx, change)
+	if err != nil || b.ID != create || b.LastError == "" {
+		t.Fatalf("blocker after the create failed = %+v, %v, want the failed create with its error", b, err)
 	}
 }
 
@@ -138,7 +203,7 @@ func TestFailRetryDiscard(t *testing.T) {
 	if err := st.Outbox().Fail(ctx, id, "403 access forbidden"); err != nil {
 		t.Fatal(err)
 	}
-	failedRows, err := st.Outbox().ListFailed(ctx)
+	failedRows, err := st.Outbox().ListIssues(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,12 +568,13 @@ func TestEnqueueAfterTheSwapLandsOnTheRealTask(t *testing.T) {
 	if logs, err := st.Timelogs().ListForTask(ctx, "T9"); err != nil || len(logs) != 1 {
 		t.Errorf("timelogs on T9 = %+v, %v, want the late entry", logs, err)
 	}
+	// One at a time, the way the drain sends them: a row on T9 in flight holds the next one on T9 back.
 	for i := 0; i < 3; i++ {
 		row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z")
 		if err != nil || row.EntityID != "T9" {
 			t.Fatalf("due row %d = %+v, %v, want every late write against T9", i, row, err)
 		}
-		if err := st.Outbox().MarkInflight(ctx, row.ID); err != nil {
+		if err := st.Outbox().Complete(ctx, row.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -590,5 +656,87 @@ func TestDiscardTaskCreateDropsADeleteQueuedOnItsTimelog(t *testing.T) {
 	pending, failed, err := st.Outbox().Counts(ctx)
 	if err != nil || pending != 0 || failed != 0 {
 		t.Errorf("counts = %d, %d, %v, want the queued delete gone with the create", pending, failed, err)
+	}
+}
+
+func TestNextDueWaitsBehindAnOlderRowOnTheSameTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T2", "other")}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "Y"}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := st.Outbox().EnqueueComment(ctx, "T2", "U1", "elsewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Reschedule(ctx, first, "boom", "2026-09-03T10:05:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
+	if err != nil || row.ID != other {
+		t.Fatalf("row = %+v, %v, want the row on the other task, the second change on T1 waits for the first", row, err)
+	}
+	if err := st.Outbox().Complete(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want nothing due while the first change backs off", err)
+	}
+	row, err = st.Outbox().NextDue(ctx, "2026-09-03T10:06:00Z")
+	if err != nil || row.ID != first {
+		t.Errorf("row = %+v, %v, want the first change once it is due again", row, err)
+	}
+}
+
+// A create names its folder as the entity and nothing about two new tasks in one folder depends on their order.
+func TestNextDueLetsACreateInTheSameFolderThrough(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Reschedule(ctx, first, "boom", "2026-09-03T10:05:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().NextDue(ctx, "2026-09-03T10:00:00Z")
+	if err != nil || row.ID != second {
+		t.Errorf("row = %+v, %v, want the second create while the first backs off", row, err)
+	}
+}
+
+func TestBlockerNamesTheOlderPendingRowOnTheSameTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "X"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Reschedule(ctx, first, "boom", "2026-09-03T10:05:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().Blocker(ctx, second)
+	if err != nil || row.ID != first || row.LastError != "boom" {
+		t.Errorf("blocker = %+v, %v, want the first row with its error", row, err)
+	}
+	if _, err := st.Outbox().Blocker(ctx, first); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, the oldest row waits for nothing", err)
 	}
 }
