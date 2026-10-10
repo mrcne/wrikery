@@ -234,7 +234,7 @@ func firstParent(t store.Task) string {
 // the create just queued, the target of a jump, or the task on screen while its create may land any moment.
 // It travels with the load, so an older load that is still in flight cannot use it up.
 // A local id the rows no longer hold is looked up in the swap table, so the cursor follows the task and not its old position.
-func (m Model) loadTasks(node treeNode, crumb, selectID string) tea.Cmd {
+func (m Model) loadTasks(node treeNode, crumb, selectID string, lift bool) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -260,7 +260,7 @@ func (m Model) loadTasks(node treeNode, crumb, selectID string) tea.Cmd {
 			}
 			selectID = real
 		}
-		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states, selectID: selectID}
+		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states, selectID: selectID, lift: lift}
 	}
 }
 
@@ -390,12 +390,14 @@ func (m Model) loadCounts() tea.Cmd {
 // selectID is the row the list should land on, the create just queued, or empty to keep the task on screen.
 // The zero node has no folder to list, the same guard reload and OutboxChangedMsg use before the first selection.
 func (m Model) reloadCurrent(selectID string) tea.Cmd {
+	// A create names its new row and wants it on screen, a reload that only follows a swap does not lift anything.
+	lift := selectID != ""
 	if selectID == "" {
 		selectID = m.swapWatch()
 	}
 	cmds := []tea.Cmd{m.reloadTask()}
 	if m.selectedNode.kind != nodeNone {
-		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), selectID))
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), selectID, lift))
 	}
 	return tea.Batch(cmds...)
 }

@@ -238,10 +238,10 @@ func cardHeights(l *taskListModel, g boardGrid, w boardWindow, hide []string) []
 	return out
 }
 
-// bodyHeight is what is left for the lanes under the pinned header row, and under the filter line when it shows.
+// bodyHeight is what is left for the lanes under the pinned header row, and under the list's footer line when it shows.
 func (b boardModel) bodyHeight(l *taskListModel) int {
 	h := b.height - 1
-	if l.filtering || l.filter.Value() != "" {
+	if l.hasFooter() {
 		h--
 	}
 	return max(1, h)
@@ -466,7 +466,10 @@ func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel,
 	}
 	if len(l.rows) == 0 {
 		text := "no tasks here"
-		if !l.showDone && len(l.all) > 0 {
+		switch {
+		case l.narrow.active():
+			text = "nothing matches the filter, F clears it"
+		case !l.showDone && len(l.all) > 0:
 			text = "nothing open, z shows completed"
 		}
 		body = []string{"", muted.Render(text)}
@@ -483,8 +486,8 @@ func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel,
 			lines = append(lines, "")
 		}
 	}
-	if l.filtering || l.filter.Value() != "" {
-		lines = append(lines, l.filter.View())
+	if l.hasFooter() {
+		lines = append(lines, l.footer(th, b.width))
 	}
 	return strings.Join(lines, "\n")
 }

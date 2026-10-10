@@ -40,6 +40,7 @@ type tasksLoadedMsg struct {
 	tasks         []store.Task
 	states        map[string]store.OutboxState
 	selectID      string // the row to land on: a create just queued, a jump, or the task on screen after a swap
+	lift          bool   // show the row even where the done toggle or a filter would hide it, a jump and a create ask for it, a swap does not
 }
 type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
 type taskGoneMsg struct{ id string }     // the task is no longer in the cache and no swap explains it

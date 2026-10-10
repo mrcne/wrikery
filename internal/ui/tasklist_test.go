@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -51,7 +53,7 @@ func TestTaskListFilterAndDoneToggle(t *testing.T) {
 		{ID: "2", Title: "Rotate keys", Status: "Active"},
 		{ID: "3", Title: "Old fix", Status: "Completed"},
 	}
-	l.setRows("F1", "Platform / API", tasks, map[string]store.OutboxState{"2": store.StatePending}, "")
+	l.setRows("F1", "Platform / API", tasks, map[string]store.OutboxState{"2": store.StatePending}, "", false)
 	if len(l.rows) != 2 {
 		t.Fatalf("done tasks shown by default: %d rows", len(l.rows))
 	}
@@ -126,9 +128,9 @@ func TestTaskListReselectsByID(t *testing.T) {
 	l.keys = defaultKeyMap()
 	l.filter = textinput.New()
 	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
-	l.setRows("F1", "", tasks, nil, "")
+	l.setRows("F1", "", tasks, nil, "", false)
 	l.cursor = 1
-	l.setRows("F1", "", []store.Task{{ID: "0", Title: "new", Status: "Active"}, tasks[0], tasks[1]}, nil, "")
+	l.setRows("F1", "", []store.Task{{ID: "0", Title: "new", Status: "Active"}, tasks[0], tasks[1]}, nil, "", false)
 	if row, _ := l.current(); row.task.ID != "2" {
 		t.Errorf("selection lost, now on %s", row.task.ID)
 	}
@@ -152,7 +154,7 @@ func TestTaskListSectionsSkipTheCursorAndCountLines(t *testing.T) {
 		{ID: "3", Title: "Also theirs", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"B1"}},
 		{ID: "4", Title: "Shared", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"B1", "ME"}},
 	}
-	l.setRows("F1", "API", tasks, nil, "")
+	l.setRows("F1", "API", tasks, nil, "", false)
 	l.setGroup(groupAssignee)
 	// The shared task is a row under both people, the title still counts it once.
 	if got := l.title(); !strings.Contains(got, "Tasks: API, by assignee (4)") || len(l.rows) != 5 {
@@ -214,7 +216,7 @@ func TestFilterPullsTheWindowBackWhenTheListShrinks(t *testing.T) {
 		}
 		tasks = append(tasks, store.Task{ID: fmt.Sprint(i), Title: title, Status: "Active"})
 	}
-	l.setRows("F1", "crumb", tasks, nil, "")
+	l.setRows("F1", "crumb", tasks, nil, "", false)
 	l.height = 10
 	l.cursor = 25
 	l.scroll()
@@ -242,7 +244,7 @@ func TestResizePullsTheListWindowBack(t *testing.T) {
 	for i := range 30 {
 		tasks = append(tasks, store.Task{ID: fmt.Sprint(i), Title: fmt.Sprintf("Task %d", i), Status: "Active"})
 	}
-	m.list.setRows("F1", "crumb", tasks, nil, "")
+	m.list.setRows("F1", "crumb", tasks, nil, "", false)
 	m.list.height = 10
 	m.list.cursor = 25
 	m.list.scroll()
@@ -262,24 +264,24 @@ func TestJumpLiftsTheDoneToggleAndTheFilter(t *testing.T) {
 	l := newTaskList(defaultKeyMap())
 	l.filter.SetValue("zzz")
 	tasks := []store.Task{{ID: "1", Title: "open", Status: "Active"}, {ID: "2", Title: "done", Status: "Completed"}}
-	if found := l.setRows("F1", "API", tasks, nil, "2"); !found || !l.showDone || l.cursor != 1 || l.filter.Value() != "" {
+	if found := l.setRows("F1", "API", tasks, nil, "2", true); !found || !l.showDone || l.cursor != 1 || l.filter.Value() != "" {
 		t.Errorf("jump to the completed task: found %v, showDone %v, cursor %d, filter %q", found, l.showDone, l.cursor, l.filter.Value())
 	}
-	l.setRows("F2", "Web", tasks, nil, "")
+	l.setRows("F2", "Web", tasks, nil, "", false)
 	if l.showDone {
 		t.Error("the lifted toggle should fall back when the list moves to another node")
 	}
-	l.setRows("F1", "API", tasks, nil, "2")
+	l.setRows("F1", "API", tasks, nil, "2", true)
 	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
 	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
-	l.setRows("F2", "Web", tasks, nil, "")
+	l.setRows("F2", "Web", tasks, nil, "", false)
 	if !l.showDone {
 		t.Error("a toggle the user pressed after the jump should stay as they left it")
 	}
 	l = newTaskList(defaultKeyMap())
-	l.setRows("F1", "API", tasks, nil, "")
+	l.setRows("F1", "API", tasks, nil, "", false)
 	tasks[0].Status = "Completed"
-	if found := l.setRows("F1", "API", tasks, nil, ""); found || l.showDone {
+	if found := l.setRows("F1", "API", tasks, nil, "", false); found || l.showDone {
 		t.Errorf("reload with the selected task completed: found %v, showDone %v, want it gone from the list", found, l.showDone)
 	}
 }
@@ -291,7 +293,7 @@ func TestJumpKeepsItsTaskUnderAFilter(t *testing.T) {
 	m.selectedNode = treeNode{id: "F1"}
 	m.list.filter.SetValue("zzz")
 	m.selectedTaskID = "T1"
-	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "one", Status: "Active"}}, selectID: "T1"})
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "one", Status: "Active"}}, selectID: "T1", lift: true})
 	if m = next.(Model); m.selectedTaskID != "T1" || m.list.count != 1 {
 		t.Errorf("the jump should stand: selected %q, %d rows", m.selectedTaskID, m.list.count)
 	}
@@ -344,7 +346,7 @@ func TestTaskListRowKeepsItsColumnsWithJoinedEmoji(t *testing.T) {
 	l.height = 5
 	family := "\U0001F468\u200d\U0001F469\u200d\U0001F467"
 	l.setRows("F1", "crumb", []store.Task{{ID: "1", Title: "Fix " + family + " sync", Status: "Active",
-		Dates: &store.TaskDates{Type: "Planned", Due: "2026-10-09"}}}, nil, "")
+		Dates: &store.TaskDates{Type: "Planned", Due: "2026-10-09"}}}, nil, "", false)
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	row := strings.Split(l.View(th, l.ref, time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC), 60, 5, true), "\n")[0]
 	if joined, apart := lipgloss.Width(row), apartWidth(row); joined != 60 || apart != 60 {
@@ -361,7 +363,7 @@ func TestTaskListHalfPageIsHalfTheVisibleRows(t *testing.T) {
 	for _, c := range []struct{ height, want int }{{8, 4}, {20, 10}, {1, 1}} {
 		l := newTaskList(defaultKeyMap())
 		l.height = c.height
-		l.setRows("F1", "", tasks, nil, "")
+		l.setRows("F1", "", tasks, nil, "", false)
 		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 		if l.cursor != c.want {
 			t.Errorf("height %d: ctrl+d lands on %d, want %d", c.height, l.cursor, c.want)
@@ -370,5 +372,72 @@ func TestTaskListHalfPageIsHalfTheVisibleRows(t *testing.T) {
 		if l.cursor != 0 {
 			t.Errorf("height %d: ctrl+u goes back to 0, got %d", c.height, l.cursor)
 		}
+	}
+}
+
+func TestNarrowingKeepsMatchingRowsAndZFollowsTheStatusSet(t *testing.T) {
+	l := testBoardList()
+	l.setGroup(groupNone)
+	l.setNarrow(rowFilter{person: "B1"})
+	if l.count != 2 || !strings.Contains(l.title(), "(2)") {
+		t.Fatalf("Bartek has two tasks, count %d, title %q", l.count, l.title())
+	}
+	l.setNarrow(rowFilter{statuses: setOf("new")})
+	if l.count != 2 || !slices.Equal(columnTitles(l.columns), []string{"New"}) {
+		t.Fatalf("New only: count %d, columns %v", l.count, columnTitles(l.columns))
+	}
+	l = pressKey(l, "z")
+	if !l.showDone || !l.narrow.statuses["completed"] || !l.narrow.statuses["done"] || !slices.Equal(columnTitles(l.columns), []string{"New", "Completed"}) {
+		t.Errorf("z with a status set adds the done statuses of the workflows in view: showDone %v, set %v, columns %v", l.showDone, l.narrow.statuses, columnTitles(l.columns))
+	}
+	l = pressKey(l, "z")
+	if l.showDone || l.narrow.statuses["completed"] || !slices.Equal(columnTitles(l.columns), []string{"New"}) {
+		t.Errorf("z again takes them out: showDone %v, columns %v", l.showDone, columnTitles(l.columns))
+	}
+	l.setNarrow(rowFilter{statuses: setOf("completed")})
+	if !l.showDone {
+		t.Error("a done status ticked in the box turns the done toggle on")
+	}
+	l.setNarrow(rowFilter{})
+	if !l.showDone || l.count != 5 {
+		t.Errorf("clearing the filter leaves the toggle as it stands: showDone %v, count %d", l.showDone, l.count)
+	}
+}
+
+func TestJumpClearsANarrowingThatHidesItsTask(t *testing.T) {
+	l := testBoardList()
+	l.setNarrow(rowFilter{person: "ME"})
+	if l.count != 3 {
+		t.Fatalf("Ada has three tasks, count %d", l.count)
+	}
+	tasks := make([]store.Task, 0, len(l.all))
+	for _, r := range l.all {
+		tasks = append(tasks, r.task)
+	}
+	if found := l.setRows("F1", "API", tasks, nil, "b1", true); !found || l.narrow.active() || l.count != 5 {
+		t.Errorf("the jump to Bartek's task should clear the filter: found %v, active %v, count %d", found, l.narrow.active(), l.count)
+	}
+	l.setNarrow(rowFilter{person: "ME"})
+	if found := l.setRows("F2", "Web", tasks, nil, "", false); !found || !l.narrow.active() {
+		t.Errorf("a plain move to another node keeps the filter: found %v, active %v", found, l.narrow.active())
+	}
+	// A reload that follows a queued task's swap names the row without the lift, so an edit that took it out of the filter lets it go.
+	if found := l.setRows("F2", "Web", tasks, nil, "b1", false); found || !l.narrow.active() {
+		t.Errorf("a swap reload must not lift the filter: found %v, active %v", found, l.narrow.active())
+	}
+}
+
+func TestNarrowedListNamesWhatItShowsUnderTheRows(t *testing.T) {
+	l := testBoardList()
+	l.setGroup(groupNone)
+	l.height = 6
+	l.setNarrow(rowFilter{person: "ME"})
+	if l.listHeight() != 5 {
+		t.Errorf("the line under the rows takes one of them, listHeight %d", l.listHeight())
+	}
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	lines := strings.Split(ansi.Strip(l.View(th, l.ref, time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC), 60, 6, true)), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); last != "showing Ada Nowak (me)" || len(lines) != 6 {
+		t.Errorf("the last line names the filter: %q in %d lines", last, len(lines))
 	}
 }

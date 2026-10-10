@@ -41,6 +41,7 @@ type taskListModel struct {
 	doneLifted bool // showDone turned on by a jump, turned off again when the list moves to another node
 	filtering  bool
 	filter     textinput.Model
+	narrow     rowFilter // the filter box's choice
 	keys       KeyMap
 }
 
@@ -52,11 +53,12 @@ func newTaskList(keys KeyMap) taskListModel {
 }
 
 // setRows replaces the rows and reports whether keepID, or the task selected before, is still among them.
-// Only a jump from the search, the issues screen or the timesheet names a keepID.
-// The jump lifts whatever would hide its task, the done toggle and the filter,
+// A jump from the search, the issues screen or the timesheet, and a create landing on its new row, name a keepID with lift:
+// that lifts whatever would hide the task, the done toggle, the filter and the filter box's choice,
 // and a lifted toggle falls back once a plain move takes the list to another node.
-// A plain reload leaves both alone, so a task completed from the list still leaves it.
-func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string) bool {
+// A reload that follows a queued task's swap names its row without lift, and a plain reload names none,
+// both leave the toggle and the filters alone, so a task completed or moved out of the filter from the list leaves it like any other.
+func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string, lift bool) bool {
 	if keepID == "" {
 		if cur, ok := l.current(); ok {
 			keepID = cur.task.ID
@@ -64,12 +66,15 @@ func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states
 		if l.doneLifted && nodeID != l.nodeID {
 			l.showDone, l.doneLifted = false, false
 		}
-	} else if i := slices.IndexFunc(tasks, func(t store.Task) bool { return t.ID == keepID }); i >= 0 {
+	} else if i := slices.IndexFunc(tasks, func(t store.Task) bool { return t.ID == keepID }); i >= 0 && lift {
 		if !l.showDone && isDone(tasks[i]) {
 			l.showDone, l.doneLifted = true, true
 		}
 		if q := l.query(); q != "" && !strings.Contains(strings.ToLower(tasks[i].Title), q) {
 			l.filter.SetValue("")
+		}
+		if l.narrow.active() && !l.narrow.matches(tasks[i], l.ref) {
+			l.narrow = rowFilter{}
 		}
 	}
 	l.nodeID, l.crumb = nodeID, crumb
@@ -86,7 +91,8 @@ func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states
 	return found
 }
 
-// applyFilter is the one place the rows are built: the filter and the done toggle narrow all, the grouping orders what is left.
+// applyFilter is the one place the rows are built: the filter, the done toggle and the filter box's choice narrow all,
+// the grouping orders what is left.
 // The columns are computed here too, the board and the by status sections share them.
 func (l *taskListModel) applyFilter() {
 	q := l.query()
@@ -98,11 +104,14 @@ func (l *taskListModel) applyFilter() {
 		if q != "" && !strings.Contains(strings.ToLower(r.task.Title), q) {
 			continue
 		}
+		if !l.narrow.matches(r.task, l.ref) {
+			continue
+		}
 		kept = append(kept, i)
 	}
 	l.count = len(kept)
 	var colOf map[int]int
-	l.columns, colOf = boardColumns(l.all, kept, l.ref, l.showDone)
+	l.columns, colOf = boardColumns(l.all, kept, l.ref, l.showDone, l.narrow.statuses)
 	switch l.groupBy {
 	case groupFolder:
 		l.groups = groupByFolder(l.all, kept, l.nodeID, l.folders)
@@ -179,6 +188,16 @@ func (l *taskListModel) regroup() {
 
 func (l *taskListModel) setGroup(g groupKey) {
 	l.groupBy = g
+	l.regroup()
+}
+
+// setNarrow takes the filter box's choice. A status set names the columns, so the done toggle follows it:
+// a set with a done status turns the toggle on and one without turns it off, and no set leaves it as it stands.
+func (l *taskListModel) setNarrow(f rowFilter) {
+	l.narrow = f
+	if len(f.statuses) > 0 {
+		l.showDone, l.doneLifted = f.hasDone(l.ref), false
+	}
 	l.regroup()
 }
 
@@ -262,12 +281,30 @@ func (l *taskListModel) scroll() {
 	}
 }
 
-// listHeight is the row count left for the list once the filter input takes its own line.
+// listHeight is the row count left for the list once the line under the rows takes its own.
 func (l taskListModel) listHeight() int {
-	if l.filtering || l.filter.Value() != "" {
+	if l.hasFooter() {
 		return l.height - 1
 	}
 	return l.height
+}
+
+// hasFooter tells whether a line under the rows is in use: the filter input, or the filter box's choice.
+func (l taskListModel) hasFooter() bool {
+	return l.filtering || l.filter.Value() != "" || l.narrow.active()
+}
+
+// footer is that line, the input while it is in use or holds a query, and what the box narrows the rows to after it.
+// The board draws it under its lanes too, so the two shapes say the same thing about the rows they share.
+func (l taskListModel) footer(th Theme, width int) string {
+	var parts []string
+	if l.filtering || l.filter.Value() != "" {
+		parts = append(parts, l.filter.View())
+	}
+	if l.narrow.active() {
+		parts = append(parts, lipgloss.NewStyle().Foreground(th.Muted).Render("showing "+l.narrow.summary(l.ref)))
+	}
+	return ansi.Truncate(strings.Join(parts, "   "), width, "...")
 }
 
 func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
@@ -327,6 +364,10 @@ func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
 	case key.Matches(msg, l.keys.ToggleDone):
 		// The user's own press wins over a jump's lift, so the toggle stays as they set it when the list moves on.
 		l.showDone, l.doneLifted = !l.showDone, false
+		if len(l.narrow.statuses) > 0 {
+			// A status set names the columns, so the toggle moves the done statuses of the workflows in view in and out of it.
+			l.narrow = l.narrow.withDone(l.ref, viewWorkflows(l.all, l.ref), l.showDone)
+		}
 		l.applyFilter()
 	case key.Matches(msg, l.keys.Enter), key.Matches(msg, l.keys.Right):
 		return l, intent(focusMsg{pane: paneDetail})
@@ -432,7 +473,7 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 		return ""
 	}
 	listHeight := height
-	if l.filtering || l.filter.Value() != "" {
+	if l.hasFooter() {
 		listHeight--
 	}
 	// offset lives on the model, scroll() keeps it inside the list on every path that changes the rows or the height.
@@ -501,7 +542,7 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 	}
 	if listHeight < height {
 		b.WriteByte('\n')
-		b.WriteString(l.filter.View())
+		b.WriteString(l.footer(th, width))
 	}
 	return b.String()
 }

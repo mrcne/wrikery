@@ -10,6 +10,7 @@ type KeyMap struct {
 	Retry, Discard                                                                                                       key.Binding
 	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                                   key.Binding
 	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                       key.Binding
+	FilterBox, ClearFilter, FilterHelp                                                                                   key.Binding
 }
 
 func b(help, desc string, keys ...string) key.Binding {
@@ -27,7 +28,10 @@ func defaultKeyMap() KeyMap {
 		Filter: b("/", "filter", "/"), Enter: b("enter", "open", "enter"), Left: b("h", "collapse / left", "h", "left"), Right: b("l", "expand / right", "l", "right"),
 		ToggleDone: b("z", "show completed", "z"), Pin: b("space", "pin / unpin", " "), Pinned: b("P", "pinned only", "P"),
 		Board: b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
-		PrevGroup: b("{", "previous group", "{"), NextGroup: b("}", "next group", "}"),
+		FilterBox: b("f", "filter box", "f"), ClearFilter: b("F", "clear filter", "F"),
+		// The help overlay shows the two on one row, the list column is the tallest and a 24 row terminal has no room for another.
+		FilterHelp: b("f F", "filter box, F clears it", "f", "F"),
+		PrevGroup:  b("{", "previous group", "{"), NextGroup: b("}", "next group", "}"),
 		StatusPrev: b("H", "previous status", "H"), StatusNext: b("L", "next status", "L"),
 		ColPrev: b("h", "previous column", "h", "left"), ColNext: b("l", "next column", "l", "right"),
 
@@ -49,7 +53,7 @@ func (k KeyMap) global() []key.Binding {
 }
 
 func (k KeyMap) list() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board, k.New, k.Pin, k.Pinned}
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Filter, k.FilterHelp, k.Enter, k.Left, k.Right, k.ToggleDone, k.GroupBy, k.PrevGroup, k.NextGroup, k.Board, k.New, k.Pin, k.Pinned}
 }
 
 func (k KeyMap) task() []key.Binding {
@@ -57,7 +61,7 @@ func (k KeyMap) task() []key.Binding {
 }
 
 func (k KeyMap) board() []key.Binding {
-	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.ToggleDone, k.GroupBy, k.Board, k.Enter, k.New}
+	return []key.Binding{k.ColPrev, k.ColNext, k.Down, k.Up, k.Top, k.Bottom, k.PrevGroup, k.NextGroup, k.Filter, k.FilterHelp, k.ToggleDone, k.GroupBy, k.Board, k.Enter, k.New}
 }
 
 func (k KeyMap) timesheet() []key.Binding {

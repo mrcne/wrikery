@@ -2,10 +2,12 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -86,5 +88,23 @@ func TestChecklistMatchesATypedEmojiWithItsSelector(t *testing.T) {
 	c.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("\u26a0\ufe0f")})
 	if len(c.visible) != 1 || c.rows[c.visible[0]].id != "1" {
 		t.Errorf("the typed sign should match its row, visible %v", c.visible)
+	}
+}
+
+func TestChecklistDrawsASectionHeaderWhereItChanges(t *testing.T) {
+	rows := []checkRow{{id: "1", label: "High", section: "Importance"}, {id: "2", label: "Low", section: "Importance"}, {id: "3", label: "Ada", section: "People"}}
+	c, _ := newChecklist(rows, nil, "")
+	lines := strings.Split(ansi.Strip(c.view(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 30, 10)), "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	// The filter line and a blank line come first, then the rows under their headers.
+	want := []string{"Importance", "> [ ] High", "  [ ] Low", "People", "  [ ] Ada"}
+	if got := lines[2 : len(lines)-1]; !slices.Equal(got, want) {
+		t.Errorf("lines = %q, want %q", got, want)
+	}
+	c.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if view := ansi.Strip(c.view(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 30, 10)); strings.Contains(view, "Importance") || !strings.Contains(view, "People") {
+		t.Errorf("a narrowed list keeps only the headers of the rows it shows:\n%s", view)
 	}
 }
