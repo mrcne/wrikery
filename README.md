@@ -35,6 +35,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - instant full text search over everything cached
 - a timesheet view of your own logged time
 - a board over workflow statuses, plain or with a lane per person or per folder
+- narrow the list and the board to importance levels, a person and statuses, in any combination
 - create tasks
 - add comments
 - change task title, description, importance, status, assignee and dates
@@ -50,6 +51,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `j` `k` | move |
 | `enter` | open |
 | `/` | filter the list, or the tree |
+| `f` `F` | filter by importance, person and status, and clear it |
 | `space` `P` | pin a folder, show only the pinned ones |
 | `ctrl+f` | search |
 | `c` | comment |

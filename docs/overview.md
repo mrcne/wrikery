@@ -140,12 +140,24 @@ By assignee puts you first and unassigned tasks last, a task with several people
 Each group starts with a line that carries its name and count, `{` and `}` jump between groups.
 `H` and `L` move the selected task to the previous or next status of its workflow without opening the status box.
 
+`f` opens the filter box, which narrows the list and the board to what is ticked there: importance levels, one person and statuses.
+Within a section any ticked row matches, across sections a task has to match them all, and a section with nothing ticked takes every task.
+A task with several people counts for the person ticked, and ticking a person unticks the one before.
+The people offered are you, whoever is on a task in view and Unassigned, the statuses are those of the workflows the tasks in view use.
+The line under the rows says what is shown, and `F` clears the filter.
+A ticked status set also decides the board's columns, so unticking a status hides its column.
+The set and `z` keep each other in step: ticking a completed or cancelled status turns `z` on, and with a set in place `z` adds the done statuses of the workflows in view to it or takes them out.
+A status is picked by its name, so a set made on one folder holds on a folder whose workflow spells the same statuses with its own ids.
+A jump to a task the filter would hide clears the filter, the way it clears the `/` query, and a task just created lands on its row the same way.
+An edit that takes a task out of the filter lets it leave the list like any other.
+The filter stays while you move between folders and is not kept across restarts.
+
 `b` turns the list into a board: a column per status of the workflow the tasks use, cards in the columns, and a lane per group when a grouping is on.
 So the board by assignee is a standup, who is on what and what is stuck, and the board by folder is a board per epic.
 Tasks on another workflow than most of the folder gather in one column named after that workflow, and `H` and `L` refuse to move them, the status box still works.
 The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back.
 Columns that do not fit slide in as the cursor moves towards them, an empty column shrinks to its name.
-`h` and `l` move between columns, `j` and `k` between cards, `/`, `z` and every task key work as in the list.
+`h` and `l` move between columns, `j` and `k` between cards, `/`, `f`, `z` and every task key work as in the list.
 
 A card shows the title on one line, or on two when it is long, and the break prefers a `: ` or ` - ` in the second half of the first line, so `(MX) Backend: Kafka - Processing` reads as a heading and a detail.
 A code in parentheses at the start of a title, `(MX)`, is drawn muted and a short part prefix closed by `: ` or ` - `, `Backend: Kafka - `, slightly muted, on cards and rows alike, so the eye lands on the words that differ between tasks.

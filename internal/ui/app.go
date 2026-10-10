@@ -164,7 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.reloadTask()
 		}
 		// The pending and failed markers live on the task row and on the detail header, so a queue change rereads both.
-		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch()), m.reloadTask())
+		return m, tea.Batch(m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch(), false), m.reloadTask())
 	case toastMsg:
 		return m, m.status.show(msg.text, msg.isErr)
 	case toastExpiredMsg:
@@ -207,7 +207,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openedOnFocus(prev)
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
-		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node), "")
+		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node), "", false)
 	case tasksLoadedMsg:
 		// Loads run in the background, so an answer for a node the sidebar has left since is dropped,
 		// or two quick moves could leave the list showing the folder passed on the way.
@@ -217,7 +217,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.list.nodeID != msg.nodeID && msg.selectID == "" {
 			m.list.cursor = 0
 		}
-		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, msg.selectID)
+		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, msg.selectID, msg.lift)
 		if !found && m.shape == shapeBoard {
 			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
 			m.list.cursor = m.board.fallback(&m.list)
@@ -463,6 +463,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Title: msg.title})
 			return err
 		}, "Title updated")
+	case submitFilterMsg:
+		return m, m.setNarrow(msg.filter)
 	case submitImportanceMsg:
 		st := m.opts.Store
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -539,7 +541,7 @@ func (m Model) reload(entities []string) tea.Cmd {
 	}
 	// The first sync writes tasks before the tree is on screen, and the zero node has no folder to list.
 	if slices.Contains(entities, "tasks") && m.selectedNode.kind != nodeNone {
-		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch()))
+		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch(), false))
 	}
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
 		cmds = append(cmds, m.reloadTask())
@@ -616,7 +618,7 @@ func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
 		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
-		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id), m.flushPins())
+		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id, true), m.flushPins())
 	}
 	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
 	return m, tea.Batch(cmds...)
@@ -833,6 +835,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.toggleShape()
 	case key.Matches(msg, m.keys.GroupBy):
 		m.list.cycleGroup(m.shape == shapeBoard)
+	case key.Matches(msg, m.keys.FilterBox):
+		d, cmd := newFilterDialog(&m.list)
+		m.openDialog(d)
+		return m, cmd
+	case key.Matches(msg, m.keys.ClearFilter):
+		return m, m.setNarrow(rowFilter{})
 	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
 		delta := 1
 		if key.Matches(msg, m.keys.StatusPrev) {
@@ -928,6 +936,19 @@ func (m Model) cyclePane(delta int) pane {
 		}
 	}
 	return panes[0]
+}
+
+// setNarrow applies the filter box's choice, or clears it on F, and keeps the board, the detail and the sizes in step with the rows it leaves.
+func (m *Model) setNarrow(f rowFilter) tea.Cmd {
+	before, _ := m.list.current()
+	m.list.setNarrow(f)
+	if m.shape == shapeBoard {
+		m.board.fit(&m.list, m.theme.HidePrefixes)
+	}
+	m.clearIfListEmpty()
+	m.syncPaneSizes()
+	_, cmd := m.list.afterMove(before, nil)
+	return cmd
 }
 
 // toggleShape switches the list and the board. The selection is the list's cursor either way, so nothing is carried over.
@@ -1168,11 +1189,17 @@ func (m Model) hintBindings() []key.Binding {
 		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.Enter, m.keys.Back}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
+	// The filter keys come last, after the global ones, so a narrower bar drops them before ? and q,
+	// and the clear key is offered only while there is something to clear.
+	filter := []key.Binding{m.keys.FilterBox}
+	if m.list.narrow.active() {
+		filter = append(filter, m.keys.ClearFilter)
+	}
 	if m.focus == paneBoard {
-		return append([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base...)
+		return slices.Concat([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base, filter)
 	}
 	if m.focus == paneList {
-		return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base...)
+		return slices.Concat([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base, filter)
 	}
 	if m.focus == paneDetail {
 		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)

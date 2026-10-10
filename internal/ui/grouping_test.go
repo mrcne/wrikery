@@ -144,7 +144,7 @@ func TestBoardColumnsFollowTheMainWorkflow(t *testing.T) {
 		store.Task{ID: "d", CustomStatusID: "S3"},
 		store.Task{ID: "e", CustomStatusID: "??"},
 	)
-	cols, colOf := boardColumns(all, kept, ref, false)
+	cols, colOf := boardColumns(all, kept, ref, false, nil)
 	want := []string{"New", "In Progress", "Secret", "On Hold", "Task workflow", "other"}
 	if got := columnTitles(cols); !reflect.DeepEqual(got, want) {
 		t.Fatalf("columns = %v, want %v", got, want)
@@ -158,14 +158,14 @@ func TestBoardColumnsFollowTheMainWorkflow(t *testing.T) {
 	if len(cols[0].rows) != 0 || len(cols[1].rows) != 2 {
 		t.Errorf("rows per column: New %d, In Progress %d", len(cols[0].rows), len(cols[1].rows))
 	}
-	withDone, _ := boardColumns(all, kept, ref, true)
+	withDone, _ := boardColumns(all, kept, ref, true, nil)
 	if got := columnTitles(withDone); got[4] != "Completed" {
 		t.Errorf("with showDone the Completed column is back: %v", got)
 	}
 }
 
 func TestBoardColumnsWithNoRowsShowTheStandardWorkflow(t *testing.T) {
-	cols, _ := boardColumns(nil, nil, testWorkflows(), false)
+	cols, _ := boardColumns(nil, nil, testWorkflows(), false, nil)
 	if got, want := columnTitles(cols), []string{"New", "In Progress", "On Hold"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("columns = %v, want %v", got, want)
 	}
@@ -174,7 +174,7 @@ func TestBoardColumnsWithNoRowsShowTheStandardWorkflow(t *testing.T) {
 func TestGroupByStatusMakesASectionPerColumnWithRows(t *testing.T) {
 	ref := testWorkflows()
 	all, kept := rowsOf(store.Task{ID: "a", CustomStatusID: "S4"}, store.Task{ID: "b", CustomStatusID: "S1"})
-	cols, _ := boardColumns(all, kept, ref, false)
+	cols, _ := boardColumns(all, kept, ref, false, nil)
 	groups := groupByStatus(cols)
 	if got, want := titlesOf(groups), []string{"New", "On Hold"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("sections = %v, want %v", got, want)
@@ -258,5 +258,47 @@ func TestGroupByFolderCarriesTheSectionID(t *testing.T) {
 	groups := groupByFolder(all, []int{0, 1, 2}, "PLT", idx)
 	if len(groups) != 3 || groups[0].id != "PLT" || groups[1].id != "API" || groups[2].id != "INF" {
 		t.Errorf("groups = %+v, want the node first, then its children in tree order, each with its id", groups)
+	}
+}
+
+func TestBoardColumnsTakeOnlyTheTickedStatuses(t *testing.T) {
+	ref := testWorkflows()
+	all, _ := rowsOf(
+		store.Task{ID: "a", CustomStatusID: "S2"},
+		store.Task{ID: "b", CustomStatusID: "S5", Status: "Completed"},
+		store.Task{ID: "c", CustomStatusID: "T1"},
+	)
+	// The rows outside the set are already gone, the filter drops them before the columns are laid out.
+	cols, colOf := boardColumns(all, []int{0, 1}, ref, true, setOf("completed", "in progress"))
+	if got, want := columnTitles(cols), []string{"In Progress", "Completed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("columns = %v, want %v", got, want)
+	}
+	if colOf[0] != 0 || colOf[1] != 1 {
+		t.Errorf("colOf = %v", colOf)
+	}
+	// A filter that leaves no rows keeps the columns of the workflow the node's rows use, instead of the standard one.
+	empty, _ := boardColumns(all, nil, ref, false, nil)
+	if got, want := columnTitles(empty), []string{"New", "In Progress", "On Hold"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("columns with no rows = %v, want the standard workflow %v", got, want)
+	}
+	other, _ := rowsOf(store.Task{ID: "c", CustomStatusID: "T1"}, store.Task{ID: "d", CustomStatusID: "T2"})
+	empty, _ = boardColumns(other, nil, ref, false, nil)
+	if got, want := columnTitles(empty), []string{"Planned"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("columns with every row filtered out = %v, want the rows' own workflow %v", got, want)
+	}
+}
+
+func TestViewWorkflowsPutTheOneMostRowsUseFirst(t *testing.T) {
+	ref := testWorkflows()
+	all, _ := rowsOf(store.Task{CustomStatusID: "T1"}, store.Task{CustomStatusID: "T2"}, store.Task{CustomStatusID: "S1"})
+	var names []string
+	for _, wf := range viewWorkflows(all, ref) {
+		names = append(names, wf.Name)
+	}
+	if want := []string{"Task workflow", "Default Workflow"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("workflows = %v, want %v", names, want)
+	}
+	if got := viewWorkflows(nil, ref); len(got) != 1 || !got[0].Standard {
+		t.Errorf("with no rows the standard workflow stands in, got %d", len(got))
 	}
 }

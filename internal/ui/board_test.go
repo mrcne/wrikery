@@ -28,7 +28,7 @@ func testBoardList() taskListModel {
 		{ID: "b1", Title: "Bartek on hold", Status: "Active", CustomStatusID: "S4", ResponsibleIDs: []string{"B1"}},
 		{ID: "b2", Title: "Bartek planned", Status: "Active", CustomStatusID: "T1", ResponsibleIDs: []string{"B1"}},
 	}
-	l.setRows("F1", "API", tasks, nil, "")
+	l.setRows("F1", "API", tasks, nil, "", false)
 	l.setGroup(groupAssignee)
 	return l
 }
@@ -102,14 +102,14 @@ func TestBoardFallbackStaysInTheCell(t *testing.T) {
 	l.setRows("F1", "API", []store.Task{
 		{ID: "a2", Title: "Ada also new", Status: "Active", CustomStatusID: "S1", ResponsibleIDs: []string{"ME"}},
 		{ID: "a3", Title: "Ada in progress", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"ME"}},
-	}, nil, "a1")
+	}, nil, "a1", false)
 	if p := b.fallback(&l); l.all[l.rows[p]].task.ID != "a2" {
 		t.Errorf("fallback picked %s, want a2", l.all[l.rows[p]].task.ID)
 	}
 	b.last, b.lastIdx = boardCell{lane: 0, col: 0}, 0
 	l.setRows("F1", "API", []store.Task{
 		{ID: "a3", Title: "Ada in progress", Status: "Active", CustomStatusID: "S2", ResponsibleIDs: []string{"ME"}},
-	}, nil, "a1")
+	}, nil, "a1", false)
 	if p := b.fallback(&l); l.all[l.rows[p]].task.ID != "a3" {
 		t.Errorf("with the cell empty the nearest column of the lane, got %s", l.all[l.rows[p]].task.ID)
 	}
@@ -154,7 +154,7 @@ func TestBoardViewDrawsHeaderLanesAndCards(t *testing.T) {
 	}
 	empty := newTaskList(defaultKeyMap())
 	empty.ref = testWorkflows()
-	empty.setRows("F1", "API", nil, nil, "")
+	empty.setRows("F1", "API", nil, nil, "", false)
 	b.fit(&empty, nil)
 	view = b.View(th, empty.ref, time.Time{}, &empty, true)
 	if !strings.Contains(view, "New (0)") || !strings.Contains(view, "no tasks here") {
@@ -284,7 +284,7 @@ func TestHighImportanceIsFlaggedInRowsAndOnCards(t *testing.T) {
 		{ID: "h", Title: "Hot", Status: "Active", CustomStatusID: "S1", Importance: "High"},
 		{ID: "n", Title: "Calm", Status: "Active", CustomStatusID: "S1"},
 	}
-	l.setRows("F1", "API", tasks, nil, "")
+	l.setRows("F1", "API", tasks, nil, "", false)
 	view := l.View(th, l.ref, time.Time{}, 60, 4, true)
 	if !strings.Contains(view, "o ! Hot") || !strings.Contains(view, "o   Calm") {
 		t.Errorf("list rows should flag High in a fixed column:\n%s", view)

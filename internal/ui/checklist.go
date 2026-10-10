@@ -10,9 +10,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type checkRow struct{ id, label string }
+type checkRow struct {
+	id, label string
+	section   string // drawn as a muted header above the first row of a run, the filter box groups its rows with it
+}
 
-// checklist is the filterable list of rows the assignee, the folders and the Follow boxes share, with a check box each,
+// checklist is the filterable list of rows the assignee, the folders, the Follow and the filter boxes share, with a check box each,
 // and the create box as a single pick without boxes.
 // The cursor is a position in visible and goes back to the top whenever the query changes,
 // so after typing the highlighted row is the first match and never the row that slid under the old position.
@@ -140,7 +143,7 @@ func (c *checklist) update(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// view draws the filter, a blank line and at most rows lines of the list.
+// view draws the filter, a blank line and at most rows lines of the list, plus a header line where a section starts.
 // A list longer than that shows a window kept around the cursor and one marker line counting what sits outside it.
 func (c checklist) view(th Theme, width, rows int) string {
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
@@ -152,8 +155,13 @@ func (c checklist) view(th Theme, width, rows int) string {
 		window = max(rows-1, 1)
 	}
 	first := min(max(c.cursor-window/2, 0), len(c.visible)-window)
+	section := ""
 	for i := first; i < first+window; i++ {
 		r := c.rows[c.visible[i]]
+		if r.section != section {
+			section = r.section
+			b.WriteString(muted.Render(section) + "\n")
+		}
 		indent, title := splitIndent(r.label)
 		line := indent + title
 		if !c.single {

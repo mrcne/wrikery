@@ -1287,3 +1287,32 @@ func TestSettingsBoxReportsAFailedWrite(t *testing.T) {
 		t.Errorf("a failed write should leave the error on screen and the row unchanged:\n%s", view)
 	}
 }
+
+func TestFilterBoxNarrowsTheListAndTheBoard(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks (")
+	all := taskListTitleCount(t, seenOutput(t, tm).String())
+	press(tm, "f")
+	waitFor(t, tm, "[ ] High")
+	from := mark(t, tm)
+	press(tm, "space", "enter")
+	waitAfter(t, tm, from, "showing High")
+	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= all {
+		t.Fatalf("High only should narrow the list below %d, title count is %d", all, n)
+	}
+	from = mark(t, tm)
+	press(tm, "F")
+	waitAfter(t, tm, from, fmt.Sprintf("Tasks: My tasks (%d)", all))
+	press(tm, "b")
+	waitFor(t, tm, "Board: My tasks")
+	press(tm, "f")
+	waitFor(t, tm, "[ ] High")
+	// The demo tasks sit on the Engineering workflow, where the done status is called Done.
+	press(tm, "done", "space", "enter")
+	waitFor(t, tm, "showing Done")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "Done (") || strings.Contains(view, "Backlog (") {
+		t.Errorf("the board should show the Done column alone:\n%s", view)
+	}
+}

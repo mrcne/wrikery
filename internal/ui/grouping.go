@@ -205,20 +205,9 @@ func groupByAssignee(all []taskRow, kept []int, ref refData) []taskGroup {
 			add(id, ri)
 		}
 	}
-	// Me first, then by the name as drawn, Unassigned last, the way a standup reads.
-	// contactName falls back to the id, so a contact the cache does not know sorts by that and not ahead of everyone.
-	rank := func(id string) (int, string) {
-		switch id {
-		case "":
-			return 2, ""
-		case ref.meID:
-			return 0, ""
-		}
-		return 1, strings.ToLower(contactName(id, ref))
-	}
 	slices.SortStableFunc(keys, func(a, b string) int {
-		ra, na := rank(a)
-		rb, nb := rank(b)
+		ra, na := personRank(a, ref)
+		rb, nb := personRank(b, ref)
 		return cmp.Or(cmp.Compare(ra, rb), strings.Compare(na, nb), strings.Compare(a, b))
 	})
 	out := make([]taskGroup, 0, len(keys))
@@ -235,6 +224,19 @@ func groupByAssignee(all []taskRow, kept []int, ref refData) []taskGroup {
 		out = append(out, *g)
 	}
 	return out
+}
+
+// personRank orders people the way a standup reads: me first, then by the name as drawn, nobody ("") last.
+// contactName falls back to the id, so a contact the cache does not know sorts by that and not ahead of everyone.
+// The by assignee sections and the filter box share it, so the box lists people in the order of the lanes.
+func personRank(id string, ref refData) (int, string) {
+	switch id {
+	case "":
+		return 2, ""
+	case ref.meID:
+		return 0, ""
+	}
+	return 1, strings.ToLower(contactName(id, ref))
 }
 
 func groupByStatus(cols []boardColumn) []taskGroup {
@@ -260,37 +262,103 @@ type boardColumn struct {
 
 func isDoneGroup(group string) bool { return group == "Completed" || group == "Cancelled" }
 
-// boardColumns lays the kept rows over the statuses of the workflow most of them sit on.
-// A folder has no workflow field in the API and a space's default can name another workflow than its tasks use,
-// so the rows themselves are the only honest source for the columns.
-// The map gives the column of every kept row, keyed by its index into all.
-func boardColumns(all []taskRow, kept []int, ref refData, showDone bool) ([]boardColumn, map[int]int) {
+// statusWorkflows maps every cached status to the index of its workflow in ref.
+func statusWorkflows(ref refData) map[string]int {
 	wfOf := map[string]int{}
 	for i, wf := range ref.workflows {
 		for _, cs := range wf.CustomStatuses {
 			wfOf[cs.ID] = i
 		}
 	}
+	return wfOf
+}
+
+// workflowsByUse ranks the workflows the given rows sit on, as indices into ref.workflows:
+// the one most rows use first and the standard one ahead on a tie, which is the board's main workflow and the box's order.
+// With no row on any workflow the standard one stands in, or the first.
+func workflowsByUse(all []taskRow, rows []int, ref refData) []int {
+	wfOf := statusWorkflows(ref)
 	counts := make([]int, len(ref.workflows))
-	held := map[string]bool{}
-	for _, ri := range kept {
-		id := all[ri].task.CustomStatusID
-		held[id] = true
-		if i, ok := wfOf[id]; ok {
+	var idx []int
+	for _, ri := range rows {
+		if i, ok := wfOf[all[ri].task.CustomStatusID]; ok {
+			if counts[i] == 0 {
+				idx = append(idx, i)
+			}
 			counts[i]++
 		}
 	}
-	main := -1
-	for i, wf := range ref.workflows {
-		if main < 0 || counts[i] > counts[main] || (counts[i] == counts[main] && wf.Standard && !ref.workflows[main].Standard) {
-			main = i
+	slices.SortStableFunc(idx, func(a, b int) int {
+		if c := cmp.Compare(counts[b], counts[a]); c != 0 {
+			return c
 		}
+		if sa, sb := ref.workflows[a].Standard, ref.workflows[b].Standard; sa != sb {
+			if sa {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+	if len(idx) == 0 {
+		for i, wf := range ref.workflows {
+			if wf.Standard {
+				return []int{i}
+			}
+		}
+		if len(ref.workflows) > 0 {
+			return []int{0}
+		}
+	}
+	return idx
+}
+
+func allRows(all []taskRow) []int {
+	rows := make([]int, len(all))
+	for i := range all {
+		rows[i] = i
+	}
+	return rows
+}
+
+// viewWorkflows lists the workflows the rows of the node sit on, the one most rows use first, see workflowsByUse.
+func viewWorkflows(all []taskRow, ref refData) []store.Workflow {
+	var out []store.Workflow
+	for _, i := range workflowsByUse(all, allRows(all), ref) {
+		out = append(out, ref.workflows[i])
+	}
+	return out
+}
+
+// boardColumns lays the kept rows over the statuses of the workflow most of them sit on.
+// A folder has no workflow field in the API and a space's default can name another workflow than its tasks use,
+// so the rows themselves are the only honest source for the columns.
+// A status set from the filter box names the columns outright, by status name, the done toggle already agrees with it.
+// The map gives the column of every kept row, keyed by its index into all.
+func boardColumns(all []taskRow, kept []int, ref refData, showDone bool, only map[string]bool) ([]boardColumn, map[int]int) {
+	wfOf := statusWorkflows(ref)
+	held := map[string]bool{}
+	for _, ri := range kept {
+		held[all[ri].task.CustomStatusID] = true
+	}
+	ranked := workflowsByUse(all, kept, ref)
+	if len(kept) == 0 {
+		// A filter that leaves no rows must not swap the columns to the standard workflow, the rows of the node say which one is in view.
+		ranked = workflowsByUse(all, allRows(all), ref)
+	}
+	main := -1
+	if len(ranked) > 0 {
+		main = ranked[0]
 	}
 	var cols []boardColumn
 	colOfStatus := map[string]int{}
 	if main >= 0 {
 		for _, cs := range ref.workflows[main].CustomStatuses {
-			if (cs.Hidden && !held[cs.ID]) || (isDoneGroup(cs.Group) && !showDone) {
+			if len(only) > 0 {
+				if !only[statusKey(cs.Name)] {
+					continue
+				}
+			} else if (cs.Hidden && !held[cs.ID]) || (isDoneGroup(cs.Group) && !showDone) {
 				continue
 			}
 			colOfStatus[cs.ID] = len(cols)
