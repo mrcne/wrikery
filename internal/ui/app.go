@@ -222,7 +222,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The selected card left the board, a status move onto a hidden status does that, so the cursor stays in its cell.
 			m.list.cursor = m.board.fallback(&m.list)
 		}
-		m.board.fit(&m.list, m.theme.HidePrefixes)
+		if m.shape == shapeBoard {
+			// In the list shape the board has no width yet, and a window placed at width zero would stick to the cursor column.
+			m.board.fit(&m.list, m.theme.HidePrefixes)
+		}
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
@@ -770,8 +773,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.screen != screenMain {
 			m.screen = screenMain
 		} else if m.shape == shapeBoard {
-			// The board is the home pane of its shape: a side pane hands the width back to it, on the board itself esc rests.
+			// The board is the home pane of its shape: a side pane hands the width back to it, and on the board itself esc leaves it like b.
 			// The one pane rule below counts panes down and would land on the detail, which sits before the board in the order.
+			if m.focus == paneBoard {
+				// The toggle sizes the panes itself, and the key must not reach the list the toggle just focused.
+				m.toggleShape()
+				return m, nil
+			}
 			m.focus = paneBoard
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
