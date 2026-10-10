@@ -354,6 +354,15 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if len(touched) > 0 {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
 	}
+
+	// Last, so the opened task is served by its thread refresh before a first pull's catch-up of edges runs its batch.
+	changedDeps, err := pullDependencies(ctx, e.client, e.st, e.log)
+	if err != nil {
+		return err
+	}
+	if changedDeps {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindDependencies}})
+	}
 	return nil
 }
 

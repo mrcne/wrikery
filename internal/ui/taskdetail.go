@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -17,6 +20,9 @@ type taskDetailModel struct {
 	task         store.Task
 	comments     []store.Comment
 	logs         []store.Timelog
+	subtasks     []store.Task
+	deps         []store.Dependency
+	related      map[string]store.Task
 	state        store.OutboxState
 	crumb        string
 	rendered     string
@@ -30,6 +36,7 @@ type taskDetailModel struct {
 func (d *taskDetailModel) set(msg taskLoadedMsg) {
 	sameTask := d.task.ID == msg.task.ID
 	d.task, d.comments, d.logs, d.crumb = msg.task, msg.comments, msg.logs, msg.crumb
+	d.subtasks, d.deps, d.related = msg.subtasks, msg.deps, msg.related
 	d.state = msg.states[msg.task.ID]
 	d.loaded = true
 	if !sameTask {
@@ -68,8 +75,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	sending := lipgloss.NewStyle().Foreground(th.Warn).Render("(sending)")
-	// Importance is ten characters on its own, so the column is one wider than the longest label.
-	label := func(s string) string { return muted.Render(fmt.Sprintf("%-11s", s)) }
+	label := func(s string) string { return muted.Render(fmt.Sprintf("%-*s", labelWidth, s)) }
 
 	var b strings.Builder
 	title := bold.Render(stableWidth(d.task.Title))
@@ -101,10 +107,49 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	if d.task.Importance != "" && d.task.Importance != "Normal" {
 		b.WriteString(label("Importance") + d.task.Importance + "\n")
 	}
+	for i, id := range d.task.SuperTaskIDs {
+		name := "Subtask of"
+		if i > 0 {
+			name = ""
+		}
+		b.WriteString(label(name) + d.relatedLine(id, ref, th, width-labelWidth) + "\n")
+	}
+	if d.task.AttachmentCount > 0 {
+		b.WriteString(label("Attachments") + strconv.Itoa(d.task.AttachmentCount) + "\n")
+	}
 	b.WriteString(label("Updated") + relTime(d.task.UpdatedDate, now) + "\n\n")
 
 	if strings.TrimSpace(d.rendered) != "" {
 		b.WriteString(d.rendered + "\n\n")
+	}
+
+	if len(d.subtasks) > 0 {
+		b.WriteString(divider(th, fmt.Sprintf("Subtasks (%d)", len(d.subtasks)), width) + "\n")
+		for _, s := range d.subtasks {
+			b.WriteString(taskLine(s, ref, th, width) + "\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(d.deps) > 0 {
+		b.WriteString(divider(th, fmt.Sprintf("Dependencies (%d)", len(d.deps)), width) + "\n")
+		for _, dep := range d.deps {
+			role, other := "successor", dep.SuccessorID
+			if dep.SuccessorID == d.task.ID {
+				role, other = "predecessor", dep.PredecessorID
+			}
+			rel := RelationText(dep.RelationType)
+			if lag := LagText(dep.LagMinutes); lag != "" {
+				rel += ", " + lag
+			}
+			line := label(role) + d.relatedLine(other, ref, th, width-labelWidth)
+			// The pane is often too narrow for the title and the relation side by side, and the frame would cut the relation.
+			if ansi.StringWidth(line)+2+len(rel) <= width {
+				b.WriteString(line + "  " + muted.Render(rel) + "\n")
+			} else {
+				b.WriteString(line + "\n" + label("") + muted.Render(rel) + "\n")
+			}
+		}
+		b.WriteString("\n")
 	}
 
 	b.WriteString(divider(th, fmt.Sprintf("Comments (%d)", len(d.comments)), width) + "\n")
@@ -159,6 +204,68 @@ func (d taskDetailModel) Update(msg tea.KeyMsg) (taskDetailModel, tea.Cmd) {
 }
 
 func (d taskDetailModel) View() string { return d.vp.View() }
+
+// labelWidth is the column the metadata labels take. Attachments is eleven characters on its own, so two more leave a gap.
+const labelWidth = 13
+
+// relatedLine names a super task or the other end of a dependency, cut to the width left of the label.
+// The pull only brings the followed scopes, so an end can be a task the cache has never seen.
+func (d taskDetailModel) relatedLine(id string, ref refData, th Theme, width int) string {
+	t, ok := d.related[id]
+	if !ok {
+		return lipgloss.NewStyle().Foreground(th.Muted).Render(ansi.Truncate("a task outside the followed spaces", max(width, 4), "..."))
+	}
+	return taskLine(t, ref, th, width)
+}
+
+// taskLine draws a related task the way a list row starts, the status glyph in its color and the title, muted once done.
+// A title longer than the width is cut with an ellipsis, the frame would cut it without one.
+func taskLine(t store.Task, ref refData, th Theme, width int) string {
+	cs := ref.statuses[t.CustomStatusID]
+	if cs.Name == "" {
+		cs.Group = t.Status
+	}
+	title := ansi.Truncate(stableWidth(t.Title), max(width-2, 4), "...")
+	if isDoneGroup(cs.Group) {
+		title = lipgloss.NewStyle().Foreground(th.Muted).Render(title)
+	}
+	return lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group)) + " " + title
+}
+
+// RelationText spells a dependency type the way the Gantt chart does, see https://developers.wrike.com/api/v4/dependencies/.
+// The command line prints the same words, which is why it is exported.
+func RelationText(relation string) string {
+	switch relation {
+	case "FinishToStart":
+		return "finish to start"
+	case "StartToStart":
+		return "start to start"
+	case "FinishToFinish":
+		return "finish to finish"
+	case "StartToFinish":
+		return "start to finish"
+	}
+	return relation
+}
+
+// LagText writes a lag in work days when it is whole ones, the unit the Gantt chart uses, and in hours to one decimal otherwise.
+// A negative value is a lead, the successor may start before the predecessor is done.
+func LagText(minutes int) string {
+	if minutes == 0 {
+		return ""
+	}
+	word := "lag"
+	if minutes < 0 {
+		word, minutes = "lead", -minutes
+	}
+	if minutes%480 == 0 {
+		if days := minutes / 480; days != 1 {
+			return fmt.Sprintf("%s %d days", word, days)
+		}
+		return word + " 1 day"
+	}
+	return word + " " + strconv.FormatFloat(math.Round(float64(minutes)/6)/10, 'f', -1, 64) + " h"
+}
 
 func contactName(id string, ref refData) string {
 	c, ok := ref.contacts[id]

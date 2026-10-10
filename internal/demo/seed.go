@@ -154,7 +154,27 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		}
 		tasks = append(tasks, t)
 	}
+	// Two subtasks under "Fix auth retry loop", with no folder of their own the way a subtask made under a task has none,
+	// a dependency into it and one out of it, and a couple of attachment counts, so the detail shows every relation it can.
+	tasks[0].AttachmentCount, tasks[7].AttachmentCount = 2, 1
+	tasks[0].DependencyIDs = []string{"IEAADEP01", "IEAADEP02"}
+	tasks[12].DependencyIDs = []string{"IEAADEP01"}
+	tasks[18].DependencyIDs = []string{"IEAADEP02"}
+	// Their ids continue the generated run, so they cannot collide with it whatever taskCount is.
+	tasks = append(tasks,
+		store.Task{ID: fmt.Sprintf("IEAATASK%02d", taskCount), Title: "Write the retry test", Status: "Active", CustomStatusID: "IEAAST11", Importance: "Normal",
+			Permalink: fmt.Sprintf("https://www.wrike.com/open.htm?id=%d", 1200000+taskCount), ResponsibleIDs: []string{"KUAAAAB1"}, SuperTaskIDs: []string{tasks[0].ID},
+			CreatedDate: stamp(-4, 9), UpdatedDate: stamp(-2, 10)},
+		store.Task{ID: fmt.Sprintf("IEAATASK%02d", taskCount+1), Title: "Add the backoff", Status: "Completed", CustomStatusID: "IEAAST15", Importance: "Normal",
+			Permalink: fmt.Sprintf("https://www.wrike.com/open.htm?id=%d", 1200001+taskCount), ResponsibleIDs: []string{"KUAAAAB1"}, SuperTaskIDs: []string{tasks[0].ID},
+			CreatedDate: stamp(-6, 9), UpdatedDate: stamp(-3, 10)})
 	if err := st.Tasks().Upsert(ctx, tasks); err != nil {
+		return err
+	}
+	if err := st.Dependencies().ReplaceForTask(ctx, tasks[0].ID, []store.Dependency{
+		{ID: "IEAADEP01", PredecessorID: tasks[12].ID, SuccessorID: tasks[0].ID, RelationType: "FinishToStart", LagMinutes: 960},
+		{ID: "IEAADEP02", PredecessorID: tasks[0].ID, SuccessorID: tasks[18].ID, RelationType: "StartToStart"},
+	}); err != nil {
 		return err
 	}
 

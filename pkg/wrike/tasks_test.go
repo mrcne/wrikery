@@ -319,3 +319,47 @@ func TestCreateTaskRejectsAnEmptyTitleOrFolder(t *testing.T) {
 		t.Error("want error for empty title, got nil")
 	}
 }
+
+const relationsFixture = `{"kind":"tasks","data":[
+  {"id":"IEAAAATSK3","title":"Subtask","status":"Active","customStatusId":"IEAAAACS1","importance":"Normal",
+   "superTaskIds":["IEAAAATSK1"],"dependencyIds":["MgAAAAEPLXpEMwAAAAEPLXpF"],"hasAttachments":true,"attachmentCount":2,
+   "createdDate":"2026-08-31T08:00:00Z","updatedDate":"2026-09-01T09:00:00Z","permalink":"https://www.wrike.com/open.htm?id=3"}
+]}`
+
+func TestTasksAsksForSubtasksAndDecodesTheRelations(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("subTasks"); got != "true" {
+			t.Errorf("subTasks = %q, want true", got)
+		}
+		_, _ = w.Write([]byte(relationsFixture))
+	}))
+	page, err := c.Tasks(context.Background(), TaskParams{FolderID: "IEAAAAFD2", SubTasks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Tasks) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	tk := page.Tasks[0]
+	if len(tk.SuperTaskIDs) != 1 || tk.SuperTaskIDs[0] != "IEAAAATSK1" {
+		t.Errorf("super tasks = %v", tk.SuperTaskIDs)
+	}
+	if len(tk.DependencyIDs) != 1 || tk.DependencyIDs[0] != "MgAAAAEPLXpEMwAAAAEPLXpF" {
+		t.Errorf("dependency ids = %v", tk.DependencyIDs)
+	}
+	if tk.AttachmentCount != 2 {
+		t.Errorf("attachment count = %d", tk.AttachmentCount)
+	}
+}
+
+func TestTasksOmitsSubTasksWhenNotAsked(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, set := r.URL.Query()["subTasks"]; set {
+			t.Error("subTasks sent without being asked")
+		}
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[]}`))
+	}))
+	if _, err := c.Tasks(context.Background(), TaskParams{FolderID: "IEAAAAFD2"}); err != nil {
+		t.Fatal(err)
+	}
+}

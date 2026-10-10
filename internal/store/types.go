@@ -11,6 +11,9 @@ type Task struct {
 	Permalink        string
 	ResponsibleIDs   []string
 	ParentIDs        []string
+	SuperTaskIDs     []string // the tasks this one is a subtask of
+	DependencyIDs    []string // the edges this task is an end of, see Dependency
+	AttachmentCount  int
 	Dates            *TaskDates // nil when the task has no dates block
 	CreatedDate      string
 	UpdatedDate      string
@@ -22,6 +25,35 @@ type TaskDates struct {
 	Duration int
 	Start    string
 	Due      string
+}
+
+// Dependency is one scheduling edge between two tasks. Either end can be a task outside the cache.
+type Dependency struct {
+	ID            string
+	PredecessorID string
+	SuccessorID   string
+	RelationType  string // FinishToStart, StartToStart, FinishToFinish or StartToFinish
+	LagMinutes    int
+}
+
+// RelatedIDs names the tasks a task's relations point at, the super tasks and the other end of every edge, each once.
+func RelatedIDs(t Task, deps []Dependency) []string {
+	seen := map[string]bool{t.ID: true}
+	var out []string
+	add := func(id string) {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, id := range t.SuperTaskIDs {
+		add(id)
+	}
+	for _, dep := range deps {
+		add(dep.PredecessorID)
+		add(dep.SuccessorID)
+	}
+	return out
 }
 
 type Folder struct {

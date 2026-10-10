@@ -142,3 +142,111 @@ func TestTaskShowSaysWhatBecameOfAQueuedWrite(t *testing.T) {
 		})
 	}
 }
+
+// seedRelations makes TASK1 a subtask of TASK2 with one attachment, gives it a subtask of its own,
+// and one edge each way: TASK4 before it, an uncached task after it.
+func seedRelations(t *testing.T, st *store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	t1, err := st.Tasks().Get(ctx, "TASK1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1.SuperTaskIDs, t1.AttachmentCount = []string{"TASK2"}, 1
+	sub := store.Task{ID: "TASK9", Title: "Print JSON", Status: "Completed", CustomStatusID: "ST_DONE", SuperTaskIDs: []string{"TASK1"},
+		CreatedDate: "2026-09-09T10:00:00Z", UpdatedDate: "2026-09-09T10:00:00Z"}
+	if err := st.Tasks().Upsert(ctx, []store.Task{t1, sub}); err != nil {
+		t.Fatal(err)
+	}
+	err = st.Dependencies().ReplaceForTask(ctx, "TASK1", []store.Dependency{
+		{ID: "X", PredecessorID: "TASK4", SuccessorID: "TASK1", RelationType: "FinishToStart", LagMinutes: 480},
+		{ID: "Y", PredecessorID: "TASK1", SuccessorID: "GONE", RelationType: "StartToStart"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTaskShowPrintsTheRelations(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	seedRelations(t, env.Store)
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"subtask of  o Reach tasks outside the followed scopes\n",
+		"attachments 1\n",
+		"subtasks    v Print JSON\n",
+		"predecessor v Add the licence file (finish to start, lag 1 day)\n",
+		"successor   a task outside the followed spaces (start to start)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("show lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestTaskShowJSONCarriesTheRelations(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	seedRelations(t, env.Store)
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1", "--json"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	var got struct {
+		AttachmentCount int `json:"attachment_count"`
+		SuperTasks      []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"super_tasks"`
+		Subtasks []struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Status      string `json:"status"`
+			StatusGroup string `json:"status_group"`
+		} `json:"subtasks"`
+		Predecessors []struct {
+			ID         string `json:"id"`
+			Title      string `json:"title"`
+			Relation   string `json:"relation"`
+			LagMinutes int    `json:"lag_minutes"`
+		} `json:"predecessors"`
+		Successors []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"successors"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("%v:\n%s", err, out.String())
+	}
+	if got.AttachmentCount != 1 {
+		t.Errorf("attachment_count = %d", got.AttachmentCount)
+	}
+	if len(got.SuperTasks) != 1 || got.SuperTasks[0].ID != "TASK2" || got.SuperTasks[0].Title != "Reach tasks outside the followed scopes" {
+		t.Errorf("super_tasks = %+v", got.SuperTasks)
+	}
+	if len(got.Subtasks) != 1 || got.Subtasks[0].ID != "TASK9" || got.Subtasks[0].Status != "Completed" || got.Subtasks[0].StatusGroup != "Completed" {
+		t.Errorf("subtasks = %+v", got.Subtasks)
+	}
+	if len(got.Predecessors) != 1 || got.Predecessors[0].ID != "TASK4" || got.Predecessors[0].Relation != "FinishToStart" || got.Predecessors[0].LagMinutes != 480 {
+		t.Errorf("predecessors = %+v", got.Predecessors)
+	}
+	if len(got.Successors) != 1 || got.Successors[0].ID != "GONE" || got.Successors[0].Title != "" {
+		t.Errorf("successors = %+v, an uncached end keeps its id and has no title", got.Successors)
+	}
+}
+
+func TestTaskShowJSONHasEmptyRelationLists(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK3", "--json"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	for _, key := range []string{`"super_tasks": []`, `"subtasks": []`, `"predecessors": []`, `"successors": []`, `"attachment_count": 0`} {
+		if !strings.Contains(out.String(), key) {
+			t.Errorf("json lacks %s, a slice is never null:\n%s", key, out.String())
+		}
+	}
+}

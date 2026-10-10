@@ -305,7 +305,24 @@ func (m Model) loadTask(id string) tea.Cmd {
 				crumbs = append(crumbs, f.Title)
 			}
 		}
-		return taskLoadedMsg{asked: asked, task: task, comments: comments, logs: logs, states: states, crumb: strings.Join(crumbs, ", ")}
+		subtasks, err := st.Tasks().Subtasks(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		deps, err := st.Dependencies().ListForTask(ctx, id)
+		if err != nil {
+			return errMsg{err}
+		}
+		// The super tasks and the other ends of the edges, as far as the cache has them.
+		ends, err := st.Tasks().ByIDs(ctx, store.RelatedIDs(task, deps))
+		if err != nil {
+			return errMsg{err}
+		}
+		related := make(map[string]store.Task, len(ends))
+		for _, rt := range ends {
+			related[rt.ID] = rt
+		}
+		return taskLoadedMsg{asked: asked, task: task, comments: comments, logs: logs, subtasks: subtasks, deps: deps, related: related, states: states, crumb: strings.Join(crumbs, ", ")}
 	}
 }
 

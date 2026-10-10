@@ -1322,3 +1322,43 @@ func TestFilterBoxNarrowsTheListAndTheBoard(t *testing.T) {
 		t.Errorf("the board should show the Done column alone:\n%s", view)
 	}
 }
+
+// The demo seeds two subtasks, two dependencies and an attachment count on "Fix auth retry loop",
+// so the search jump is the way to a detail that shows every relation.
+func TestDetailShowsTheRelationsOfADemoTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 50))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	// The title is in the list already, only a frame drawn after typing proves the search found it.
+	from := mark(t, tm)
+	press(tm, "fix auth retry")
+	waitAfter(t, tm, from, "Fix auth retry loop")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "#1200000")
+	waitFor(t, tm, "-- Dependencies (2)")
+	view := finalView(t, tm)
+	for _, want := range []string{"Attachments  2", "-- Subtasks (2)", "Write the retry test", "Add the backoff", "predecessor", "finish to start, lag 2 days", "successor", "start to start"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail lacks %q:\n%s", want, view)
+		}
+	}
+}
+
+// A dependency change alone touches nothing the tree or the list draw, so the engine announces it as its own kind
+// and the interface reloads only the open task for it.
+func TestDetailReloadsOnADependenciesStoreChange(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 50))
+	waitFor(t, tm, "#1200033")
+	err := st.Dependencies().ReplaceForTask(context.Background(), "IEAATASK33", []store.Dependency{
+		{ID: "IEAADEP99", PredecessorID: "IEAATASK33", SuccessorID: "IEAATASK00", RelationType: "FinishToStart"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tm.Send(ui.StoreChangedMsg{Entities: []string{"dependencies"}})
+	waitFor(t, tm, "-- Dependencies (1)")
+}

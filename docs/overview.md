@@ -13,7 +13,7 @@ Two goals drive every design decision:
 Reading:
 
 - browse the spaces, projects and folders you follow
-- task list and task detail: description, status, assignee, dates, comments
+- task list and task detail: description, status, assignee, dates, comments, subtasks, dependencies and the number of attachments
 - instant full text search over everything cached
 - a timesheet view of your own logged time
 - a board over workflow statuses, plain or with a lane per person or per folder
@@ -30,7 +30,7 @@ From a shell, for scripts and agents:
 - list tasks, show one, change its status and create one, as text or JSON
 - run one sync cycle
 
-Not in v1: managing subtasks, editing custom fields, dashboards, Gantt charts.
+Not in v1: creating subtasks and dependencies, editing custom fields, dashboards, Gantt charts.
 The tool does not try to replace the web application for heavy project management.
 
 ## UX
@@ -69,7 +69,13 @@ Type a few letters and the best matches show up at once, ranked. Enter jumps to 
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
 A link shows its text and then its address, or the address alone when the text is the address, as it is for a pasted one.
-Below it come the metadata and the comment thread. Single key actions on the selected task:
+Above it are the status, the assignees, the dates, the importance when it is not Normal, the task this one is a subtask of and the number of attached files.
+Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
+A subtask line starts with the status glyph in its color, a done one is muted.
+A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
+A related task that lives in a space you do not follow is not in the cache, and the line says so instead of a title.
+Attachments are counted only, their names and the files stay in the web application, `o` opens the task there.
+Single key actions on the selected task:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.

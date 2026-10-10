@@ -543,7 +543,7 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "tasks") && m.selectedNode.kind != nodeNone {
 		cmds = append(cmds, m.loadTasks(m.selectedNode, m.sidebar.crumb(m.selectedNode), m.swapWatch(), false))
 	}
-	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") {
+	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") || slices.Contains(entities, "dependencies") {
 		cmds = append(cmds, m.reloadTask())
 	}
 	if slices.Contains(entities, "timelogs") && m.screen == screenTimesheet {

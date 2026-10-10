@@ -109,3 +109,117 @@ func TestDetailKeepsItsLinesWholeWithAJoinedEmoji(t *testing.T) {
 		}
 	}
 }
+
+func TestDetailShowsTheRelations(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	ref := refData{
+		statuses: map[string]store.CustomStatus{
+			"S1": {ID: "S1", Name: "In progress", Group: "Active", Color: "Blue"},
+			"S2": {ID: "S2", Name: "Done", Group: "Completed", Color: "Green"},
+		},
+	}
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task: store.Task{ID: "T1", Title: "Fix auth retry", CustomStatusID: "S1", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z",
+			SuperTaskIDs: []string{"P1", "P9"}, AttachmentCount: 2},
+		related: map[string]store.Task{
+			"P1": {ID: "P1", Title: "Plan the release", CustomStatusID: "S1", Status: "Active"},
+			"T2": {ID: "T2", Title: "Design the API", CustomStatusID: "S2", Status: "Completed"},
+		},
+		subtasks: []store.Task{
+			{ID: "C1", Title: "Write the retry test", CustomStatusID: "S1", Status: "Active"},
+			{ID: "C2", Title: "Add the backoff", CustomStatusID: "S2", Status: "Completed"},
+		},
+		deps: []store.Dependency{
+			{ID: "X", PredecessorID: "T2", SuccessorID: "T1", RelationType: "FinishToStart", LagMinutes: 960},
+			{ID: "Y", PredecessorID: "T1", SuccessorID: "T3", RelationType: "StartToStart"},
+		},
+		states: map[string]store.OutboxState{},
+	})
+	d.layout(th, ref, now, 70, 40, "dark")
+	out := d.View()
+	for _, want := range []string{
+		"Subtask of   o Plan the release",
+		"a task outside the followed spaces",
+		"Attachments  2",
+		"-- Subtasks (2) ",
+		"o Write the retry test",
+		"v Add the backoff",
+		"-- Dependencies (2) ",
+		"predecessor  v Design the API  finish to start, lag 2 days",
+		"successor    a task outside the followed spaces  start to start",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("detail lacks %q:\n%s", want, out)
+		}
+	}
+	if i, j := strings.Index(out, "-- Dependencies"), strings.Index(out, "-- Comments"); i > j {
+		t.Error("the dependencies come before the comments")
+	}
+}
+
+func TestDetailLeavesTheRelationRowsOutWhenEmpty(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{task: store.Task{ID: "T1", Title: "Alone", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z"}, states: map[string]store.OutboxState{}})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 70, 40, "dark")
+	out := d.View()
+	for _, absent := range []string{"Subtask of", "Attachments", "-- Subtasks", "-- Dependencies"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("detail of a task without relations shows %q:\n%s", absent, out)
+		}
+	}
+}
+
+func TestLagText(t *testing.T) {
+	for in, want := range map[int]string{0: "", 480: "lag 1 day", 960: "lag 2 days", 90: "lag 1.5 h", 60: "lag 1 h",
+		-480: "lead 1 day", -960: "lead 2 days", -90: "lead 1.5 h", 100: "lag 1.7 h", 30: "lag 0.5 h"} {
+		if got := LagText(in); got != want {
+			t.Errorf("LagText(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestDetailMovesTheRelationToASecondLineWhenItDoesNotFit(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task:    store.Task{ID: "T1", Title: "Short", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z"},
+		related: map[string]store.Task{"T2": {ID: "T2", Title: "Rotate the signing keys", Status: "Active"}},
+		deps:    []store.Dependency{{ID: "X", PredecessorID: "T2", SuccessorID: "T1", RelationType: "FinishToStart", LagMinutes: 960}},
+		states:  map[string]store.OutboxState{},
+	})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	out := d.View()
+	// The viewport pads every line to the width, so the two lines are checked on their own.
+	if !strings.Contains(out, "predecessor  o Rotate the signing keys") || !strings.Contains(out, "\n             finish to start, lag 2 days") {
+		t.Errorf("a relation that does not fit the line goes under the title, indented to the label column:\n%s", out)
+	}
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 80, 30, "dark")
+	if !strings.Contains(d.View(), "predecessor  o Rotate the signing keys  finish to start, lag 2 days") {
+		t.Errorf("a relation that fits stays on the line:\n%s", d.View())
+	}
+}
+
+func TestDetailCutsALongRelatedTitleToThePane(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	long := "Rotate the signing keys for every staging and production cluster"
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task:     store.Task{ID: "T1", Title: "Short", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z", SuperTaskIDs: []string{"P1"}},
+		related:  map[string]store.Task{"P1": {ID: "P1", Title: long, Status: "Active"}, "T2": {ID: "T2", Title: long, Status: "Active"}},
+		subtasks: []store.Task{{ID: "C1", Title: long, Status: "Active"}},
+		deps:     []store.Dependency{{ID: "X", PredecessorID: "T2", SuccessorID: "T1", RelationType: "FinishToStart"}},
+		states:   map[string]store.OutboxState{},
+	})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	for _, line := range strings.Split(d.View(), "\n") {
+		if w := ansi.StringWidth(line); w > 40 {
+			t.Errorf("line wider than the pane (%d): %q", w, line)
+		}
+		if strings.Contains(line, "Rotate the signing") && !strings.Contains(line, "...") {
+			t.Errorf("a long related title is cut with an ellipsis, not by the frame: %q", line)
+		}
+	}
+}

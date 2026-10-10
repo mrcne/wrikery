@@ -20,6 +20,8 @@ const (
 	KindWorkflows EntityKind = "workflows"
 	KindComments  EntityKind = "comments"
 	KindTimelogs  EntityKind = "timelogs"
+	// KindDependencies changes only what the task detail draws, the tree and the lists need no reload for it.
+	KindDependencies EntityKind = "dependencies"
 )
 
 type EventKind string

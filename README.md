@@ -31,7 +31,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 ## Features
 
 - browse the spaces, projects and folders you follow, and change that set from the settings screen
-- task list and task detail: description, status, assignee, dates, comments
+- task list and task detail: description, status, assignee, dates, comments, subtasks, dependencies and the number of attachments
 - instant full text search over everything cached
 - a timesheet view of your own logged time
 - a board over workflow statuses, plain or with a lane per person or per folder

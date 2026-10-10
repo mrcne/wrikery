@@ -14,18 +14,24 @@ import (
 
 // Task is a Wrike task, the unit of work assignees, dates and statuses attach to.
 type Task struct {
-	ID             string     `json:"id"`
-	Title          string     `json:"title"`
-	Description    string     `json:"description"`
-	Status         string     `json:"status"`
-	CustomStatusID string     `json:"customStatusId"`
-	Importance     string     `json:"importance"`
-	Permalink      string     `json:"permalink"`
-	ResponsibleIDs []string   `json:"responsibleIds"`
-	ParentIDs      []string   `json:"parentIds"`
-	Dates          *TaskDates `json:"dates"`
-	CreatedDate    time.Time  `json:"createdDate"`
-	UpdatedDate    time.Time  `json:"updatedDate"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	Status         string   `json:"status"`
+	CustomStatusID string   `json:"customStatusId"`
+	Importance     string   `json:"importance"`
+	Permalink      string   `json:"permalink"`
+	ResponsibleIDs []string `json:"responsibleIds"`
+	ParentIDs      []string `json:"parentIds"`
+	// SuperTaskIDs, DependencyIDs and AttachmentCount are optional fields of a task query.
+	// A task fetched by id carries the two lists without being asked and the count only when asked,
+	// an update answer carries all three (seen on the live account on 2026-10-08, the reference does not say).
+	SuperTaskIDs    []string   `json:"superTaskIds"`
+	DependencyIDs   []string   `json:"dependencyIds"`
+	AttachmentCount int        `json:"attachmentCount"`
+	Dates           *TaskDates `json:"dates"`
+	CreatedDate     time.Time  `json:"createdDate"`
+	UpdatedDate     time.Time  `json:"updatedDate"`
 }
 
 // TaskDates keeps start and due as the API's zone-less strings.
@@ -48,6 +54,9 @@ type TaskParams struct {
 	// without it Wrike returns the tasks placed directly in the folder and skips every subfolder,
 	// which is not what "follow a project" means.
 	Descendants bool
+	// SubTasks maps to the subTasks parameter, it adds subtasks to the search scope.
+	// Without it a subtask that has no folder of its own is never listed, it only exists under its parent task.
+	SubTasks bool
 	// UpdatedAfter maps to the updatedDate parameter's start, a range filter on the last update time.
 	UpdatedAfter time.Time
 	// Fields names the optional response fields to include, maps to the fields parameter.
@@ -79,6 +88,9 @@ func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	q := url.Values{}
 	if path != "/tasks" && p.Descendants {
 		q.Set("descendants", "true")
+	}
+	if p.SubTasks {
+		q.Set("subTasks", "true")
 	}
 	if !p.UpdatedAfter.IsZero() {
 		q.Set("updatedDate", fmt.Sprintf(`{"start":%q}`, p.UpdatedAfter.UTC().Format("2006-01-02T15:04:05Z")))
