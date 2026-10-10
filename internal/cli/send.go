@@ -67,20 +67,28 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 		// Nothing sends the row until a person signs in again, so a script must not read this as "goes out with the next sync".
 		return blocked, "", nil
 	}
+	// The write this row waits for on its own task, or the create of its task, comes before the write the pass stopped at:
+	// the pass may have stopped at another task's write, and this one keeps holding the row after that one goes through.
+	// A blocker in backoff was not even tried by the pass, so its failure is in the row and not in the drain error.
+	blocker, blockerErr := env.Store.Outbox().Blocker(context.WithoutCancel(ctx), rowID)
 	var reason string
 	var sendErr *syncer.SendError
 	switch {
 	case errors.Is(drainErr, syncer.ErrLocked):
 		reason = "another wrikery is sending"
-	case errors.Is(drainErr, context.DeadlineExceeded):
-		reason = "Wrike did not answer in time"
 	case errors.Is(drainErr, context.Canceled):
 		reason = "interrupted"
-	case errors.As(drainErr, &sendErr) && sendErr.RowID != rowID:
+	case blockerErr == nil && blocker.LastError != "":
+		reason = fmt.Sprintf("waiting behind an earlier write that failed, %s: %s", subject(ctx, env, blocker), blocker.LastError)
+	case errors.Is(drainErr, context.DeadlineExceeded):
+		reason = "Wrike did not answer in time"
+	case errors.As(drainErr, &sendErr) && sendErr.Row.ID != rowID:
 		// The drain stopped at an earlier write, the error is that write's and not this command's.
-		reason = fmt.Sprintf("waiting behind an earlier write that failed, %s: %v", subject(ctx, env, sendErr), sendErr.Err)
+		reason = fmt.Sprintf("waiting behind an earlier write that failed, %s: %v", subject(ctx, env, sendErr.Row), sendErr.Err)
 	case drainErr != nil:
 		reason = drainErr.Error()
+	case blockerErr == nil:
+		reason = "waiting behind an earlier write, " + subject(ctx, env, blocker)
 	default:
 		reason = "waiting for an earlier write"
 	}
@@ -89,25 +97,25 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 
 // subject names the write the drain stopped at by its kind and the task it is on, as far as the cache can tell.
 // A time entry update still has its row in the cache, a delete took the row with it when it was queued.
-func subject(ctx context.Context, env Env, e *syncer.SendError) string {
+func subject(ctx context.Context, env Env, row store.OutboxRow) string {
 	ctx = context.WithoutCancel(ctx)
-	switch e.Kind {
+	switch row.Kind {
 	case store.KindTaskCreate:
 		// A create row names the folder it goes into, the task it makes is the local row.
-		return "a new task " + taskName(ctx, env, store.LocalID(e.RowID))
+		return "a new task " + taskName(ctx, env, store.LocalID(row.ID))
 	case store.KindCommentCreate:
-		return "a comment on " + taskName(ctx, env, e.EntityID)
+		return "a comment on " + taskName(ctx, env, row.EntityID)
 	case store.KindTimelogCreate:
-		return "a time entry on " + taskName(ctx, env, e.EntityID)
+		return "a time entry on " + taskName(ctx, env, row.EntityID)
 	case store.KindTimelogUpdate:
-		if l, err := env.Store.Timelogs().Get(ctx, e.EntityID); err == nil {
+		if l, err := env.Store.Timelogs().Get(ctx, row.EntityID); err == nil {
 			return "a time entry on " + taskName(ctx, env, l.TaskID)
 		}
 		return "a time entry"
 	case store.KindTimelogDelete:
 		return "a time entry delete"
 	}
-	return "a change to " + taskName(ctx, env, e.EntityID)
+	return "a change to " + taskName(ctx, env, row.EntityID)
 }
 
 // taskName is the quoted title of a cached task, or the id as it is for anything the cache has no title for.

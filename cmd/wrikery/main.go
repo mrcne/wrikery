@@ -287,13 +287,13 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 // resolveTheme turns the auto theme into dark or light.
 // It queries the terminal, which is too slow for the render path, so it happens once and only when there is a terminal to ask.
 // A pipe gets no color anyway, dark is the default there.
-func resolveTheme(ui config.UIConfig, terminal bool) config.UIConfig {
-	if ui.Theme != "auto" {
-		return ui
+func resolveTheme(cfg config.UIConfig, terminal bool) config.UIConfig {
+	if cfg.Theme != "auto" {
+		return cfg
 	}
-	ui.Theme = "dark"
+	cfg.Theme = "dark"
 	if terminal && !lipgloss.HasDarkBackground() {
-		ui.Theme = "light"
+		cfg.Theme = "light"
 	}
-	return ui
+	return cfg
 }

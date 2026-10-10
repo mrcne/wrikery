@@ -104,6 +104,10 @@ type OutboxRepo interface {
 	Counts(ctx context.Context) (pending, failed int, err error)
 	Get(ctx context.Context, id int64) (OutboxRow, error)
 	NextDue(ctx context.Context, now string) (OutboxRow, error)
+	// Blocker is the older row the given one waits for: the oldest pending or in flight row on the same entity,
+	// or the create a row on a local task waits for, in whatever state that create is.
+	// ErrNotFound when the row waits for nothing. A task create waits for nothing and blocks nothing, see NextDue.
+	Blocker(ctx context.Context, rowID int64) (OutboxRow, error)
 	MarkInflight(ctx context.Context, id int64) error
 	Complete(ctx context.Context, id int64) error
 	CompleteTask(ctx context.Context, id int64, real Task) error
@@ -111,9 +115,11 @@ type OutboxRepo interface {
 	CompleteTimelog(ctx context.Context, id int64, real Timelog) error
 	Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error
 	Fail(ctx context.Context, id int64, errText string) error
+	// Retry makes a failed row pending and a pending row due at once, with a clean attempt count.
 	Retry(ctx context.Context, id int64) error
 	Discard(ctx context.Context, id int64) error
-	ListFailed(ctx context.Context) ([]OutboxRow, error)
+	// ListIssues is the failed rows and the pending rows that failed at least once and wait for their next attempt.
+	ListIssues(ctx context.Context) ([]OutboxRow, error)
 	ResetInflight(ctx context.Context) (int64, error)
 	StatesByEntity(ctx context.Context) (map[string]OutboxState, error)
 	RealID(ctx context.Context, localID string) (string, error)
@@ -468,11 +474,44 @@ func scanOutboxRow(row interface{ Scan(...any) error }) (OutboxRow, error) {
 func (o outboxRepo) NextDue(ctx context.Context, now string) (OutboxRow, error) {
 	// A dependent edit or delete still targeting a local id waits for its create to drain and remap it,
 	// ordering by id alone is not enough once the create backs off and the dependent becomes due first.
+	// A row also waits while an older row on the same entity is pending or in flight,
+	// a later write on a task sent ahead of one in backoff would be overwritten when the older one lands.
+	// A create names its folder as the entity and two new tasks in one folder do not depend on each other.
 	r, err := scanOutboxRow(o.r.QueryRowContext(ctx, `
 		SELECT `+outboxColumns+` FROM outbox
 		WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
 			AND entity_id NOT LIKE ?
-		ORDER BY id LIMIT 1`, now, LocalIDPrefix+"%"))
+			AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.entity_id = outbox.entity_id AND o.id < outbox.id
+				AND o.state IN ('pending', 'inflight') AND o.kind <> ?)
+		ORDER BY id LIMIT 1`, now, LocalIDPrefix+"%", string(KindTaskCreate)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return OutboxRow{}, ErrNotFound
+	}
+	return r, err
+}
+
+func (o outboxRepo) Blocker(ctx context.Context, rowID int64) (OutboxRow, error) {
+	var entity string
+	err := o.r.QueryRowContext(ctx,
+		`SELECT entity_id FROM outbox WHERE id = ? AND kind <> ?`, rowID, string(KindTaskCreate)).Scan(&entity)
+	if errors.Is(err, sql.ErrNoRows) {
+		return OutboxRow{}, ErrNotFound
+	}
+	if err != nil {
+		return OutboxRow{}, err
+	}
+	var r OutboxRow
+	if IsLocalID(entity) {
+		// The create is the oldest row the task has, every row on the local id came after it.
+		// It is the blocker until it lands, which swaps the local id away, or until it is discarded, which takes the row with it.
+		r, err = scanOutboxRow(o.r.QueryRowContext(ctx,
+			`SELECT `+outboxColumns+` FROM outbox WHERE id = ?`, strings.TrimPrefix(entity, LocalIDPrefix)))
+	} else {
+		r, err = scanOutboxRow(o.r.QueryRowContext(ctx, `
+			SELECT `+outboxColumns+` FROM outbox
+			WHERE entity_id = ? AND id < ? AND state IN ('pending', 'inflight') AND kind <> ?
+			ORDER BY id LIMIT 1`, entity, rowID, string(KindTaskCreate)))
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return OutboxRow{}, ErrNotFound
 	}
@@ -645,10 +684,11 @@ func (o outboxRepo) Fail(ctx context.Context, id int64, errText string) error {
 }
 
 func (o outboxRepo) Retry(ctx context.Context, id int64) error {
+	// An inflight row belongs to the engine, like in Discard.
 	return o.expectOne(ctx, `
 		UPDATE outbox SET state = 'pending', attempts = 0, last_error = '',
 			next_attempt_at = NULL
-		WHERE id = ? AND state = 'failed'`, id)
+		WHERE id = ? AND state IN ('pending', 'failed')`, id)
 }
 
 // Discard drops a queued write.
@@ -712,9 +752,14 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 	return tx.Commit()
 }
 
-func (o outboxRepo) ListFailed(ctx context.Context) ([]OutboxRow, error) {
-	rows, err := o.r.QueryContext(ctx,
-		`SELECT `+outboxColumns+` FROM outbox WHERE state = 'failed' ORDER BY id`)
+func (o outboxRepo) ListIssues(ctx context.Context) ([]OutboxRow, error) {
+	// A pending row with an error is one Reschedule put into backoff, the engine cannot tell a passing failure
+	// from one the payload earns every time, and such a row holds the later writes on its entity, see NextDue.
+	// Listing it lets a person decide, an inflight row is being tried right now and is left out.
+	rows, err := o.r.QueryContext(ctx, `
+		SELECT `+outboxColumns+` FROM outbox
+		WHERE state = 'failed' OR (state = 'pending' AND last_error <> '')
+		ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

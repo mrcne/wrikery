@@ -478,3 +478,6 @@ func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
 		t.Errorf("the unconfirmed task is gone: %v", err)
 	}
 }
+
+// GET /folders lists the Recycle Bin and what was thrown into it next to the live folders.
+// A deleted folder must not be found by title on the command line, so it never reaches the cache.

@@ -151,3 +151,34 @@ func TestParseHelpAnywherePrintsTheUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestParseKeepsAFlagValueThatLooksLikeTheMarker(t *testing.T) {
+	env, _, _ := testEnv(t)
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	folder := fs.String("folder", "", "")
+	x := fs.Bool("x", false, "")
+	got, code, done := parse(env, fs, "usage\n", []string{"--folder", "--", "a", "-x"})
+	if done || code != exitOK || *folder != "--" || !*x || !reflect.DeepEqual(got, []string{"a"}) {
+		t.Errorf("got %v code %d done %v folder %q x %v, a value of -- is not the end of the flags", got, code, done, *folder, *x)
+	}
+}
+
+func TestParseReportsAFlagWithoutItsValue(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.String("folder", "", "")
+	_, code, done := parse(env, fs, "usage: t\n", []string{"a", "--folder"})
+	if !done || code != exitUsage || !strings.Contains(errOut.String(), "usage: t") {
+		t.Errorf("code %d done %v stderr %q", code, done, errOut.String())
+	}
+}
+
+func TestParseRejectsAnUnknownFlagAfterAPositional(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.Bool("x", false, "")
+	_, code, done := parse(env, fs, "usage: t\n", []string{"a", "--nope"})
+	if !done || code != exitUsage || !strings.Contains(errOut.String(), "nope") {
+		t.Errorf("code %d done %v stderr %q", code, done, errOut.String())
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,7 +31,14 @@ func stubAccount() http.Handler {
 func TestSyncRunsOneCycleAndPrintsTheCounts(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
-	env = withNetwork(t, env, stubAccount())
+	// The counts alone would also come from a drain pass, the task query is what proves the pulls ran.
+	var pulls atomic.Int32
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/tasks" {
+			pulls.Add(1)
+		}
+		stubAccount().ServeHTTP(w, r)
+	}))
 	if _, err := env.Store.Outbox().EnqueueTaskUpdate(context.Background(), "TASK1", store.TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active"}); err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +47,9 @@ func TestSyncRunsOneCycleAndPrintsTheCounts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "sync idle") || !strings.Contains(out.String(), "0 pending") || !strings.Contains(out.String(), "0 failed") {
 		t.Errorf("out:\n%s", out.String())
+	}
+	if pulls.Load() == 0 {
+		t.Error("no task query reached the server, the cycle must pull as well as drain")
 	}
 }
 

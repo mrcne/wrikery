@@ -157,6 +157,9 @@ func (s issuesModel) View(th Theme, now time.Time, width, height int) string {
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
 		when := relTime(r.row.CreatedAt, now)
+		if r.row.State == store.StatePending {
+			when = "retrying  " + when
+		}
 		label := fmt.Sprintf("%s  %s  %s", ansi.Truncate(displayTitle(r.title, th.HidePrefixes), 30, "..."), r.summary, muted.Render(when))
 		b.WriteString(rowLine(th, label, width, i == s.cursor, true) + "\n")
 		if i == s.cursor {

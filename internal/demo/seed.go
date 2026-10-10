@@ -236,10 +236,7 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		}
 	}
 
-	// Outbox: one pending comment and two failures so the markers and the issues screen have content.
-	if _, err := st.Outbox().EnqueueComment(ctx, tasks[0].ID, MeID, "Queued while offline."); err != nil {
-		return err
-	}
+	// Outbox: two failures and a comment retrying after a failure, so the markers and the issues screen have content.
 	// A failed update never rolls back its optimistic write.
 	// The target status must stay in the same group as the task's own Status, or the row would fail its own consistency check forever.
 	id, err := st.Outbox().EnqueueTaskUpdate(ctx, tasks[1].ID, store.TaskUpdatePayload{CustomStatusID: "IEAAST13"})
@@ -253,5 +250,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return st.Outbox().Fail(ctx, id, "wrike: 400 Timesheet is locked")
+	if err := st.Outbox().Fail(ctx, id, "wrike: 400 Timesheet is locked"); err != nil {
+		return err
+	}
+	id, err = st.Outbox().EnqueueComment(ctx, tasks[0].ID, MeID, "Queued while offline.")
+	if err != nil {
+		return err
+	}
+	return st.Outbox().Reschedule(ctx, id, "dial tcp: connect: connection refused", now.Add(5*time.Minute).UTC().Format(time.RFC3339))
 }

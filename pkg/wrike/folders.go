@@ -28,12 +28,15 @@ type Project struct {
 	EndDate        string   `json:"endDate"`
 }
 
-// FolderTree lists every folder the token's account can see, flat, use ChildIDs to build the tree.
+// FolderTree lists every live folder the token's account can see, flat, use ChildIDs to build the tree.
 // The space flag is an optional field ("Get Folder Tree", https://developers.wrike.com/api/v4/folders-projects/).
 // A request that does not name it gets no flag on any folder, and then no root reads as a space.
+// Without deleted=false ("Get folders from Root (false) / Recycle Bin (true)", same page) the answer carries the Recycle Bin
+// and the folders thrown into it next to the live ones, with scope RbRoot and RbFolder.
 func (c *Client) FolderTree(ctx context.Context) ([]Folder, error) {
 	q := url.Values{}
 	q.Set("fields", jsonArray([]string{"space"}))
+	q.Set("deleted", "false")
 	var out []Folder
 	if _, err := c.do(ctx, http.MethodGet, "/folders", q, nil, &out); err != nil {
 		return nil, err

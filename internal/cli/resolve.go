@@ -82,13 +82,24 @@ func linkNumber(arg string) (number string, isLink bool) {
 	return rest[:end], true
 }
 
-// exactTitle gives the index of the one title equal to arg ignoring case, or -1 when there is none or more than one.
-// It lets a full title win over longer titles that contain it.
+// exactTitle gives the index of the one title equal to arg, or -1 when there is none or more than one.
+// It lets a full title win over longer titles that contain it, typed with or without its accents.
+// The titles are compared letter for letter ignoring case first, and folded the way the search folds only when none matched that way,
+// or a title and its twin without the accents would refuse each other.
 // The hits are cut at candidateLimit+1, so an exact title past that cut is missed, which only happens with a fragment that is too short to have been meant as a title.
 func exactTitle(arg string, titles []string) int {
+	if i := onlyMatch(titles, func(title string) bool { return strings.EqualFold(strings.TrimSpace(title), arg) }); i >= 0 {
+		return i
+	}
+	folded := store.FoldTitle(arg)
+	return onlyMatch(titles, func(title string) bool { return store.FoldTitle(strings.TrimSpace(title)) == folded })
+}
+
+// onlyMatch is the index of the one title accept takes, -1 for none or several.
+func onlyMatch(titles []string, accept func(string) bool) int {
 	found := -1
 	for i, title := range titles {
-		if !strings.EqualFold(strings.TrimSpace(title), arg) {
+		if !accept(title) {
 			continue
 		}
 		if found >= 0 {

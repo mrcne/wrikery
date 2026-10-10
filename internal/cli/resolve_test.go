@@ -382,3 +382,41 @@ func TestResolveTaskKeepsAnExactIdAheadOfANumber(t *testing.T) {
 		t.Errorf("resolveTask(2) = %q, %v", got.ID, err)
 	}
 }
+
+// The search folds case and diacritics, so the exact match that settles an ambiguous fragment has to fold the same way,
+// or a title typed without its accents is refused with candidates although one of them is the title itself.
+func TestResolveTaskSettlesAFragmentOnTheFoldedExactTitle(t *testing.T) {
+	env, _, _ := testEnv(t)
+	ctx := context.Background()
+	err := env.Store.Tasks().Upsert(ctx, []store.Task{
+		{ID: "TA", Title: "Świeżość", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"},
+		{ID: "TB", Title: "Świeżość danych", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveTask(ctx, env.Store, "swiezosc")
+	if err != nil || got.ID != "TA" {
+		t.Errorf("resolve = %+v, %v, want the task whose folded title is the fragment", got, err)
+	}
+}
+
+// A title typed with its accents wins over a twin without them, and the twin typed plainly wins as well.
+// The folded comparison steps in only when no title matches letter for letter, or the twins would refuse each other.
+func TestResolveTaskPrefersTheTitleTypedLetterForLetterOverItsFoldedTwin(t *testing.T) {
+	env, _, _ := testEnv(t)
+	ctx := context.Background()
+	err := env.Store.Tasks().Upsert(ctx, []store.Task{
+		{ID: "TA", Title: "Świeżość", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"},
+		{ID: "TB", Title: "Swiezosc", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for arg, want := range map[string]string{"Świeżość": "TA", "Swiezosc": "TB", "swiezosc": "TB"} {
+		got, err := resolveTask(ctx, env.Store, arg)
+		if err != nil || got.ID != want {
+			t.Errorf("resolve %q = %+v, %v, want %s", arg, got, err, want)
+		}
+	}
+}

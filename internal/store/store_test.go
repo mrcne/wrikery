@@ -256,7 +256,7 @@ func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	rows, err := st.Outbox().ListFailed(context.Background())
+	rows, err := st.Outbox().ListIssues(context.Background())
 	if err != nil || len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
 		t.Fatalf("failed rows after the rebuild = %+v, %v, want row 1 as it was", rows, err)
 	}
