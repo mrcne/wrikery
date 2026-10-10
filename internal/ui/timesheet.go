@@ -273,6 +273,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 
 	// height is the source of truth for how many task rows fit, dayTotals still sums every row, visible or not.
 	visible := t.visibleRows(height)
+	// A total of nothing is a dash, like an empty cell, not 0:00.
+	total := func(h float64) string {
+		if h == 0 {
+			return "-"
+		}
+		return hoursClock(h)
+	}
 	var dayTotals [7]float64
 	for ri, r := range t.rows {
 		rowTotal := 0.0
@@ -294,7 +301,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			rowTotal += sum
 			cell := "-"
 			if len(logs) > 0 {
-				cell = fmt.Sprintf("%.1f", sum)
+				cell = hoursClock(sum)
 				if pending {
 					cell = th.Glyphs.Pending + cell
 				}
@@ -309,7 +316,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			}
 			line += style.Render(text)
 		}
-		line += muted.Render(fmt.Sprintf("%*.1f", cellW, rowTotal))
+		line += muted.Render(fmt.Sprintf("%*s", cellW, total(rowTotal)))
 		if ri >= t.offset && ri < t.offset+visible {
 			b.WriteString(line + "\n")
 		}
@@ -329,13 +336,13 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 		b.WriteString(text)
 	}
 	b.WriteString("\n\n")
-	total := 0.0
+	week := 0.0
 	line := "  " + bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
 	for _, v := range dayTotals {
-		total += v
-		line += fmt.Sprintf("%*.1f", cellW, v)
+		week += v
+		line += fmt.Sprintf("%*s", cellW, total(v))
 	}
-	line += bold.Render(fmt.Sprintf("%*.1f", cellW, total))
+	line += bold.Render(fmt.Sprintf("%*s", cellW, total(week)))
 	b.WriteString(line)
 	return b.String()
 }

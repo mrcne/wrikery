@@ -1,7 +1,7 @@
 +- Sync issues (3) ----------------------------------------------------------------------------------------------------+
 |> Add signing keys  status change  0 s ago                                                                            |
 |    wrike: 404 Task not found                                                                                         |
-|  Rotate rate limit test  time entry 1.0 h on 2026-08-26  0 s ago                                                     |
+|  Rotate rate limit test  time entry 1h on 2026-08-26  0 s ago                                                        |
 |  Fix auth retry loop  comment: Queued while offline.  retrying  0 s ago                                              |
 |                                                                                                                      |
 |                                                                                                                      |

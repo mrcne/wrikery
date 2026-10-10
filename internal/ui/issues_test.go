@@ -20,8 +20,8 @@ func TestSummarize(t *testing.T) {
 		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"customStatusId":"X"}`)}, "status change"},
 		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"addResponsibles":["A"]}`)}, "assignee change"},
 		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned"}}`)}, "dates change"},
-		{store.OutboxRow{Kind: store.KindTimelogCreate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-26"}`)}, "time entry 1.0 h on 2026-08-26"},
-		{store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":2,"trackedDate":"2026-08-27"}`)}, "time entry 2.0 h on 2026-08-27"},
+		{store.OutboxRow{Kind: store.KindTimelogCreate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-26"}`)}, "time entry 1h on 2026-08-26"},
+		{store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":2,"trackedDate":"2026-08-27"}`)}, "time entry 2h on 2026-08-27"},
 		{store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"comment":"fixed the totals"}`)}, "time entry change"},
 		{store.OutboxRow{Kind: store.KindTimelogDelete}, "delete time entry"},
 	}

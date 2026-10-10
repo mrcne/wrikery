@@ -60,3 +60,27 @@ func TestFormatHoursRoundTripsThroughParseHours(t *testing.T) {
 		}
 	}
 }
+
+// The grid shows hours as h:mm, every other place as 1h 20m, both exact to the minute.
+// A decimal with one digit printed 1h 18m and 1h 20m the same way, so the grid could not be checked against what was typed.
+func TestHoursTextAndClock(t *testing.T) {
+	cases := []struct {
+		h           float64
+		text, clock string
+	}{
+		{2, "2h", "2:00"},
+		{0.75, "45m", "0:45"},
+		{1.0 + 20.0/60.0, "1h 20m", "1:20"},
+		{38.75, "38h 45m", "38:45"},
+		{1.9999, "2h", "2:00"}, // minutes round and carry, the same as formatHours
+		{0.5, "30m", "0:30"},
+	}
+	for _, c := range cases {
+		if got := hoursText(c.h); got != c.text {
+			t.Errorf("hoursText(%v) = %q, want %q", c.h, got, c.text)
+		}
+		if got := hoursClock(c.h); got != c.clock {
+			t.Errorf("hoursClock(%v) = %q, want %q", c.h, got, c.clock)
+		}
+	}
+}

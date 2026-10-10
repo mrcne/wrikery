@@ -135,7 +135,7 @@ func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 func (d entryPicker) View(th Theme, width, height int) string {
 	var b strings.Builder
 	for i, l := range d.logs {
-		label := fmt.Sprintf("%.1f h  %s", l.Hours, l.Comment)
+		label := hoursText(l.Hours) + "  " + l.Comment
 		b.WriteString(rowLine(th, label, width-2, i == d.cursor, true) + "\n")
 	}
 	body := strings.TrimRight(b.String(), "\n")

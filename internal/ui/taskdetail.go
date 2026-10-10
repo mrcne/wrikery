@@ -166,7 +166,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	for _, l := range d.logs {
-		line := fmt.Sprintf("%s  %s  %.1f h", shortDate(l.TrackedDate), contactName(l.UserID, ref), l.Hours)
+		line := fmt.Sprintf("%s  %s  %s", shortDate(l.TrackedDate), contactName(l.UserID, ref), hoursText(l.Hours))
 		if l.Comment != "" {
 			line += "  " + stableWidth(l.Comment)
 		}

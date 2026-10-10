@@ -110,14 +110,41 @@ func parseHours(s string) (float64, error) {
 // Minutes are rounded rather than truncated,
 // so the result round trips back through parseHours instead of drifting a minute short on repeated edits.
 func formatHours(h float64) string {
-	whole := math.Trunc(h)
-	if h == whole {
-		return strconv.FormatFloat(h, 'f', -1, 64)
+	hours, minutes := splitHours(h)
+	if minutes == 0 {
+		return strconv.Itoa(hours)
 	}
-	minutes := int(math.Round((h - whole) * 60))
+	return fmt.Sprintf("%d:%02d", hours, minutes)
+}
+
+// splitHours rounds a decimal number of hours to whole hours and minutes, 60 minutes carrying into the hour.
+func splitHours(h float64) (hours, minutes int) {
+	whole := math.Trunc(h)
+	minutes = int(math.Round((h - whole) * 60))
 	if minutes == 60 {
 		whole++
 		minutes = 0
 	}
-	return fmt.Sprintf("%d:%02d", int(whole), minutes)
+	return int(whole), minutes
+}
+
+// hoursText writes logged time the way the time entry box reads it: 2h, 45m or 1h 20m.
+// Exact to the minute, where one decimal printed 1h 18m and 1h 20m the same way.
+func hoursText(h float64) string {
+	hours, minutes := splitHours(h)
+	switch {
+	case minutes == 0:
+		return fmt.Sprintf("%dh", hours)
+	case hours == 0:
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
+
+// hoursClock writes logged time as h:mm for the timesheet grid.
+// A cell is seven characters wide with no gap of its own, 1h 20m with the pending mark would fill it,
+// and in a column the colons line up where 2h, 45m and 1h 20m would not.
+func hoursClock(h float64) string {
+	hours, minutes := splitHours(h)
+	return fmt.Sprintf("%d:%02d", hours, minutes)
 }

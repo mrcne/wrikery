@@ -61,10 +61,14 @@ func TestTimesheetGridTotalsAndCursor(t *testing.T) {
 		t.Fatalf("rows = %+v", ts.rows)
 	}
 	out := ts.View(th, 100, 12)
-	for _, want := range []string{"Mon", "Sun", "Total", "2.0", "1.5", "4.5", "~1.0", "Fix auth retry loop", "9.0"} {
+	for _, want := range []string{"Mon", "Sun", "Total", "2:00", "1:30", "4:30", "~1:00", "Fix auth retry loop", "9:00"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("grid lacks %q:\n%s", want, out)
 		}
+	}
+	// A day with nothing logged totals to a dash, like an empty cell, not to 0:00.
+	if strings.Contains(out, "0:00") || strings.Contains(out, ".") {
+		t.Errorf("grid shows a zero total or a decimal:\n%s", out)
 	}
 	if ts.title() != "Timesheet: 31 Aug - 6 Sep 2026" {
 		t.Errorf("title = %q", ts.title())
@@ -379,7 +383,7 @@ func TestTimesheetMarksTheRowUnderTheCursor(t *testing.T) {
 	if !strings.HasPrefix(lines[1], "> Fix auth retry loop") || !strings.HasPrefix(lines[2], "  Rotate signing keys") {
 		t.Errorf("the first row should carry the mark and the second not:\n%s", strings.Join(lines, "\n"))
 	}
-	if mon, hours := strings.Index(lines[0], "Mon 31")+6, strings.Index(lines[1], "2.0")+3; mon != hours {
+	if mon, hours := strings.Index(lines[0], "Mon 31")+6, strings.Index(lines[1], "2:00")+4; mon != hours {
 		t.Errorf("the Monday cell ends at column %d and its header at %d:\n%s", hours, mon, strings.Join(lines, "\n"))
 	}
 	if !strings.HasPrefix(lines[3], "  + new task") || !strings.HasPrefix(lines[5], "  Total") {

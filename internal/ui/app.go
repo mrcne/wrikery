@@ -366,7 +366,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
 		}
-		prompt := fmt.Sprintf("Delete %.1f h on %s?", msg.log.Hours, msg.log.TrackedDate)
+		prompt := fmt.Sprintf("Delete %s on %s?", hoursText(msg.log.Hours), msg.log.TrackedDate)
 		m.openDialog(confirmDialog{prompt: prompt, onYes: deleteTimelogMsg{id: msg.log.ID}})
 		return m, nil
 	case pickEntryMsg:
@@ -490,7 +490,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.enqueue(func(ctx context.Context) error {
 				_, err := st.Outbox().EnqueueTimelogCreate(ctx, msg.taskID, meID, store.TimelogCreatePayload{Hours: msg.hours, TrackedDate: msg.date, Comment: msg.comment})
 				return err
-			}, fmt.Sprintf("Logged %.1f h", msg.hours))
+			}, "Logged "+hoursText(msg.hours))
 		}
 		return m, m.enqueue(func(ctx context.Context) error {
 			_, err := st.Outbox().EnqueueTimelogUpdate(ctx, msg.timelogID, store.TimelogUpdatePayload{Hours: msg.hours, TrackedDate: msg.date, Comment: msg.comment})

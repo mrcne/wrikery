@@ -67,7 +67,7 @@ func summarize(row store.OutboxRow) string {
 	case store.KindTimelogCreate:
 		var p store.TimelogCreatePayload
 		_ = json.Unmarshal(row.Payload, &p)
-		return fmt.Sprintf("time entry %.1f h on %s", p.Hours, p.TrackedDate)
+		return fmt.Sprintf("time entry %s on %s", hoursText(p.Hours), p.TrackedDate)
 	case store.KindTimelogUpdate:
 		// TimelogUpdatePayload fields are all omitempty, a comment only edit carries neither.
 		var p store.TimelogUpdatePayload
@@ -75,7 +75,7 @@ func summarize(row store.OutboxRow) string {
 		if p.Hours == 0 && p.TrackedDate == "" {
 			return "time entry change"
 		}
-		return fmt.Sprintf("time entry %.1f h on %s", p.Hours, p.TrackedDate)
+		return fmt.Sprintf("time entry %s on %s", hoursText(p.Hours), p.TrackedDate)
 	case store.KindTimelogDelete:
 		return "delete time entry"
 	}

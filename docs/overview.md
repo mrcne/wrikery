@@ -182,7 +182,8 @@ Discarding a task update does not roll back the change already applied to the lo
 ### Timesheet
 
 A separate view (key T) shows the current week as a grid: tasks as rows, Monday to Sunday as columns.
-A cell is the hours logged on that task on that day, one decimal, or a dash when there is nothing.
+A cell is the time logged on that task on that day as hours and minutes, `1:20`, or a dash when there is nothing.
+Everywhere else logged time reads as `1h 20m`, `45m` or `2h`: the time section of a task, the message after logging, the entry lists and the sync issues.
 Each row carries a total for the task, each column a total for the day, and the grid ends with a total for the week.
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
