@@ -1,31 +1,31 @@
 +- Board: My tasks (30) ---------------------------------------------+
-|< 3 Blocked (6)                   Later (6)                         |
-|    > Document auth retry loop      Bump error codes                |
-|    >   AN+               29 Aug      AN                   Mon      |
-|      Refactor signing keys         Investigate sync cursor         |
-|        AN+               29 Aug      AN                   Mon      |
-|      Remove rate limit test        Design legacy config            |
-|        AN+               29 Aug    loader                          |
-|      Fix search ranking              AN                   Mon      |
-|        AN+                  Wed    Write tests for                 |
-|      Add timesheet export          dependencies                    |
-|        AN+                  Wed    ! AN                   Mon      |
-|      Rotate dark theme             Fix onboarding flow             |
-|        AN+                  Wed      AN                   Mon      |
-|                                    Add search ranking              |
-|                                      AN                   Mon      |
+|< 2 In review (7)        Blocked (6)         Later (6)              |
+|      Rotate signing     > Document auth       Bump error codes     |
+|      keys               > retry loop            AN         Mon     |
+|        AN+       2 Sep  >   AN+     29 Aug                         |
+|                                               Investigate sync     |
+|      Document rate        Refactor signing    cursor               |
+|      limit test           keys                  AN         Mon     |
+|      ! AN+       2 Sep      AN+     29 Aug                         |
+|                                               Design legacy        |
+|      Refactor error       Remove rate         config loader        |
+|      codes                limit test            AN         Mon     |
+|        AN+       2 Sep      AN+     29 Aug                         |
+|                                               Write tests for      |
+|      Remove sync          Fix search          dependencies         |
+|      cursor               ranking             ! AN         Mon     |
+|        AN+       2 Sep      AN+        Wed                         |
+|                                               Fix onboarding       |
+|      Bump legacy          Add timesheet       flow                 |
+|      config loader        export                AN         Mon     |
+|        AN+       2 Sep      AN+        Wed                         |
+|                                               Add search           |
+|      Investigate          Rotate dark         ranking              |
+|      dependencies         theme                 AN         Mon     |
+|        AN+       2 Sep      AN+        Wed                         |
 |                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
+|      Add signing keys                                              |
+|        AN  !        --                                             |
 |                                                                    |
 |                                                                    |
 |                                                                    |

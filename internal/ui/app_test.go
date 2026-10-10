@@ -1035,6 +1035,7 @@ func TestViewGoldens(t *testing.T) {
 		{"board-by-assignee", 160, []string{"b", "v", "v"}, "Board: My tasks, by assignee ("},
 		{"board-detail", 160, []string{"b", "enter"}, "-- Comments ("},
 		{"board-70", 70, []string{"b"}, "Board: My tasks ("},
+		{"board-200", 200, []string{"b"}, "Board: My tasks ("},
 		{"empty-folder", 160, []string{"shift+tab", "j", "j", "j"}, "Tasks: Mobile / Wishlist (0)"},
 	}
 	for _, c := range cases {

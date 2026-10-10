@@ -161,11 +161,14 @@ The filter stays while you move between folders and is not kept across restarts.
 `b` turns the list into a board: a column per status of the workflow the tasks use, cards in the columns, and a lane per group when a grouping is on.
 So the board by assignee is a standup, who is on what and what is stuck, and the board by folder is a board per epic.
 Tasks on another workflow than most of the folder gather in one column named after that workflow, and `H` and `L` refuse to move them, the status box still works.
-The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back.
-Columns that do not fit slide in as the cursor moves towards them, an empty column shrinks to its name.
+The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back, and `esc` on the board itself returns to the list.
+An empty column is only as wide as its name.
+When the columns do not fit, every column gives up width evenly, a card column down to 16 cells and an empty one down to a short name with its count, `Canc.. (0)`, so a workflow of ten statuses fits a wide terminal whole.
+When even that is not enough, the columns that do not fit slide in as the cursor moves towards them.
 `h` and `l` move between columns, `j` and `k` between cards, `/`, `f`, `z` and every task key work as in the list.
 
 A card shows the title on one line, or on two when it is long, and the break prefers a `: ` or ` - ` in the second half of the first line, so `(MX) Backend: Kafka - Processing` reads as a heading and a detail.
+A blank line separates the cards of a column.
 A code in parentheses at the start of a title, `(MX)`, is drawn muted and a short part prefix closed by `: ` or ` - `, `Backend: Kafka - `, slightly muted, on cards and rows alike, so the eye lands on the words that differ between tasks.
 
 ### Sync issues

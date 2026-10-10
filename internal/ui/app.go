@@ -770,9 +770,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.screen != screenMain {
 			m.screen = screenMain
 		} else if m.shape == shapeBoard {
-			// The board is the home pane of its shape: a side pane hands the width back to it, on the board itself esc rests.
+			// The board is the home pane of its shape: a side pane hands the width back to it, and on the board itself esc leaves it like b.
 			// The one pane rule below counts panes down and would land on the detail, which sits before the board in the order.
-			m.focus = paneBoard
+			if m.focus == paneBoard {
+				m.toggleShape()
+			} else {
+				m.focus = paneBoard
+			}
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
 		}
