@@ -771,25 +771,127 @@ func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	golden.RequireEqual(t, []byte(finalView(t, tm)))
 }
 
-// TestEnterOnTheTimesheetOpensTheTask covers the way back from the grid: enter on a row lands on the
-// main screen with that task in the detail pane and its folder selected in the sidebar, the way search does.
-// The last of the eight rows is "Write tests for onboarding flow", task IEAATASK19 in Web, which is completed:
-// logged time often sits on finished work, so the list has to show it although the done toggle starts off.
-func TestEnterOnTheTimesheetOpensTheTask(t *testing.T) {
+// Enter on a timesheet row opens the task in the detail pane beside the grid, the row stays where it was,
+// and the task keys of the main screen work there, the bar names them.
+// The last of the eight rows is "Write tests for onboarding flow", task IEAATASK19 in Web, which is completed.
+func TestEnterOnTheTimesheetOpensTheTaskBesideTheGrid(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
-	from := mark(t, tm)
 	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
-	waitAfter(t, tm, from, "#1200019")
+	waitFor(t, tm, "#1200019")
 	view := finalView(t, tm)
-	if strings.Contains(view, "Timesheet:") || !strings.Contains(view, "Tasks: Platform / Web (") {
-		t.Errorf("enter on a timesheet row should show the task on the main screen with its folder selected:\n%s", view)
+	for _, want := range []string{"Timesheet: 31 Aug - 6 Sep 2026", "#1200019", "> v Write tests for", "s status"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the grid and the detail should both be on screen, missing %q:\n%s", want, view)
+		}
 	}
-	if !strings.Contains(view, "> v   Write tests for onboarding flow") {
-		t.Errorf("the completed task should be the selected row of the list:\n%s", view)
+}
+
+// Esc on the detail closes it and the cursor is on the cell it was on.
+func TestEscOnTheTimesheetDetailReturnsToTheCell(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
+	waitFor(t, tm, "#1200019")
+	press(tm, "esc")
+	view := finalView(t, tm)
+	if strings.Contains(view, "#1200019") || !strings.Contains(view, "> v Write tests for onboarding flow") || !strings.Contains(view, "n add entry") {
+		t.Errorf("esc should close the detail and leave the cursor on its row:\n%s", view)
+	}
+}
+
+// Enter on the detail goes to the task on the main screen with its folder selected, what enter on the row did before.
+// Logged time often sits on finished work, so the list has to show the completed task although the done toggle starts off.
+func TestEnterOnTheTimesheetDetailGoesToTheMainScreen(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
+	waitFor(t, tm, "#1200019")
+	press(tm, "enter")
+	waitFor(t, tm, "Tasks: Platform / Web (")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Timesheet:") || !strings.Contains(view, "> v   Write tests for onboarding flow") {
+		t.Errorf("enter on the detail should show the task on the main screen with its folder selected:\n%s", view)
+	}
+}
+
+// Leaving the timesheet puts the detail pane back on the list's own row,
+// so T and esc do not leave a task the list is not on in the pane. The list starts on IEAATASK33.
+func TestLeavingTheTimesheetPutsTheDetailBackOnTheListRow(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
+	waitFor(t, tm, "#1200019")
+	from := mark(t, tm)
+	press(tm, "esc", "esc")
+	waitAfter(t, tm, from, "#1200033")
+	view := finalView(t, tm)
+	if strings.Contains(view, "#1200019") || !strings.Contains(view, "Tasks: My tasks") {
+		t.Errorf("the main screen should show the list's row again:\n%s", view)
+	}
+}
+
+// Tab hands the keys back to the grid with the detail still open, and the detail follows the row under the cursor.
+// Esc with the grid focused closes the detail as well.
+func TestTabOnTheTimesheetFollowsTheRows(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "enter")
+	waitFor(t, tm, "#1200001")
+	press(tm, "tab", "j")
+	waitFor(t, tm, "#1200018")
+	press(tm, "esc")
+	view := finalView(t, tm)
+	if strings.Contains(view, "#1200018") || !strings.Contains(view, "Timesheet:") || !strings.Contains(view, "> v Design flaky CI job") {
+		t.Errorf("esc on the grid should close the detail and keep the cursor on the row it followed:\n%s", view)
+	}
+}
+
+// Below 120 columns the detail takes the whole box instead of a share beside the grid.
+func TestTheTimesheetDetailCoversTheGridOnANarrowTerminal(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	waitFor(t, tm, "Tasks:")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "enter")
+	waitFor(t, tm, "#1200001")
+	view := finalView(t, tm)
+	if strings.Contains(view, "Mon 31") || strings.Contains(view, "Tasks:") || !strings.Contains(view, "#1200001") {
+		t.Errorf("the detail should cover the grid at 100 columns:\n%s", view)
+	}
+}
+
+// Tab on a narrow terminal brings the grid back alone, the detail stays open for the next tab.
+func TestTabOnANarrowTimesheetShowsTheGridAgain(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	waitFor(t, tm, "Tasks:")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "enter")
+	waitFor(t, tm, "#1200001")
+	from := mark(t, tm)
+	press(tm, "tab")
+	waitAfter(t, tm, from, "Mon 31")
+	view := finalView(t, tm)
+	if strings.Contains(view, "#1200001") || !strings.Contains(view, "> o Add signing keys") {
+		t.Errorf("tab should draw the grid alone with the cursor where it was:\n%s", view)
 	}
 }
 

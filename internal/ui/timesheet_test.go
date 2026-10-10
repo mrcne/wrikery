@@ -216,6 +216,15 @@ func TestLoadWeekReadsTheUserAndTheWindowFromMeta(t *testing.T) {
 	if week.windowFrom.Format("2006-01-02") != "2026-07-06" {
 		t.Errorf("windowFrom = %v, want 2026-07-06 from meta", week.windowFrom)
 	}
+	// The row glyph needs the status of each task, resolved the way the list does it.
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "Alpha", CustomStatusID: "S1"}}); err != nil {
+		t.Fatal(err)
+	}
+	m.ref.statuses = map[string]store.CustomStatus{"S1": {ID: "S1", Group: "Completed"}}
+	week = m.loadWeek(time.Time{})().(weekLoadedMsg)
+	if week.statuses["T1"].Group != "Completed" {
+		t.Errorf("statuses[T1] = %+v, want the Completed status S1", week.statuses["T1"])
+	}
 }
 
 // A box height of 12 leaves 8 lines for task rows (height minus the header, the "+ new task"
@@ -334,15 +343,14 @@ func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
 		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
 		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
 		titles:    map[string]string{"T1": "Fix auth retry loop"},
-		parents:   map[string]string{"T1": "F1"},
 	})
 	enter := tea.KeyMsg{Type: tea.KeyEnter}
 	_, cmd := ts.Update(enter)
 	if cmd == nil {
 		t.Fatal("enter on a row sent nothing")
 	}
-	if msg, ok := cmd().(openTaskMsg); !ok || msg.id != "T1" || msg.parentID != "F1" {
-		t.Errorf("enter on a row sent %#v, want openTaskMsg for T1 in F1", cmd())
+	if msg, ok := cmd().(openBesideMsg); !ok || msg.id != "T1" {
+		t.Errorf("enter on a row sent %#v, want openBesideMsg for T1", cmd())
 	}
 	_, cmd = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
 	if msg, ok := cmd().(editEntryMsg); !ok || msg.log.ID != "a" {
@@ -380,19 +388,66 @@ func TestTimesheetMarksTheRowUnderTheCursor(t *testing.T) {
 		titles: map[string]string{"T1": "Fix auth retry loop", "T2": "Rotate signing keys"},
 	})
 	lines := strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
-	if !strings.HasPrefix(lines[1], "> Fix auth retry loop") || !strings.HasPrefix(lines[2], "  Rotate signing keys") {
+	if !strings.HasPrefix(lines[1], "> o Fix auth retry loop") || !strings.HasPrefix(lines[2], "  o Rotate signing keys") {
 		t.Errorf("the first row should carry the mark and the second not:\n%s", strings.Join(lines, "\n"))
 	}
 	if mon, hours := strings.Index(lines[0], "Mon 31")+6, strings.Index(lines[1], "2:00")+4; mon != hours {
 		t.Errorf("the Monday cell ends at column %d and its header at %d:\n%s", hours, mon, strings.Join(lines, "\n"))
 	}
-	if !strings.HasPrefix(lines[3], "  + new task") || !strings.HasPrefix(lines[5], "  Total") {
+	if !strings.HasPrefix(lines[3], "    + new task") || !strings.HasPrefix(lines[5], "    Total") {
 		t.Errorf("the add row and the totals should sit under the titles:\n%s", strings.Join(lines, "\n"))
 	}
 	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
 	lines = strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
-	if !strings.HasPrefix(lines[1], "  Fix auth retry loop") || !strings.HasPrefix(lines[3], "> + new task") {
+	if !strings.HasPrefix(lines[1], "  o Fix auth retry loop") || !strings.HasPrefix(lines[3], ">   + new task") {
 		t.Errorf("the mark should have moved to the new task row:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// Each row shows its task's status glyph in front of the title, the one the list draws.
+// A task outside the followed scopes is not cached and has no status, its row leaves the column blank rather than guess.
+func TestTimesheetRowsCarryTheStatusGlyph(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	var ts timesheetModel
+	ts.keys, ts.height = defaultKeyMap(), 12
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs: []store.Timelog{
+			{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2},
+			{ID: "b", TaskID: "T2", TrackedDate: "2026-09-02", Hours: 4},
+			{ID: "c", TaskID: "T9", TrackedDate: "2026-09-03", Hours: 1},
+		},
+		titles:   map[string]string{"T1": "Fix auth retry loop", "T2": "Rotate signing keys", "T9": ""},
+		statuses: map[string]store.CustomStatus{"T1": {Group: "Active"}, "T2": {Group: "Completed"}},
+	})
+	lines := strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
+	// Rows sort by title, and the placeholder title of the uncached task sorts first.
+	for i, want := range []string{">   (task T9)", "  o Fix auth retry loop", "  v Rotate signing keys"} {
+		if !strings.HasPrefix(lines[i+1], want) {
+			t.Errorf("row %d = %q, want it to start with %q", i, lines[i+1], want)
+		}
+	}
+}
+
+// The task keys reach the task shown beside the grid only while the detail has the keys.
+// With the grid focused the same letters are the grid's own, e edits an entry and n adds one.
+func TestTaskKeysOnTheTimesheetActOnTheOpenDetail(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
+	m.selectedTaskID = "T1"
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = next.(Model)
+	if d, ok := m.dialog.(statusDialog); !ok || m.overlay != overlayDialog || d.taskID != "T1" {
+		t.Fatalf("s on the focused detail should open the status box for T1, got %T with overlay %v", m.dialog, m.overlay)
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	m.timesheet.detailFocus = false
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = next.(Model)
+	if m.dialog != nil {
+		t.Errorf("s with the grid focused opened %T", m.dialog)
 	}
 }

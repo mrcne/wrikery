@@ -118,10 +118,7 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-maxRows)))
 			break
 		}
-		cs := ref.statuses[t.CustomStatusID]
-		if cs.Group == "" {
-			cs.Group = t.Status
-		}
+		cs := ref.statusOf(t)
 		glyph := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group))
 		label := glyph + " " + th.styledTitle(t.Title) + "  " + muted.Render(s.crumbs[t.ID])
 		b.WriteString(rowLine(th, label, width-2, i == s.cursor, true) + "\n")

@@ -194,6 +194,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case focusMsg:
+		if m.screen == screenTimesheet {
+			// The detail pane names the list on h, beside the grid that means the grid.
+			m.timesheet.detailFocus = false
+			return m, nil
+		}
 		prev := m.focus
 		m.focus = msg.pane
 		// The children name the list, the shape decides whether that means the list or the board.
@@ -324,6 +329,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case openTaskMsg:
 		return m.jumpToTask(msg.id, msg.parentID)
+	case openBesideMsg:
+		// The pane starts empty rather than show the main screen's task until the read lands.
+		m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+		m.selectedTaskID, m.detail = msg.id, taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+		// A deliberate open, like enter on the main screen, so the thread of the task gets refreshed.
+		return m, tea.Batch(m.loadTask(msg.id), m.markOpened(msg.id))
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
@@ -341,7 +353,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case weekLoadedMsg:
 		m.timesheet.set(msg)
-		return m, nil
+		return m, m.followTimesheetRow()
 	case loadWeekMsg:
 		return m, m.loadWeek(msg.start)
 	case newEntryMsg:
@@ -615,6 +627,8 @@ func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
 	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
+	// A pick from the search overlay leaves the timesheet too, the grid has no pane beside it when T comes back.
+	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
 	var cmds []tea.Cmd
 	if parentID != "" && m.sidebar.reveal(parentID) {
 		n, _ := m.sidebar.current()
@@ -634,6 +648,69 @@ func (m Model) reloadTask() tea.Cmd {
 		return nil
 	}
 	return m.loadTask(m.selectedTaskID)
+}
+
+// timesheetKey routes a key on the timesheet screen: to the grid, or to the detail pane open beside it while that has the keys.
+// With the grid focused and the pane open, the pane follows the row under the cursor, the way it follows the list.
+func (m Model) timesheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.timesheet.detailOpen && key.Matches(msg, m.keys.NextPane, m.keys.PrevPane) {
+		m.timesheet.detailFocus = !m.timesheet.detailFocus
+		return m, nil
+	}
+	if m.timesheet.detailOpen && m.timesheet.detailFocus {
+		if key.Matches(msg, m.keys.Enter) {
+			// On to the main screen with the folder selected, what enter on the row did before the pane.
+			if !m.detail.loaded {
+				return m, nil
+			}
+			return m.jumpToTask(m.detail.task.ID, firstParent(m.detail.task))
+		}
+		if cmd, ok := m.taskAction(msg); ok {
+			return m, cmd
+		}
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		m.syncPaneSizes()
+		return m, cmd
+	}
+	var cmd tea.Cmd
+	m.timesheet, cmd = m.timesheet.Update(msg)
+	return m, tea.Batch(cmd, m.followTimesheetRow())
+}
+
+// followTimesheetRow keeps the pane beside the grid on the row under the cursor.
+// The new task row and a row whose task the cache does not hold empty it.
+func (m *Model) followTimesheetRow() tea.Cmd {
+	if !m.timesheet.detailOpen {
+		return nil
+	}
+	id := m.timesheet.currentTask()
+	if id == m.selectedTaskID {
+		return nil
+	}
+	m.selectedTaskID = id
+	if id == "" {
+		m.detail = taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+		return nil
+	}
+	return m.loadTask(id)
+}
+
+// closeTimesheetDetail closes the pane beside the grid and puts the detail back on the list's own row,
+// so coming back to the main screen does not show a task the list is not on.
+func (m *Model) closeTimesheetDetail() tea.Cmd {
+	if !m.timesheet.detailOpen {
+		return nil
+	}
+	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
+	m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+	m.syncPaneSizes()
+	if row, ok := m.list.current(); ok {
+		m.selectedTaskID = row.task.ID
+		return m.loadTask(row.task.ID)
+	}
+	return nil
 }
 
 // clearIfListEmpty drops the selected task when the list shows none: an empty folder, a filter nothing matches,
@@ -722,15 +799,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			return m.refresh()
 		case key.Matches(msg, m.keys.Issues) && m.screen != screenIssues:
+			closing := m.closeTimesheetDetail()
 			m.screen = screenIssues
-			return m, m.loadIssues()
+			return m, tea.Batch(closing, m.loadIssues())
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
 			m.screen = screenTimesheet
 			return m, m.loadWeek(time.Time{})
 		case key.Matches(msg, m.keys.Settings) && m.screen != screenSettings:
+			closing := m.closeTimesheetDetail()
 			m.screen = screenSettings
-			return m, tea.Batch(m.loadScopes(), m.loadHost())
+			return m, tea.Batch(closing, m.loadScopes(), m.loadHost())
 		case key.Matches(msg, m.keys.Back):
+			if m.screen == screenTimesheet && m.timesheet.detailOpen {
+				// One level at a time: the pane beside the grid goes first, the next esc leaves the timesheet.
+				return m, m.closeTimesheetDetail()
+			}
 			m.screen = screenMain
 			return m, nil
 		}
@@ -739,10 +822,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case screenIssues:
 			m.issues, cmd = m.issues.Update(msg)
 		case screenTimesheet:
-			m.timesheet, cmd = m.timesheet.Update(msg)
+			return m.timesheetKey(msg)
 		default:
 			m.settings, cmd = m.settings.Update(msg)
 		}
+		return m, cmd
+	}
+	if cmd, ok := m.taskAction(msg); ok {
 		return m, cmd
 	}
 	prevFocus := m.focus
@@ -784,61 +870,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
 			m.focus--
 		}
-	case key.Matches(msg, m.keys.Open):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			open := m.opts.Hooks.OpenURL
-			if open == nil {
-				return m.status.show("browser not available", true)
-			}
-			if unconfirmed(t) {
-				return m.status.show(notOnWrike, true)
-			}
-			if t.Permalink == "" {
-				return m.status.show(noPermalink, true)
-			}
-			// Starting a browser can block, so it runs as a command and reports back instead of stalling the key handler.
-			return func() tea.Msg {
-				if err := open(t.Permalink); err != nil {
-					return toastMsg{text: "could not open browser: " + err.Error(), isErr: true}
-				}
-				return toastMsg{text: "Opened in browser"}
-			}
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.CopyLink):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
-		return m, cmd
-	case key.Matches(msg, m.keys.CopyBranch):
-		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.UI.BranchTemplate, t, m.opts.Config.UI.HidePrefixes)
-			return name, "Copied " + name
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.CopyID):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
-		return m, cmd
-	case key.Matches(msg, m.keys.Comment):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.CommentEditor):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			cmd, err := openEditor(t.ID, nil)
-			if err != nil {
-				return m.status.show(err.Error(), true)
-			}
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.Status):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newStatusDialog(t, m.ref, m.keys))
-			return nil
-		})
-		return m, cmd
 	case key.Matches(msg, m.keys.Board):
 		m.toggleShape()
 	case key.Matches(msg, m.keys.GroupBy):
@@ -849,62 +880,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case key.Matches(msg, m.keys.ClearFilter):
 		return m, m.setNarrow(rowFilter{})
-	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
-		delta := 1
-		if key.Matches(msg, m.keys.StatusPrev) {
-			delta = -1
-		}
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
-		return m, cmd
-	case key.Matches(msg, m.keys.LogTime):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newTimelogDialog(t.ID, t.Title, nil, "", m.opts.Now())
-			m.openDialog(d)
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.Assignee):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newAssigneeDialog(t, m.ref)
-			m.openDialog(d)
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.Dates):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newDatesDialog(t, m.opts.Now())
-			m.openDialog(d)
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.EditTitle):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newTitleDialog(t, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return m, cmd
-	case key.Matches(msg, m.keys.EditDescription):
-		// A list row carries no description, so the task is read again before the editor opens.
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.loadDescription(t.ID) })
-		return m, cmd
-	case key.Matches(msg, m.keys.Importance):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newImportanceDialog(t, m.keys))
-			return nil
-		})
-		return m, cmd
 	case key.Matches(msg, m.keys.New):
 		d, cmd := newCreateDialog(m.sidebar.nodes, m.folderCrumbs(), m.createPreset(),
 			m.selectedNode.kind == nodeMe, min(m.width-4, 80))
 		m.openDialog(d)
-		return m, cmd
-	case key.Matches(msg, m.keys.Folders):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, m.list.nodeID)
-			m.openDialog(d)
-			return cmd
-		})
 		return m, cmd
 	}
 	opened := m.openedOnFocus(prevFocus)
@@ -933,6 +912,121 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.syncPaneSizes()
 	return m, opened
+}
+
+// taskAction runs the keys that act on the selected task: the dialogs, the editor hand offs, the browser and the clipboard.
+// The main screen and the detail pane beside the timesheet grid share them. The second result is false when the key is none of them.
+func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch {
+	case key.Matches(msg, m.keys.Open):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			open := m.opts.Hooks.OpenURL
+			if open == nil {
+				return m.status.show("browser not available", true)
+			}
+			if unconfirmed(t) {
+				return m.status.show(notOnWrike, true)
+			}
+			if t.Permalink == "" {
+				return m.status.show(noPermalink, true)
+			}
+			// Starting a browser can block, so it runs as a command and reports back instead of stalling the key handler.
+			return func() tea.Msg {
+				if err := open(t.Permalink); err != nil {
+					return toastMsg{text: "could not open browser: " + err.Error(), isErr: true}
+				}
+				return toastMsg{text: "Opened in browser"}
+			}
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.CopyLink):
+		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
+		return cmd, true
+	case key.Matches(msg, m.keys.CopyBranch):
+		cmd := m.copy(func(t store.Task) (string, string) {
+			name := branchName(m.opts.Config.UI.BranchTemplate, t, m.opts.Config.UI.HidePrefixes)
+			return name, "Copied " + name
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.CopyID):
+		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		return cmd, true
+	case key.Matches(msg, m.keys.Comment):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.CommentEditor):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			cmd, err := openEditor(t.ID, nil)
+			if err != nil {
+				return m.status.show(err.Error(), true)
+			}
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.Status):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			m.openDialog(newStatusDialog(t, m.ref, m.keys))
+			return nil
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
+		delta := 1
+		if key.Matches(msg, m.keys.StatusPrev) {
+			delta = -1
+		}
+		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
+		return cmd, true
+	case key.Matches(msg, m.keys.LogTime):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newTimelogDialog(t.ID, t.Title, nil, "", m.opts.Now())
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.Assignee):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newAssigneeDialog(t, m.ref)
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.Dates):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newDatesDialog(t, m.opts.Now())
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.EditTitle):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newTitleDialog(t, min(m.width-4, 80))
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.EditDescription):
+		// A list row carries no description, so the task is read again before the editor opens.
+		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.loadDescription(t.ID) })
+		return cmd, true
+	case key.Matches(msg, m.keys.Importance):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			m.openDialog(newImportanceDialog(t, m.keys))
+			return nil
+		})
+		return cmd, true
+	case key.Matches(msg, m.keys.Folders):
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, m.list.nodeID)
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	}
+	return nil, false
 }
 
 // cyclePane moves focus by delta over the panes of the current shape.
@@ -1010,6 +1104,13 @@ func (m Model) refresh() (Model, tea.Cmd) {
 // selectedTask is the task the open/copy bindings act on:
 // the detail's task when the detail pane has focus and finished loading, otherwise the list's current row.
 func (m Model) selectedTask() (store.Task, bool) {
+	if m.screen == screenTimesheet {
+		// The grid has no task of its own, only the pane open beside it.
+		if m.timesheet.detailOpen && m.detail.loaded {
+			return m.detail.task, true
+		}
+		return store.Task{}, false
+	}
 	if m.focus == paneDetail && m.detail.loaded {
 		return m.detail.task, true
 	}
@@ -1114,13 +1215,27 @@ func (m *Model) syncPaneSizes() {
 		m.board.width, m.board.height = r.w-2, r.h-2
 		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
-	if r, ok := lay.rects[paneDetail]; ok {
+	if r, ok := m.detailRect(lay); ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.UI.Theme)
 	}
 	// The issues screen replaces the whole body with one box, its inner height mirrors what viewIssues gives its View.
 	m.issues.height = max(0, m.height-3)
 	// Same box, same formula: the timesheet screen also replaces the whole body with one box.
 	m.timesheet.height = max(0, m.height-3)
+}
+
+// detailRect is where the detail pane draws: beside the timesheet grid, or over it, while a task is open there,
+// else its place in the main layout.
+func (m Model) detailRect(lay layout) (rect, bool) {
+	if m.screen == screenTimesheet && m.timesheet.detailOpen {
+		w := timesheetDetailWidth(m.width)
+		if w == 0 {
+			w = m.width
+		}
+		return rect{w: w, h: m.height - 1}, true
+	}
+	r, ok := lay.rects[paneDetail]
+	return r, ok
 }
 
 // viewIssues fills the whole body with one box, there is no sidebar or detail pane to share it with.
@@ -1130,18 +1245,32 @@ func (m Model) viewIssues(height int) string {
 	return m.theme.box(title, body, m.width, height, true)
 }
 
-// viewTimesheet fills the whole body with one box, the same way viewIssues does.
+// viewTimesheet fills the whole body with the grid's box, the same way viewIssues does,
+// or shares it with the detail pane while a task is open beside the grid.
 // Before the first weekLoadedMsg lands the box is titled plainly, with nothing in it yet.
 func (m Model) viewTimesheet(height int) string {
+	dw := 0
+	if m.timesheet.detailOpen {
+		dw = timesheetDetailWidth(m.width)
+		if dw == 0 && m.timesheet.detailFocus {
+			// Too narrow for both, the focused one takes the whole body.
+			return m.theme.box(m.detail.title(), m.detail.View(), m.width, height, true)
+		}
+	}
 	title := "Timesheet"
 	if m.timesheet.loaded {
 		title = m.timesheet.title()
 	}
 	body := ""
 	if m.timesheet.loaded {
-		body = m.timesheet.View(m.theme, m.width-2, height-2)
+		body = m.timesheet.View(m.theme, m.width-dw-2, height-2)
 	}
-	return m.theme.box(title, body, m.width, height, true)
+	grid := m.theme.box(title, body, m.width-dw, height, !m.timesheet.detailFocus)
+	if dw == 0 {
+		return grid
+	}
+	detail := m.theme.box(m.detail.title(), m.detail.View(), dw, height, m.timesheet.detailFocus)
+	return lipgloss.JoinHorizontal(lipgloss.Top, grid, detail)
 }
 
 func (m Model) viewMain() string {
@@ -1188,10 +1317,17 @@ func (m Model) hintBindings() []key.Binding {
 		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
 	}
 	if m.screen == screenTimesheet {
-		return []key.Binding{
-			m.keys.DayLeft, m.keys.DayRight, m.keys.Down, m.keys.Up, m.keys.WeekPrev, m.keys.WeekNext,
-			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Enter, m.keys.Back,
+		if m.timesheet.detailFocus {
+			return []key.Binding{m.keys.Up, m.keys.Down, m.keys.Status, m.keys.Comment, m.keys.LogTime, m.keys.Enter, m.keys.NextPane, m.keys.Back}
 		}
+		keys := []key.Binding{
+			m.keys.DayLeft, m.keys.DayRight, m.keys.Down, m.keys.Up, m.keys.WeekPrev, m.keys.WeekNext,
+			m.keys.ThisWeek, m.keys.Add, m.keys.Edit, m.keys.Delete, m.keys.Enter,
+		}
+		if m.timesheet.detailOpen {
+			keys = append(keys, m.keys.NextPane)
+		}
+		return append(keys, m.keys.Back)
 	}
 	if m.screen == screenSettings {
 		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.Enter, m.keys.Back}
@@ -1253,6 +1389,9 @@ func (m Model) helpGroups() [][]key.Binding {
 		return [][]key.Binding{m.keys.global(), m.keys.issues()}
 	}
 	if m.screen == screenTimesheet {
+		if m.timesheet.detailFocus {
+			return [][]key.Binding{m.keys.global(), m.keys.task()}
+		}
 		return [][]key.Binding{m.keys.global(), m.keys.timesheet()}
 	}
 	if m.screen == screenSettings {
