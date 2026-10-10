@@ -1,40 +1,40 @@
 +- Board: My tasks (30) ---------------------------------------------+
-|< 2 In review (7)        Blocked (6)         Later (6)              |
-|      Rotate signing     > Document auth       Bump error codes     |
-|      keys               > retry loop            AN         Mon     |
-|        AN+       2 Sep  >   AN+     29 Aug                         |
-|                                               Investigate sync     |
-|      Document rate        Refactor signing    cursor               |
-|      limit test           keys                  AN         Mon     |
-|      ! AN+       2 Sep      AN+     29 Aug                         |
-|                                               Design legacy        |
-|      Refactor error       Remove rate         config loader        |
-|      codes                limit test            AN         Mon     |
-|        AN+       2 Sep      AN+     29 Aug                         |
-|                                               Write tests for      |
-|      Remove sync          Fix search          dependencies         |
-|      cursor               ranking             ! AN         Mon     |
-|        AN+       2 Sep      AN+        Wed                         |
-|                                               Fix onboarding       |
-|      Bump legacy          Add timesheet       flow                 |
-|      config loader        export                AN         Mon     |
-|        AN+       2 Sep      AN+        Wed                         |
-|                                               Add search           |
-|      Investigate          Rotate dark         ranking              |
-|      dependencies         theme                 AN         Mon     |
-|        AN+       2 Sep      AN+        Wed                         |
+|< 1 In progress (11)     In review (7)       Blocked (6)        +1 >|
+|      Remove auth retry    Rotate signing    > Document auth        |
+|      loop                 keys              > retry loop           |
+|        AN        today      AN+      2 Sep  >   AN+     29 Aug     |
 |                                                                    |
-|      Add signing keys                                              |
+|      Bump signing keys    Document rate       Refactor signing     |
+|        AN        today    limit test          keys                 |
+|                           ! AN+      2 Sep      AN+     29 Aug     |
+|      Investigate rate                                              |
+|      limit test           Refactor error      Remove rate          |
+|        AN        today    codes               limit test           |
+|                             AN+      2 Sep      AN+     29 Aug     |
+|      Design error                                                  |
+|      codes                Remove sync         Fix search           |
+|        AN        today    cursor              ranking              |
+|                             AN+      2 Sep      AN+        Wed     |
+|      Write tests for                                               |
+|      sync cursor          Bump legacy         Add timesheet        |
+|        AN        today    config loader       export               |
+|                             AN+      2 Sep      AN+        Wed     |
+|      Refactor dark                                                 |
+|      theme                Investigate         Rotate dark          |
+|        AN       14 Sep    dependencies        theme                |
+|                             AN+      2 Sep      AN+        Wed     |
+|      Fix auth retry                                                |
+|      loop                 Add signing keys                         |
+|      ! AN  ~        --      AN  !       --                         |
+|                                                                    |
+|      Rotate rate limit                                             |
+|      test                                                          |
 |        AN  !        --                                             |
 |                                                                    |
+|      Document error                                                |
+|      codes                                                         |
+|        AN           --                                             |
 |                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
-|                                                                    |
+|      Refactor sync                                                 |
 +--------------------------------------------------------------------+
  demo  * synced 0 s ago  1 pending  2 failed        h previous column 

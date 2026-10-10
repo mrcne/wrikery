@@ -196,6 +196,82 @@ func TestEscOnTheBoardReturnsToTheList(t *testing.T) {
 	if g := got.(Model); g.shape != shapeList || g.focus != paneList {
 		t.Errorf("esc on the board itself returns to the list, got shape %d pane %d", g.shape, g.focus)
 	}
+	// With one pane shown the one pane rule would count down from the detail and land on the list, the board branch comes first.
+	narrow := New(Options{Now: time.Now})
+	narrow.shape, narrow.focus, narrow.width, narrow.height = shapeBoard, paneDetail, 70, 20
+	narrow.list = testBoardList()
+	got, _ = narrow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if g := got.(Model); g.shape != shapeBoard || g.focus != paneBoard {
+		t.Errorf("at 70 esc on the detail lands on the board, got shape %d pane %d", g.shape, g.focus)
+	}
+	got, _ = got.(Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if g := got.(Model); g.shape != shapeList || g.focus != paneList {
+		t.Errorf("at 70 esc on the board returns to the list, got shape %d pane %d", g.shape, g.focus)
+	}
+}
+
+func TestTheFirstBoardOfASessionStartsItsWindowAtTheLeft(t *testing.T) {
+	// The rows arrive while the list is shown and the board has no width yet.
+	// A window placed then must not stick once b gives the board its width.
+	m := New(Options{Now: time.Now})
+	m.width, m.height = 60, 40
+	m.list.ref = testWorkflows()
+	m.selectedNode.id = "F1"
+	tasks := []store.Task{
+		{ID: "a1", Title: "Ada new", Status: "Active", CustomStatusID: "S1"},
+		{ID: "a3", Title: "Ada in progress", Status: "Active", CustomStatusID: "S2"},
+		{ID: "b1", Title: "Bartek on hold", Status: "Active", CustomStatusID: "S4"},
+		{ID: "b2", Title: "Bartek planned", Status: "Active", CustomStatusID: "T1"},
+	}
+	got, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks, selectID: "b1"})
+	got, _ = got.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	g := got.(Model)
+	// Four columns at the floor of 16 and 49 cells next to the markers: the window holds two, and the one with the cursor is the second.
+	if g.board.firstCol != 1 || !strings.Contains(g.View(), "< 1 ") {
+		t.Errorf("the window starts as far left as the cursor column allows, got first column %d:\n%s", g.board.firstCol, g.View())
+	}
+}
+
+func TestLaneHeightCountsOnlyTheDrawnColumns(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	l.ref = testWorkflows()
+	l.ref.meID = "ME"
+	l.ref.contacts = map[string]store.Contact{"ME": {FirstName: "Ada", LastName: "Nowak"}, "B1": {FirstName: "Bartek", LastName: "Lis"}}
+	tasks := []store.Task{
+		{ID: "a1", Title: "Short", Status: "Active", CustomStatusID: "S1", ResponsibleIDs: []string{"ME"}},
+		{ID: "a2", Title: "Investigate a sync", Status: "Active", CustomStatusID: "S4", ResponsibleIDs: []string{"ME"}},
+		{ID: "b1", Title: "Bartek planned", Status: "Active", CustomStatusID: "T1", ResponsibleIDs: []string{"B1"}},
+	}
+	l.setRows("F1", "API", tasks, nil, "", false)
+	l.setGroup(groupAssignee)
+	b := boardModel{keys: defaultKeyMap(), width: 40, height: 10}
+	b.fit(&l, nil)
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	lines := strings.Split(b.View(th, l.ref, time.Time{}, &l, true), "\n")
+	// At 40 the window holds New and the empty In Progress. On Hold is off screen, where the long title would wrap to a third line.
+	// Ada's lane is two lines, Short and its meta line, and Bartek's lane, with its one card off screen, is its divider alone.
+	if !strings.Contains(lines[2], "> Short") || !strings.Contains(lines[4], "-- Bartek Lis") || strings.TrimSpace(lines[5]) != "" {
+		t.Errorf("a lane is as tall as its drawn columns, not its hidden ones:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+func TestMovingUpOntoACardShowsItsTitleFirst(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	l.ref = testWorkflows()
+	var tasks []store.Task
+	for _, title := range []string{"first", "second", "third"} {
+		tasks = append(tasks, store.Task{ID: title, Title: title, Status: "Active", CustomStatusID: "S1"})
+	}
+	l.setRows("F1", "API", tasks, nil, "", false)
+	b := boardModel{keys: defaultKeyMap(), width: 60, height: 5}
+	b.fit(&l, nil)
+	b = boardPress(t, b, &l, "G")
+	b = boardPress(t, b, &l, "k")
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	lines := strings.Split(b.View(th, l.ref, time.Time{}, &l, true), "\n")
+	if !strings.Contains(lines[1], "> second") {
+		t.Errorf("k onto a card scrolls to its title, not to the blank line above it:\n%s", strings.Join(lines, "\n"))
+	}
 }
 
 func TestReferenceReloadKeepsTheSelectionWhileGrouped(t *testing.T) {
@@ -298,7 +374,7 @@ func TestHighImportanceIsFlaggedInRowsAndOnCards(t *testing.T) {
 	}
 }
 
-// tenColumns is the user's usual workflow: seven statuses with cards and three nobody uses.
+// tenColumns is a workflow of ten statuses, seven with cards and three nobody uses.
 // The natural widths are seven cards of 21, headers of 13, 12 and 12, and nine gaps: 202 in all.
 func tenColumns() []boardColumn {
 	var cols []boardColumn

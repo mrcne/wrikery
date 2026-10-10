@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	cardWidth     = 21 // what a column with cards gets while the board fits, enough for a readable title and the meta line
+	cardWidth     = 21 // the least a column with cards gets while the board fits, enough for a readable title and the meta line
 	cardWidthMin  = 16 // the floor when the board does not fit, the meta line with a six cell date just fits in it
 	emptyWidthMin = 10 // the floor of an empty column, four letters of the name, the dots and the count
 	cardWidthMax  = 40 // spare width past this only pads titles
@@ -49,12 +49,14 @@ func buildGrid(l *taskListModel) boardGrid {
 	return g
 }
 
-// laneRows is the body lines the cards of a lane take, the tallest of its columns with the heights of its cards summed.
-func laneRows(g boardGrid, heights []int, lane int) int {
+// laneRows is the body lines the cards of a lane take, the tallest of its drawn columns with the heights of its cards summed.
+// A column outside the window is measured at its floor, where titles wrap that fit on screen,
+// and its cards are not on screen, so it does not count: a lane with cards only there is its divider alone.
+func laneRows(g boardGrid, heights []int, lane int, w boardWindow) int {
 	rows := 0
-	for _, cell := range g.cells[lane] {
+	for c := w.first; c <= w.last; c++ {
 		h := 0
-		for _, p := range cell {
+		for _, p := range g.cells[lane][c] {
 			h += heights[p]
 		}
 		rows = max(rows, h)
@@ -147,7 +149,11 @@ type boardWindow struct {
 
 // The header is padded to the column width, so the name is stripped first, see stableWidth.
 func columnHeader(c boardColumn) string {
-	return fmt.Sprintf("%s (%d)", stableWidth(c.title), len(c.rows))
+	return stableWidth(c.title) + columnCount(c)
+}
+
+func columnCount(c boardColumn) string {
+	return fmt.Sprintf(" (%d)", len(c.rows))
 }
 
 // fitHeader is the header for a column narrower than its name: the name cut short and the count kept, "Canc.. (0)".
@@ -157,7 +163,7 @@ func fitHeader(c boardColumn, width int) string {
 	if ansi.StringWidth(full) <= width {
 		return full
 	}
-	count := fmt.Sprintf(" (%d)", len(c.rows))
+	count := columnCount(c)
 	if keep := width - ansi.StringWidth(count); keep >= 3 {
 		return ansi.Truncate(stableWidth(c.title), keep, "..") + count
 	}
@@ -166,7 +172,7 @@ func fitHeader(c boardColumn, width int) string {
 }
 
 // fitColumns picks the columns drawn from firstCol on and their widths for the inner width.
-// A column with cards is cardWidth wide and an empty one only as wide as its header, so an unused status costs little.
+// A column with cards is at least cardWidth wide and an empty one only as wide as its header, so an unused status costs little.
 // When they do not all fit, every column gives up width evenly down to its floor, cardWidthMin or emptyWidthMin,
 // so a workflow of ten statuses still fits a wide terminal whole with the names of the empty ones cut short.
 // Only when the floors do not fit either is a window of whole columns drawn and moved so that cursorCol is inside it,
@@ -207,8 +213,9 @@ func fitColumns(cols []boardColumn, width, firstCol, cursorCol int) boardWindow 
 		first++
 		last = lastFitting(w.widths, first, avail)
 	}
-	// The window only ever moves right, and a fit before the terminal size arrives leaves it on the cursor column alone,
-	// so at the last column it is pulled back left as far as the floors fit.
+	// The window follows the cursor and never moves left on its own to fill free room,
+	// so a firstCol kept from a wider board, or from a folder with more columns, can leave room unused at the end.
+	// At the last column it is pulled back left as far as the floors fit.
 	for last == n-1 && first > 0 && span(w.widths, first-1, last) <= avail {
 		first--
 	}
@@ -244,9 +251,10 @@ func evenly(widths, bounds []int, first, last, amount, dir int) int {
 }
 
 func lastFitting(widths []int, first, avail int) int {
-	last := first
-	for last+1 < len(widths) && span(widths, first, last+1) <= avail {
+	used, last := widths[first], first
+	for last+1 < len(widths) && used+columnGap+widths[last+1] <= avail {
 		last++
+		used += columnGap + widths[last]
 	}
 	return last
 }
@@ -312,11 +320,11 @@ func (b boardModel) bodyHeight(l *taskListModel) int {
 	return max(1, h)
 }
 
-func cardTop(l *taskListModel, g boardGrid, heights []int, p int) int {
+func cardTop(l *taskListModel, g boardGrid, heights []int, w boardWindow, p int) int {
 	c := g.pos[p]
 	y := 0
 	for lane := 0; lane < c.lane; lane++ {
-		y += laneRows(g, heights, lane)
+		y += laneRows(g, heights, lane, w)
 		if l.sectioned() {
 			y++
 		}
@@ -344,15 +352,19 @@ func (b *boardModel) fit(l *taskListModel, hide []string) {
 	w := fitColumns(l.columns, b.width, b.firstCol, cell.col)
 	b.firstCol = w.first
 	heights := cardHeights(l, g, w, hide)
-	top := cardTop(l, g, heights, l.cursor)
-	if l.sectioned() && g.idx[l.cursor] == 0 {
+	top := cardTop(l, g, heights, w, l.cursor)
+	switch {
+	case l.sectioned() && g.idx[l.cursor] == 0:
 		// The first card of a lane brings the lane's divider along.
 		top--
+	case g.idx[l.cursor] > 0:
+		// A later card leaves the blank line above it off screen, so its title is the first line, like the first card's.
+		top++
 	}
 	if top < b.offset {
 		b.offset = top
 	}
-	if bottom := cardTop(l, g, heights, l.cursor) + heights[l.cursor]; bottom > b.offset+b.bodyHeight(l) {
+	if bottom := cardTop(l, g, heights, w, l.cursor) + heights[l.cursor]; bottom > b.offset+b.bodyHeight(l) {
 		b.offset = bottom - b.bodyHeight(l)
 	}
 	b.offset = max(0, b.offset)
@@ -509,7 +521,7 @@ func (b boardModel) View(th Theme, ref refData, now time.Time, l *taskListModel,
 		}
 		// Every drawn column is stacked on its own first, cards of two and three lines mixed with a blank line between them,
 		// then the stacks are joined line by line.
-		rows := laneRows(g, heights, lane)
+		rows := laneRows(g, heights, lane, w)
 		stacks := make([][]string, 0, w.last-w.first+1)
 		for c := w.first; c <= w.last; c++ {
 			var stack []string

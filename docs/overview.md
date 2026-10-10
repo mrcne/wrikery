@@ -163,7 +163,7 @@ So the board by assignee is a standup, who is on what and what is stuck, and the
 Tasks on another workflow than most of the folder gather in one column named after that workflow, and `H` and `L` refuse to move them, the status box still works.
 The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back, and `esc` on the board itself returns to the list.
 An empty column is only as wide as its name.
-When the columns do not fit, every column gives up width evenly, a card column down to 16 cells and an empty one down to a short name with its count, `Canc.. (0)`, so a workflow of ten statuses fits a wide terminal whole.
+When the columns do not fit, every column gives up width evenly, a card column down to 16 characters and an empty one down to a short name with its count, `Canc.. (0)`, so a workflow of ten statuses fits a wide terminal whole.
 When even that is not enough, the columns that do not fit slide in as the cursor moves towards them.
 `h` and `l` move between columns, `j` and `k` between cards, `/`, `f`, `z` and every task key work as in the list.
 
