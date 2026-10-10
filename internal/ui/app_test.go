@@ -806,7 +806,7 @@ func TestEscOnTheTimesheetDetailReturnsToTheCell(t *testing.T) {
 	}
 }
 
-// Enter on the detail goes to the task on the main screen with its folder selected, what enter on the row did before.
+// Enter on the detail goes to the task on the main screen with its folder selected, the way a pick from the search does.
 // Logged time often sits on finished work, so the list has to show the completed task although the done toggle starts off.
 func TestEnterOnTheTimesheetDetailGoesToTheMainScreen(t *testing.T) {
 	st := seededStore(t)

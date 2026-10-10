@@ -97,7 +97,7 @@ An empty field clears that date. Tab moves between the two fields, enter saves, 
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
 `t` opens a box with hours, date and note fields.
-Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h` or `2h30m`.
+Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h`, `2h30m` or `1h 20m`, the form logged time is shown in.
 The date takes the same quick words as the dates dialog and defaults to today.
 The note is optional.
 Tab moves between the fields, enter saves, esc cancels.
@@ -205,8 +205,9 @@ An entry that sits in a locked or approved timesheet is shown dimmed.
 Editing or deleting it is refused with a message instead, nothing is queued for it.
 
 Enter on a row opens the task in the detail pane beside the grid, from 120 columns, or over the grid on a narrower terminal.
-The pane has the keys then: `j` and `k` scroll it, and the task keys work as on the main screen, `s` for the status, `c` for a comment, `t` to log time.
+The pane has the keys then: `j` and `k` scroll it, and the task keys work as on the main screen, `s` for the status, `c` for a comment, `t` to log time on the day under the cursor.
 Tab hands the keys back to the grid with the pane still open, and the pane follows the row under the cursor, as it follows the list.
+While the pane has the keys it stays on its task, a reload that drops its row from the grid does not move it.
 Esc closes the pane and the cursor is on the cell it was on, a second esc leaves the timesheet.
 Enter on the pane goes to the task on the main screen with its folder selected, the way the search does.
 

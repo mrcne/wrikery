@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -61,8 +62,7 @@ func TestFormatHoursRoundTripsThroughParseHours(t *testing.T) {
 	}
 }
 
-// The grid shows hours as h:mm, every other place as 1h 20m, both exact to the minute.
-// A decimal with one digit printed 1h 18m and 1h 20m the same way, so the grid could not be checked against what was typed.
+// The grid shows hours as h:mm, every other place as 1h 20m, both exact to the minute, so the grid can be checked against what was typed.
 func TestHoursTextAndClock(t *testing.T) {
 	cases := []struct {
 		h           float64
@@ -81,6 +81,21 @@ func TestHoursTextAndClock(t *testing.T) {
 		}
 		if got := hoursClock(c.h); got != c.clock {
 			t.Errorf("hoursClock(%v) = %q, want %q", c.h, got, c.clock)
+		}
+	}
+}
+
+// What the app prints as logged time, 1h 20m with the space, reads back in the time entry box.
+func TestParseHoursReadsWhatHoursTextPrints(t *testing.T) {
+	for _, h := range []float64{2, 0.75, 1 + 20.0/60, 23.5} {
+		got, err := parseHours(hoursText(h))
+		if err != nil || math.Abs(got-h) > 1e-9 {
+			t.Errorf("parseHours(%q) = %v, %v; want %v", hoursText(h), got, err, h)
+		}
+	}
+	for in, want := range map[string]float64{"1h 20m": 1 + 20.0/60, "1 h": 1, "1 : 30": 1.5} {
+		if got, err := parseHours(in); err != nil || math.Abs(got-want) > 1e-9 {
+			t.Errorf("parseHours(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
 }

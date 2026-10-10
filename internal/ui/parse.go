@@ -58,10 +58,10 @@ func parseDate(s string, now time.Time) (string, error) {
 	return "", errors.New("could not read the date, try 2026-09-12, fri, +3d or today")
 }
 
-// parseHours reads 1.5, 1,5, 1:30, 90m, 2h and 2h30m.
+// parseHours reads 1.5, 1,5, 1:30, 90m, 2h, 2h30m and 1h 20m, the form the app prints logged time in.
 // Wrike stores hours as a decimal, the API rejects zero and negative values.
 func parseHours(s string) (float64, error) {
-	s = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), ",", "."))
+	s = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(s), ",", "."), " ", ""))
 	if s == "" {
 		return 0, errors.New("hours are required")
 	}
@@ -129,7 +129,7 @@ func splitHours(h float64) (hours, minutes int) {
 }
 
 // hoursText writes logged time the way the time entry box reads it: 2h, 45m or 1h 20m.
-// Exact to the minute, where one decimal printed 1h 18m and 1h 20m the same way.
+// Exact to the minute, so what is shown can be checked against what was typed.
 func hoursText(h float64) string {
 	hours, minutes := splitHours(h)
 	switch {

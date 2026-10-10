@@ -451,3 +451,193 @@ func TestTaskKeysOnTheTimesheetActOnTheOpenDetail(t *testing.T) {
 		t.Errorf("s with the grid focused opened %T", m.dialog)
 	}
 }
+
+// A list reload runs behind the timesheet after every drain and every sync.
+// It must not take the pane beside the grid over with the list's own row, the keys there act on what the pane shows.
+func TestListReloadsLeaveThePaneBesideTheGridAlone(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.selectedNode = treeNode{id: "F1", kind: nodeFolder}
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
+	m.selectedTaskID = "T1"
+	next, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: []store.Task{{ID: "T2", Title: "Beta", Status: "Active"}}})
+	m = next.(Model)
+	for _, msg := range collect(cmd) {
+		if sel, ok := msg.(taskSelectedMsg); ok {
+			t.Errorf("the list reload selected %s over the pane's task", sel.id)
+		}
+	}
+	next, _ = m.Update(taskSelectedMsg{id: "T2"})
+	m = next.(Model)
+	if m.selectedTaskID != "T1" {
+		t.Errorf("selected task = %s after a late list selection, want T1", m.selectedTaskID)
+	}
+	next, _ = m.Update(tasksLoadedMsg{nodeID: "F1"})
+	m = next.(Model)
+	if m.selectedTaskID != "T1" || !m.detail.loaded {
+		t.Errorf("an empty list emptied the pane beside the grid, selected %q loaded %v", m.selectedTaskID, m.detail.loaded)
+	}
+}
+
+// Enter on a row sends its intent through the queue, a key typed right after it can leave the timesheet first.
+// The pane opens on the timesheet only, on any other screen the late intent is dropped.
+func TestOpenBesideOnAnotherScreenIsDropped(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.selectedTaskID = "T2"
+	next, cmd := m.Update(openBesideMsg{id: "T1"})
+	m = next.(Model)
+	if m.timesheet.detailOpen || m.selectedTaskID != "T2" || cmd != nil {
+		t.Errorf("openBesideMsg on the main screen opened the pane: open %v selected %s", m.timesheet.detailOpen, m.selectedTaskID)
+	}
+}
+
+// A rejected token switches to the first run screen from anywhere, the pane beside the grid closes with it,
+// or the next T would open the pane straight away with the keys in it.
+func TestARejectedTokenClosesThePaneBesideTheGrid(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.selectedTaskID = "T1"
+	next, _ := m.Update(SyncStateMsg{State: "auth_required"})
+	m = next.(Model)
+	if m.screen != screenFirstRun || m.timesheet.detailOpen || m.timesheet.detailFocus {
+		t.Errorf("auth_required left the pane open: screen %v open %v focus %v", m.screen, m.timesheet.detailOpen, m.timesheet.detailFocus)
+	}
+}
+
+// The row glyph is resolved when the week loads, so a status pulled by a sync and a late reference load re-read the week.
+func TestStatusAndReferenceChangesReloadTheWeek(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.weekStart = time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	for _, msg := range []tea.Msg{StoreChangedMsg{Entities: []string{"tasks"}}, refLoadedMsg{}} {
+		_, cmd := m.Update(msg)
+		found := false
+		for _, out := range collect(cmd) {
+			if week, ok := out.(weekLoadedMsg); ok && week.weekStart.Equal(m.timesheet.weekStart) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%T on the timesheet did not reload the week", msg)
+		}
+	}
+	m.screen = screenMain
+	for _, out := range collect(m.reload([]string{"tasks"})) {
+		if _, ok := out.(weekLoadedMsg); ok {
+			t.Error("a task change off the timesheet reloaded the week")
+		}
+	}
+}
+
+// The pane beside the grid shows the task alone, without the folder the main screen's list is on and without its board.
+// So m there moves the task out of nothing, and H and L step the status even where the board would refuse a bucket card.
+func TestTaskKeysOnThePaneSkipTheMainScreenContext(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.shape = shapeBoard
+	m.list = testBoardList()
+	m.ref = m.list.ref
+	m.sidebar.nodes = testTree()
+	m.list.folders, m.list.nodeID = newFolderIndex(m.sidebar.nodes), "INF"
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.list.selectByID("b2")
+	row, _ := m.list.current()
+	b2 := row.task
+	b2.ParentIDs = []string{"ONC"}
+	m.detail.set(taskLoadedMsg{asked: "b2", task: b2})
+	m.selectedTaskID = "b2"
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m = next.(Model)
+	d, ok := m.dialog.(foldersDialog)
+	if !ok {
+		t.Fatalf("m on the pane opened %T, want the folders box", m.dialog)
+	}
+	if len(d.leaving) != 0 {
+		t.Errorf("the folders box on the timesheet would leave %v on a move, the list's node is not on screen", d.leaving)
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")})
+	m = next.(Model)
+	if strings.Contains(m.status.toast, "another workflow") {
+		t.Errorf("L on the pane was refused for the board's bucket column: %q", m.status.toast)
+	}
+}
+
+// A week reload can drop the row of the task the pane shows, its only entry deleted in Wrike or moved to another week,
+// and the cursor lands on the first row. With the keys in the pane it keeps its task, the next tab to the grid follows the row.
+func TestAFocusedPaneKeepsItsTaskWhenItsRowGoes(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.detail.set(taskLoadedMsg{asked: "T2", task: store.Task{ID: "T2", Title: "Beta", Status: "Active"}})
+	m.selectedTaskID = "T2"
+	week := weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
+		titles:    map[string]string{"T1": "Alpha"},
+	}
+	next, _ := m.Update(week)
+	m = next.(Model)
+	if m.selectedTaskID != "T2" {
+		t.Errorf("the focused pane switched to %s when its row went", m.selectedTaskID)
+	}
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(Model)
+	if m.timesheet.detailFocus || m.selectedTaskID != "T1" {
+		t.Errorf("tab to the grid should put the pane on the row under the cursor, got focus %v selected %s", m.timesheet.detailFocus, m.selectedTaskID)
+	}
+	m.timesheet.detailFocus = true
+	m.selectedTaskID = "T2"
+	m.detail.set(taskLoadedMsg{asked: "T2", task: store.Task{ID: "T2", Title: "Beta", Status: "Active"}})
+	m.timesheet.detailFocus = false
+	next, _ = m.Update(week)
+	m = next.(Model)
+	if m.selectedTaskID != "T1" {
+		t.Errorf("with the grid focused the pane follows the row, got %s", m.selectedTaskID)
+	}
+}
+
+// t on the pane logs time on the day the grid cursor is on, the same day n on the cell takes.
+func TestLogTimeOnThePaneTakesTheCellDay(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
+		titles:    map[string]string{"T1": "Alpha"},
+	})
+	m.timesheet.cursorDay = 2
+	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
+	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
+	m.selectedTaskID = "T1"
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	m = next.(Model)
+	d, ok := m.dialog.(timelogDialog)
+	if !ok {
+		t.Fatalf("t on the pane opened %T, want the time entry box", m.dialog)
+	}
+	if got := d.inputs[1].Value(); got != "2026-09-02" {
+		t.Errorf("the date field reads %q, want the cell's day 2026-09-02", got)
+	}
+}
+
+// Enter on the row the pane already follows only hands it the keys, the task is not read again and the scroll stays.
+func TestEnterOnTheFollowedRowKeepsThePane(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.screen = screenTimesheet
+	m.timesheet.detailOpen = true
+	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
+	m.selectedTaskID = "T1"
+	next, cmd := m.Update(openBesideMsg{id: "T1"})
+	m = next.(Model)
+	if !m.timesheet.detailFocus || !m.detail.loaded {
+		t.Errorf("enter on the followed row should keep the loaded pane and focus it, got focus %v loaded %v", m.timesheet.detailFocus, m.detail.loaded)
+	}
+	for _, out := range collect(cmd) {
+		if _, ok := out.(taskLoadedMsg); ok {
+			t.Error("the task was read again although the pane shows it")
+		}
+	}
+}

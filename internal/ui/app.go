@@ -183,7 +183,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
-		return m, m.loadTree()
+		cmds := []tea.Cmd{m.loadTree()}
+		if m.screen == screenTimesheet {
+			// The row glyphs were resolved against the reference data of their load, the week is read again with this one.
+			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
+		}
+		return m, tea.Batch(cmds...)
 	case treeLoadedMsg:
 		m.sidebar.setTree(msg.nodes, msg.pins)
 		m.list.folders = newFolderIndex(msg.nodes)
@@ -231,6 +236,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// In the list shape the board has no width yet, and a window placed at width zero would stick to the cursor column.
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
+		// The list reloads behind the timesheet after every drain and every sync, its row must not replace the pane's task.
+		if m.paneBesideGrid() {
+			return m, nil
+		}
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
 			return m, intent(taskSelectedMsg{id: cur.task.ID})
 		}
@@ -239,7 +248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskSelectedMsg:
 		// The intent travels through the queue, and a list load that lands before it can leave the list without that row.
 		// Such a late selection is dropped, or an empty folder would show a task from the folder before.
-		if !m.list.has(msg.id) {
+		if !m.list.has(msg.id) || m.paneBesideGrid() {
 			return m, nil
 		}
 		m.selectedTaskID = msg.id
@@ -330,6 +339,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openTaskMsg:
 		return m.jumpToTask(msg.id, msg.parentID)
 	case openBesideMsg:
+		// The intent travels through the queue, a key typed right after enter can have left the timesheet already.
+		if m.screen != screenTimesheet {
+			return m, nil
+		}
+		if m.timesheet.detailOpen && msg.id == m.selectedTaskID && m.detail.loaded {
+			// The pane followed the row here already, enter only hands it the keys.
+			m.timesheet.detailFocus = true
+			return m, m.markOpened(msg.id)
+		}
 		// The pane starts empty rather than show the main screen's task until the read lands.
 		m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
 		m.selectedTaskID, m.detail = msg.id, taskDetailModel{keys: m.keys}
@@ -353,7 +371,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case weekLoadedMsg:
 		m.timesheet.set(msg)
-		return m, m.followTimesheetRow()
+		if m.timesheet.detailFocus {
+			// The keys are in the pane, it keeps its task even when the reload dropped its row and the cursor moved.
+			return m, nil
+		}
+		follow := m.followTimesheetRow()
+		return m, follow
 	case loadWeekMsg:
 		return m, m.loadWeek(msg.start)
 	case newEntryMsg:
@@ -525,6 +548,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	m.status.state = state
+	var cmd tea.Cmd
 	switch state {
 	case "idle":
 		m.status.lastSynced = m.opts.Now()
@@ -534,6 +558,8 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 		}
 	case "auth_required":
 		if m.screen != screenFirstRun {
+			// The way back lands on the main screen, which must not find the pane beside the grid still open.
+			cmd = m.closeTimesheetDetail()
 			m.screen = screenFirstRun
 			m.firstRun = newFirstRun(stepToken, "Wrike did not accept the stored token. Paste it again to continue.", m.keys)
 			m.firstRun.reauth = true
@@ -542,7 +568,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 	if state != "offline" && state != "failed" {
 		m.status.since = time.Time{}
 	}
-	return m, nil
+	return m, cmd
 }
 
 // reload re-reads what is on screen for the caches that changed.
@@ -561,7 +587,8 @@ func (m Model) reload(entities []string) tea.Cmd {
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") || slices.Contains(entities, "dependencies") {
 		cmds = append(cmds, m.reloadTask())
 	}
-	if slices.Contains(entities, "timelogs") && m.screen == screenTimesheet {
+	// A task change can be a status, and the row glyph is resolved when the week loads.
+	if (slices.Contains(entities, "timelogs") || slices.Contains(entities, "tasks")) && m.screen == screenTimesheet {
 		cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
 	}
 	if _, open := m.dialog.(scopesDialog); open && m.overlay == overlayDialog && (slices.Contains(entities, "spaces") || slices.Contains(entities, "folders")) {
@@ -655,11 +682,16 @@ func (m Model) reloadTask() tea.Cmd {
 func (m Model) timesheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.timesheet.detailOpen && key.Matches(msg, m.keys.NextPane, m.keys.PrevPane) {
 		m.timesheet.detailFocus = !m.timesheet.detailFocus
-		return m, nil
+		if m.timesheet.detailFocus {
+			return m, nil
+		}
+		// A reload may have moved the cursor while the pane had the keys, back on the grid the pane is on its row again.
+		follow := m.followTimesheetRow()
+		return m, follow
 	}
 	if m.timesheet.detailOpen && m.timesheet.detailFocus {
 		if key.Matches(msg, m.keys.Enter) {
-			// On to the main screen with the folder selected, what enter on the row did before the pane.
+			// On to the main screen with the folder selected, the way a pick from the search goes.
 			if !m.detail.loaded {
 				return m, nil
 			}
@@ -675,7 +707,13 @@ func (m Model) timesheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.timesheet, cmd = m.timesheet.Update(msg)
-	return m, tea.Batch(cmd, m.followTimesheetRow())
+	follow := m.followTimesheetRow()
+	return m, tea.Batch(cmd, follow)
+}
+
+// paneBesideGrid tells whether the detail shows the timesheet's task rather than the list's row.
+func (m Model) paneBesideGrid() bool {
+	return m.screen == screenTimesheet && m.timesheet.detailOpen
 }
 
 // followTimesheetRow keeps the pane beside the grid on the row under the cursor.
@@ -810,9 +848,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenSettings
 			return m, tea.Batch(closing, m.loadScopes(), m.loadHost())
 		case key.Matches(msg, m.keys.Back):
-			if m.screen == screenTimesheet && m.timesheet.detailOpen {
+			if m.paneBesideGrid() {
 				// One level at a time: the pane beside the grid goes first, the next esc leaves the timesheet.
-				return m, m.closeTimesheetDetail()
+				closing := m.closeTimesheetDetail()
+				return m, closing
 			}
 			m.screen = screenMain
 			return m, nil
@@ -982,7 +1021,12 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return cmd, true
 	case key.Matches(msg, m.keys.LogTime):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newTimelogDialog(t.ID, t.Title, nil, "", m.opts.Now())
+			// Beside the grid the entry goes on the day under the cursor, the day n on the cell takes.
+			date := ""
+			if m.screen == screenTimesheet && m.timesheet.loaded {
+				date = m.timesheet.cellDate()
+			}
+			d, cmd := newTimelogDialog(t.ID, t.Title, nil, date, m.opts.Now())
 			m.openDialog(d)
 			return cmd
 		})
@@ -1020,7 +1064,12 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return cmd, true
 	case key.Matches(msg, m.keys.Folders):
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, m.list.nodeID)
+			// A move leaves the folders under the node in view. The timesheet shows no folder, so a move from there leaves none.
+			node := m.list.nodeID
+			if m.screen == screenTimesheet {
+				node = ""
+			}
+			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, node)
 			m.openDialog(d)
 			return cmd
 		})
@@ -1076,7 +1125,8 @@ func (m *Model) toggleShape() {
 // moveStatus steps the task to the neighbouring status of its workflow, through the message the status dialog sends,
 // so the toast, the cache update and the outbox row are the ones that exist.
 func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
-	if m.shape == shapeBoard && m.list.inBucket(t.ID) {
+	// The bucket rule is about the board, which only the main screen shows.
+	if m.screen == screenMain && m.shape == shapeBoard && m.list.inBucket(t.ID) {
 		return m.status.show("this task is on another workflow, s picks a status", true)
 	}
 	cs, known, ok := stepStatus(t, m.ref, delta)

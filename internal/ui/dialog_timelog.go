@@ -45,7 +45,7 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 		in.CharLimit = 200
 		d.inputs[i] = in
 	}
-	d.inputs[0].Placeholder = "1.5, 1:30, 90m"
+	d.inputs[0].Placeholder = "1.5, 1:30, 90m, 1h 20m"
 	return d, d.inputs[0].Focus()
 }
 

@@ -80,7 +80,7 @@ type searchResultsMsg struct {
 	tasks  []store.Task
 	crumbs map[string]string
 }
-type openTaskMsg struct{ id, parentID string } // intent: leave the search overlay, the issues screen or the timesheet for this task
+type openTaskMsg struct{ id, parentID string } // intent: leave the search overlay or the issues screen for this task
 type openBesideMsg struct{ id string }         // intent: show the task in the detail pane beside the timesheet grid
 type searchPickMsg struct{ task store.Task }   // intent: pick mode, hand the task back to whoever asked for it
 type runSearchMsg struct {
