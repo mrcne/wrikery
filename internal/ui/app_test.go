@@ -1238,6 +1238,10 @@ func TestSettingsScreenUnfollowsASpace(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks: My tasks (")
+	// The toast is drawn one message before the reloaded tree, so the test needs something only the reload draws.
+	// With Wishlist selected, the tree without Mobile moves the selection back to My tasks and the list title follows.
+	press(tm, "shift+tab", "j", "j", "j")
+	waitFor(t, tm, "Tasks: Mobile / Wishlist (0)")
 	press(tm, ",")
 	waitFor(t, tm, "Mobile, Platform")
 	press(tm, "enter")
@@ -1258,7 +1262,9 @@ func TestSettingsScreenUnfollowsASpace(t *testing.T) {
 	if slices.Contains(ids, demo.SpaceMobile) || !slices.Contains(ids, demo.SpacePlatform) {
 		t.Fatalf("followed = %v", ids)
 	}
+	from := mark(t, tm)
 	press(tm, "esc")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
 	view := finalView(t, tm)
 	if strings.Contains(view, "Wishlist") || !strings.Contains(view, "Design system") {
 		t.Errorf("the sidebar should have dropped the Mobile space and kept Platform:\n%s", view)
