@@ -496,3 +496,102 @@ func TestFindByTitleMatchesNothingForAFragmentThatFoldsToEmpty(t *testing.T) {
 		t.Errorf("FindByTitle(combining mark) = %v, %v, want no rows", got, err)
 	}
 }
+
+func TestUpsertStoresTheRelationsAndReplacesThem(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	a := makeTask("T1", "child")
+	a.SuperTaskIDs = []string{"P2", "P1"}
+	a.DependencyIDs = []string{"X"}
+	a.AttachmentCount = 2
+	if err := st.Tasks().Upsert(ctx, []Task{a}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().Get(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.SuperTaskIDs) != 2 || got.SuperTaskIDs[0] != "P1" || got.SuperTaskIDs[1] != "P2" {
+		t.Errorf("super tasks = %v, want [P1 P2]", got.SuperTaskIDs)
+	}
+	if len(got.DependencyIDs) != 1 || got.DependencyIDs[0] != "X" {
+		t.Errorf("dependency ids = %v, want [X]", got.DependencyIDs)
+	}
+	if got.AttachmentCount != 2 {
+		t.Errorf("attachment count = %d, want 2", got.AttachmentCount)
+	}
+
+	a.SuperTaskIDs, a.DependencyIDs, a.AttachmentCount = []string{"P2"}, nil, 0
+	if err := st.Tasks().Upsert(ctx, []Task{a}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.Tasks().Get(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.SuperTaskIDs) != 1 || got.SuperTaskIDs[0] != "P2" || len(got.DependencyIDs) != 0 || got.AttachmentCount != 0 {
+		t.Errorf("after the second upsert = %+v, want the relations replaced", got)
+	}
+}
+
+func TestSubtasksListsTheChildrenInListOrder(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	p, q := makeTask("P", "parent"), makeTask("Q", "other parent")
+	c1, c2, c3 := makeTask("C1", "done child"), makeTask("C2", "open child"), makeTask("C3", "elsewhere")
+	c1.Status = "Completed"
+	c1.SuperTaskIDs, c2.SuperTaskIDs, c3.SuperTaskIDs = []string{"P"}, []string{"P"}, []string{"Q"}
+	if err := st.Tasks().Upsert(ctx, []Task{p, q, c1, c2, c3}); err != nil {
+		t.Fatal(err)
+	}
+	subs, err := st.Tasks().Subtasks(ctx, "P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 2 || subs[0].ID != "C2" || subs[1].ID != "C1" {
+		t.Errorf("subtasks of P = %+v, want the open child first then the done one", subs)
+	}
+	subs, err = st.Tasks().Subtasks(ctx, "C1")
+	if err != nil || len(subs) != 0 {
+		t.Errorf("subtasks of a leaf = %+v, %v", subs, err)
+	}
+}
+
+func TestByIDsReturnsTheCachedTasksInListOrder(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	a, b := makeTask("A", "done one"), makeTask("B", "open one")
+	a.Status = "Completed"
+	if err := st.Tasks().Upsert(ctx, []Task{a, b, makeTask("C", "unasked")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().ByIDs(ctx, []string{"A", "B", "GONE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "B" || got[1].ID != "A" {
+		t.Errorf("by ids = %+v, want the open task first and the unknown id left out", got)
+	}
+	if got, err := st.Tasks().ByIDs(ctx, nil); err != nil || len(got) != 0 {
+		t.Errorf("by no ids = %+v, %v", got, err)
+	}
+}
+
+func TestRelatedIDsNamesEveryOtherEndOnce(t *testing.T) {
+	task := Task{ID: "T1", SuperTaskIDs: []string{"P1", "P2"}}
+	deps := []Dependency{
+		{ID: "X", PredecessorID: "T2", SuccessorID: "T1"},
+		{ID: "Y", PredecessorID: "T1", SuccessorID: "T3"},
+		{ID: "Z", PredecessorID: "T2", SuccessorID: "T1"},
+	}
+	got := RelatedIDs(task, deps)
+	want := []string{"P1", "P2", "T2", "T3"}
+	if len(got) != len(want) {
+		t.Fatalf("related = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("related = %v, want %v", got, want)
+		}
+	}
+}

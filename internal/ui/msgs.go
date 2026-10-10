@@ -49,6 +49,9 @@ type taskLoadedMsg struct {
 	task     store.Task
 	comments []store.Comment
 	logs     []store.Timelog
+	subtasks []store.Task
+	deps     []store.Dependency
+	related  map[string]store.Task // the cached super tasks and dependency ends by id, a missing one is outside the followed spaces
 	states   map[string]store.OutboxState
 	crumb    string
 }

@@ -46,7 +46,7 @@ On the first run, and later from the settings screen, the user picks which space
 Only these are synced and searchable, which keeps the database small and the first sync short even on a larger Wrike account.
 The user own tasks are always included, and anything outside the followed set can still be fetched on demand while online.
 
-Cached entities: tasks with descriptions, folders and projects, spaces, contacts, comments, timelogs and workflows.
+Cached entities: tasks with descriptions, folders and projects, spaces, contacts, comments, timelogs, workflows and the dependencies between tasks.
 Workflows are there because custom statuses come from them.
 The account call lists only the account workflows, so the reference pull also asks each space for the workflows it owns, since a task in such a space carries a status from one of those.
 Search over task titles and descriptions uses FTS5, the full text search built into SQLite.
@@ -56,7 +56,9 @@ Search over task titles and descriptions uses FTS5, the full text search built i
 One SQLite file holds everything, with a table for each cached entity.
 Most of the mapping is direct, so only three parts need explaining:
 
-- tasks keep their dates in flat columns, with task_responsibles and task_parents as join tables
+- tasks keep their dates in flat columns, with task_responsibles, task_parents, task_supertasks and task_dependencies as join tables.
+  The subtasks of a task are the tasks that name it in task_supertasks, nothing is kept on the parent, because adding a subtask on Wrike leaves the parent's updatedDate alone and a list on the parent would go stale.
+- dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
 
@@ -82,7 +84,12 @@ After that the engine polls, every 60 seconds by default, and there is a key for
 A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
 A change of the followed set asks the engine for a full cycle, the kind the refresh key asks for: a newly followed scope is pulled from the start, and the sweep at the end of such a cycle removes the tasks of an unfollowed scope, which is why a scope followed again later starts from scratch as well.
-Comments and timelogs are synced only for tasks the user recently viewed or touched, not for the whole account.
+The task search also lists subtasks, including those with no folder of their own, and carries each task's super tasks, dependency ids and attachment count.
+Comments, timelogs and dependencies are synced only for tasks the user recently viewed or touched, not for the whole account.
+The dependencies are among them because adding or removing one on Wrike moves the updatedDate of neither task, so the poll would never see the change.
+The task's own dependencies endpoint answers every edge of the task with both ends, so one read also takes a removed edge off the other end and adds a new one to it.
+At the end of a cycle the engine reads the dependencies of the tasks that list an edge the cache does not have yet, two hundred tasks at most per cycle, so a first pull of a large plan catches up over a few cycles.
+A read that Wrike refuses forgets that task's dependency ids rather than the task, the pull and the sweep are what decide a task exists, and the ids come back with the task's next pull.
 Every cycle also pulls the user's own timelogs for the current week and the eight weeks before it, on top of that per-task pull.
 That pull stops at an empty page, because Wrike answers an empty window with a page token and refuses the token on the next request.
 The store rows in that range are replaced as a whole, so a deleted or moved entry disappears too.

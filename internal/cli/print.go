@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,9 +50,90 @@ type datesJSON struct {
 
 type taskDetailJSON struct {
 	taskJSON
-	DescriptionText string        `json:"description_text"`
-	DescriptionHTML string        `json:"description_html"`
-	Comments        []commentJSON `json:"comments"`
+	DescriptionText string           `json:"description_text"`
+	DescriptionHTML string           `json:"description_html"`
+	AttachmentCount int              `json:"attachment_count"`
+	SuperTasks      []relatedJSON    `json:"super_tasks"`
+	Subtasks        []subtaskJSON    `json:"subtasks"`
+	Predecessors    []dependencyJSON `json:"predecessors"`
+	Successors      []dependencyJSON `json:"successors"`
+	Comments        []commentJSON    `json:"comments"`
+}
+
+// relatedJSON names a task the cache may not hold, the title is empty then and the id is all there is.
+type relatedJSON struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type subtaskJSON struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Status      string `json:"status"`
+	StatusGroup string `json:"status_group"`
+}
+
+// dependencyJSON is one edge seen from the shown task, so it names the other end only.
+type dependencyJSON struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Relation   string `json:"relation"`
+	LagMinutes int    `json:"lag_minutes"`
+}
+
+// relations is what the show command reads next to the task itself.
+type relations struct {
+	subtasks []store.Task
+	deps     []store.Dependency
+	related  map[string]store.Task // the cached super tasks and dependency ends, a missing id is a task outside the followed spaces
+}
+
+func loadRelations(ctx context.Context, st *store.Store, t store.Task) (relations, error) {
+	var r relations
+	var err error
+	if r.subtasks, err = st.Tasks().Subtasks(ctx, t.ID); err != nil {
+		return r, err
+	}
+	if r.deps, err = st.Dependencies().ListForTask(ctx, t.ID); err != nil {
+		return r, err
+	}
+	ends, err := st.Tasks().ByIDs(ctx, store.RelatedIDs(t, r.deps))
+	if err != nil {
+		return r, err
+	}
+	r.related = make(map[string]store.Task, len(ends))
+	for _, rt := range ends {
+		r.related[rt.ID] = rt
+	}
+	return r, nil
+}
+
+// other is the end of the edge that is not the shown task, and whether the task comes after it.
+func (r relations) other(dep store.Dependency, taskID string) (id string, predecessor bool) {
+	if dep.SuccessorID == taskID {
+		return dep.PredecessorID, true
+	}
+	return dep.SuccessorID, false
+}
+
+func (r relations) json(t store.Task, ref *refData) (super []relatedJSON, subs []subtaskJSON, pred, succ []dependencyJSON) {
+	super, subs, pred, succ = []relatedJSON{}, []subtaskJSON{}, []dependencyJSON{}, []dependencyJSON{}
+	for _, id := range t.SuperTaskIDs {
+		super = append(super, relatedJSON{ID: id, Title: r.related[id].Title})
+	}
+	for _, s := range r.subtasks {
+		subs = append(subs, subtaskJSON{ID: s.ID, Title: s.Title, Status: ref.statusName(s), StatusGroup: s.Status})
+	}
+	for _, dep := range r.deps {
+		id, predecessor := r.other(dep, t.ID)
+		row := dependencyJSON{ID: id, Title: r.related[id].Title, Relation: dep.RelationType, LagMinutes: dep.LagMinutes}
+		if predecessor {
+			pred = append(pred, row)
+		} else {
+			succ = append(succ, row)
+		}
+	}
+	return super, subs, pred, succ
 }
 
 type commentJSON struct {
@@ -153,7 +235,7 @@ func padRight(s string, width int) string {
 	return s
 }
 
-func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.Comment, ref *refData) {
+func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.Comment, rel relations, ref *refData) {
 	th := env.Theme
 	label := lipgloss.NewStyle().Foreground(th.Muted)
 	dim := lipgloss.NewStyle().Foreground(th.Dim)
@@ -189,6 +271,41 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 		titles = append(titles, ref.folderTitle(ctx, env.Store, id))
 	}
 	line("folders", strings.Join(titles, ", "))
+	// A related task gets the glyph the list gives it, an end outside the cache has nothing to draw one from.
+	outside := dim.Render("a task outside the followed spaces")
+	glyphed := func(rt store.Task) string {
+		cs := statusOf(rt, ref)
+		return lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group)) + " " + rt.Title
+	}
+	for _, id := range t.SuperTaskIDs {
+		if rt, ok := rel.related[id]; ok {
+			line("subtask of", glyphed(rt))
+		} else {
+			line("subtask of", outside)
+		}
+	}
+	if t.AttachmentCount > 0 {
+		line("attachments", strconv.Itoa(t.AttachmentCount))
+	}
+	for _, s := range rel.subtasks {
+		line("subtasks", glyphed(s))
+	}
+	for _, dep := range rel.deps {
+		id, predecessor := rel.other(dep, t.ID)
+		name := "successor"
+		if predecessor {
+			name = "predecessor"
+		}
+		text := ui.RelationText(dep.RelationType)
+		if lag := ui.LagText(dep.LagMinutes); lag != "" {
+			text += ", " + lag
+		}
+		end := outside
+		if rt, ok := rel.related[id]; ok {
+			end = glyphed(rt)
+		}
+		line(name, end+" "+dim.Render("("+text+")"))
+	}
 	line("link", t.Permalink)
 	switch ref.pending[t.ID] {
 	case store.StatePending, store.StateInflight:

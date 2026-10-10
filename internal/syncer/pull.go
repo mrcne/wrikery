@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -11,7 +13,10 @@ import (
 )
 
 // The task search returns these only when asked.
-var pullFields = []string{"description", "responsibleIds", "parentIds"}
+var pullFields = []string{"description", "responsibleIds", "parentIds", "superTaskIds", "dependencyIds", "attachmentCount"}
+
+// dependencyBatch caps the edge reads of one cycle, a first pull of a large plan spreads them over a few cycles.
+const dependencyBatch = 200
 
 func pullReference(ctx context.Context, c Client, st *store.Store) error {
 	folders, err := c.FolderTree(ctx)
@@ -67,7 +72,9 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 }
 
 func scopeParams(sc store.Scope, meID string) wrike.TaskParams {
-	p := wrike.TaskParams{PageSize: 1000}
+	// A subtask with no folder of its own is listed only with subTasks, and the sweep shares these parameters,
+	// so without it such a subtask would never be cached, or be pruned at the next sweep.
+	p := wrike.TaskParams{PageSize: 1000, SubTasks: true}
 	switch sc.Kind {
 	case store.ScopeKindMe:
 		p.Responsibles = []string{meID}
@@ -155,16 +162,18 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 	return err
 }
 
-// refreshThreads pulls comments and timelogs for recently opened tasks and reports which caches it touched.
-// A 404 means the task is gone on the server, drop it. Any other rejection skips the task,
+// refreshThreads pulls comments, timelogs and dependencies for recently opened tasks and reports which caches it touched.
+// A 404 on the thread means the task is gone on the server, drop it. Any other rejection skips the task,
 // it stays in the window for days and must not block the other threads for that long.
+// The dependency read comes after the thread and has an outcome of its own:
+// the comment read is the one that says whether the task exists, and a rejected dependency read must not undo a thread already written.
 func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
 	since := rfc3339(time.Now().Add(-window))
 	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, since, limit)
 	if err != nil {
 		return nil, err
 	}
-	threads, dropped := false, false
+	threads, dropped, deps := false, false, false
 	for _, id := range ids {
 		err := refreshThread(ctx, c, st, id)
 		switch {
@@ -175,8 +184,18 @@ func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Lo
 				return nil, err
 			}
 			dropped = true
+			continue
 		case classify(err) == failPermanent:
 			log.Warn("thread refresh rejected", "task", id, "error", err)
+			continue
+		default:
+			return nil, err
+		}
+		switch _, err := refreshDependencies(ctx, c, st, id); {
+		case err == nil:
+			deps = true
+		case isNotFound(err) || classify(err) == failPermanent:
+			log.Warn("dependency read rejected", "task", id, "error", err)
 		default:
 			return nil, err
 		}
@@ -187,6 +206,9 @@ func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Lo
 	}
 	if dropped {
 		touched = append(touched, KindTasks)
+	}
+	if deps {
+		touched = append(touched, KindDependencies)
 	}
 	return touched, nil
 }
@@ -236,4 +258,53 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, id string) er
 		return err
 	}
 	return st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs))
+}
+
+// refreshDependencies replaces the task's dependency list with what Wrike holds now and returns it.
+// Adding or removing a dependency moves neither task's updatedDate (checked on the live account on 2026-10-08),
+// so the poll never brings such a change and only this read, part of the thread refresh of an opened task, notices it.
+func refreshDependencies(ctx context.Context, c Client, st *store.Store, id string) ([]store.Dependency, error) {
+	deps, err := c.TaskDependencies(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	out := dependenciesFromWrike(deps)
+	return out, st.Dependencies().ReplaceForTask(ctx, id, out)
+}
+
+// pullDependencies fetches the edges of the tasks that list a dependency id with no edge in the cache yet.
+// The task's own endpoint answers every edge of the task, so the other end is covered by the same read and skipped,
+// and a cache with every edge in costs no request.
+// A rejection of any kind, a 404 included, forgets the task's list instead of the task:
+// the scope pull listed the task in this very cycle and the sweep is what decides a task is gone,
+// and without the forget the read and its warning would repeat every cycle.
+// The ids come back with the task's next pull, which is the moment a new read makes sense.
+func pullDependencies(ctx context.Context, c Client, st *store.Store, log *slog.Logger) (bool, error) {
+	missing, err := st.Dependencies().TasksMissingEdges(ctx, dependencyBatch)
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	covered := map[string]bool{}
+	for _, id := range slices.Sorted(maps.Keys(missing)) {
+		if !slices.ContainsFunc(missing[id], func(depID string) bool { return !covered[depID] }) {
+			continue
+		}
+		deps, err := refreshDependencies(ctx, c, st, id)
+		switch {
+		case err == nil:
+			for _, d := range deps {
+				covered[d.ID] = true
+			}
+			changed = true
+		case isNotFound(err) || classify(err) == failPermanent:
+			log.Warn("dependency read rejected", "task", id, "error", err)
+			if err := st.Dependencies().ForgetForTask(ctx, id); err != nil {
+				return changed, err
+			}
+		default:
+			return changed, err
+		}
+	}
+	return changed, nil
 }

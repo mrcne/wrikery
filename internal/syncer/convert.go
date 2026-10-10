@@ -13,17 +13,20 @@ func rfc3339(t time.Time) string {
 
 func taskFromWrike(t wrike.Task) store.Task {
 	out := store.Task{
-		ID:             t.ID,
-		Title:          t.Title,
-		Description:    t.Description,
-		Status:         t.Status,
-		CustomStatusID: t.CustomStatusID,
-		Importance:     t.Importance,
-		Permalink:      t.Permalink,
-		ResponsibleIDs: t.ResponsibleIDs,
-		ParentIDs:      t.ParentIDs,
-		CreatedDate:    rfc3339(t.CreatedDate),
-		UpdatedDate:    rfc3339(t.UpdatedDate),
+		ID:              t.ID,
+		Title:           t.Title,
+		Description:     t.Description,
+		Status:          t.Status,
+		CustomStatusID:  t.CustomStatusID,
+		Importance:      t.Importance,
+		Permalink:       t.Permalink,
+		ResponsibleIDs:  t.ResponsibleIDs,
+		ParentIDs:       t.ParentIDs,
+		SuperTaskIDs:    t.SuperTaskIDs,
+		DependencyIDs:   t.DependencyIDs,
+		AttachmentCount: t.AttachmentCount,
+		CreatedDate:     rfc3339(t.CreatedDate),
+		UpdatedDate:     rfc3339(t.UpdatedDate),
 	}
 	if t.Dates != nil {
 		out.Dates = &store.TaskDates{
@@ -40,6 +43,14 @@ func tasksFromWrike(in []wrike.Task) []store.Task {
 	out := make([]store.Task, len(in))
 	for i, t := range in {
 		out[i] = taskFromWrike(t)
+	}
+	return out
+}
+
+func dependenciesFromWrike(in []wrike.Dependency) []store.Dependency {
+	out := make([]store.Dependency, len(in))
+	for i, d := range in {
+		out[i] = store.Dependency{ID: d.ID, PredecessorID: d.PredecessorID, SuccessorID: d.SuccessorID, RelationType: d.RelationType, LagMinutes: d.LagTime}
 	}
 	return out
 }

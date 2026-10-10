@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,8 +56,11 @@ func TestPullScopeInitialThenIncremental(t *testing.T) {
 	if gotParams[0].FolderID != "F1" || !gotParams[0].Descendants {
 		t.Errorf("params = %+v, want the folder query with descendants", gotParams[0])
 	}
-	if len(gotParams[0].Fields) != 3 || gotParams[0].Fields[0] != "description" {
-		t.Errorf("fields = %v, description and the id lists are optional and must be requested", gotParams[0].Fields)
+	if strings.Join(gotParams[0].Fields, ",") != "description,responsibleIds,parentIds,superTaskIds,dependencyIds,attachmentCount" {
+		t.Errorf("fields = %v, the description, the id lists and the attachment count are optional and must be requested", gotParams[0].Fields)
+	}
+	if !gotParams[0].SubTasks {
+		t.Error("a subtask without a folder of its own is listed only when subtasks are asked for")
 	}
 	if gotParams[0].PageSize != 1000 {
 		t.Errorf("page size = %d, want the verified maximum", gotParams[0].PageSize)

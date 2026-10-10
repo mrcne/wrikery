@@ -2,10 +2,10 @@
 |< 1 In progress (11)          In review (7)             Blocked (6)               +1 >||Document auth retry loop                                              |
 |      Remove auth retry loop    Rotate signing keys     > Document auth retry         ||#1200033  Infra                                                       |
 |        AN             today      AN+            2 Sep  > loop                        ||                                                                      |
-|      Bump signing keys         Document rate limit     >   AN+           29 Aug      ||Status     o Blocked                                                  |
-|        AN             today    test                      Refactor signing keys       ||Assignees  Celina Wrona, Ada Nowak                                    |
-|      Investigate rate limit    ! AN+            2 Sep      AN+           29 Aug      ||Dates      28 Aug -> 29 Aug                                           |
-|      test                      Refactor error codes      Remove rate limit test      ||Updated    25 Aug                                                     |
+|      Bump signing keys         Document rate limit     >   AN+           29 Aug      ||Status       o Blocked                                                |
+|        AN             today    test                      Refactor signing keys       ||Assignees    Celina Wrona, Ada Nowak                                  |
+|      Investigate rate limit    ! AN+            2 Sep      AN+           29 Aug      ||Dates        28 Aug -> 29 Aug                                         |
+|      test                      Refactor error codes      Remove rate limit test      ||Updated      25 Aug                                                   |
 |        AN             today      AN+            2 Sep      AN+           29 Aug      ||                                                                      |
 |      Design error codes        Remove sync cursor        Fix search ranking          ||  Plain paragraph, nothing fancy. Long enough to wrap in a narrow     |
 |        AN             today      AN+            2 Sep      AN+              Wed      ||  detail pane so the wrapping code gets exercised too.                |

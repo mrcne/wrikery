@@ -20,6 +20,10 @@ type TaskRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
+	// Subtasks lists the tasks that name the given one as a super task, in list order.
+	Subtasks(ctx context.Context, superID string) ([]Task, error)
+	// ByIDs returns the cached tasks among the ids in list order, an unknown id is left out.
+	ByIDs(ctx context.Context, ids []string) ([]Task, error)
 	FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error)
 	ByPermalinkID(ctx context.Context, numeric string) (Task, error)
 }
@@ -50,8 +54,8 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, description, description_plain, status,
 				custom_status_id, importance, permalink, dates_type, dates_duration,
-				dates_start, dates_due, created_date, updated_date)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				dates_start, dates_due, created_date, updated_date, attachment_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title = excluded.title, description = excluded.description,
 				description_plain = excluded.description_plain, status = excluded.status,
@@ -59,10 +63,10 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 				permalink = excluded.permalink, dates_type = excluded.dates_type,
 				dates_duration = excluded.dates_duration, dates_start = excluded.dates_start,
 				dates_due = excluded.dates_due, created_date = excluded.created_date,
-				updated_date = excluded.updated_date`,
+				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count`,
 			t.ID, t.Title, t.Description, stripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
-			dStart, dDue, t.CreatedDate, t.UpdatedDate); err != nil {
+			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -84,6 +88,25 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 				`INSERT INTO task_parents (task_id, folder_id) VALUES (?, ?)`, t.ID, f); err != nil {
 				return err
 			}
+		}
+		if err := replaceJoinRows(ctx, tx, "task_supertasks", "super_id", t.ID, t.SuperTaskIDs); err != nil {
+			return err
+		}
+		if err := replaceJoinRows(ctx, tx, "task_dependencies", "dependency_id", t.ID, t.DependencyIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func replaceJoinRows(ctx context.Context, tx *sql.Tx, table, column, taskID string, ids []string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO `+table+` (task_id, `+column+`) VALUES (?, ?)`, taskID, id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -128,7 +151,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	row := t.r.QueryRowContext(ctx, `
 		SELECT id, title, description, description_plain, status, custom_status_id,
 		       importance, permalink, dates_type, dates_duration, dates_start,
-		       dates_due, created_date, updated_date, COALESCE(last_opened_at, '')
+		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), attachment_count
 		FROM tasks WHERE id = ?`, id)
 	var task Task
 	var dType, dStart, dDue sql.NullString
@@ -136,7 +159,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	err := row.Scan(&task.ID, &task.Title, &task.Description, &task.DescriptionPlain,
 		&task.Status, &task.CustomStatusID, &task.Importance, &task.Permalink,
 		&dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-		&task.LastOpenedAt)
+		&task.LastOpenedAt, &task.AttachmentCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -158,6 +181,16 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	}
 	task.ParentIDs, err = t.stringColumn(ctx,
 		`SELECT folder_id FROM task_parents WHERE task_id = ? ORDER BY folder_id`, id)
+	if err != nil {
+		return Task{}, err
+	}
+	task.SuperTaskIDs, err = t.stringColumn(ctx,
+		`SELECT super_id FROM task_supertasks WHERE task_id = ? ORDER BY super_id`, id)
+	if err != nil {
+		return Task{}, err
+	}
+	task.DependencyIDs, err = t.stringColumn(ctx,
+		`SELECT dependency_id FROM task_dependencies WHERE task_id = ? ORDER BY dependency_id`, id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -314,6 +347,26 @@ func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, er
 		JOIN task_parents tp ON tp.task_id = t.id
 		JOIN tree ON tree.id = tp.folder_id
 		`+taskListOrder, folderID)
+}
+
+func (t taskRepo) Subtasks(ctx context.Context, superID string) ([]Task, error) {
+	return t.list(ctx, `
+		SELECT `+taskListColumns+` FROM tasks t
+		JOIN task_supertasks ts ON ts.task_id = t.id
+		WHERE ts.super_id = ? `+taskListOrder, superID)
+}
+
+func (t taskRepo) ByIDs(ctx context.Context, ids []string) ([]Task, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return t.list(ctx, `
+		SELECT `+taskListColumns+` FROM tasks t
+		WHERE t.id IN (?`+strings.Repeat(", ?", len(ids)-1)+`) `+taskListOrder, args...)
 }
 
 func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]Task, error) {

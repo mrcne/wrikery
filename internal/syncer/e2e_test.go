@@ -96,6 +96,10 @@ func TestEndToEndSync(t *testing.T) {
 	mux.HandleFunc("/tasks/T1/timelogs", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"timelogs","data":[]}`)
 	})
+	// Without this route the thread refresh reads the mux's 404 as the task being gone and drops it with its comments.
+	mux.HandleFunc("/tasks/T1/dependencies", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"kind":"dependencies","data":[]}`)
+	})
 	mux.HandleFunc("/timelogs", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("me") != "true" {
 			t.Errorf("account wide timelog query me = %q", r.URL.Query().Get("me"))

@@ -106,19 +106,25 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
+	rel, err := loadRelations(ctx, env.Store, t)
+	if err != nil {
+		return fail(env, err)
+	}
 	if *asJSON {
 		d := taskDetailJSON{
 			taskJSON:        taskRow(ctx, env, t, &ref),
 			DescriptionText: t.DescriptionPlain,
 			DescriptionHTML: t.Description,
+			AttachmentCount: t.AttachmentCount,
 			Comments:        make([]commentJSON, 0, len(comments)),
 		}
+		d.SuperTasks, d.Subtasks, d.Predecessors, d.Successors = rel.json(t, &ref)
 		for _, c := range comments {
 			d.Comments = append(d.Comments, commentJSON{ID: c.ID, AuthorID: c.AuthorID, Author: contactName(ref, c.AuthorID), Created: c.CreatedDate, Text: c.Text})
 		}
 		return printJSON(env, d)
 	}
-	printTaskShow(ctx, env, t, comments, &ref)
+	printTaskShow(ctx, env, t, comments, rel, &ref)
 	return exitOK
 }
 
