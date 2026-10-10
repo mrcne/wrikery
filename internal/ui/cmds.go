@@ -496,7 +496,7 @@ func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast stri
 // along with the title of each task involved and the outbox state of each entry, for the pending marker.
 // A zero start means the week the clock is in right now.
 func (m Model) loadWeek(start time.Time) tea.Cmd {
-	st, meID := m.opts.Store, m.ref.meID
+	st, meID, ref := m.opts.Store, m.ref.meID, m.ref
 	if start.IsZero() {
 		start = weekOf(m.opts.Now())
 	}
@@ -517,23 +517,23 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		// The title names the row and the first parent is where enter on the row lands.
+		// The title names the row and the status draws its glyph.
 		// An entry can belong to a task outside every followed scope, that task is not in the store and its row says so.
-		titles, parents := map[string]string{}, map[string]string{}
+		titles, statuses := map[string]string{}, map[string]store.CustomStatus{}
 		for _, l := range logs {
 			if _, done := titles[l.TaskID]; done {
 				continue
 			}
 			titles[l.TaskID] = ""
 			if t, err := st.Tasks().Get(ctx, l.TaskID); err == nil {
-				titles[l.TaskID], parents[l.TaskID] = t.Title, firstParent(t)
+				titles[l.TaskID], statuses[l.TaskID] = t.Title, ref.statusOf(t)
 			}
 		}
 		states, err := st.Outbox().StatesByEntity(ctx)
 		if err != nil {
 			return errMsg{err}
 		}
-		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, parents: parents, states: states}
+		return weekLoadedMsg{weekStart: start, windowFrom: windowFrom, logs: logs, titles: titles, statuses: statuses, states: states}
 	}
 }
 

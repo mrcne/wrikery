@@ -67,6 +67,16 @@ func computeLayout(width, height int, focus pane, sidebarWidth int) layout {
 	return lay
 }
 
+// timesheetDetailWidth is the share of the timesheet box the detail pane takes beside the grid:
+// 45 percent as on the board, but the grid keeps 80 columns so its titles stay readable.
+// Below 120 columns there is no room for both and the focused one is drawn alone, hence 0.
+func timesheetDetailWidth(width int) int {
+	if width < 120 {
+		return 0
+	}
+	return min(width*45/100, width-80)
+}
+
 // computeBoardLayout draws the board across the width and a side pane only while it has focus.
 // The folder rarely changes while a board is up and the width goes to the columns, so the sidebar is not kept in view.
 // Below 80 columns the focused pane alone is drawn, as in the list shape.

@@ -97,7 +97,7 @@ An empty field clears that date. Tab moves between the two fields, enter saves, 
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
 `t` opens a box with hours, date and note fields.
-Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h` or `2h30m`.
+Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h`, `2h30m` or `1h 20m`, the form logged time is shown in.
 The date takes the same quick words as the dates dialog and defaults to today.
 The note is optional.
 Tab moves between the fields, enter saves, esc cancels.
@@ -182,12 +182,15 @@ Discarding a task update does not roll back the change already applied to the lo
 ### Timesheet
 
 A separate view (key T) shows the current week as a grid: tasks as rows, Monday to Sunday as columns.
-A cell is the hours logged on that task on that day, one decimal, or a dash when there is nothing.
+A cell is the time logged on that task on that day as hours and minutes, `1:20`, or a dash when there is nothing.
+Everywhere else logged time reads as `1h 20m`, `45m` or `2h`: the time section of a task, the message after logging, the entry lists and the sync issues.
 Each row carries a total for the task, each column a total for the day, and the grid ends with a total for the week.
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
 `h` and `l` move between days, `j` and `k` move between rows.
 The row under the cursor carries the cursor mark in front of its title, so on a wide grid a cell can be traced back to its task.
+Next to the mark each row shows the status glyph of its task, the one the list draws.
+A task outside the followed spaces is not in the cache, its row shows the task id instead of a title and no glyph.
 `[` and `]` go one week back and forward, `.` jumps back to the current week.
 `n` logs time on the row's task for the selected day.
 On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
@@ -201,7 +204,12 @@ A cell with a write still queued shows the pending marker in front of the hours.
 An entry that sits in a locked or approved timesheet is shown dimmed.
 Editing or deleting it is refused with a message instead, nothing is queued for it.
 
-Enter on a row leaves the grid for the task behind it, shown on the main screen with its folder selected, the way the search does.
+Enter on a row opens the task in the detail pane beside the grid, from 120 columns, or over the grid on a narrower terminal.
+The pane has the keys then: `j` and `k` scroll it, and the task keys work as on the main screen, `s` for the status, `c` for a comment, `t` to log time on the day under the cursor.
+Tab hands the keys back to the grid with the pane still open, and the pane follows the row under the cursor, as it follows the list.
+While the pane has the keys it stays on its task, a reload that drops its row from the grid does not move it.
+Esc closes the pane and the cursor is on the cell it was on, a second esc leaves the timesheet.
+Enter on the pane goes to the task on the main screen with its folder selected, the way the search does.
 
 ### Settings
 

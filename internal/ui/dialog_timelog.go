@@ -45,7 +45,7 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 		in.CharLimit = 200
 		d.inputs[i] = in
 	}
-	d.inputs[0].Placeholder = "1.5, 1:30, 90m"
+	d.inputs[0].Placeholder = "1.5, 1:30, 90m, 1h 20m"
 	return d, d.inputs[0].Focus()
 }
 
@@ -135,7 +135,7 @@ func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 func (d entryPicker) View(th Theme, width, height int) string {
 	var b strings.Builder
 	for i, l := range d.logs {
-		label := fmt.Sprintf("%.1f h  %s", l.Hours, l.Comment)
+		label := hoursText(l.Hours) + "  " + l.Comment
 		b.WriteString(rowLine(th, label, width-2, i == d.cursor, true) + "\n")
 	}
 	body := strings.TrimRight(b.String(), "\n")

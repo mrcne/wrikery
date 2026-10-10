@@ -504,10 +504,7 @@ func (l taskListModel) View(th Theme, ref refData, now time.Time, width, height 
 			continue
 		}
 		r := l.all[l.rows[ln.row]]
-		cs := ref.statuses[r.task.CustomStatusID]
-		if cs.Group == "" {
-			cs.Group = r.task.Status
-		}
+		cs := ref.statusOf(r.task)
 		glyph := lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group))
 		due, overdue := dueLabel(r.task, now)
 		dueStyle := muted

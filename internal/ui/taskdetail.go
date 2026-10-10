@@ -88,9 +88,9 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	b.WriteString(wordWrap(title, width) + "\n")
 	b.WriteString(muted.Render(strings.TrimSpace(d.title()+"  "+stableWidth(d.crumb))) + "\n\n")
 
-	cs := ref.statuses[d.task.CustomStatusID]
+	cs := ref.statusOf(d.task)
 	if cs.Name == "" {
-		cs.Name, cs.Group = d.task.Status, d.task.Status
+		cs.Name = d.task.Status
 	}
 	b.WriteString(label("Status") + lipgloss.NewStyle().Foreground(th.StatusColor(cs)).Render(th.StatusGlyph(cs.Group)+" "+cs.Name) + "\n")
 	names := make([]string, 0, len(d.task.ResponsibleIDs))
@@ -166,7 +166,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	for _, l := range d.logs {
-		line := fmt.Sprintf("%s  %s  %.1f h", shortDate(l.TrackedDate), contactName(l.UserID, ref), l.Hours)
+		line := fmt.Sprintf("%s  %s  %s", shortDate(l.TrackedDate), contactName(l.UserID, ref), hoursText(l.Hours))
 		if l.Comment != "" {
 			line += "  " + stableWidth(l.Comment)
 		}
@@ -221,10 +221,7 @@ func (d taskDetailModel) relatedLine(id string, ref refData, th Theme, width int
 // taskLine draws a related task the way a list row starts, the status glyph in its color and the title, muted once done.
 // A title longer than the width is cut with an ellipsis, the frame would cut it without one.
 func taskLine(t store.Task, ref refData, th Theme, width int) string {
-	cs := ref.statuses[t.CustomStatusID]
-	if cs.Name == "" {
-		cs.Group = t.Status
-	}
+	cs := ref.statusOf(t)
 	title := ansi.Truncate(stableWidth(t.Title), max(width-2, 4), "...")
 	if isDoneGroup(cs.Group) {
 		title = lipgloss.NewStyle().Foreground(th.Muted).Render(title)
