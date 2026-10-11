@@ -193,3 +193,8 @@ func (t Theme) ImportanceMark(importance string) string {
 	}
 	return lipgloss.NewStyle().Foreground(t.Warn).Render(t.Glyphs.Important)
 }
+
+// errorLine draws an error wrapped to the inner width of a box, box cuts a longer line at the edge without a marker.
+func (t Theme) errorLine(text string, width int) string {
+	return lipgloss.NewStyle().Foreground(t.Error).Width(width).Render(text)
+}

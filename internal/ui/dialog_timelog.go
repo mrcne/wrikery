@@ -65,7 +65,7 @@ func (d timelogDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 			d.errText = err.Error()
 			return d, nil
 		}
-		date, err := parseDate(d.inputs[1].Value(), d.now, lastWeekday)
+		date, err := parseDate(d.inputs[1].Value(), d.now, dateBack)
 		if err != nil {
 			d.errText = "date: " + err.Error()
 			return d, nil
@@ -90,11 +90,10 @@ func (d timelogDialog) View(th Theme, width, height int) string {
 	if d.timelogID != "" {
 		title = "Edit time on " + d.title
 	}
-	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, lastWeekday) + "\n" + d.inputs[2].View() + "\n\n"
+	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateBack) + "\n" + d.inputs[2].View() + "\n\n"
 	width = min(width, 70)
 	if d.errText != "" {
-		// The parser's error lists the forms it takes, longer than the box is wide.
-		body += lipgloss.NewStyle().Foreground(th.Error).Width(width-2).Render(d.errText) + "\n"
+		body += th.errorLine(d.errText, width-2) + "\n"
 	}
 	body += lipgloss.NewStyle().Foreground(th.Muted).Render("tab next field   enter save   esc cancel")
 	return th.box(title, body, width, lipgloss.Height(body)+2, true)

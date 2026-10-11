@@ -145,7 +145,7 @@ func (d foldersDialog) View(th Theme, width, height int) string {
 	}
 	hint := muted.Render("space toggle   enter move or apply   esc cancel")
 	if d.errText != "" {
-		hint = lipgloss.NewStyle().Foreground(th.Error).Render(d.errText)
+		hint = th.errorLine(d.errText, width-2)
 	}
 	b.WriteString("\n" + hint)
 	return th.box("Folders", b.String(), width, lipgloss.Height(b.String())+2, true)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -34,6 +35,11 @@ func TestCommentDialogHintNamesBothSendKeys(t *testing.T) {
 }
 
 // collect runs a command tree and returns the messages it produces. tea.Batch returns a BatchMsg of commands.
+// squeeze strips the colours and runs of spaces, the cursor cell counts for one.
+func squeeze(view string) string {
+	return strings.Join(strings.Fields(ansi.Strip(view)), " ")
+}
+
 func collect(cmd tea.Cmd) []tea.Msg {
 	if cmd == nil {
 		return nil

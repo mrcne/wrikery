@@ -139,7 +139,7 @@ func (d createDialog) View(th Theme, width, height int) string {
 	}
 	line := muted.Render(hint)
 	if d.errText != "" {
-		line = lipgloss.NewStyle().Foreground(th.Error).Render(d.errText)
+		line = th.errorLine(d.errText, width-2)
 	}
 	b.WriteString("\n" + line)
 	return th.box("New task", b.String(), width, lipgloss.Height(b.String())+2, true)

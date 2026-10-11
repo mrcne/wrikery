@@ -20,12 +20,15 @@ type closeDialogMsg struct{}
 
 // dateHint names the day a date field reads to, so a wrong reading shows before it is saved.
 // An empty field and a value the parser refuses get no hint, the refusal comes with enter.
-func dateHint(th Theme, value string, now time.Time, bare weekdayRule) string {
-	d, err := parseDate(value, now, bare)
+func dateHint(th Theme, value string, now time.Time, dir dateDirection) string {
+	d, err := parseDate(value, now, dir)
 	if err != nil || d == "" {
 		return ""
 	}
-	t, _ := time.Parse("2006-01-02", d)
+	t, err := time.Parse("2006-01-02", d)
+	if err != nil {
+		return ""
+	}
 	return lipgloss.NewStyle().Foreground(th.Muted).Render("  " + t.Format("Mon 2 Jan 2006"))
 }
 

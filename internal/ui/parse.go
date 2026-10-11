@@ -9,19 +9,26 @@ import (
 	"time"
 )
 
-// A bare weekday name points ahead for a due date and back for a time entry, the caller says which.
-// Today never counts: "thu" typed on a Thursday is a week ahead or a week back, the same as "next thu" and "last thu".
-type weekdayRule int
+// A date field reads ahead for a due date and back for a time entry, the caller says which.
+// A bare weekday or a day and month is then the coming one or the latest one.
+// Today counts when reading back, the day's work is logged in the evening.
+// It never counts when reading ahead, "today" is the word for a due date of today.
+type dateDirection int
 
 const (
-	nextWeekday weekdayRule = iota
-	lastWeekday
+	dateAhead dateDirection = iota
+	dateBack
 )
 
+var weekdayNames = [...]string{"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"}
+
+// maxDayOffset bounds +Nd and -Nd to about ten years, a bigger number is a typo and an unbounded one runs past the year 9999.
+const maxDayOffset = 3660
+
 // parseDate accepts what people type in a hurry: an ISO date, today, tomorrow, yesterday or yday,
-// a weekday in full or in three letters, alone or after last or next, +Nd or -Nd, and "12 sep" for a day this year.
+// a weekday in full or cut short after three letters, alone or after last or next, +Nd or -Nd, and "12 sep" for a day and month.
 // Empty stays empty so a field can be cleared.
-func parseDate(s string, now time.Time, bare weekdayRule) (string, error) {
+func parseDate(s string, now time.Time, dir dateDirection) (string, error) {
 	s = strings.Join(strings.Fields(strings.ToLower(s)), " ")
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	switch s {
@@ -35,23 +42,30 @@ func parseDate(s string, now time.Time, bare weekdayRule) (string, error) {
 		return today.AddDate(0, 0, -1).Format("2006-01-02"), nil
 	}
 	if wd, ok := weekdayNamed(s); ok {
-		return weekdayFrom(today, wd, bare).Format("2006-01-02"), nil
+		return weekdayFrom(today, wd, dir).Format("2006-01-02"), nil
 	}
 	if word, name, ok := strings.Cut(s, " "); ok && (word == "last" || word == "next") {
 		wd, ok := weekdayNamed(name)
 		if !ok {
 			return "", fmt.Errorf("expected a weekday after %s, got %q", word, name)
 		}
-		rule := nextWeekday
 		if word == "last" {
-			rule = lastWeekday
+			// The previous one, never today: the latest one up to yesterday.
+			return weekdayFrom(today.AddDate(0, 0, -1), wd, dateBack).Format("2006-01-02"), nil
 		}
-		return weekdayFrom(today, wd, rule).Format("2006-01-02"), nil
+		return weekdayFrom(today, wd, dateAhead).Format("2006-01-02"), nil
 	}
 	if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
-		n, err := strconv.Atoi(strings.TrimSuffix(s[1:], "d"))
-		if err != nil || !strings.HasSuffix(s, "d") {
+		// strconv.Atoi takes a sign of its own, the digit check keeps --3d from reading as +3.
+		if len(s) < 3 || s[1] < '0' || s[1] > '9' || !strings.HasSuffix(s, "d") {
 			return "", fmt.Errorf("expected +Nd or -Nd, got %q", s)
+		}
+		n, err := strconv.Atoi(s[1 : len(s)-1])
+		if err != nil {
+			return "", fmt.Errorf("expected +Nd or -Nd, got %q", s)
+		}
+		if n > maxDayOffset {
+			return "", fmt.Errorf("%s is more than ten years away", s)
 		}
 		if s[0] == '-' {
 			n = -n
@@ -67,33 +81,54 @@ func parseDate(s string, now time.Time, bare weekdayRule) (string, error) {
 	if parts := strings.SplitN(s, " ", 2); len(parts) == 2 && parts[1] != "" {
 		titled := parts[0] + " " + strings.ToUpper(parts[1][:1]) + parts[1][1:]
 		if t, err := time.Parse("2 Jan", titled); err == nil {
-			return time.Date(today.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).Format("2006-01-02"), nil
+			return dayAndMonth(today, t.Month(), t.Day(), dir)
 		}
 	}
 	return "", errors.New("could not read the date, try 2026-09-12, today, yday, fri, last fri, next fri, +3d or 12 sep")
 }
 
-// weekdayNamed reads a weekday written in full or in its first three letters.
+// weekdayNamed reads a weekday in full or cut short after three or more letters, tue, tues and thurs included.
 func weekdayNamed(s string) (time.Weekday, bool) {
-	for wd := time.Sunday; wd <= time.Saturday; wd++ {
-		name := strings.ToLower(wd.String())
-		if s == name || s == name[:3] {
-			return wd, true
+	if len(s) < 3 {
+		return 0, false
+	}
+	for i, name := range weekdayNames {
+		if strings.HasPrefix(name, s) {
+			return time.Weekday(i), true
 		}
 	}
 	return 0, false
 }
 
-// weekdayFrom is the nearest day of that weekday after today, or before it under lastWeekday.
-func weekdayFrom(today time.Time, wd time.Weekday, rule weekdayRule) time.Time {
+// weekdayFrom is the coming day of that weekday after today, or the latest one up to today when reading back.
+func weekdayFrom(today time.Time, wd time.Weekday, dir dateDirection) time.Time {
 	diff := int(wd) - int(today.Weekday())
 	switch {
-	case rule == lastWeekday && diff >= 0:
+	case dir == dateBack && diff > 0:
 		diff -= 7
-	case rule == nextWeekday && diff <= 0:
+	case dir == dateAhead && diff <= 0:
 		diff += 7
 	}
 	return today.AddDate(0, 0, diff)
+}
+
+// dayAndMonth puts a day and month in the year the direction picks: this year,
+// next year once it has passed for a due date, last year while it is still ahead for a time entry.
+// time.Parse read the day against year 0, a leap year, so 29 feb is checked again in the year picked.
+func dayAndMonth(today time.Time, month time.Month, day int, dir dateDirection) (string, error) {
+	year := today.Year()
+	d := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	switch {
+	case dir == dateBack && d.After(today):
+		year--
+	case dir == dateAhead && d.Before(today):
+		year++
+	}
+	d = time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	if d.Month() != month {
+		return "", fmt.Errorf("there is no %d %s in %d", day, strings.ToLower(month.String()[:3]), year)
+	}
+	return d.Format("2006-01-02"), nil
 }
 
 // parseHours reads 1.5, 1,5, 1:30, 90m, 2h, 2h30m and 1h 20m, the form the app prints logged time in.

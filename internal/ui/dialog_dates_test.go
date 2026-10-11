@@ -97,6 +97,9 @@ func TestDatesDialogReadsAWeekdayAsTheComingOne(t *testing.T) {
 	}
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("enter emitted nothing, want submitDatesMsg")
+	}
 	if got, ok := msgs[0].(submitDatesMsg); !ok || got.dates.Due != "2026-09-07" {
 		t.Errorf("submit = %#v, want the coming Monday", msgs)
 	}

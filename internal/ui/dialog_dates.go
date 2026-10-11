@@ -51,12 +51,12 @@ func (d datesDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		d.focus = 1 - d.focus
 		return d, d.inputs[d.focus].Focus()
 	case tea.KeyEnter:
-		start, err := parseDate(d.inputs[0].Value(), d.now, nextWeekday)
+		start, err := parseDate(d.inputs[0].Value(), d.now, dateAhead)
 		if err != nil {
 			d.errText = "start: " + err.Error()
 			return d, nil
 		}
-		due, err := parseDate(d.inputs[1].Value(), d.now, nextWeekday)
+		due, err := parseDate(d.inputs[1].Value(), d.now, dateAhead)
 		if err != nil {
 			d.errText = "due: " + err.Error()
 			return d, nil
@@ -96,12 +96,11 @@ func datesFrom(start, due string) store.TaskDates {
 }
 
 func (d datesDialog) View(th Theme, width, height int) string {
-	body := d.inputs[0].View() + dateHint(th, d.inputs[0].Value(), d.now, nextWeekday) + "\n" +
-		d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, nextWeekday) + "\n\n"
+	body := d.inputs[0].View() + dateHint(th, d.inputs[0].Value(), d.now, dateAhead) + "\n" +
+		d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateAhead) + "\n\n"
 	width = min(width, 60)
 	if d.errText != "" {
-		// The parser's error lists the forms it takes, longer than the box is wide.
-		body += lipgloss.NewStyle().Foreground(th.Error).Width(width-2).Render(d.errText) + "\n"
+		body += th.errorLine(d.errText, width-2) + "\n"
 	}
 	body += lipgloss.NewStyle().Foreground(th.Muted).Render("tab switch   enter save   esc cancel")
 	return th.box("Dates", body, width, lipgloss.Height(body)+2, true)

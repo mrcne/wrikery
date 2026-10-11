@@ -6,7 +6,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -93,6 +92,9 @@ func TestTimelogDialogReadsAWeekdayAsTheLastOne(t *testing.T) {
 	}
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("enter emitted nothing, want submitTimelogMsg")
+	}
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.date != "2026-08-31" {
 		t.Errorf("submit = %#v, want the Monday three days back", msgs)
 	}
@@ -129,15 +131,10 @@ func TestTimelogDialogShowsTheDayItReads(t *testing.T) {
 		t.Errorf("an unreadable date emitted %#v, want nothing", msgs)
 	}
 	if td, ok := dl.(timelogDialog); !ok || !strings.HasPrefix(td.errText, "date: could not read the date") {
-		t.Errorf("errText = %q, want the parser's error", dl.(timelogDialog).errText)
+		t.Errorf("errText = %q, want the parser's error", td.errText)
 	}
 	// The list of forms is longer than the box is wide, it wraps instead of being cut at the edge.
 	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "+3d or 12 sep") {
 		t.Errorf("view cuts the error short:\n%s", dl.View(th, 80, 30))
 	}
-}
-
-// squeeze strips the colours and runs of spaces, the cursor cell counts for one.
-func squeeze(view string) string {
-	return strings.Join(strings.Fields(ansi.Strip(view)), " ")
 }

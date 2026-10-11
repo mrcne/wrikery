@@ -150,6 +150,7 @@ func (f firstRunModel) mergePicker(msg pickerLoadedMsg) []pickerItem {
 func (f firstRunModel) View(th Theme, width, height int) string {
 	accent := lipgloss.NewStyle().Foreground(th.Accent).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
+	w := min(width-4, 72)
 	steps := []string{"1 Token", "2 Follow", "3 Sync"}
 	var head []string
 	for i, s := range steps {
@@ -174,7 +175,7 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 		case f.verifying:
 			body.WriteString(f.spinner.View() + " checking the token")
 		case f.errText != "":
-			body.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(f.errText))
+			body.WriteString(th.errorLine(f.errText, w-2))
 		default:
 			body.WriteString(muted.Render("enter to continue"))
 		}
@@ -213,7 +214,6 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 		}
 		body.WriteString("\n" + muted.Render("enter to open the app, tasks keep arriving in the background"))
 	}
-	w := min(width-4, 72)
 	box := th.box("Welcome to wrikery", body.String(), w, min(height, lipgloss.Height(body.String())+2), true)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
