@@ -2,6 +2,7 @@ package ui
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +72,29 @@ func TestSettingsRowsShowTheFileValuesNotTheResolvedOnes(t *testing.T) {
 	}
 	if strings.Contains(view, "ascii ") && !strings.Contains(view, "true") {
 		t.Errorf("ui.ascii is a boolean in the file:\n%s", view)
+	}
+}
+
+// The sidebar toggle is app owned state like the followed scopes, so the settings screen shows it and enter flips it.
+func TestSettingsSidebarRowTogglesIt(t *testing.T) {
+	s := testSettings()
+	s.setSidebarHidden(true)
+	rows := s.rows()
+	i := slices.IndexFunc(rows, func(r settingRow) bool { return r.label == "Sidebar" })
+	if i < 0 || rows[i].value != "hidden" {
+		t.Fatalf("rows = %+v, want a Sidebar row reading hidden", rows)
+	}
+	s.cursor = i
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("enter on the Sidebar row emitted %#v, want one message", msgs)
+	}
+	if _, ok := msgs[0].(toggleSidebarMsg); !ok {
+		t.Errorf("enter on the Sidebar row emitted %#v, want toggleSidebarMsg", msgs[0])
+	}
+	s.setSidebarHidden(false)
+	if rows := s.rows(); rows[i].value != "shown" {
+		t.Errorf("Sidebar row = %q, want shown", rows[i].value)
 	}
 }

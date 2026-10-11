@@ -74,6 +74,8 @@ type Model struct {
 	overlay overlay
 	focus   pane
 	shape   shape
+	// The sidebar pane is out of the window and the focus cycle while hidden, the choice is kept in the store meta.
+	sidebarHidden bool
 
 	status    statusModel
 	firstRun  firstRunModel
@@ -124,18 +126,23 @@ func New(o Options) Model {
 }
 
 // panes is the pane order of the current shape, what tab cycles through and the layout slides over.
+// A hidden sidebar is not in it.
 func (m Model) panes() []pane {
+	order := []pane{paneSidebar, paneList, paneDetail}
 	if m.shape == shapeBoard {
-		return []pane{paneSidebar, paneBoard, paneDetail}
+		order[1] = paneBoard
 	}
-	return []pane{paneSidebar, paneList, paneDetail}
+	if m.sidebarHidden {
+		return order[1:]
+	}
+	return order
 }
 
 func (m Model) layout() layout {
 	if m.shape == shapeBoard {
 		return computeBoardLayout(m.width, m.height-1, m.focus, m.sidebar.width())
 	}
-	return computeLayout(m.width, m.height-1, m.focus, m.sidebar.width())
+	return computeLayout(m.width, m.height-1, m.focus, m.sidebar.width(), m.panes())
 }
 
 func (m Model) Init() tea.Cmd {
@@ -190,7 +197,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case treeLoadedMsg:
-		m.sidebar.setTree(msg.nodes, msg.pins)
+		m.sidebar.setTree(msg.nodes, msg.saved)
+		if msg.saved != nil && msg.saved.hidden {
+			m.setSidebarHidden(true)
+		}
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
@@ -202,6 +212,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenTimesheet {
 			// The detail pane names the list on h, beside the grid that means the grid.
 			m.timesheet.detailFocus = false
+			return m, nil
+		}
+		if m.sidebarHidden && msg.pane == paneSidebar {
+			// h on the list names the sidebar, hidden it is not there to go to.
 			return m, nil
 		}
 		prev := m.focus
@@ -285,6 +299,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case openScopesMsg:
 		return m, m.loadPicker()
+	case toggleSidebarMsg:
+		return m, m.toggleSidebar()
 	case pickerLoadedMsg:
 		if m.screen == screenSettings {
 			if d, ok := m.dialog.(scopesDialog); ok && m.overlay == overlayDialog {
@@ -894,6 +910,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = m.cyclePane(1)
 	case key.Matches(msg, m.keys.PrevPane):
 		m.focus = m.cyclePane(-1)
+	case key.Matches(msg, m.keys.HideSidebar):
+		if m.screen != screenMain {
+			return m, nil
+		}
+		return m, m.toggleSidebar()
 	case key.Matches(msg, m.keys.Back):
 		if m.screen != screenMain {
 			m.screen = screenMain
@@ -906,8 +927,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.focus = paneBoard
-		} else if visibleCount(m.width) == 1 && m.focus > paneSidebar {
-			m.focus--
+		} else if visibleCount(m.width) == 1 {
+			// One pane on screen: esc steps back to the pane before this one in the order, the first has none.
+			if order := m.panes(); slices.Index(order, m.focus) > 0 {
+				m.focus = order[slices.Index(order, m.focus)-1]
+			}
 		}
 	case key.Matches(msg, m.keys.Board):
 		m.toggleShape()
@@ -1076,6 +1100,33 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return cmd, true
 	}
 	return nil, false
+}
+
+// setSidebarHidden takes the sidebar out of the window and the focus cycle, or puts it back.
+// The focus leaves the sidebar for the first pane that stays, the folder under its cursor stays selected.
+func (m *Model) setSidebarHidden(hidden bool) {
+	m.sidebarHidden = hidden
+	m.settings.setSidebarHidden(hidden)
+	if hidden && m.focus == paneSidebar {
+		m.focus = m.panes()[0]
+	}
+	m.syncPaneSizes()
+}
+
+// toggleSidebar is ctrl+b and the settings row: hide the sidebar, or show it again with the focus on it, and keep the choice in the store.
+// The write is small and local, as with the pins.
+func (m *Model) toggleSidebar() tea.Cmd {
+	value := "1"
+	if m.sidebarHidden {
+		value = "0"
+		m.focus = paneSidebar
+	}
+	m.setSidebarHidden(!m.sidebarHidden)
+	if err := m.opts.Store.SetMeta(context.Background(), store.MetaKeySidebarHidden, value); err != nil {
+		slog.Error("ui", "error", err)
+		return m.status.show("could not save the sidebar setting: "+err.Error(), true)
+	}
+	return nil
 }
 
 // cyclePane moves focus by delta over the panes of the current shape.

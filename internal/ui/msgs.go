@@ -41,7 +41,7 @@ type refLoadedMsg struct{ ref refData }
 type scopesLoadedMsg struct{ scopes []store.Scope }
 type treeLoadedMsg struct {
 	nodes []treeNode
-	pins  *pinState // nil keeps the pins the sidebar has
+	saved *sidebarState // nil keeps the pins the sidebar has and the hidden flag the root has
 }
 type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
 type focusMsg struct{ pane pane }            // intent: move focus

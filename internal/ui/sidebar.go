@@ -52,10 +52,12 @@ type sidebarModel struct {
 	changes    []pinChange // pin and toggle changes the root has not written yet
 }
 
-// pinState is what the store holds about pins, the ids and the pinned-only toggle.
-type pinState struct {
-	ids  []string
-	only bool
+// sidebarState is what the store holds about the sidebar: the pinned ids, the pinned-only toggle and whether the pane is hidden.
+// The sidebar reads the pins, the root reads hidden, the pane's place in the layout is its concern.
+type sidebarState struct {
+	ids    []string
+	only   bool
+	hidden bool
 }
 
 // pinChange is one write the root owes the store: a pin for id, or the toggle when id is empty.
@@ -75,7 +77,7 @@ func newSidebar(keys KeyMap, hide []string) sidebarModel {
 // setTree replaces the nodes, and the pins when the load carried them, with one rebuild for both.
 // Expansion state and the selection are kept by id across the reload.
 // The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
-func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
+func (s *sidebarModel) setTree(nodes []treeNode, saved *sidebarState) {
 	chain := s.ancestry()
 	expanded := map[string]bool{}
 	for _, n := range s.nodes {
@@ -87,12 +89,12 @@ func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 		}
 	}
 	s.nodes = nodes
-	if pins != nil {
+	if saved != nil {
 		s.pinned = map[string]bool{}
-		for _, id := range pins.ids {
+		for _, id := range saved.ids {
 			s.pinned[id] = true
 		}
-		s.pinnedOnly, s.pinsLoaded = pins.only, true
+		s.pinnedOnly, s.pinsLoaded = saved.only, true
 	}
 	if s.pinCount() == 0 {
 		s.pinnedOnly = false

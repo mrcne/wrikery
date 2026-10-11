@@ -43,6 +43,9 @@ An emoji built from several parts, a family for example, is drawn as its parts, 
 A skin tone and the frame of a keycap are left out for the same reason, so a hand is drawn without its tone and a keycap as its digit.
 A wide terminal shows all three panes, a medium one shows two, and a terminal narrower than eighty columns shows one, so the app stays usable in a small tmux split.
 The visible panes always include the one in focus, so moving focus can slide the window forward or back by one pane.
+`ctrl+b` hides the sidebar once you know your way around the tree: the list and the detail take its width, tab cycles between the two, and the selected folder stays selected.
+`ctrl+b` again brings it back with the focus on it.
+The choice is kept across restarts, like the pinned view, and the settings screen shows it.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
 When Wrike rejects a request the bar says the sync is failing instead of offline, since the network is fine and the log has the reason.
 
@@ -223,6 +226,7 @@ Your own tasks are always included and have no row.
 Applying runs a full refresh: a newly followed scope is pulled from the start, and the tasks of an unfollowed scope leave the cache, unless they are your own.
 The sidebar drops an unfollowed space at once and shows a newly followed one right away, its tasks arrive with the refresh.
 
+The Sidebar row says whether the pane is shown or hidden, enter flips it, the same as `ctrl+b` on the main screen.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
 The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
 

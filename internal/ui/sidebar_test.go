@@ -375,7 +375,7 @@ func TestSidebarPinnedOnlyWithNothingPinnedSaysSo(t *testing.T) {
 // the toggle stays off and P says there is nothing pinned, instead of a Pinned pane holding My tasks alone.
 func TestSidebarIgnoresPinsOutsideTheTree(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
-	s.setTree(sampleNodes(), &pinState{ids: []string{"GONE"}, only: true})
+	s.setTree(sampleNodes(), &sidebarState{ids: []string{"GONE"}, only: true})
 	if s.pinnedOnly || len(visibleIDs(s)) != 6 {
 		t.Fatalf("pinnedOnly=%v visible=%v with a pin outside the tree", s.pinnedOnly, visibleIDs(s))
 	}
@@ -389,7 +389,7 @@ func TestSidebarIgnoresPinsOutsideTheTree(t *testing.T) {
 // The pinned view opens the way to its pins the way a query opens the way to its matches.
 func TestSidebarPinnedOnlyOpensTheWayToAPin(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
-	s.setTree(sampleNodes(), &pinState{ids: []string{"F2"}, only: true})
+	s.setTree(sampleNodes(), &sidebarState{ids: []string{"F2"}, only: true})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2"}) {
 		t.Fatalf("pinned only with On-call pinned = %v", got)
 	}
@@ -462,7 +462,7 @@ func TestSidebarFilterInputScrollsALongQuery(t *testing.T) {
 // P on a row outside the pins keeps the cursor near where it was, on a drawn ancestor or at the same height, not on My tasks.
 func TestSidebarPinnedOnlyKeepsTheCursorNearby(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
-	s.setTree(sampleNodes(), &pinState{ids: []string{"P1"}})
+	s.setTree(sampleNodes(), &sidebarState{ids: []string{"P1"}})
 	s.selectByID("F1") // Infra, under Platform which leads to the pin
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
 	if n, _ := s.current(); n.id != "S1" {
@@ -518,7 +518,7 @@ func TestSidebarWidthIgnoresTheFilterAndHiddenPrefixes(t *testing.T) {
 func TestSidebarRevealLeavesPinnedOnlyForANodeOutsideIt(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
-	s.setTree(s.nodes, &pinState{ids: []string{"P1"}, only: true})
+	s.setTree(s.nodes, &sidebarState{ids: []string{"P1"}, only: true})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "P1"}) {
 		t.Fatalf("pinned only from the store = %v", got)
 	}

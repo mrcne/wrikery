@@ -215,7 +215,11 @@ func (m Model) loadTree() tea.Cmd {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return errMsg{err}
 		}
-		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}}
+		hidden, err := st.GetMeta(ctx, store.MetaKeySidebarHidden)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return errMsg{err}
+		}
+		return treeLoadedMsg{nodes: nodes, saved: &sidebarState{ids: pinned, only: only == "1", hidden: hidden == "1"}}
 	}
 }
 

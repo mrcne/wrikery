@@ -153,6 +153,9 @@ const MetaKeyHost = "api_host"
 // MetaKeySidebarPinned is "1" while the sidebar shows only the pinned nodes, so the choice survives a restart.
 const MetaKeySidebarPinned = "sidebar_pinned_only"
 
+// MetaKeySidebarHidden is "1" while the sidebar pane is hidden, so the choice survives a restart.
+const MetaKeySidebarHidden = "sidebar_hidden"
+
 // MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
 // The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
 const MetaKeyTimelogFrom = "timelog_window_from"

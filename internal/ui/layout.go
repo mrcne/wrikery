@@ -1,5 +1,7 @@
 package ui
 
+import "slices"
+
 type pane int
 
 const (
@@ -36,17 +38,12 @@ func visibleCount(width int) int {
 	}
 }
 
-// computeLayout slides a window of n panes over sidebar, list, detail so the focused pane is always inside it.
-func computeLayout(width, height int, focus pane, sidebarWidth int) layout {
-	n := visibleCount(width)
-	first := paneSidebar
-	if int(focus) > n-1 {
-		first = pane(int(focus) - (n - 1))
-	}
-	lay := layout{rects: map[pane]rect{}}
-	for i := 0; i < n; i++ {
-		lay.visible = append(lay.visible, first+pane(i))
-	}
+// computeLayout slides a window of n panes over the given order, sidebar, list, detail or the last two with the sidebar hidden,
+// so the focused pane is always inside it.
+func computeLayout(width, height int, focus pane, sidebarWidth int, order []pane) layout {
+	n := min(visibleCount(width), len(order))
+	first := max(slices.Index(order, focus)-(n-1), 0)
+	lay := layout{rects: map[pane]rect{}, visible: slices.Clone(order[first : first+n])}
 	x := 0
 	remaining := width
 	for i, p := range lay.visible {
