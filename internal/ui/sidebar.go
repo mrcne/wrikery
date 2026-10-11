@@ -52,12 +52,10 @@ type sidebarModel struct {
 	changes    []pinChange // pin and toggle changes the root has not written yet
 }
 
-// sidebarState is what the store holds about the sidebar: the pinned ids, the pinned-only toggle and whether the pane is hidden.
-// The sidebar reads the pins, the root reads hidden, the pane's place in the layout is its concern.
-type sidebarState struct {
-	ids    []string
-	only   bool
-	hidden bool
+// pinState is what the store holds about pins, the ids and the pinned-only toggle.
+type pinState struct {
+	ids  []string
+	only bool
 }
 
 // pinChange is one write the root owes the store: a pin for id, or the toggle when id is empty.
@@ -77,7 +75,7 @@ func newSidebar(keys KeyMap, hide []string) sidebarModel {
 // setTree replaces the nodes, and the pins when the load carried them, with one rebuild for both.
 // Expansion state and the selection are kept by id across the reload.
 // The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
-func (s *sidebarModel) setTree(nodes []treeNode, saved *sidebarState) {
+func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 	chain := s.ancestry()
 	expanded := map[string]bool{}
 	for _, n := range s.nodes {
@@ -89,12 +87,12 @@ func (s *sidebarModel) setTree(nodes []treeNode, saved *sidebarState) {
 		}
 	}
 	s.nodes = nodes
-	if saved != nil {
+	if pins != nil {
 		s.pinned = map[string]bool{}
-		for _, id := range saved.ids {
+		for _, id := range pins.ids {
 			s.pinned[id] = true
 		}
-		s.pinnedOnly, s.pinsLoaded = saved.only, true
+		s.pinnedOnly, s.pinsLoaded = pins.only, true
 	}
 	if s.pinCount() == 0 {
 		s.pinnedOnly = false
@@ -108,9 +106,11 @@ func (s *sidebarModel) setTree(nodes []treeNode, saved *sidebarState) {
 }
 
 // setSize hands the pane size down. The input gets the width so it scrolls a long query instead of running out of the pane.
+// A shorter pane, after a resize or when the pane comes back from hidden, must not leave the cursor row below it.
 func (s *sidebarModel) setSize(width, height int) {
 	s.height = height
 	s.filter.Width = max(1, width-lipgloss.Width(s.filter.Prompt)-1)
+	s.scroll()
 }
 
 // takeChanges hands the pending pin writes to the root, once.

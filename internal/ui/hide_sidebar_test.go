@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"slices"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -20,17 +22,22 @@ func rootWithTree(t *testing.T, width int) Model {
 	return m
 }
 
-func ctrlB(m Model) Model {
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlB})
+func pressS(m Model) Model {
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	return next.(Model)
 }
 
-func TestCtrlBHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
+// offersWayBack says whether the hint row names the sidebar key as the way to show the pane again.
+func offersWayBack(m Model) bool {
+	return slices.ContainsFunc(m.hintBindings(), func(b key.Binding) bool { return b.Help().Desc == "show sidebar" })
+}
+
+func TestSHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 	m := rootWithTree(t, 160)
 	m.focus = paneSidebar
-	m = ctrlB(m)
+	m = pressS(m)
 	if !m.sidebarHidden || m.focus != paneList {
-		t.Fatalf("after ctrl+b hidden=%v focus=%v, want hidden with the list focused", m.sidebarHidden, m.focus)
+		t.Fatalf("after S hidden=%v focus=%v, want hidden with the list focused", m.sidebarHidden, m.focus)
 	}
 	lay := m.layout()
 	if len(lay.visible) != 2 || lay.visible[0] != paneList || lay.rects[paneList].w != 88 || lay.rects[paneDetail].w != 72 {
@@ -38,6 +45,9 @@ func TestCtrlBHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 	}
 	if v, _ := m.opts.Store.GetMeta(context.Background(), store.MetaKeySidebarHidden); v != "1" {
 		t.Errorf("meta %s = %q, want 1", store.MetaKeySidebarHidden, v)
+	}
+	if d := m.keys.HideSidebar.Help().Desc; d != "show sidebar" || !offersWayBack(m) {
+		t.Errorf("while hidden the key reads %q and the hint row offers it: %v, want show sidebar in both", d, offersWayBack(m))
 	}
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
 	m = next.(Model)
@@ -49,9 +59,9 @@ func TestCtrlBHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 	if m.focus != paneList {
 		t.Errorf("tab from the detail focused %v, want the list, the sidebar is hidden", m.focus)
 	}
-	m = ctrlB(m)
+	m = pressS(m)
 	if m.sidebarHidden || m.focus != paneSidebar {
-		t.Fatalf("after the second ctrl+b hidden=%v focus=%v, want shown with the sidebar focused", m.sidebarHidden, m.focus)
+		t.Fatalf("after the second S hidden=%v focus=%v, want shown with the sidebar focused", m.sidebarHidden, m.focus)
 	}
 	if n, ok := m.sidebar.current(); !ok || n.id != "PLT" {
 		t.Errorf("the sidebar came back on %+v, want PLT", n)
@@ -59,13 +69,25 @@ func TestCtrlBHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 	if v, _ := m.opts.Store.GetMeta(context.Background(), store.MetaKeySidebarHidden); v != "0" {
 		t.Errorf("meta after showing = %q, want 0", v)
 	}
+	if d := m.keys.HideSidebar.Help().Desc; d != "hide sidebar" || offersWayBack(m) {
+		t.Errorf("while shown the key reads %q and the hint row offers the way back: %v, want hide sidebar and no hint", d, offersWayBack(m))
+	}
+}
+
+// ctrl+b is what editors use for the same thing, it stays as a second key for terminals that pass it on.
+func TestCtrlBHidesTheSidebarToo(t *testing.T) {
+	m := rootWithTree(t, 160)
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlB})
+	if m = next.(Model); !m.sidebarHidden {
+		t.Error("ctrl+b left the sidebar shown")
+	}
 }
 
 // h on the list names the sidebar and esc on a one pane screen steps back a pane, neither may land on a hidden sidebar.
 func TestAHiddenSidebarIsNotFocusedByTheListOrByEsc(t *testing.T) {
 	m := rootWithTree(t, 70)
 	m.focus = paneSidebar
-	m = ctrlB(m)
+	m = pressS(m)
 	next, _ := m.Update(focusMsg{pane: paneSidebar})
 	m = next.(Model)
 	if m.focus != paneList {
@@ -81,58 +103,61 @@ func TestAHiddenSidebarIsNotFocusedByTheListOrByEsc(t *testing.T) {
 	}
 }
 
-func TestTheSidebarStaysHiddenAcrossRestarts(t *testing.T) {
-	m := New(rootTestOptions(t))
-	m.width, m.height = 160, 40
-	next, _ := m.Update(treeLoadedMsg{nodes: testTree(), saved: &sidebarState{hidden: true}})
-	m = next.(Model)
-	if !m.sidebarHidden {
-		t.Fatal("a saved hidden sidebar is shown after the tree load")
-	}
-	if lay := m.layout(); len(lay.visible) != 2 || lay.visible[0] != paneList {
-		t.Errorf("layout = %v, want the list and the detail", lay.visible)
-	}
-}
-
 func TestTheBoardCyclesWithoutAHiddenSidebar(t *testing.T) {
 	m := rootWithTree(t, 160)
 	m.shape, m.focus = shapeBoard, paneBoard
-	m = ctrlB(m)
+	m = pressS(m)
 	if !m.sidebarHidden || m.focus != paneBoard {
-		t.Fatalf("ctrl+b on the board: hidden=%v focus=%v, want hidden with the board focused", m.sidebarHidden, m.focus)
+		t.Fatalf("S on the board: hidden=%v focus=%v, want hidden with the board focused", m.sidebarHidden, m.focus)
 	}
 	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(Model)
 	if m.focus != paneDetail {
 		t.Errorf("shift+tab from the board focused %v, want the detail", m.focus)
 	}
-	m = ctrlB(m)
+	m = pressS(m)
 	if m.sidebarHidden || m.focus != paneSidebar {
-		t.Errorf("second ctrl+b on the board: hidden=%v focus=%v, want shown with the sidebar focused", m.sidebarHidden, m.focus)
+		t.Errorf("second S on the board: hidden=%v focus=%v, want shown with the sidebar focused", m.sidebarHidden, m.focus)
 	}
 }
 
-func TestCtrlBOffTheMainScreenDoesNothing(t *testing.T) {
+// The other screens route their own keys, the sidebar key must not fall through to the main screen's switch.
+func TestTheSidebarKeyOffTheMainScreenDoesNothing(t *testing.T) {
 	m := rootWithTree(t, 160)
 	m.screen = screenTimesheet
-	m = ctrlB(m)
-	if m.sidebarHidden {
-		t.Error("ctrl+b on the timesheet hid the sidebar")
+	if m = pressS(m); m.sidebarHidden {
+		t.Error("S on the timesheet hid the sidebar")
 	}
 }
 
-// The tree load carries the saved flag with the pins, so the sidebar is hidden from the first frame that has a tree.
-func TestTheTreeLoadReadsTheHiddenFlag(t *testing.T) {
-	m := New(rootTestOptions(t))
-	ctx := context.Background()
-	if err := m.opts.Store.Scopes().Upsert(ctx, store.Scope{ID: "S1", Kind: store.ScopeKindSpace, Title: "Platform", Followed: true}); err != nil {
+// The flag is read by its own start command, so a saved hidden sidebar is away before the tree lands and the settings row knows it.
+func TestTheSidebarStaysHiddenAcrossRestarts(t *testing.T) {
+	opts := rootTestOptions(t)
+	if err := opts.Store.SetMeta(context.Background(), store.MetaKeySidebarHidden, "1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.opts.Store.SetMeta(ctx, store.MetaKeySidebarHidden, "1"); err != nil {
-		t.Fatal(err)
+	m := New(opts)
+	m.width, m.height = 160, 40
+	var flag tea.Msg
+	for _, c := range m.Init()().(tea.BatchMsg) {
+		if msg, ok := c().(sidebarHiddenMsg); ok {
+			flag = msg
+		}
 	}
-	msg, ok := m.loadTree()().(treeLoadedMsg)
-	if !ok || msg.saved == nil || !msg.saved.hidden {
-		t.Fatalf("loadTree gave %#v, want a treeLoadedMsg with saved.hidden", msg)
+	if flag != (sidebarHiddenMsg{hidden: true}) {
+		t.Fatalf("Init gave %#v for the sidebar, want the hidden flag", flag)
+	}
+	next, _ := m.Update(flag)
+	m = next.(Model)
+	if !m.sidebarHidden {
+		t.Fatal("a saved hidden sidebar is shown after its flag landed")
+	}
+	if lay := m.layout(); len(lay.visible) != 2 || lay.visible[0] != paneList {
+		t.Errorf("layout = %v, want the list and the detail", lay.visible)
+	}
+	rows := m.settings.rows()
+	i := slices.IndexFunc(rows, func(r settingRow) bool { return r.label == "Sidebar" })
+	if i < 0 || rows[i].value != "hidden" {
+		t.Errorf("rows = %+v, want the Sidebar row reading hidden", rows)
 	}
 }

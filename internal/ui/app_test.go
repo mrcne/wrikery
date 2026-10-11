@@ -1463,3 +1463,16 @@ func TestDetailReloadsOnADependenciesStoreChange(t *testing.T) {
 	tm.Send(ui.StoreChangedMsg{Entities: []string{"dependencies"}})
 	waitFor(t, tm, "-- Dependencies (1)")
 }
+
+// A sidebar hidden in an earlier run is away from the first full frame, the flag is read before the tree.
+func TestAHiddenSidebarIsAwayFromTheStart(t *testing.T) {
+	st := seededStore(t)
+	if err := st.SetMeta(context.Background(), store.MetaKeySidebarHidden, "1"); err != nil {
+		t.Fatal(err)
+	}
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
+	waitFor(t, tm, "-- Comments (")
+	if out := finalView(t, tm); strings.Contains(out, "Spaces") || !strings.Contains(out, "Tasks: My tasks (") {
+		t.Errorf("the frame with a saved hidden sidebar:\n%s", out)
+	}
+}

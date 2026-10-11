@@ -146,7 +146,7 @@ func (m Model) layout() layout {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts())
+	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts(), m.loadSidebar())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -197,10 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case treeLoadedMsg:
-		m.sidebar.setTree(msg.nodes, msg.saved)
-		if msg.saved != nil && msg.saved.hidden {
-			m.setSidebarHidden(true)
-		}
+		m.sidebar.setTree(msg.nodes, msg.pins)
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
@@ -300,7 +297,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openScopesMsg:
 		return m, m.loadPicker()
 	case toggleSidebarMsg:
-		return m, m.toggleSidebar()
+		cmd := m.toggleSidebar()
+		return m, cmd
+	case sidebarHiddenMsg:
+		if msg.hidden {
+			m.setSidebarHidden(true)
+		}
+		return m, nil
 	case pickerLoadedMsg:
 		if m.screen == screenSettings {
 			if d, ok := m.dialog.(scopesDialog); ok && m.overlay == overlayDialog {
@@ -911,10 +914,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.PrevPane):
 		m.focus = m.cyclePane(-1)
 	case key.Matches(msg, m.keys.HideSidebar):
-		if m.screen != screenMain {
-			return m, nil
-		}
-		return m, m.toggleSidebar()
+		cmd := m.toggleSidebar()
+		return m, cmd
 	case key.Matches(msg, m.keys.Back):
 		if m.screen != screenMain {
 			m.screen = screenMain
@@ -929,8 +930,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.focus = paneBoard
 		} else if visibleCount(m.width) == 1 {
 			// One pane on screen: esc steps back to the pane before this one in the order, the first has none.
-			if order := m.panes(); slices.Index(order, m.focus) > 0 {
-				m.focus = order[slices.Index(order, m.focus)-1]
+			order := m.panes()
+			if i := slices.Index(order, m.focus); i > 0 {
+				m.focus = order[i-1]
 			}
 		}
 	case key.Matches(msg, m.keys.Board):
@@ -1107,13 +1109,18 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 func (m *Model) setSidebarHidden(hidden bool) {
 	m.sidebarHidden = hidden
 	m.settings.setSidebarHidden(hidden)
+	desc := "hide sidebar"
+	if hidden {
+		desc = "show sidebar"
+	}
+	m.keys.HideSidebar.SetHelp(m.keys.HideSidebar.Help().Key, desc)
 	if hidden && m.focus == paneSidebar {
 		m.focus = m.panes()[0]
 	}
 	m.syncPaneSizes()
 }
 
-// toggleSidebar is ctrl+b and the settings row: hide the sidebar, or show it again with the focus on it, and keep the choice in the store.
+// toggleSidebar is S and the settings row: hide the sidebar, or show it again with the focus on it, and keep the choice in the store.
 // The write is small and local, as with the pins.
 func (m *Model) toggleSidebar() tea.Cmd {
 	value := "1"
@@ -1434,6 +1441,10 @@ func (m Model) hintBindings() []key.Binding {
 		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.Enter, m.keys.Back}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
+	if m.sidebarHidden {
+		// The pane is away and its key is not on screen anywhere else, the bar names the way back.
+		base = slices.Insert(base, 1, m.keys.HideSidebar)
+	}
 	// The filter keys come last, after the global ones, so a narrower bar drops them before ? and q,
 	// and the clear key is offered only while there is something to clear.
 	filter := []key.Binding{m.keys.FilterBox}

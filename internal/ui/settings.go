@@ -22,7 +22,7 @@ type settingRow struct {
 	msg                 tea.Msg // what enter on a row the app owns sends
 }
 
-// settingsModel is the settings screen: what the app owns and can change, the followed scopes, next to what the config file owns.
+// settingsModel is the settings screen: what the app owns and can change, the followed scopes and the sidebar pane, next to what the config file owns.
 // The file rows are read only, the app never writes the file, so enter on one names the key to edit.
 type settingsModel struct {
 	cfg           config.Config
