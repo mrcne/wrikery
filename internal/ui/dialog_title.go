@@ -50,7 +50,7 @@ func (d titleDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 func (d titleDialog) View(th Theme, width, height int) string {
 	hint := lipgloss.NewStyle().Foreground(th.Muted).Render("enter saves   esc cancels")
 	if d.errText != "" {
-		hint = lipgloss.NewStyle().Foreground(th.Error).Render(d.errText)
+		hint = th.errorLine(d.errText, width-2)
 	}
 	body := d.input.View() + "\n\n" + hint
 	return th.box("Title", body, width, lipgloss.Height(body)+2, true)

@@ -29,7 +29,7 @@ func newDatesDialog(task store.Task, now time.Time) (datesDialog, tea.Cmd) {
 	for i, label := range []string{"start", "due"} {
 		in := textinput.New()
 		in.Prompt = fmt.Sprintf("%-6s", label)
-		in.Placeholder = "2026-09-12, fri, +3d, today, empty clears"
+		in.Placeholder = "2026-09-12, fri, last fri, +3d, today, empty clears"
 		in.CharLimit = 20
 		if task.Dates != nil {
 			v := []string{task.Dates.Start, task.Dates.Due}[i]
@@ -51,12 +51,12 @@ func (d datesDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		d.focus = 1 - d.focus
 		return d, d.inputs[d.focus].Focus()
 	case tea.KeyEnter:
-		start, err := parseDate(d.inputs[0].Value(), d.now)
+		start, err := parseDate(d.inputs[0].Value(), d.now, dateAhead)
 		if err != nil {
 			d.errText = "start: " + err.Error()
 			return d, nil
 		}
-		due, err := parseDate(d.inputs[1].Value(), d.now)
+		due, err := parseDate(d.inputs[1].Value(), d.now, dateAhead)
 		if err != nil {
 			d.errText = "due: " + err.Error()
 			return d, nil
@@ -96,10 +96,12 @@ func datesFrom(start, due string) store.TaskDates {
 }
 
 func (d datesDialog) View(th Theme, width, height int) string {
-	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + "\n\n"
+	body := d.inputs[0].View() + dateHint(th, d.inputs[0].Value(), d.now, dateAhead) + "\n" +
+		d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateAhead) + "\n\n"
+	width = min(width, 60)
 	if d.errText != "" {
-		body += lipgloss.NewStyle().Foreground(th.Error).Render(d.errText) + "\n"
+		body += th.errorLine(d.errText, width-2) + "\n"
 	}
 	body += lipgloss.NewStyle().Foreground(th.Muted).Render("tab switch   enter save   esc cancel")
-	return th.box("Dates", body, min(width, 60), lipgloss.Height(body)+2, true)
+	return th.box("Dates", body, width, lipgloss.Height(body)+2, true)
 }

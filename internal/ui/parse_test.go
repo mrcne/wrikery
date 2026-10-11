@@ -9,28 +9,87 @@ import (
 func TestParseDate(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
 	cases := map[string]string{
-		"":           "",
-		"2026-09-12": "2026-09-12",
-		"today":      "2026-09-03",
-		"tomorrow":   "2026-09-04",
-		"yesterday":  "2026-09-02",
-		"fri":        "2026-09-04",
-		"thu":        "2026-09-10", // the same weekday means next week
-		"mon":        "2026-09-07",
-		"+3d":        "2026-09-06",
-		"-1d":        "2026-09-02",
-		"12 sep":     "2026-09-12",
+		"":               "",
+		"2026-09-12":     "2026-09-12",
+		"today":          "2026-09-03",
+		"tomorrow":       "2026-09-04",
+		"yesterday":      "2026-09-02",
+		"yday":           "2026-09-02",
+		"fri":            "2026-09-04",
+		"friday":         "2026-09-04",
+		"thu":            "2026-09-10", // the same weekday means next week, today is the word for today
+		"thurs":          "2026-09-10",
+		"tues":           "2026-09-08",
+		"mon":            "2026-09-07",
+		"next mon":       "2026-09-07",
+		"next tues":      "2026-09-08",
+		"last mon":       "2026-08-31",
+		"last wednesday": "2026-09-02",
+		"last thu":       "2026-08-27", // and last week
+		"next thu":       "2026-09-10",
+		"Last  Fri":      "2026-08-28",
+		"+3d":            "2026-09-06",
+		"-1d":            "2026-09-02",
+		"12 sep":         "2026-09-12",
+		"3 sep":          "2026-09-03",
+		"1 sep":          "2027-09-01", // a day and month that has passed is next year
 	}
 	for in, want := range cases {
-		got, err := parseDate(in, now)
+		got, err := parseDate(in, now, dateAhead)
 		if err != nil || got != want {
-			t.Errorf("parseDate(%q) = %q, %v; want %q", in, got, err, want)
+			t.Errorf("parseDate(%q, ahead) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"someday", "2026-13-01", "+x", "+3"} {
-		if _, err := parseDate(bad, now); err == nil {
-			t.Errorf("parseDate(%q) accepted", bad)
+	bad := []string{
+		"someday", "2026-13-01", "+x", "+3", "+d", "--3d", "+-3d", "++3d", "+3661d", "-3661d", "+3000000d",
+		"last", "next", "last someday", "last +3d", "next 12 sep", "fridays", "weds", "mo",
+		"29 feb", // neither 2026 nor 2027 has one
+	}
+	for _, in := range bad {
+		if got, err := parseDate(in, now, dateAhead); err == nil {
+			t.Errorf("parseDate(%q) accepted as %q", in, got)
 		}
+	}
+}
+
+// Time is logged after the fact, so the time entry box reads a bare weekday or a day and month as the latest one, today included.
+// last and next say the same in both boxes.
+func TestParseDateReadsBackForTimeEntries(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
+	cases := map[string]string{
+		"mon":      "2026-08-31",
+		"monday":   "2026-08-31",
+		"thu":      "2026-09-03", // today, the day's work is logged in the evening
+		"fri":      "2026-08-28",
+		"last thu": "2026-08-27",
+		"last fri": "2026-08-28",
+		"next fri": "2026-09-04",
+		"today":    "2026-09-03",
+		"+3d":      "2026-09-06",
+		"3 sep":    "2026-09-03",
+		"2 sep":    "2026-09-02",
+		"28 dec":   "2025-12-28", // a day and month still ahead is last year
+	}
+	for in, want := range cases {
+		got, err := parseDate(in, now, dateBack)
+		if err != nil || got != want {
+			t.Errorf("parseDate(%q, back) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+}
+
+// 29 feb exists in the year the direction picks, or not at all.
+func TestParseDateLeapDay(t *testing.T) {
+	back := time.Date(2028, 3, 5, 12, 0, 0, 0, time.UTC)
+	if got, err := parseDate("29 feb", back, dateBack); err != nil || got != "2028-02-29" {
+		t.Errorf("29 feb back from March 2028 = %q, %v; want 2028-02-29", got, err)
+	}
+	ahead := time.Date(2027, 12, 1, 12, 0, 0, 0, time.UTC)
+	if got, err := parseDate("29 feb", ahead, dateAhead); err != nil || got != "2028-02-29" {
+		t.Errorf("29 feb ahead from December 2027 = %q, %v; want 2028-02-29", got, err)
+	}
+	if got, err := parseDate("29 feb", back, dateAhead); err == nil {
+		t.Errorf("29 feb ahead from March 2028 accepted as %q, 2029 has none", got)
 	}
 }
 

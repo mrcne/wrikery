@@ -92,13 +92,14 @@ When the cache does not know the task's workflow yet, the box says so instead of
 Space toggles a contact on or off, enter applies the change, esc cancels without one.
 
 `d` shows a start and a due field.
-Both take quick words instead of a full date: an ISO date, `today`, `tomorrow`, `yesterday`, a weekday name for the next one, `+Nd` or `-Nd` for a relative day, or a day and month such as `12 sep` for a day this year.
+Both take quick words instead of a full date: an ISO date, `today`, `tomorrow`, `yesterday` or `yday`, a weekday such as `fri`, `friday` or `thurs` for the coming one, never today, `last fri` for the previous Friday or `next fri` for the coming one, `+Nd` or `-Nd` for a day up to ten years away, or a day and month such as `12 sep`, next year once it has passed.
+The day a field reads to is shown next to it, so a wrong reading is visible before it is saved.
 An empty field clears that date. Tab moves between the two fields, enter saves, esc cancels.
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
 `t` opens a box with hours, date and note fields.
 Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h`, `2h30m` or `1h 20m`, the form logged time is shown in.
-The date takes the same quick words as the dates dialog and defaults to today.
+The date takes the same quick words as the dates dialog and defaults to today, with one difference: time is logged after the fact, so a weekday or a day and month is the latest one and today counts, `mon` on a Thursday is three days back, `fri` on a Friday is today and `28 dec` in January is last year.
 The note is optional.
 Tab moves between the fields, enter saves, esc cancels.
 Editing an entry cannot clear a note that is already there.

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -87,5 +88,24 @@ func TestStatusColorFallsBackToGroup(t *testing.T) {
 	}
 	if th.StatusGlyph("Cancelled") != th.Glyphs.Cancelled || th.StatusGlyph("whatever") != th.Glyphs.Active {
 		t.Error("glyph mapping")
+	}
+}
+
+// A long error wraps at the width it is given, so no box cuts it at the edge.
+func TestErrorLineWrapsAtTheWidth(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	text := "could not read the date, try 2026-09-12, today, yday, fri, last fri, next fri, +3d or 12 sep"
+	got := ansi.Strip(th.errorLine(text, 40))
+	lines := strings.Split(got, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("errorLine at 40 gave %d lines:\n%s", len(lines), got)
+	}
+	for _, l := range lines {
+		if ansi.StringWidth(l) > 40 {
+			t.Errorf("line wider than 40: %q", l)
+		}
+	}
+	if squeeze(got) != text {
+		t.Errorf("words changed: %q", squeeze(got))
 	}
 }
