@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +17,17 @@ type dialog interface {
 }
 
 type closeDialogMsg struct{}
+
+// dateHint names the day a date field reads to, so a wrong reading shows before it is saved.
+// An empty field and a value the parser refuses get no hint, the refusal comes with enter.
+func dateHint(th Theme, value string, now time.Time, bare weekdayRule) string {
+	d, err := parseDate(value, now, bare)
+	if err != nil || d == "" {
+		return ""
+	}
+	t, _ := time.Parse("2006-01-02", d)
+	return lipgloss.NewStyle().Foreground(th.Muted).Render("  " + t.Format("Mon 2 Jan 2006"))
+}
 
 // writeQueuedMsg reports a write that reached the outbox. pending and failed are the fresh counts
 // read right after, so the status bar updates without waiting for the sync engine's own event.
