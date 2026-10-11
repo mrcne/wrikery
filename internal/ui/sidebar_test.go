@@ -579,3 +579,16 @@ func TestTreeReplacementFallsBackToMyTasksWhenTheSpaceIsGone(t *testing.T) {
 		t.Errorf("cursor on %s after Platform left, want My tasks", n.id)
 	}
 }
+
+// A pane that comes back shorter than it left, or a terminal that shrank, keeps the cursor row on screen.
+func TestSidebarSetSizeKeepsTheCursorOnScreen(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(sampleNodes(), nil)
+	s.setSize(20, 40)
+	ids := visibleIDs(s)
+	s.selectByID(ids[len(ids)-1])
+	s.setSize(20, 3)
+	if rows := s.rows(s.height); s.cursor < s.offset || s.cursor >= s.offset+rows {
+		t.Errorf("cursor %d is outside the window at offset %d with %d rows", s.cursor, s.offset, rows)
+	}
+}

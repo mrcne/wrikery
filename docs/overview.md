@@ -43,6 +43,10 @@ An emoji built from several parts, a family for example, is drawn as its parts, 
 A skin tone and the frame of a keycap are left out for the same reason, so a hand is drawn without its tone and a keycap as its digit.
 A wide terminal shows all three panes, a medium one shows two, and a terminal narrower than eighty columns shows one, so the app stays usable in a small tmux split.
 The visible panes always include the one in focus, so moving focus can slide the window forward or back by one pane.
+`S` hides the sidebar once you know your way around the tree: the list and the detail take its width, tab cycles between the two, and the selected folder stays selected.
+`S` again brings it back with the focus on it, and the bottom bar names the key while the pane is away.
+`ctrl+b` does the same, except inside tmux, which takes that key as its prefix and never passes it on.
+The choice is kept across restarts, like the pinned view, and the settings screen shows it.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
 When Wrike rejects a request the bar says the sync is failing instead of offline, since the network is fine and the log has the reason.
 
@@ -163,6 +167,7 @@ The filter stays while you move between folders and is not kept across restarts.
 So the board by assignee is a standup, who is on what and what is stuck, and the board by folder is a board per epic.
 Tasks on another workflow than most of the folder gather in one column named after that workflow, and `H` and `L` refuse to move them, the status box still works.
 The board takes the width of the window, the sidebar and the task detail show while they have focus: `shift+tab` brings the sidebar, `enter` on a card opens the task on the right, `esc` gives the board the width back, and `esc` on the board itself returns to the list.
+A hidden sidebar stays out of the board's cycle too, `shift+tab` from the board then goes to the detail, and `S` brings the sidebar back.
 An empty column is only as wide as its name.
 When the columns do not fit, every column gives up width evenly, a card column down to 16 characters and an empty one down to a short name with its count, `Canc.. (0)`, so a workflow of ten statuses fits a wide terminal whole.
 When even that is not enough, the columns that do not fit slide in as the cursor moves towards them.
@@ -223,6 +228,7 @@ Your own tasks are always included and have no row.
 Applying runs a full refresh: a newly followed scope is pulled from the start, and the tasks of an unfollowed scope leave the cache, unless they are your own.
 The sidebar drops an unfollowed space at once and shows a newly followed one right away, its tasks arrive with the refresh.
 
+The Sidebar row says whether the pane is shown or hidden, enter flips it, the same as `S` on the main screen.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
 The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
 

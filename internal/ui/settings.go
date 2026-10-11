@@ -13,23 +13,26 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-type openScopesMsg struct{} // intent: open the box that picks the followed spaces and projects
+type openScopesMsg struct{}    // intent: open the box that picks the followed spaces and projects
+type toggleSidebarMsg struct{} // intent: hide the sidebar pane or show it again, what ctrl+b does
 
 type settingRow struct {
 	group, label, value string
-	key                 string // the key in the config file, empty for the one row the app owns
+	key                 string  // the key in the config file, empty for a row the app owns
+	msg                 tea.Msg // what enter on a row the app owns sends
 }
 
-// settingsModel is the settings screen: what the app owns and can change, the followed scopes, next to what the config file owns.
+// settingsModel is the settings screen: what the app owns and can change, the followed scopes and the sidebar pane, next to what the config file owns.
 // The file rows are read only, the app never writes the file, so enter on one names the key to edit.
 type settingsModel struct {
-	cfg    config.Config
-	theme  string // ui.theme as the file has it, cfg.UI.Theme is what auto resolved to
-	host   string // the host the token probe found, empty until the meta row is read or when there is none
-	file   string
-	keys   KeyMap
-	scopes []store.Scope
-	cursor int
+	cfg           config.Config
+	theme         string // ui.theme as the file has it, cfg.UI.Theme is what auto resolved to
+	host          string // the host the token probe found, empty until the meta row is read or when there is none
+	file          string
+	keys          KeyMap
+	scopes        []store.Scope
+	sidebarHidden bool
+	cursor        int
 }
 
 func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsModel {
@@ -37,6 +40,8 @@ func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsMod
 }
 
 func (s *settingsModel) setScopes(scopes []store.Scope) { s.scopes = scopes }
+
+func (s *settingsModel) setSidebarHidden(hidden bool) { s.sidebarHidden = hidden }
 
 func (s settingsModel) rows() []settingRow {
 	var names []string
@@ -58,10 +63,15 @@ func (s settingsModel) rows() []settingRow {
 			host += " (detected)"
 		}
 	}
+	sidebar := "shown"
+	if s.sidebarHidden {
+		sidebar = "hidden"
+	}
 	return []settingRow{
-		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none")},
+		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
 		{group: "Sync", label: "Wrike host", value: host, key: "host"},
+		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},
 		{group: "Interface", label: "Theme", value: theme, key: "ui.theme"},
 		{group: "Interface", label: "Accent", value: orText(ui.Accent, "default"), key: "ui.accent"},
 		{group: "Interface", label: "ASCII glyphs", value: fmt.Sprint(ui.ASCII), key: "ui.ascii"},
@@ -91,8 +101,8 @@ func (s settingsModel) Update(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		s.cursor = len(rows) - 1
 	case key.Matches(msg, s.keys.Enter):
 		row := rows[s.cursor]
-		if row.key == "" {
-			return s, intent(openScopesMsg{})
+		if row.msg != nil {
+			return s, intent(row.msg)
 		}
 		return s, intent(toastMsg{text: fmt.Sprintf("set %s in %s and start the app again", row.key, s.file)})
 	}

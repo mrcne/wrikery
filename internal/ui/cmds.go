@@ -114,6 +114,16 @@ func (m Model) loadHost() tea.Cmd {
 	}
 }
 
+// loadSidebar reads whether the sidebar pane was hidden when the app last ran.
+// It is its own command so the flag lands before the tree, which takes two store round trips, and the pane is not drawn and then taken away.
+func (m Model) loadSidebar() tea.Cmd {
+	st := m.opts.Store
+	return func() tea.Msg {
+		hidden, _ := st.GetMeta(context.Background(), store.MetaKeySidebarHidden)
+		return sidebarHiddenMsg{hidden: hidden == "1"}
+	}
+}
+
 // loadTree builds the sidebar from the followed scopes: My tasks first,
 // then each followed space's subtree, then followed projects that are not inside a followed space.
 func (m Model) loadTree() tea.Cmd {

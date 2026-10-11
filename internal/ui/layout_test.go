@@ -11,30 +11,48 @@ func TestVisibleCountBreakpoints(t *testing.T) {
 }
 
 func TestLayoutWindowFollowsFocus(t *testing.T) {
-	two := computeLayout(100, 40, paneDetail, 28)
+	three := []pane{paneSidebar, paneList, paneDetail}
+	two := computeLayout(100, 40, paneDetail, 28, three)
 	if len(two.visible) != 2 || two.visible[0] != paneList || two.visible[1] != paneDetail {
 		t.Errorf("focus detail at 100 cols shows %v, want list+detail", two.visible)
 	}
-	two = computeLayout(100, 40, paneSidebar, 28)
+	two = computeLayout(100, 40, paneSidebar, 28, three)
 	if two.visible[0] != paneSidebar || two.visible[1] != paneList {
 		t.Errorf("focus sidebar at 100 cols shows %v", two.visible)
 	}
-	one := computeLayout(70, 40, paneList, 28)
+	one := computeLayout(70, 40, paneList, 28, three)
 	if len(one.visible) != 1 || one.visible[0] != paneList || one.rects[paneList].w != 70 {
 		t.Errorf("one pane = %+v", one)
 	}
-	three := computeLayout(160, 40, paneList, 28)
+	wide := computeLayout(160, 40, paneList, 28, three)
 	total := 0
-	for _, p := range three.visible {
-		total += three.rects[p].w
+	for _, p := range wide.visible {
+		total += wide.rects[p].w
 	}
-	if total != 160 || three.rects[paneSidebar].w != 28 {
-		t.Errorf("three pane widths do not fill 160: %+v", three.rects)
+	if total != 160 || wide.rects[paneSidebar].w != 28 {
+		t.Errorf("three pane widths do not fill 160: %+v", wide.rects)
 	}
-	for _, r := range three.rects {
+	for _, r := range wide.rects {
 		if r.h != 40 {
 			t.Errorf("pane height %d, want 40", r.h)
 		}
+	}
+}
+
+// With the sidebar hidden the window slides over the list and the detail alone.
+func TestLayoutWindowOverTheListAndTheDetail(t *testing.T) {
+	two := []pane{paneList, paneDetail}
+	wide := computeLayout(160, 40, paneList, 28, two)
+	if len(wide.visible) != 2 || wide.visible[0] != paneList || wide.rects[paneList].w != 88 || wide.rects[paneDetail].w != 72 || wide.rects[paneDetail].x != 88 {
+		t.Errorf("list and detail at 160: %v %+v, want the list 88 then the detail 72", wide.visible, wide.rects)
+	}
+	mid := computeLayout(100, 40, paneDetail, 28, two)
+	if len(mid.visible) != 2 || mid.visible[0] != paneList || mid.rects[paneDetail].w != 45 {
+		t.Errorf("list and detail at 100: %v %+v", mid.visible, mid.rects)
+	}
+	one := computeLayout(70, 40, paneList, 28, two)
+	if len(one.visible) != 1 || one.visible[0] != paneList || one.rects[paneList].w != 70 {
+		t.Errorf("one pane = %+v", one)
 	}
 }
 

@@ -70,7 +70,8 @@ type pickerLoadedMsg struct {
 	projects map[string][]store.Folder // per space id, projects directly under the root
 	followed []store.Scope             // read in the same command, so the Follow box ticks the set as it stands at the read
 }
-type hostLoadedMsg struct{ host string } // the Wrike host the token probe found, shown on the settings screen
+type hostLoadedMsg struct{ host string }    // the Wrike host the token probe found, shown on the settings screen
+type sidebarHiddenMsg struct{ hidden bool } // the saved sidebar flag, read once at start
 type tokenVerifiedMsg struct {
 	name string
 	err  error

@@ -106,9 +106,11 @@ func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 }
 
 // setSize hands the pane size down. The input gets the width so it scrolls a long query instead of running out of the pane.
+// A shorter pane, after a resize or when the pane comes back from hidden, must not leave the cursor row below it.
 func (s *sidebarModel) setSize(width, height int) {
 	s.height = height
 	s.filter.Width = max(1, width-lipgloss.Width(s.filter.Prompt)-1)
+	s.scroll()
 }
 
 // takeChanges hands the pending pin writes to the root, once.
