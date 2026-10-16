@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -266,5 +267,25 @@ func TestSendNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
 	want := `waiting behind an earlier write that failed, a new task "Fresh": wrike: 503 no healthy upstream`
 	if err != nil || out != queued || reason != want {
 		t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
+	}
+}
+
+// A row that went out during the command's own drain stays in the outbox as sent, the command reads the state and not the absence.
+func TestSendReadsSentFromTheRowState(t *testing.T) {
+	env, _, _ := testEnv(t)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, taskAnswer, "TASK1", "One", "Deferred", "ST_HOLD")
+	}))
+	queueUpdate(t, env, false)
+	row, err := env.Store.Outbox().NextDue(context.Background(), "2030-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, reason, err := send(context.Background(), env, "test-token", "stub", row.ID)
+	if err != nil || out != sent || reason != "" {
+		t.Fatalf("send = %v, %q, %v, want sent", out, reason, err)
+	}
+	if got, err := env.Store.Outbox().Get(context.Background(), row.ID); err != nil || got.State != store.StateSent {
+		t.Errorf("row after send = %+v, %v, want kept as sent", got, err)
 	}
 }

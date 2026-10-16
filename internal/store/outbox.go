@@ -23,10 +23,25 @@ const (
 
 type OutboxState string
 
+// The queue is pending, inflight and failed, the states the engine claims, sends and retries.
+// A row that went out or was dropped stays as sent or discarded for HistoryDays, the changes screen reads it
+// and a revert needs the values it kept, then finishTx sweeps it with the next completion.
+// Every query that means the queue has to say so, see StatesByEntity and Blocker.
 const (
-	StatePending  OutboxState = "pending"
-	StateInflight OutboxState = "inflight"
-	StateFailed   OutboxState = "failed"
+	StatePending   OutboxState = "pending"
+	StateInflight  OutboxState = "inflight"
+	StateFailed    OutboxState = "failed"
+	StateSent      OutboxState = "sent"
+	StateDiscarded OutboxState = "discarded"
+)
+
+// HistoryDays is how long a sent or discarded row stays in the outbox.
+const HistoryDays = 30
+
+// The front end that queued a write, so the changes screen can tell a command's write from the interface's.
+const (
+	SourceTUI = "tui"
+	SourceCLI = "cli"
 )
 
 // LocalIDPrefix marks optimistic cache rows an enqueue created before the server confirmed them.
@@ -44,11 +59,16 @@ type OutboxRow struct {
 	Kind          OutboxKind
 	EntityID      string
 	Payload       []byte
+	Before        []byte // the values the write replaced, in the payload's shape, empty when it replaced nothing
+	TaskID        string // the task the write belongs to, the local id of a create until it lands, empty when unknown
+	TaskTitle     string // the title at enqueue, a fallback when the task has left the cache
+	Source        string // SourceTUI or SourceCLI
 	State         OutboxState
 	Attempts      int
 	LastError     string
 	NextAttemptAt string
 	CreatedAt     string
+	DoneAt        string // when the row became sent or discarded, empty on the queue
 }
 
 // Payloads mirror the params of the client call each kind replays.
@@ -118,34 +138,110 @@ type OutboxRepo interface {
 	// Retry makes a failed row pending and a pending row due at once, with a clean attempt count.
 	Retry(ctx context.Context, id int64) error
 	Discard(ctx context.Context, id int64) error
-	// ListIssues is the failed rows and the pending rows that failed at least once and wait for their next attempt.
-	ListIssues(ctx context.Context) ([]OutboxRow, error)
+	// ListChanges is every row the outbox holds: the queue first in the order it sends, then the history newest first.
+	ListChanges(ctx context.Context) ([]OutboxRow, error)
 	ResetInflight(ctx context.Context) (int64, error)
 	StatesByEntity(ctx context.Context) (map[string]OutboxState, error)
 	RealID(ctx context.Context, localID string) (string, error)
 }
 
-func (s *Store) Outbox() OutboxRepo { return outboxRepo{w: s.writer, r: s.reader, now: s.Now} }
+func (s *Store) Outbox() OutboxRepo {
+	return outboxRepo{w: s.writer, r: s.reader, now: s.Now, source: s.Source}
+}
 
 type outboxRepo struct {
-	w, r *sql.DB
-	now  func() time.Time
+	w, r   *sql.DB
+	now    func() time.Time
+	source string
 }
 
 func (o outboxRepo) stamp() string { return o.now().UTC().Format(time.RFC3339) }
 
-func (o outboxRepo) insertOutboxTx(ctx context.Context, tx *sql.Tx, kind OutboxKind, entityID string, payload any) (int64, error) {
+// insertOutboxTx queues one write.
+// before is the payload that would put the replaced values back, nil when the write replaces nothing or the cache had nothing to read.
+func (o outboxRepo) insertOutboxTx(ctx context.Context, tx *sql.Tx, kind OutboxKind, entityID, taskID, taskTitle string, payload, before any) (int64, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
 	}
+	var old []byte
+	if before != nil {
+		if old, err = json.Marshal(before); err != nil {
+			return 0, err
+		}
+	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO outbox (kind, entity_id, payload, created_at) VALUES (?, ?, ?, ?)`,
-		string(kind), entityID, string(raw), o.stamp())
+		`INSERT INTO outbox (kind, entity_id, payload, before, task_id, task_title, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		string(kind), entityID, string(raw), string(old), taskID, taskTitle, o.source, o.stamp())
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// taskTitleTx is the cached title of a task, empty when the cache has no row for it.
+func taskTitleTx(ctx context.Context, tx *sql.Tx, taskID string) (string, error) {
+	var title string
+	err := tx.QueryRowContext(ctx, `SELECT title FROM tasks WHERE id = ?`, taskID).Scan(&title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return title, err
+}
+
+// taskBeforeTx reads the values p is about to replace, as the payload that would put them back, and the title for the row.
+// The enqueue is the last moment the cache still has them, its own update overwrites them next.
+// ok is false for a task the cache does not have, the write is still valid and goes out with nothing remembered.
+func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePayload) (before TaskUpdatePayload, title string, ok bool, err error) {
+	var description, statusID, group, importance string
+	var dType, dStart, dDue sql.NullString
+	var dDur sql.NullInt64
+	err = tx.QueryRowContext(ctx, `
+		SELECT title, description, custom_status_id, status, importance, dates_type, dates_duration, dates_start, dates_due
+		FROM tasks WHERE id = ?`, taskID).Scan(&title, &description, &statusID, &group, &importance, &dType, &dDur, &dStart, &dDue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TaskUpdatePayload{}, "", false, nil
+	}
+	if err != nil {
+		return TaskUpdatePayload{}, "", false, err
+	}
+	if p.Title != "" {
+		before.Title = title
+	}
+	if p.Description != "" {
+		before.Description = description
+	}
+	if p.CustomStatusID != "" {
+		before.CustomStatusID, before.Status = statusID, group
+	}
+	if p.Importance != "" {
+		before.Importance = importance
+	}
+	if p.Dates != nil {
+		// A task without a dates block comes back to that through a Backlog write, the same write the dates box uses to clear them.
+		before.Dates = &TaskDates{Type: "Backlog"}
+		if dType.String != "" {
+			before.Dates = &TaskDates{Type: dType.String, Duration: int(dDur.Int64), Start: dStart.String, Due: dDue.String}
+		}
+	}
+	// The dialogs compute add and remove from the cached state, so the mirror is exact: an added id was not on the task, a removed one was.
+	before.AddResponsibles, before.RemoveResponsibles = p.RemoveResponsibles, p.AddResponsibles
+	before.AddParents, before.RemoveParents = p.RemoveParents, p.AddParents
+	return before, title, true, nil
+}
+
+// timelogBeforeTx reads the cached entry a write is about to change or remove, as the create payload that would put it back, and its task.
+// ok is false when the cache has no row for it.
+func timelogBeforeTx(ctx context.Context, tx *sql.Tx, timelogID string) (old TimelogCreatePayload, taskID string, ok bool, err error) {
+	err = tx.QueryRowContext(ctx, `SELECT task_id, hours, tracked_date, comment FROM timelogs WHERE id = ?`, timelogID).
+		Scan(&taskID, &old.Hours, &old.TrackedDate, &old.Comment)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TimelogCreatePayload{}, "", false, nil
+	}
+	if err != nil {
+		return TimelogCreatePayload{}, "", false, err
+	}
+	return old, taskID, true, nil
 }
 
 // resolveTx turns a local target into the real id when its create has landed since the caller read it.
@@ -196,7 +292,15 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
 		return 0, err
 	}
-	id, err := o.insertOutboxTx(ctx, tx, KindTaskUpdate, taskID, p)
+	before, title, ok, err := taskBeforeTx(ctx, tx, taskID, p)
+	if err != nil {
+		return 0, err
+	}
+	var remembered any
+	if ok {
+		remembered = before
+	}
+	id, err := o.insertOutboxTx(ctx, tx, KindTaskUpdate, taskID, taskID, title, p, remembered)
 	if err != nil {
 		return 0, err
 	}
@@ -276,8 +380,12 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	id, err := o.insertOutboxTx(ctx, tx, KindTaskCreate, folderID, p)
+	id, err := o.insertOutboxTx(ctx, tx, KindTaskCreate, folderID, "", p.Title, p, nil)
 	if err != nil {
+		return 0, err
+	}
+	// The task's id is the row's own number, known only now.
+	if _, err := tx.ExecContext(ctx, `UPDATE outbox SET task_id = ? WHERE id = ?`, LocalID(id), id); err != nil {
 		return 0, err
 	}
 	statusID, err := statusForNewTask(ctx, tx, folderID)
@@ -342,7 +450,11 @@ func (o outboxRepo) EnqueueComment(ctx context.Context, taskID, authorID, text s
 	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
 		return 0, err
 	}
-	id, err := o.insertOutboxTx(ctx, tx, KindCommentCreate, taskID, CommentCreatePayload{Text: text})
+	title, err := taskTitleTx(ctx, tx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	id, err := o.insertOutboxTx(ctx, tx, KindCommentCreate, taskID, taskID, title, CommentCreatePayload{Text: text}, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -364,7 +476,11 @@ func (o outboxRepo) EnqueueTimelogCreate(ctx context.Context, taskID, userID str
 	if taskID, err = resolveTx(ctx, tx, "tasks", taskID); err != nil {
 		return 0, err
 	}
-	id, err := o.insertOutboxTx(ctx, tx, KindTimelogCreate, taskID, p)
+	title, err := taskTitleTx(ctx, tx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogCreate, taskID, taskID, title, p, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -388,7 +504,19 @@ func (o outboxRepo) EnqueueTimelogUpdate(ctx context.Context, timelogID string, 
 	if timelogID, err = resolveTx(ctx, tx, "timelogs", timelogID); err != nil {
 		return 0, err
 	}
-	id, err := o.insertOutboxTx(ctx, tx, KindTimelogUpdate, timelogID, p)
+	old, taskID, ok, err := timelogBeforeTx(ctx, tx, timelogID)
+	if err != nil {
+		return 0, err
+	}
+	title, err := taskTitleTx(ctx, tx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	var remembered any
+	if ok {
+		remembered = TimelogUpdatePayload(old)
+	}
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogUpdate, timelogID, taskID, title, p, remembered)
 	if err != nil {
 		return 0, err
 	}
@@ -424,7 +552,19 @@ func (o outboxRepo) EnqueueTimelogDelete(ctx context.Context, timelogID string) 
 	if timelogID, err = resolveTx(ctx, tx, "timelogs", timelogID); err != nil {
 		return 0, err
 	}
-	id, err := o.insertOutboxTx(ctx, tx, KindTimelogDelete, timelogID, struct{}{})
+	old, taskID, ok, err := timelogBeforeTx(ctx, tx, timelogID)
+	if err != nil {
+		return 0, err
+	}
+	title, err := taskTitleTx(ctx, tx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	var remembered any
+	if ok {
+		remembered = old
+	}
+	id, err := o.insertOutboxTx(ctx, tx, KindTimelogDelete, timelogID, taskID, title, struct{}{}, remembered)
 	if err != nil {
 		return 0, err
 	}
@@ -446,7 +586,7 @@ func (o outboxRepo) Counts(ctx context.Context) (pending, failed int, err error)
 	return pending, failed, err
 }
 
-// Get reads one row by id, ErrNotFound once the row completed or was discarded.
+// Get reads one row by id, ErrNotFound once the sweep has removed it.
 func (o outboxRepo) Get(ctx context.Context, id int64) (OutboxRow, error) {
 	r, err := scanOutboxRow(o.r.QueryRowContext(ctx,
 		`SELECT `+outboxColumns+` FROM outbox WHERE id = ?`, id))
@@ -456,18 +596,18 @@ func (o outboxRepo) Get(ctx context.Context, id int64) (OutboxRow, error) {
 	return r, err
 }
 
-const outboxColumns = `id, kind, entity_id, payload, state, attempts, last_error,
-	COALESCE(next_attempt_at, ''), created_at`
+const outboxColumns = `id, kind, entity_id, payload, before, task_id, task_title, source, state, attempts, last_error,
+	COALESCE(next_attempt_at, ''), created_at, COALESCE(done_at, '')`
 
 func scanOutboxRow(row interface{ Scan(...any) error }) (OutboxRow, error) {
 	var r OutboxRow
-	var kind, state, payload string
-	err := row.Scan(&r.ID, &kind, &r.EntityID, &payload, &state, &r.Attempts,
-		&r.LastError, &r.NextAttemptAt, &r.CreatedAt)
+	var kind, state, payload, before string
+	err := row.Scan(&r.ID, &kind, &r.EntityID, &payload, &before, &r.TaskID, &r.TaskTitle, &r.Source, &state, &r.Attempts,
+		&r.LastError, &r.NextAttemptAt, &r.CreatedAt, &r.DoneAt)
 	if err != nil {
 		return OutboxRow{}, err
 	}
-	r.Kind, r.State, r.Payload = OutboxKind(kind), OutboxState(state), []byte(payload)
+	r.Kind, r.State, r.Payload, r.Before = OutboxKind(kind), OutboxState(state), []byte(payload), []byte(before)
 	return r, nil
 }
 
@@ -503,9 +643,11 @@ func (o outboxRepo) Blocker(ctx context.Context, rowID int64) (OutboxRow, error)
 	var r OutboxRow
 	if IsLocalID(entity) {
 		// The create is the oldest row the task has, every row on the local id came after it.
-		// It is the blocker until it lands, which swaps the local id away, or until it is discarded, which takes the row with it.
+		// It is the blocker until it lands, which swaps the local id away, or until it is discarded, which takes the dependents with it.
+		// A finished create is history and blocks nothing.
 		r, err = scanOutboxRow(o.r.QueryRowContext(ctx,
-			`SELECT `+outboxColumns+` FROM outbox WHERE id = ?`, strings.TrimPrefix(entity, LocalIDPrefix)))
+			`SELECT `+outboxColumns+` FROM outbox WHERE id = ? AND state IN ('pending', 'inflight', 'failed')`,
+			strings.TrimPrefix(entity, LocalIDPrefix)))
 	} else {
 		r, err = scanOutboxRow(o.r.QueryRowContext(ctx, `
 			SELECT `+outboxColumns+` FROM outbox
@@ -538,8 +680,35 @@ func (o outboxRepo) expectOne(ctx context.Context, query string, args ...any) er
 	return nil
 }
 
+// finishTx takes a row out of the queue as sent or discarded and sweeps the history older than HistoryDays.
+// The sweep names the two history states, so a queued row never matches whatever its age.
+func (o outboxRepo) finishTx(ctx context.Context, tx *sql.Tx, id int64, state OutboxState) error {
+	res, err := tx.ExecContext(ctx, `UPDATE outbox SET state = ?, done_at = ? WHERE id = ?`, string(state), o.stamp(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	cutoff := o.now().UTC().AddDate(0, 0, -HistoryDays).Format(time.RFC3339)
+	_, err = tx.ExecContext(ctx, `DELETE FROM outbox WHERE state IN ('sent', 'discarded') AND done_at < ?`, cutoff)
+	return err
+}
+
 func (o outboxRepo) Complete(ctx context.Context, id int64) error {
-	return o.expectOne(ctx, `DELETE FROM outbox WHERE id = ?`, id)
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error {
@@ -548,7 +717,7 @@ func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
 	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
@@ -560,13 +729,14 @@ func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error
 // CompleteTaskCreate swaps the local task for the server's and points everything that named the local id at the real one.
 // The server row goes in first and the thread rows move before the local row is deleted,
 // the foreign key would otherwise cascade the queued comments away.
+// The row itself stays as sent, see finishTx.
 func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task) error {
 	tx, err := o.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
 	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
@@ -588,6 +758,10 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 	if _, err := tx.ExecContext(ctx, `UPDATE outbox SET entity_id = ? WHERE entity_id = ?`, real.ID, localID); err != nil {
 		return err
 	}
+	// The create's own row and the writes made on the local task name the real task from here on, the history included.
+	if _, err := tx.ExecContext(ctx, `UPDATE outbox SET task_id = ? WHERE task_id = ?`, real.ID, localID); err != nil {
+		return err
+	}
 	if err := recordSwapTx(ctx, tx, localID, real.ID); err != nil {
 		return err
 	}
@@ -600,7 +774,7 @@ func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment)
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`,
@@ -627,7 +801,7 @@ func (o outboxRepo) CompleteTimelog(ctx context.Context, id int64, real Timelog)
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE id = ?`, LocalID(id))
@@ -691,7 +865,7 @@ func (o outboxRepo) Retry(ctx context.Context, id int64) error {
 		WHERE id = ? AND state IN ('pending', 'failed')`, id)
 }
 
-// Discard drops a queued write.
+// Discard drops a queued write. The row stays as discarded, see finishTx.
 // For creates the optimistic cache row goes with it.
 // A discarded update leaves the cache ahead of the server until the next pull corrects it, which the spec accepts.
 func (o outboxRepo) Discard(ctx context.Context, id int64) error {
@@ -711,20 +885,25 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		return err
 	}
 	localID := LocalID(id)
+	done := o.stamp()
+	// The dependents leave the queue as discarded rows, in the same breath as the row they waited for.
+	// Only queue states are touched, a dependent cannot be in flight while its create is still here to discard.
+	const dropDependents = `UPDATE outbox SET state = 'discarded', done_at = ? WHERE entity_id = ? AND state IN ('pending', 'failed')`
 	switch OutboxKind(kind) {
 	case KindCommentCreate:
 		if _, err := tx.ExecContext(ctx, `DELETE FROM comments WHERE id = ?`, localID); err != nil {
 			return err
 		}
 	case KindTaskCreate:
-		// The comments go with the task through the cascade, the writes queued on it are dropped here,
+		// The comments go with the task through the cascade, the writes queued on it are discarded here,
 		// their target never existed on the server.
 		// Time entries have no foreign key to tasks, so they are deleted by hand.
 		// Edits and deletes queued under such an entry name its local id, which only the queue still knows:
 		// a queued delete has already taken the entry's own row out of the timelogs table.
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM outbox WHERE entity_id IN (SELECT ? || id FROM outbox WHERE kind = ? AND entity_id = ?)`,
-			LocalIDPrefix, string(KindTimelogCreate), localID); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE outbox SET state = 'discarded', done_at = ? WHERE state IN ('pending', 'failed')
+				AND entity_id IN (SELECT ? || id FROM outbox WHERE kind = ? AND entity_id = ? AND state IN ('pending', 'failed'))`,
+			done, LocalIDPrefix, string(KindTimelogCreate), localID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE task_id = ?`, localID); err != nil {
@@ -733,7 +912,7 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE entity_id = ?`, localID); err != nil {
+		if _, err := tx.ExecContext(ctx, dropDependents, done, localID); err != nil {
 			return err
 		}
 	case KindTimelogCreate:
@@ -742,24 +921,23 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		}
 		// Edits queued against the create die with it,
 		// their target never existed on the server and would sit pending forever otherwise.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE entity_id = ?`, localID); err != nil {
+		if _, err := tx.ExecContext(ctx, dropDependents, done, localID); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM outbox WHERE id = ?`, id); err != nil {
+	if err := o.finishTx(ctx, tx, id, StateDiscarded); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func (o outboxRepo) ListIssues(ctx context.Context) ([]OutboxRow, error) {
+func (o outboxRepo) ListChanges(ctx context.Context) ([]OutboxRow, error) {
 	// A pending row with an error is one Reschedule put into backoff, the engine cannot tell a passing failure
 	// from one the payload earns every time, and such a row holds the later writes on its entity, see NextDue.
-	// Listing it lets a person decide, an inflight row is being tried right now and is left out.
+	// Listing it with the rest lets a person decide.
 	rows, err := o.r.QueryContext(ctx, `
 		SELECT `+outboxColumns+` FROM outbox
-		WHERE state = 'failed' OR (state = 'pending' AND last_error <> '')
-		ORDER BY id`)
+		ORDER BY state IN ('sent', 'discarded'), CASE WHEN state IN ('sent', 'discarded') THEN -id ELSE id END`)
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +966,8 @@ func (o outboxRepo) ResetInflight(ctx context.Context) (int64, error) {
 func (o outboxRepo) StatesByEntity(ctx context.Context) (map[string]OutboxState, error) {
 	// A create names its folder as the entity, the pending mark belongs to the task it made.
 	rows, err := o.r.QueryContext(ctx, `
-		SELECT CASE WHEN kind = ? THEN ? || id ELSE entity_id END, state FROM outbox`,
+		SELECT CASE WHEN kind = ? THEN ? || id ELSE entity_id END, state FROM outbox
+		WHERE state IN ('pending', 'inflight', 'failed')`,
 		string(KindTaskCreate), LocalIDPrefix)
 	if err != nil {
 		return nil, err

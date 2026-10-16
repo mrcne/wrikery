@@ -444,9 +444,15 @@ func (m Model) loadIssues() tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
 		ctx := context.Background()
-		failed, err := st.Outbox().ListIssues(ctx)
+		all, err := st.Outbox().ListChanges(ctx)
 		if err != nil {
 			return errMsg{err}
+		}
+		var failed []store.OutboxRow
+		for _, r := range all {
+			if r.State == store.StateFailed || (r.State == store.StatePending && r.LastError != "") {
+				failed = append(failed, r)
+			}
 		}
 		var rows []issueRow
 		for _, r := range failed {

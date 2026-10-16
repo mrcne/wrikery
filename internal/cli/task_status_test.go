@@ -79,7 +79,7 @@ func TestTaskStatusReportsARejectedWrite(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "Completed"}); code != exitError {
 		t.Fatalf("code = %d\n%s", code, out.String())
 	}
-	if !strings.Contains(errOut.String(), "invalid_parameter") || !strings.Contains(errOut.String(), "sync issues") {
+	if !strings.Contains(errOut.String(), "invalid_parameter") || !strings.Contains(errOut.String(), "changes screen") {
 		t.Errorf("stderr:\n%s", errOut.String())
 	}
 	if _, failed, _ := env.Store.Outbox().Counts(context.Background()); failed != 1 {
@@ -298,9 +298,18 @@ func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.
 	// Wrike is back, but the first change is still backing off from its failure.
 	// Its next attempt is pinned far ahead, or a slow runner could pass the two seconds the drain gave it and send both.
 	down.Store(false)
-	rows, err := env.Store.Outbox().ListIssues(context.Background())
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("issues = %+v, %v, want the first change in backoff", rows, err)
+	all, err := env.Store.Outbox().ListChanges(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []store.OutboxRow
+	for _, r := range all {
+		if r.State == store.StatePending && r.LastError != "" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) != 1 {
+		t.Fatalf("retrying rows = %+v, want the first change in backoff", rows)
 	}
 	if err := env.Store.Outbox().Reschedule(context.Background(), rows[0].ID, rows[0].LastError, "2999-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)

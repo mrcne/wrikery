@@ -96,9 +96,9 @@ func TestDrainRejectedWriteFailsRowAndContinues(t *testing.T) {
 	if err != nil || pending != 0 || failed != 1 {
 		t.Fatalf("counts = %d, %d, %v, want the rejection failed and the rest drained", pending, failed, err)
 	}
-	rows, err := st.Outbox().ListIssues(ctx)
-	if err != nil || len(rows) != 1 || rows[0].LastError == "" {
-		t.Fatalf("failed rows = %+v, %v, want the error text kept", rows, err)
+	rows := failedRows(t, st)
+	if len(rows) != 1 || rows[0].LastError == "" {
+		t.Fatalf("failed rows = %+v, want the error text kept", rows)
 	}
 }
 
@@ -252,9 +252,9 @@ func TestDrainCorruptRowFailsAndContinues(t *testing.T) {
 	if err != nil || pending != 0 || failed != 1 {
 		t.Fatalf("counts = %d, %d, %v, want the corrupt row failed and the rest drained", pending, failed, err)
 	}
-	rows, err := st.Outbox().ListIssues(ctx)
-	if err != nil || len(rows) != 1 || rows[0].ID != badID || rows[0].LastError == "" {
-		t.Fatalf("failed rows = %+v, %v", rows, err)
+	rows := failedRows(t, st)
+	if len(rows) != 1 || rows[0].ID != badID || rows[0].LastError == "" {
+		t.Fatalf("failed rows = %+v", rows)
 	}
 }
 

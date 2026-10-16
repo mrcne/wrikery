@@ -21,6 +21,7 @@ func openDemoStore(now time.Time) (*store.Store, string, func(), error) {
 		_ = os.RemoveAll(dir)
 		return nil, "", nil, err
 	}
+	st.Source = store.SourceTUI
 	if err := demo.Seed(context.Background(), st, now); err != nil {
 		_ = st.Close()
 		_ = os.RemoveAll(dir)

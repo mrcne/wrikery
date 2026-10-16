@@ -256,9 +256,9 @@ func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	rows, err := st.Outbox().ListIssues(context.Background())
-	if err != nil || len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
-		t.Fatalf("failed rows after the rebuild = %+v, %v, want row 1 as it was", rows, err)
+	rows := issueRows(t, st)
+	if len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
+		t.Fatalf("failed rows after the rebuild = %+v, want row 1 as it was", rows)
 	}
 	id, err := st.Outbox().EnqueueTaskCreate(context.Background(), "F1", TaskCreatePayload{Title: "new"})
 	if err != nil {
@@ -266,5 +266,82 @@ func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
 	}
 	if id != 3 {
 		t.Errorf("next outbox id = %d, want 3, the sequence must survive the rebuild", id)
+	}
+}
+
+// The second rebuild of the outbox, for the history states and columns, must keep the queue as it was,
+// carry the id sequence over like the first one, and name the task of every row the way the enqueues now do.
+func TestOutboxHistoryRebuildKeepsRowsAndNamesTheirTasks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	names, err := fs.Glob(migrationFS, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name >= "migrations/0011_outbox_history.sql" {
+			break
+		}
+		body, err := migrationFS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("applying %s: %v", name, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`INSERT INTO tasks (id, title) VALUES ('T1', 'one')`,
+		`INSERT INTO timelogs (id, task_id, user_id, tracked_date, hours) VALUES ('L1', 'T1', 'U1', '2026-10-01', 1)`,
+		`INSERT INTO outbox (kind, entity_id, payload, state, last_error) VALUES ('task_update', 'T1', '{"title":"x"}', 'failed', 'boom')`,
+		`INSERT INTO outbox (kind, entity_id, payload) VALUES ('task_create', 'F1', '{"title":"new"}')`,
+		`INSERT INTO outbox (kind, entity_id, payload) VALUES ('timelog_update', 'L1', '{"hours":2}')`,
+		`INSERT INTO outbox (kind, entity_id, payload) VALUES ('comment_create', 'T1', '{"text":"gone"}')`,
+		`DELETE FROM outbox WHERE id = 4`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	want := map[int64]string{1: "T1", 2: "local:2", 3: "T1"}
+	for id, task := range want {
+		row, err := st.Outbox().Get(ctx, id)
+		if err != nil {
+			t.Fatalf("row %d after the rebuild: %v", id, err)
+		}
+		if row.TaskID != task {
+			t.Errorf("row %d task = %q, want %q", id, row.TaskID, task)
+		}
+	}
+	row, err := st.Outbox().Get(ctx, 1)
+	if err != nil || row.State != StateFailed || row.LastError != "boom" {
+		t.Errorf("row 1 = %+v, %v, want the failed row as it was", row, err)
+	}
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 5 {
+		t.Errorf("next outbox id = %d, want 5, the sequence must survive the rebuild", id)
 	}
 }

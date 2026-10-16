@@ -16,7 +16,7 @@ type outcome int
 const (
 	queued   outcome = iota // the row is still pending, Wrike was not reached inside the deadline
 	sent                    // the row completed, the change is on Wrike
-	rejected                // Wrike refused the write, the row is failed and listed under sync issues
+	rejected                // Wrike refused the write, the row is failed and listed on the changes screen
 	blocked                 // the token was rejected, the row is pending but only a new sign in in the interface sends it
 )
 
@@ -52,14 +52,16 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 	drainErr := eng.Drain(ctx, env.Deadline)
 	// Ctrl-C cancels ctx while the drain runs, the engine puts its row back on purpose.
 	// A read on the cancelled ctx would fail at once, so the outcome is read on one that cannot be cancelled.
+	// The row stays in the outbox after it went out, as sent, so the state is read and not the row's absence.
+	// A row that is gone was swept, which cannot happen inside one command, so that is an error like any other.
 	row, err := env.Store.Outbox().Get(context.WithoutCancel(ctx), rowID)
-	if errors.Is(err, store.ErrNotFound) {
-		return sent, "", nil
-	}
 	if err != nil {
 		return queued, "", err
 	}
-	if row.State == store.StateFailed {
+	switch row.State {
+	case store.StateSent:
+		return sent, "", nil
+	case store.StateFailed:
 		return rejected, row.LastError, nil
 	}
 	var apiErr *wrike.APIError
@@ -171,7 +173,7 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 	case blocked:
 		return reportBlocked(env)
 	case rejected:
-		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed under sync issues in wrikery", reason))
+		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed on the changes screen in wrikery", reason))
 	case queued:
 		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
 	}
