@@ -28,7 +28,7 @@ type taskJSON struct {
 	Created      string       `json:"created"`
 	Updated      string       `json:"updated"`
 	Pending      bool         `json:"pending"` // a write is waiting to be sent or being sent
-	Failed       bool         `json:"failed"`  // Wrike refused a write, it is listed under sync issues
+	Failed       bool         `json:"failed"`  // Wrike refused a write, it is listed on the changes screen
 }
 
 type personJSON struct {
@@ -311,7 +311,7 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 	case store.StatePending, store.StateInflight:
 		line("queued", "a write is waiting to be sent")
 	case store.StateFailed:
-		line("queued", "a write was rejected, see the sync issues screen")
+		line("queued", "a write was rejected, see the changes screen")
 	}
 
 	body := t.DescriptionPlain

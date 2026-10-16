@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 )
 
 // The queued time and the optimistic rows' dates come from the store's clock rather than SQLite's,
-// so the sync issues screen agrees with the app's own clock, and a golden that shows a queued row does not change with the calendar.
+// so the changes screen agrees with the app's own clock, and a golden that shows a queued row does not change with the calendar.
 func TestEnqueueStampsRowsFromTheStoreClock(t *testing.T) {
 	st := newTestStore(t)
 	st.Now = func() time.Time { return time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) }
@@ -391,7 +390,7 @@ func TestEnqueueTaskCreateGuessesTheStatusFromTheSpaceWorkflow(t *testing.T) {
 	}
 }
 
-func TestOutboxGetReadsOneRowAndReportsAGoneOne(t *testing.T) {
+func TestOutboxGetReadsOneRowAndKeepsADiscardedOne(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "One")}); err != nil {
@@ -411,7 +410,237 @@ func TestOutboxGetReadsOneRowAndReportsAGoneOne(t *testing.T) {
 	if err := st.Outbox().Discard(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, ErrNotFound) {
-		t.Errorf("after discard err = %v, want ErrNotFound", err)
+	if row, err := st.Outbox().Get(ctx, id); err != nil || row.State != StateDiscarded {
+		t.Errorf("after discard = %+v, %v, want the row kept as discarded", row, err)
+	}
+}
+
+// readRow is the outbox row by id, the test fails when it is gone.
+func readRow(t *testing.T, st *Store, id int64) OutboxRow {
+	t.Helper()
+	row, err := st.Outbox().Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("outbox row %d: %v", id, err)
+	}
+	return row
+}
+
+func decodeTaskPayload(t *testing.T, raw []byte) TaskUpdatePayload {
+	t.Helper()
+	var p TaskUpdatePayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		t.Fatalf("payload %q does not decode: %v", raw, err)
+	}
+	return p
+}
+
+// The enqueue is the last moment the cache still has the values a write replaces, so it keeps them on the row,
+// as the payload that would put them back.
+func TestEnqueueTaskUpdateKeepsTheValuesItReplaces(t *testing.T) {
+	st := newTestStore(t)
+	st.Source = SourceCLI
+	ctx := context.Background()
+	task := makeTask("T1", "before")
+	task.CustomStatusID, task.Importance = "CS1", "Normal"
+	task.Dates = &TaskDates{Type: "Planned", Duration: 480, Start: "2026-10-01", Due: "2026-10-03"}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{
+		Title: "after", Description: "<p>new</p>", CustomStatusID: "CS2", Status: "Completed", Importance: "High",
+		Dates: &TaskDates{Type: "Planned", Start: "2026-10-05", Due: "2026-10-06"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if row.TaskID != "T1" || row.TaskTitle != "before" || row.Source != SourceCLI {
+		t.Errorf("row = task %q title %q source %q, want T1, before, cli", row.TaskID, row.TaskTitle, row.Source)
+	}
+	b := decodeTaskPayload(t, row.Before)
+	if b.Title != "before" || b.Description != "<p>body of before</p>" || b.CustomStatusID != "CS1" || b.Status != "Active" || b.Importance != "Normal" {
+		t.Errorf("before = %+v, want the old title, description, status with its group and importance", b)
+	}
+	if b.Dates == nil || *b.Dates != (TaskDates{Type: "Planned", Duration: 480, Start: "2026-10-01", Due: "2026-10-03"}) {
+		t.Errorf("before dates = %+v, want the old block", b.Dates)
+	}
+}
+
+// A write that only sets some fields keeps only those, the before must not carry a title the write did not touch,
+// or a revert of a status move would put an old title back too.
+func TestEnqueueTaskUpdateKeepsOnlyTheFieldsTheWriteSets(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "keep me")
+	task.CustomStatusID = "CS1"
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{CustomStatusID: "CS2", Status: "Completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := decodeTaskPayload(t, readRow(t, st, id).Before)
+	if b.CustomStatusID != "CS1" || b.Status != "Active" || b.Title != "" || b.Description != "" || b.Importance != "" || b.Dates != nil {
+		t.Errorf("before = %+v, want the status alone", b)
+	}
+}
+
+// A first date on a task without a dates block has Backlog as its before, the write that clears dates again.
+func TestEnqueueTaskUpdateKeepsBacklogAsTheBeforeOfAFirstDate(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "undated")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Dates: &TaskDates{Type: "Planned", Due: "2026-10-06"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := decodeTaskPayload(t, readRow(t, st, id).Before)
+	if b.Dates == nil || b.Dates.Type != "Backlog" || b.Dates.Start != "" || b.Dates.Due != "" {
+		t.Errorf("before dates = %+v, want a Backlog block", b.Dates)
+	}
+}
+
+// The dialogs compute add and remove from the cached state, so the before is the mirror: what was added is removed and back.
+func TestEnqueueTaskUpdateMirrorsAssigneesAndFolders(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.ResponsibleIDs, task.ParentIDs = []string{"U1"}, []string{"F1"}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{
+		AddResponsibles: []string{"U2"}, RemoveResponsibles: []string{"U1"}, AddParents: []string{"F2"}, RemoveParents: []string{"F1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := decodeTaskPayload(t, readRow(t, st, id).Before)
+	if strings.Join(b.AddResponsibles, ",") != "U1" || strings.Join(b.RemoveResponsibles, ",") != "U2" ||
+		strings.Join(b.AddParents, ",") != "F1" || strings.Join(b.RemoveParents, ",") != "F2" {
+		t.Errorf("before = %+v, want the add and remove lists swapped", b)
+	}
+}
+
+// A write on a task the cache does not have is still queued, with nothing to remember.
+func TestEnqueueOnAGhostTaskKeepsNoBefore(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "GHOST", TaskUpdatePayload{Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if len(row.Before) != 0 || row.TaskID != "GHOST" || row.TaskTitle != "" {
+		t.Errorf("row = before %q task %q title %q, want an empty before, the id and no title", row.Before, row.TaskID, row.TaskTitle)
+	}
+}
+
+func TestEnqueueTaskCreateNamesItsLocalTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if row.TaskID != LocalID(id) || row.TaskTitle != "New one" || len(row.Before) != 0 {
+		t.Errorf("row = task %q title %q before %q, want the local id, the title and no before", row.TaskID, row.TaskTitle, row.Before)
+	}
+}
+
+func TestEnqueueCommentAndTimelogCreateKeepTheTaskTitle(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "the task")}); err != nil {
+		t.Fatal(err)
+	}
+	cid, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lid, err := st.Outbox().EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{cid, lid} {
+		row := readRow(t, st, id)
+		if row.TaskID != "T1" || row.TaskTitle != "the task" || len(row.Before) != 0 {
+			t.Errorf("row %d = task %q title %q before %q", id, row.TaskID, row.TaskTitle, row.Before)
+		}
+	}
+}
+
+// An edit keeps all three old values, the payload's fields are all omitempty and a before limited to the set ones could not say "the note was empty".
+// A delete keeps the whole entry as a create payload, which is what puts it back.
+// Both name the entry's task, which the delete removes from the cache in the same transaction.
+func TestEnqueueTimelogUpdateAndDeleteKeepTheOldEntryAndItsTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "the task")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Timelogs().Upsert(ctx, []Timelog{{ID: "L1", TaskID: "T1", UserID: "U1", TrackedDate: "2026-10-01", Hours: 1, Comment: "old note",
+		CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	uid, err := st.Outbox().EnqueueTimelogUpdate(ctx, "L1", TimelogUpdatePayload{Hours: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, uid)
+	var old TimelogUpdatePayload
+	if err := json.Unmarshal(row.Before, &old); err != nil {
+		t.Fatal(err)
+	}
+	if row.TaskID != "T1" || row.TaskTitle != "the task" || old.Hours != 1 || old.TrackedDate != "2026-10-01" || old.Comment != "old note" {
+		t.Errorf("update row = task %q title %q before %+v", row.TaskID, row.TaskTitle, old)
+	}
+	did, err := st.Outbox().EnqueueTimelogDelete(ctx, "L1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row = readRow(t, st, did)
+	var gone TimelogCreatePayload
+	if err := json.Unmarshal(row.Before, &gone); err != nil {
+		t.Fatal(err)
+	}
+	// The edit above already moved the cached entry to two hours, the delete remembers the entry as it stood.
+	if row.TaskID != "T1" || gone.Hours != 2 || gone.TrackedDate != "2026-10-01" || gone.Comment != "old note" {
+		t.Errorf("delete row = task %q before %+v", row.TaskID, gone)
+	}
+	gid, err := st.Outbox().EnqueueTimelogDelete(ctx, "NOSUCH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row := readRow(t, st, gid); row.TaskID != "" || len(row.Before) != 0 {
+		t.Errorf("delete of an unknown entry = task %q before %q, want nothing", row.TaskID, row.Before)
+	}
+}
+
+// The mirror comes from the link tables and not from the payload alone: an id the dialog adds that a pull put on the task
+// meanwhile changes nothing on Wrike, so putting it back must not remove it, and the same for a remove of an id already gone.
+func TestEnqueueTaskUpdateMirrorsOnlyWhatReallyChanges(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.ResponsibleIDs, task.ParentIDs = []string{"U1", "U2"}, []string{"F1", "F2"}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{
+		AddResponsibles: []string{"U1", "U3"}, RemoveResponsibles: []string{"U2", "U9"},
+		AddParents: []string{"F1", "F3"}, RemoveParents: []string{"F2", "F9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := decodeTaskPayload(t, readRow(t, st, id).Before)
+	if strings.Join(b.RemoveResponsibles, ",") != "U3" || strings.Join(b.AddResponsibles, ",") != "U2" ||
+		strings.Join(b.RemoveParents, ",") != "F3" || strings.Join(b.AddParents, ",") != "F2" {
+		t.Errorf("before = %+v, want only U3 and F3 to remove and only U2 and F2 to add back", b)
 	}
 }

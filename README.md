@@ -42,7 +42,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
 - commands for scripts and agents: list, show, move and create tasks from a shell, with JSON output
-- offline: reads come from the local cache, writes are queued and sent later, and a sync issues screen lists any that failed for a retry or a discard
+- offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
 
 ## Keys
 

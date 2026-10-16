@@ -9,7 +9,7 @@ import (
 
 func TestDefaultKeyMapGroupsCoverExpectedActions(t *testing.T) {
 	k := defaultKeyMap()
-	if len(k.global()) == 0 || len(k.list()) == 0 || len(k.task()) == 0 || len(k.timesheet()) == 0 || len(k.issues()) == 0 {
+	if len(k.global()) == 0 || len(k.list()) == 0 || len(k.task()) == 0 || len(k.timesheet()) == 0 || len(k.changes()) == 0 {
 		t.Fatal("a key map group came back empty")
 	}
 	if h := k.Quit.Help(); h.Key != "q" || h.Desc != "quit" {

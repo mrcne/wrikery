@@ -183,6 +183,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
+	st.Source = store.SourceTUI
 	slog.Info("started", "version", buildVersion(), "db", paths.DBFile)
 
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths)}
@@ -253,6 +254,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+	st.Source = store.SourceCLI
 	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.

@@ -3,7 +3,7 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Quit, Help, Search, Timesheet, Issues, Settings, Refresh, NextPane, PrevPane, Back, HideSidebar                      key.Binding
+	Quit, Help, Search, Timesheet, Changes, Settings, Refresh, NextPane, PrevPane, Back, HideSidebar                     key.Binding
 	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone, Pin, Pinned                         key.Binding
 	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open, New key.Binding
 	CopyLink, CopyBranch, CopyID                                                                                         key.Binding
@@ -20,7 +20,7 @@ func b(help, desc string, keys ...string) key.Binding {
 func defaultKeyMap() KeyMap {
 	return KeyMap{
 		Quit: b("q", "quit", "q", "ctrl+c"), Help: b("?", "help", "?"), Search: b("ctrl+f", "search", "ctrl+f"),
-		Timesheet: b("T", "timesheet", "T"), Issues: b("!", "sync issues", "!"), Settings: b(",", "settings", ","), Refresh: b("R", "refresh", "R"),
+		Timesheet: b("T", "timesheet", "T"), Changes: b("!", "changes", "!"), Settings: b(",", "settings", ","), Refresh: b("R", "refresh", "R"),
 		NextPane: b("tab", "next pane", "tab"), PrevPane: b("shift+tab", "previous pane", "shift+tab"), Back: b("esc", "back", "esc"),
 		// ctrl+b is the editor binding for this, kept as a second key, inside tmux it is the prefix and never arrives.
 		HideSidebar: b("S", "hide sidebar", "S", "ctrl+b"),
@@ -51,7 +51,7 @@ func defaultKeyMap() KeyMap {
 }
 
 func (k KeyMap) global() []key.Binding {
-	return []key.Binding{k.NextPane, k.HideSidebar, k.Help, k.Search, k.Timesheet, k.Issues, k.Settings, k.Refresh, k.Back, k.Quit}
+	return []key.Binding{k.NextPane, k.HideSidebar, k.Help, k.Search, k.Timesheet, k.Changes, k.Settings, k.Refresh, k.Back, k.Quit}
 }
 
 func (k KeyMap) list() []key.Binding {
@@ -74,6 +74,6 @@ func (k KeyMap) settings() []key.Binding {
 	return []key.Binding{k.Down, k.Up, k.Enter}
 }
 
-func (k KeyMap) issues() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Retry, k.Discard, k.Enter}
+func (k KeyMap) changes() []key.Binding {
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Retry, k.Discard, k.Enter}
 }

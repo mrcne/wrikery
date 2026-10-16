@@ -135,7 +135,7 @@ func (t timesheetModel) visibleRows(height int) int {
 	return max(1, height-fixed)
 }
 
-// scroll clamps offset so cursorRow stays inside the visible window, the same pattern as the sync issues list.
+// scroll clamps offset so cursorRow stays inside the visible window, the same pattern as the changes list.
 // The pinned "+ new task" row (cursorRow == len(rows)) needs no row of its own brought into view.
 func (t *timesheetModel) scroll() {
 	if t.cursorRow >= len(t.rows) {

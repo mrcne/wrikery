@@ -3,6 +3,7 @@ package ui
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
@@ -437,56 +438,86 @@ func (m Model) swapWatch() string {
 	return ""
 }
 
-// loadIssues reads the failed outbox rows and the rows retrying after a failure for the sync issues screen.
-// A timelog edit or delete names the timelog as its entity, so its task is looked up through the
-// cached row, which is only there while nothing has evicted it yet.
-func (m Model) loadIssues() tea.Cmd {
-	st := m.opts.Store
+// loadChanges reads the rows for the changes screen and resolves what they name:
+// the task for its current title and the folder a jump needs, and the folder ids a summary shows by title.
+// A task gone from the cache keeps the title the row took at enqueue and gets no task id, enter has nowhere to go,
+// a time entry whose task was never cached shows the entry id.
+// The same task and folder come up many times in a month of writes, each is read once, and the folder titles the tree
+// already holds are not read at all.
+func (m Model) loadChanges() tea.Cmd {
+	st, ref := m.opts.Store, m.ref
+	folders := map[string]string{}
+	for id, title := range m.list.folders.title {
+		folders[id] = title
+	}
 	return func() tea.Msg {
 		ctx := context.Background()
-		failed, err := st.Outbox().ListIssues(ctx)
+		all, err := st.Outbox().ListChanges(ctx)
 		if err != nil {
 			return errMsg{err}
 		}
-		var rows []issueRow
-		for _, r := range failed {
-			ir := issueRow{row: r, summary: summarize(r)}
-			switch r.Kind {
-			case store.KindTimelogUpdate, store.KindTimelogDelete:
-				if l, err := st.Timelogs().Get(ctx, r.EntityID); err == nil {
-					ir.taskID = l.TaskID
-				}
-			case store.KindTaskCreate:
-				// The entity is the folder, the task is the local row the create made.
-				ir.taskID = store.LocalID(r.ID)
-			default:
-				ir.taskID = r.EntityID
-			}
-			if ir.taskID != "" {
-				if t, err := st.Tasks().Get(ctx, ir.taskID); err == nil {
-					ir.title, ir.parentID = t.Title, firstParent(t)
-				} else {
-					ir.title = "(task " + ir.taskID + ")"
-				}
-			} else {
-				ir.title = "(time entry " + r.EntityID + ")"
-			}
-			rows = append(rows, ir)
+		type known struct {
+			title, parent string
+			ok            bool
 		}
-		return issuesLoadedMsg{rows: rows}
+		tasks := map[string]known{}
+		var rows []changeRow
+		for _, r := range all {
+			cr := changeRow{row: r, title: r.TaskTitle}
+			if r.TaskID == "" {
+				cr.title = "(time entry " + r.EntityID + ")"
+			} else {
+				k, seen := tasks[r.TaskID]
+				if !seen {
+					if t, err := st.Tasks().Get(ctx, r.TaskID); err == nil {
+						k = known{title: t.Title, parent: firstParent(t), ok: true}
+					}
+					tasks[r.TaskID] = k
+				}
+				if k.ok {
+					cr.taskID, cr.title, cr.parentID = r.TaskID, k.title, k.parent
+				} else if cr.title == "" {
+					cr.title = "(task " + r.TaskID + ")"
+				}
+			}
+			if r.Kind == store.KindTaskUpdate {
+				var p store.TaskUpdatePayload
+				_ = json.Unmarshal(r.Payload, &p)
+				for _, ids := range [][]string{p.AddParents, p.RemoveParents} {
+					for _, id := range ids {
+						if _, seen := folders[id]; seen {
+							continue
+						}
+						// A folder the store has no row for keeps its id as the title, and is not asked for again.
+						folders[id] = id
+						if f, err := st.Folders().Get(ctx, id); err == nil {
+							folders[id] = f.Title
+						}
+					}
+				}
+			}
+			cr.summary, cr.detail = describe(r, ref, folders)
+			rows = append(rows, cr)
+		}
+		return changesLoadedMsg{rows: rows}
 	}
 }
 
-// enqueueIssueOp runs a retry or discard for the issues screen. ErrNotFound means the engine
+// enqueueWriteOp runs a retry or discard for the changes screen. ErrNotFound means the engine
 // already took the row inflight or somebody else cleared it, which is not a failure worth an
 // error toast, just a sign the list is stale and needs another read.
-func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
+// The counts travel with every answer, the status bar takes them as they are.
+func (m Model) enqueueWriteOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
 	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
 		ctx := context.Background()
 		err := op(ctx)
 		if errors.Is(err, store.ErrNotFound) {
-			return writeQueuedMsg{toast: "already being sent, list refreshed"}
+			pending, failed, err := st.Outbox().Counts(ctx)
+			if err != nil {
+				return errMsg{err}
+			}
+			return writeQueuedMsg{toast: "already being sent, list refreshed", pending: pending, failed: failed}
 		}
 		if err != nil {
 			return errMsg{err}

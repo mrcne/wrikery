@@ -26,7 +26,7 @@ func classify(err error) failureClass {
 		// Network trouble or a malformed response.
 		// Retrying is right for the first, and the second is retried as well: the engine cannot tell an answer
 		// garbled once from one this payload earns every time, and a row in backoff holds the later writes on its entity.
-		// It shows under sync issues while it retries, so a person can discard it.
+		// It shows on the changes screen while it retries, so a person can discard it.
 		return failTransient
 	}
 	switch {

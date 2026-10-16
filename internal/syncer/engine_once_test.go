@@ -33,9 +33,7 @@ func TestOnceResendsARowADeadProcessLeftInFlight(t *testing.T) {
 	if err != nil || state != StateIdle {
 		t.Fatalf("Once = %q, %v, want idle and no error", state, err)
 	}
-	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("row after Once: err = %v, want ErrNotFound, the row was sent", err)
-	}
+	wantSent(t, st, id)
 	if me, err := st.GetMeta(ctx, store.MetaKeyMe); err != nil || me != "U1" {
 		t.Errorf("me = %q, %v, want U1 from the cycle", me, err)
 	}
@@ -201,9 +199,7 @@ func TestDrainLetsAStartedCreateFinishPastTheBudget(t *testing.T) {
 	// The loop then reads the next row on the ended budget, so Drain may return the context error.
 	// The commit is what counts here.
 	_ = e.Drain(ctx, 100*time.Millisecond)
-	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("row after the drain: err = %v, want ErrNotFound", err)
-	}
+	wantSent(t, st, id)
 	if task, err := st.Tasks().Get(ctx, "TNEW"); err != nil || task.Title != "New" {
 		t.Errorf("task = %+v, %v, want the created task in the cache", task, err)
 	}
@@ -230,9 +226,7 @@ func TestDrainContinuesWhenTheLockFileCannotBeOpened(t *testing.T) {
 		if err := e.Drain(ctx, 0); err != nil {
 			t.Fatalf("Drain %d: %v", i, err)
 		}
-		if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("row %d after the drain: err = %v, want ErrNotFound, it was sent", i, err)
-		}
+		wantSent(t, st, id)
 	}
 	if n := strings.Count(logs.String(), "sync lock unavailable"); n != 1 {
 		t.Errorf("warning logged %d times, want once\n%s", n, logs.String())
@@ -259,9 +253,7 @@ func TestDrainStopsStartingRowsAtTheBudget(t *testing.T) {
 	if err := e.Drain(ctx, 100*time.Millisecond); err == nil {
 		t.Fatal("want the context error once the budget ended")
 	}
-	if _, err := st.Outbox().Get(ctx, first); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("first row: err = %v, want ErrNotFound, it was sent", err)
-	}
+	wantSent(t, st, first)
 	row, err := st.Outbox().Get(ctx, second)
 	if err != nil {
 		t.Fatal(err)
@@ -302,7 +294,7 @@ func TestRunWaitsForTheLockBeforeTheFirstDrainPass(t *testing.T) {
 	held.release()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := st.Outbox().Get(ctx, id); errors.Is(err, store.ErrNotFound) {
+		if row, err := st.Outbox().Get(ctx, id); err == nil && row.State == store.StateSent {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -335,9 +327,7 @@ func TestDrainCommitsASendThatOutlivedTheContext(t *testing.T) {
 	// The loop then reads the next row on the ended context, so Drain may return the context error.
 	// The commit is what counts here.
 	_ = e.Drain(dctx, 0)
-	if _, err := st.Outbox().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("row after the drain: err = %v, want ErrNotFound", err)
-	}
+	wantSent(t, st, id)
 	task, err := st.Tasks().Get(ctx, "T1")
 	if err != nil || task.Title != "Two" {
 		t.Errorf("task = %+v, %v, want the new title", task, err)

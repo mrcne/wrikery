@@ -166,12 +166,67 @@ func TestSeedIsInternallyConsistent(t *testing.T) {
 	if states["IEAATASK00"] != store.StatePending {
 		t.Errorf("IEAATASK00 outbox state = %s, want %s", states["IEAATASK00"], store.StatePending)
 	}
-	issues, err := st.Outbox().ListIssues(ctx)
+	rows, err := st.Outbox().ListChanges(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var issues []store.OutboxRow
+	for _, r := range rows {
+		if r.State == store.StateFailed || (r.State == store.StatePending && r.LastError != "") {
+			issues = append(issues, r)
+		}
 	}
 	if len(issues) != 3 || issues[0].Kind != store.KindTaskUpdate || issues[1].Kind != store.KindTimelogCreate ||
 		issues[2].Kind != store.KindCommentCreate || issues[2].State != store.StatePending || issues[2].LastError == "" {
 		t.Errorf("issue rows = %+v, want two failed and the comment retrying", issues)
+	}
+}
+
+// The history rows are queued against the task's earlier state and completed with the task as the seed has it,
+// so the lists are the same with or without them and the goldens of the other screens do not move.
+func TestSeedLeavesHistoryRowsWithoutMovingTheTasks(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "demo-history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	// The list cuts the history at thirty days before the store clock, so the clock has to be the seed's now.
+	st.Now = func() time.Time { return now }
+	if err := Seed(ctx, st, now); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent, discarded, cli int
+	for _, r := range rows {
+		switch r.State {
+		case store.StateSent:
+			sent++
+		case store.StateDiscarded:
+			discarded++
+		}
+		if r.Source == store.SourceCLI {
+			cli++
+		}
+	}
+	if sent != 6 || discarded != 1 || cli != 1 {
+		t.Errorf("history = %d sent, %d discarded, %d from a command, want 6, 1, 1", sent, discarded, cli)
+	}
+	if len(rows) < 4 {
+		t.Fatalf("rows = %d, want the three queued ones and the history", len(rows))
+	}
+	if rows[3].Kind != store.KindTaskUpdate || rows[3].State != store.StateSent || len(rows[3].Before) == 0 {
+		t.Errorf("the newest history row = %+v, want the status move with its before", rows[3])
+	}
+	task, err := st.Tasks().Get(ctx, "IEAATASK28")
+	if err != nil || task.CustomStatusID != "IEAAST12" || task.Title != "Design dependencies" {
+		t.Errorf("task 28 after the seed = %+v, %v, want its seeded status and title", task, err)
+	}
+	if task, err := st.Tasks().Get(ctx, "IEAATASK46"); err != nil || task.Importance != "Normal" || task.Dates == nil {
+		t.Errorf("task 46 after the seed = %+v, %v, want Normal with its dates", task, err)
 	}
 }

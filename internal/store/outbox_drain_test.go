@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func seedOutboxTask(t *testing.T, st *Store) {
@@ -12,6 +14,22 @@ func seedOutboxTask(t *testing.T, st *Store) {
 	if err := st.Tasks().Upsert(context.Background(), []Task{makeTask("T1", "a")}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// stuckRows is the rows a person has to look at: the failed ones and the pending ones that failed at least once.
+func stuckRows(t *testing.T, st *Store) []OutboxRow {
+	t.Helper()
+	all, err := st.Outbox().ListChanges(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []OutboxRow
+	for _, r := range all {
+		if r.State == StateFailed || (r.State == StatePending && r.LastError != "") {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func TestNextDueOrderAndBackoff(t *testing.T) {
@@ -63,7 +81,7 @@ func TestNextDueOrderAndBackoff(t *testing.T) {
 
 // A row that failed and waits for its next attempt is listed next to the failed ones,
 // so a write that fails the same way every time can be seen and discarded, and a retry sends it without the wait.
-func TestListIssuesNamesARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
+func TestChangesNameARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedOutboxTask(t, st)
@@ -71,15 +89,15 @@ func TestListIssuesNamesARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows, err := st.Outbox().ListIssues(ctx); err != nil || len(rows) != 0 {
-		t.Fatalf("issues before any failure = %+v, %v, want none", rows, err)
+	if rows := stuckRows(t, st); len(rows) != 0 {
+		t.Fatalf("issues before any failure = %+v, want none", rows)
 	}
 	if err := st.Outbox().Reschedule(ctx, id, "decoding PUT response: unexpected end of JSON input", "2026-09-03T10:05:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := st.Outbox().ListIssues(ctx)
-	if err != nil || len(rows) != 1 || rows[0].ID != id || rows[0].State != StatePending || rows[0].Attempts != 1 {
-		t.Fatalf("issues = %+v, %v, want the retrying row with its attempt", rows, err)
+	rows := stuckRows(t, st)
+	if len(rows) != 1 || rows[0].ID != id || rows[0].State != StatePending || rows[0].Attempts != 1 {
+		t.Fatalf("issues = %+v, want the retrying row with its attempt", rows)
 	}
 	if err := st.Outbox().Retry(ctx, id); err != nil {
 		t.Fatal(err)
@@ -88,8 +106,8 @@ func TestListIssuesNamesARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
 	if err != nil || row.ID != id || row.Attempts != 0 || row.LastError != "" {
 		t.Fatalf("row = %+v, %v, want the retried row due at once and clean", row, err)
 	}
-	if rows, err := st.Outbox().ListIssues(ctx); err != nil || len(rows) != 0 {
-		t.Fatalf("issues after the retry = %+v, %v, want none", rows, err)
+	if rows := stuckRows(t, st); len(rows) != 0 {
+		t.Fatalf("issues after the retry = %+v, want none", rows)
 	}
 }
 
@@ -203,10 +221,7 @@ func TestFailRetryDiscard(t *testing.T) {
 	if err := st.Outbox().Fail(ctx, id, "403 access forbidden"); err != nil {
 		t.Fatal(err)
 	}
-	failedRows, err := st.Outbox().ListIssues(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	failedRows := stuckRows(t, st)
 	if len(failedRows) != 1 || failedRows[0].LastError != "403 access forbidden" {
 		t.Fatalf("failed = %+v", failedRows)
 	}
@@ -738,5 +753,418 @@ func TestBlockerNamesTheOlderPendingRowOnTheSameTask(t *testing.T) {
 	}
 	if _, err := st.Outbox().Blocker(ctx, first); !errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, the oldest row waits for nothing", err)
+	}
+}
+
+// A row that went out stays with the time it did, the payload and the before, so the changes screen can show it.
+func TestCompleteKeepsTheRowAsSent(t *testing.T) {
+	st := newTestStore(t)
+	st.Now = func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC) }
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	if err := st.Timelogs().Upsert(ctx, []Timelog{{ID: "L1", TaskID: "T1", UserID: "U1", TrackedDate: "2026-10-01", Hours: 1,
+		CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	ob := st.Outbox()
+	update, err := ob.EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Title: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := ob.EnqueueComment(ctx, "T1", "U1", "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logCreate, err := ob.EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-02"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logDelete, err := ob.EnqueueTimelogDelete(ctx, "L1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	create, err := ob.EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		id   int64
+		done func() error
+	}{
+		{"task", update, func() error { return ob.CompleteTask(ctx, update, makeTask("T1", "two")) }},
+		{"comment", comment, func() error {
+			return ob.CompleteComment(ctx, comment, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "hi"})
+		}},
+		{"timelog", logCreate, func() error {
+			return ob.CompleteTimelog(ctx, logCreate, Timelog{ID: "L2", TaskID: "T1", UserID: "U1", TrackedDate: "2026-10-02", Hours: 1})
+		}},
+		{"plain", logDelete, func() error { return ob.Complete(ctx, logDelete) }},
+		{"create", create, func() error { return ob.CompleteTaskCreate(ctx, create, makeTask("T9", "new")) }},
+	} {
+		if err := c.done(); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		row, err := ob.Get(ctx, c.id)
+		if err != nil {
+			t.Fatalf("%s row after completion: %v", c.name, err)
+		}
+		if row.State != StateSent || row.DoneAt != "2026-10-15T09:00:00Z" || len(row.Payload) == 0 {
+			t.Errorf("%s row = state %s done %q payload %q, want sent at the store clock with its payload", c.name, row.State, row.DoneAt, row.Payload)
+		}
+	}
+	if row, _ := ob.Get(ctx, logDelete); len(row.Before) == 0 {
+		t.Errorf("the delete's before is gone after completion")
+	}
+	pending, failed, err := ob.Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want the history out of the counts", pending, failed, err)
+	}
+}
+
+// A discarded create takes its dependents out of the queue as discarded rows, not as deleted ones.
+func TestDiscardKeepsTheRowsAsDiscarded(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	commentID, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logID, err := st.Outbox().EnqueueTimelogCreate(ctx, localID, "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	editID, err := st.Outbox().EnqueueTimelogUpdate(ctx, LocalID(logID), TimelogUpdatePayload{Hours: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{createID, commentID, logID, editID} {
+		row, err := st.Outbox().Get(ctx, id)
+		if err != nil || row.State != StateDiscarded || row.DoneAt == "" {
+			t.Errorf("row %d = %+v, %v, want discarded with a time", id, row, err)
+		}
+	}
+	if _, err := st.Tasks().Get(ctx, localID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("local task after discard: %v, want gone", err)
+	}
+	pending, failed, err := st.Outbox().Counts(ctx)
+	if err != nil || pending != 0 || failed != 0 {
+		t.Errorf("counts = %d, %d, %v, want nothing queued", pending, failed, err)
+	}
+}
+
+// Once a create lands, the history must name the real task, the local id means nothing after the swap.
+func TestCompleteTaskCreateRenamesTheTaskOnHistoryRows(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localID := LocalID(createID)
+	commentID, err := st.Outbox().EnqueueComment(ctx, localID, "U1", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := makeTask("T9", "New one")
+	real.ParentIDs = []string{"F1"}
+	if err := st.Outbox().CompleteTaskCreate(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{createID, commentID} {
+		if row, err := st.Outbox().Get(ctx, id); err != nil || row.TaskID != "T9" {
+			t.Errorf("row %d task = %q, %v, want T9", id, row.TaskID, err)
+		}
+	}
+}
+
+// The sweep runs with every completion and names the two history states, so a queued row survives whatever its age.
+func TestSweepRemovesOldHistoryAndSparesTheQueue(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	clock := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	st.Now = func() time.Time { return clock }
+	oldSent, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "old and sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, oldSent, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "old and sent"}); err != nil {
+		t.Fatal(err)
+	}
+	oldQueued, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "old and stuck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, oldQueued, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.AddDate(0, 0, 20)
+	young, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "young")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, young, Comment{ID: "C2", TaskID: "T1", AuthorID: "U1", Text: "young"}); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.AddDate(0, 0, 11)
+	last, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "today")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, last, Comment{ID: "C3", TaskID: "T1", AuthorID: "U1", Text: "today"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().Get(ctx, oldSent); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the row sent 31 days ago: %v, want swept", err)
+	}
+	for _, id := range []int64{oldQueued, young, last} {
+		if _, err := st.Outbox().Get(ctx, id); err != nil {
+			t.Errorf("row %d: %v, want kept", id, err)
+		}
+	}
+}
+
+func TestStatesByEntityIgnoresHistoryRows(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	sent, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, sent, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "sent"}); err != nil {
+		t.Fatal(err)
+	}
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "dropped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, LocalID(createID), "U1", "on the dropped one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, createID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Outbox().StatesByEntity(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("states = %v, want no marks from sent or discarded rows", got)
+	}
+}
+
+// A sent create has renamed its dependents and a discarded one took them along, so neither is a blocker or a due row.
+func TestNextDueAndBlockerIgnoreAFinishedCreate(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := makeTask("T9", "New one")
+	if err := st.Outbox().CompleteTaskCreate(ctx, createID, real); err != nil {
+		t.Fatal(err)
+	}
+	commentID, err := st.Outbox().EnqueueComment(ctx, "T9", "U1", "after the swap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row, err := st.Outbox().NextDue(ctx, "2030-01-01T00:00:00Z"); err != nil || row.ID != commentID {
+		t.Errorf("next due = %+v, %v, want the comment, the sent create is history", row, err)
+	}
+	if _, err := st.Outbox().Blocker(ctx, commentID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("blocker = %v, want none", err)
+	}
+	// A row that still names a local id whose create is history: the create cannot be its blocker any more.
+	stale, err := st.Outbox().EnqueueTimelogDelete(ctx, "NOSUCH")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.writer.Exec(`UPDATE outbox SET entity_id = ? WHERE id = ?`, LocalID(createID), stale); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().Blocker(ctx, stale); !errors.Is(err, ErrNotFound) {
+		t.Errorf("blocker of a row on a finished create = %v, want none", err)
+	}
+}
+
+func TestRetryAndDiscardRefuseAHistoryRow(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, id, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "sent"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Retry(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("retry of a sent row = %v, want ErrNotFound", err)
+	}
+	if err := st.Outbox().Discard(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Errorf("discard of a sent row = %v, want ErrNotFound", err)
+	}
+	if row, err := st.Outbox().Get(ctx, id); err != nil || row.State != StateSent {
+		t.Errorf("row = %+v, %v, want still sent", row, err)
+	}
+}
+
+func TestListChangesPutsTheQueueFirstAndTheHistoryNewestFirst(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	ids := make([]int64, 5)
+	for i := range ids {
+		id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	for _, i := range []int{0, 2} {
+		if err := st.Outbox().CompleteComment(ctx, ids[i], Comment{ID: "C" + strconv.Itoa(i), TaskID: "T1", AuthorID: "U1", Text: "c"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Outbox().Discard(ctx, ids[4]); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	for _, r := range rows {
+		got = append(got, r.ID)
+	}
+	want := []int64{ids[1], ids[3], ids[4], ids[2], ids[0]}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("order = %v, want the two queued oldest first, then the history newest first %v", got, want)
+	}
+}
+
+// The history is ordered by the time a row went out or was dropped, a failed row discarded today was queued before
+// the writes that went out since, and the user who discarded it has to find it at the top.
+func TestListChangesOrdersTheHistoryByTheTimeItFinished(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	clock := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	st.Now = func() time.Time { return clock }
+	ids := make([]int64, 3)
+	for i := range ids {
+		id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	if err := st.Outbox().CompleteComment(ctx, ids[2], Comment{ID: "C2", TaskID: "T1", AuthorID: "U1", Text: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Hour)
+	if err := st.Outbox().Discard(ctx, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	for _, r := range rows {
+		got = append(got, r.ID)
+	}
+	want := []int64{ids[1], ids[0], ids[2]}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("order = %v, want the queued row, then the row discarded an hour later, then the sent one %v", got, want)
+	}
+}
+
+// A finished row stays, so a late bookkeeping call from a second drainer must not put it back into the queue or send it again.
+func TestCompleteRescheduleAndFailRefuseAHistoryRow(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	sent, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, sent, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "sent"}); err != nil {
+		t.Fatal(err)
+	}
+	dropped, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "dropped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, dropped); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		call func(id int64) error
+	}{
+		{"Complete", func(id int64) error { return st.Outbox().Complete(ctx, id) }},
+		{"CompleteComment", func(id int64) error {
+			return st.Outbox().CompleteComment(ctx, id, Comment{ID: "C9", TaskID: "T1", AuthorID: "U1", Text: "again"})
+		}},
+		{"Reschedule", func(id int64) error { return st.Outbox().Reschedule(ctx, id, "503", "2026-10-16T00:00:00Z") }},
+		{"Fail", func(id int64) error { return st.Outbox().Fail(ctx, id, "404") }},
+	} {
+		for _, id := range []int64{sent, dropped} {
+			if err := c.call(id); !errors.Is(err, ErrNotFound) {
+				t.Errorf("%s on row %d = %v, want ErrNotFound", c.name, id, err)
+			}
+		}
+	}
+	if row, err := st.Outbox().Get(ctx, sent); err != nil || row.State != StateSent {
+		t.Errorf("sent row = %+v, %v, want still sent", row, err)
+	}
+	if row, err := st.Outbox().Get(ctx, dropped); err != nil || row.State != StateDiscarded {
+		t.Errorf("discarded row = %+v, %v, want still discarded", row, err)
+	}
+}
+
+// The sweep runs with a write, a user who only reads for a while would otherwise see rows older than the title promises.
+func TestListChangesLeavesOutHistoryOlderThanThirtyDays(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	clock := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	st.Now = func() time.Time { return clock }
+	old, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, old, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	stuck, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "stuck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, stuck, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.AddDate(0, 0, 31)
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != stuck {
+		t.Errorf("rows = %+v, want only the queued row, the sent one is past thirty days", rows)
+	}
+	if _, err := st.Outbox().Get(ctx, old); err != nil {
+		t.Errorf("the old row = %v, want still in the table until a write sweeps it", err)
 	}
 }

@@ -257,5 +257,74 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return st.Outbox().Reschedule(ctx, id, "dial tcp: connect: connection refused", now.Add(5*time.Minute).UTC().Format(time.RFC3339))
+	if err := st.Outbox().Reschedule(ctx, id, "dial tcp: connect: connection refused", now.Add(5*time.Minute).UTC().Format(time.RFC3339)); err != nil {
+		return err
+	}
+	return seedHistory(ctx, st, now, tasks, day, stamp)
+}
+
+// seedHistory leaves a handful of writes that went out over the last days, so the changes screen has rows under the queue.
+// Each one is queued against the task's earlier state and completed with the task as the seed has it,
+// so the lists and the goldens that show the task are the same with or without this.
+// The store clock moves for each row so the times spread over the days, and is put back at the end.
+// Oldest first, the screen orders the history by row id.
+func seedHistory(ctx context.Context, st *store.Store, now time.Time, tasks []store.Task, day func(int) string, stamp func(int, int) string) error {
+	prevNow, prevSource := st.Now, st.Source
+	defer func() { st.Now, st.Source = prevNow, prevSource }()
+	at := func(d time.Duration) { st.Now = func() time.Time { return now.Add(d) } }
+	change := func(t store.Task, p store.TaskUpdatePayload, before func(*store.Task)) error {
+		old := t
+		before(&old)
+		if err := st.Tasks().Upsert(ctx, []store.Task{old}); err != nil {
+			return err
+		}
+		id, err := st.Outbox().EnqueueTaskUpdate(ctx, t.ID, p)
+		if err != nil {
+			return err
+		}
+		return st.Outbox().CompleteTask(ctx, id, t)
+	}
+
+	at(-5 * 24 * time.Hour)
+	if err := change(tasks[46], store.TaskUpdatePayload{Importance: "Normal"}, func(t *store.Task) { t.Importance = "High" }); err != nil {
+		return err
+	}
+	if err := change(tasks[46], store.TaskUpdatePayload{Dates: tasks[46].Dates}, func(t *store.Task) { t.Dates = nil }); err != nil {
+		return err
+	}
+	at(-4 * 24 * time.Hour)
+	// Logged time sits on my own tasks, the rule the seed keeps everywhere, so the entry goes on one of mine.
+	id, err := st.Outbox().EnqueueTimelogCreate(ctx, tasks[36].ID, MeID, store.TimelogCreatePayload{Hours: 1.5, TrackedDate: day(-10), Comment: "Pairing on the fix"})
+	if err != nil {
+		return err
+	}
+	if err := st.Outbox().CompleteTimelog(ctx, id, store.Timelog{ID: "IEAATLOGH1", TaskID: tasks[36].ID, UserID: MeID, TrackedDate: day(-10),
+		Comment: "Pairing on the fix", Hours: 1.5, CreatedDate: stamp(-4, 17), UpdatedDate: stamp(-4, 17)}); err != nil {
+		return err
+	}
+	at(-3 * 24 * time.Hour)
+	id, err = st.Outbox().EnqueueComment(ctx, tasks[46].ID, MeID, "Wrong task, sorry.")
+	if err != nil {
+		return err
+	}
+	if err := st.Outbox().Discard(ctx, id); err != nil {
+		return err
+	}
+	at(-2 * 24 * time.Hour)
+	if err := change(tasks[27], store.TaskUpdatePayload{Title: tasks[27].Title}, func(t *store.Task) { t.Title = "Check the config loader" }); err != nil {
+		return err
+	}
+	at(-26 * time.Hour)
+	id, err = st.Outbox().EnqueueComment(ctx, tasks[28].ID, MeID, "Moved it along, the fix is on staging.")
+	if err != nil {
+		return err
+	}
+	if err := st.Outbox().CompleteComment(ctx, id, store.Comment{ID: "IEAACMTH1", TaskID: tasks[28].ID, AuthorID: MeID,
+		Text: "Moved it along, the fix is on staging.", CreatedDate: stamp(-1, 10)}); err != nil {
+		return err
+	}
+	// The newest one came from a command, the way an agent moves a task.
+	at(-2 * time.Hour)
+	st.Source = store.SourceCLI
+	return change(tasks[28], store.TaskUpdatePayload{CustomStatusID: "IEAAST12", Status: "Active"}, func(t *store.Task) { t.CustomStatusID = "IEAAST11" })
 }

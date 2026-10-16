@@ -127,7 +127,7 @@ func TestTaskShowSaysWhatBecameOfAQueuedWrite(t *testing.T) {
 		want string
 	}{
 		"pending": {false, "queued      a write is waiting to be sent\n"},
-		"failed":  {true, "queued      a write was rejected, see the sync issues screen\n"},
+		"failed":  {true, "queued      a write was rejected, see the changes screen\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env, out, _ := testEnv(t)
