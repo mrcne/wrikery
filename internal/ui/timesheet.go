@@ -261,10 +261,16 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 	bold := lipgloss.NewStyle().Bold(true)
 	const cellW = 7
 	// Four columns in front of the titles: the cursor mark, the same one the list and the sidebar draw, and the status glyph.
-	titleW := width - 8*cellW - 6
+	// Two more before the Total column for the rule.
+	titleW := width - 8*cellW - 8
 	if titleW < 10 {
 		titleW = 10
 	}
+	// A sum in the same h:mm form as a cell reads as an entry, so rules set the totals apart:
+	// a vertical one before the task totals on every row and one above the day totals.
+	// Layout and bold are all --no-color leaves, so the totals do not depend on a shade.
+	border := th.border()
+	sep := " " + muted.Render(border.Left)
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", titleW+6))
 	for i := 0; i < 7; i++ {
@@ -276,7 +282,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			b.WriteString(muted.Render(fmt.Sprintf("%*s", cellW, label)))
 		}
 	}
-	b.WriteString(muted.Render(fmt.Sprintf("%*s", cellW, "Total")) + "\n")
+	b.WriteString(sep + muted.Render(fmt.Sprintf("%*s", cellW, "Total")) + "\n")
 	if t.unsynced() {
 		b.WriteString(muted.Render(ansi.Truncate("not synced, only this week and the eight before it are kept", width, "...")) + "\n")
 	}
@@ -331,7 +337,7 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 			}
 			line += style.Render(text)
 		}
-		line += muted.Render(fmt.Sprintf("%*s", cellW, total(rowTotal)))
+		line += sep + muted.Render(fmt.Sprintf("%*s", cellW, total(rowTotal)))
 		if ri >= t.offset && ri < t.offset+visible {
 			b.WriteString(line + "\n")
 		}
@@ -350,14 +356,16 @@ func (t timesheetModel) View(th Theme, width, height int) string {
 		}
 		b.WriteString(text)
 	}
-	b.WriteString("\n\n")
+	b.WriteString(sep + "\n")
+	// The rule runs under the titles and the cells, the mark and the glyph columns stay outside it.
+	b.WriteString("    " + muted.Render(strings.Repeat(border.Top, titleW+2+7*cellW+1)+border.Middle+strings.Repeat(border.Top, cellW)) + "\n")
 	week := 0.0
 	line := "    " + bold.Render(fmt.Sprintf("%-*s", titleW+2, "Total"))
 	for _, v := range dayTotals {
 		week += v
-		line += fmt.Sprintf("%*s", cellW, total(v))
+		line += bold.Render(fmt.Sprintf("%*s", cellW, total(v)))
 	}
-	line += bold.Render(fmt.Sprintf("%*s", cellW, total(week)))
+	line += sep + bold.Render(fmt.Sprintf("%*s", cellW, total(week)))
 	b.WriteString(line)
 	return b.String()
 }

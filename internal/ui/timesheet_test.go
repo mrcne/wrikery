@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -639,5 +640,36 @@ func TestEnterOnTheFollowedRowKeepsThePane(t *testing.T) {
 		if _, ok := out.(taskLoadedMsg); ok {
 			t.Error("the task was read again although the pane shows it")
 		}
+	}
+}
+
+// A sum in the same h:mm form as a cell reads as an entry, so rules set the totals apart:
+// a vertical one before the task totals on every row and one above the day totals, in the glyphs of the theme.
+func TestTimesheetSetsTheTotalsApartWithRules(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	var ts timesheetModel
+	ts.keys = defaultKeyMap()
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs: []store.Timelog{
+			{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2},
+			{ID: "b", TaskID: "T1", TrackedDate: "2026-09-01", Hours: 1.5},
+			{ID: "c", TaskID: "T2", TrackedDate: "2026-09-02", Hours: 4.5},
+		},
+		titles: map[string]string{"T1": "Fix auth retry loop", "T2": "Rotate signing keys"},
+	})
+	out := ts.View(th, 100, 12)
+	for _, want := range []string{"Sun 6 |  Total", "- |   3:30", "- |   4:30", "- |   8:00"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("grid lacks the vertical rule in %q:\n%s", want, out)
+		}
+	}
+	lines := strings.Split(out, "\n")
+	totals := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "    Total") })
+	if totals < 1 {
+		t.Fatalf("no totals row:\n%s", out)
+	}
+	if rule := lines[totals-1]; strings.Count(rule, "-") < 50 || !strings.Contains(rule, "-+-") {
+		t.Errorf("the line above the totals is not a rule with the crossing: %q", rule)
 	}
 }
