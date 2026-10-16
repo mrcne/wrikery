@@ -20,7 +20,7 @@ func b(help, desc string, keys ...string) key.Binding {
 func defaultKeyMap() KeyMap {
 	return KeyMap{
 		Quit: b("q", "quit", "q", "ctrl+c"), Help: b("?", "help", "?"), Search: b("ctrl+f", "search", "ctrl+f"),
-		Timesheet: b("T", "timesheet", "T"), Issues: b("!", "sync issues", "!"), Settings: b(",", "settings", ","), Refresh: b("R", "refresh", "R"),
+		Timesheet: b("T", "timesheet", "T"), Issues: b("!", "changes", "!"), Settings: b(",", "settings", ","), Refresh: b("R", "refresh", "R"),
 		NextPane: b("tab", "next pane", "tab"), PrevPane: b("shift+tab", "previous pane", "shift+tab"), Back: b("esc", "back", "esc"),
 		// ctrl+b is the editor binding for this, kept as a second key, inside tmux it is the prefix and never arrives.
 		HideSidebar: b("S", "hide sidebar", "S", "ctrl+b"),
@@ -74,6 +74,6 @@ func (k KeyMap) settings() []key.Binding {
 	return []key.Binding{k.Down, k.Up, k.Enter}
 }
 
-func (k KeyMap) issues() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Retry, k.Discard, k.Enter}
+func (k KeyMap) changes() []key.Binding {
+	return []key.Binding{k.Down, k.Up, k.Top, k.Bottom, k.HalfDown, k.HalfUp, k.Retry, k.Discard, k.Enter}
 }

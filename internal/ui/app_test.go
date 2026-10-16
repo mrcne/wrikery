@@ -157,10 +157,10 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 	}
 }
 
-// TestTaskActionGoldens covers the status dialog and the sync issues screen at 120 columns,
+// TestTaskActionGoldens covers the status dialog and the changes screen at 120 columns,
 // the width where the detail pane enters the window (see TestShellGoldenAtThreeWidths).
 // Both cases wait for "-- Comments (" first, the same loaded signal that test uses at 120
-// columns and up, so the dialog or the issues screen is captured over a fully drawn frame
+// columns and up, so the dialog or the changes screen is captured over a fully drawn frame
 // and not one still mid-load.
 func TestTaskActionGoldens(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
@@ -220,13 +220,14 @@ func TestTaskActionGoldens(t *testing.T) {
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
 	})
-	t.Run("issues", func(t *testing.T) {
+	t.Run("changes", func(t *testing.T) {
 		st := seededStore(t)
 		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
 		waitFor(t, tm, "-- Comments (")
 		from := mark(t, tm)
 		press(tm, "!")
-		waitAfter(t, tm, from, "Sync issues (3)")
+		waitAfter(t, tm, from, "Changes, last 30 days")
+		waitAfter(t, tm, from, "Task not found")
 		golden.RequireEqual(t, []byte(finalView(t, tm)))
 	})
 }
@@ -451,7 +452,7 @@ func TestHelpOverlayListsBindings(t *testing.T) {
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "?")
-	waitFor(t, tm, "sync issues")
+	waitFor(t, tm, "changes")
 	press(tm, "esc")
 	view := finalView(t, tm)
 	if strings.Contains(view, "esc or ? to close") {
@@ -481,15 +482,15 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 	}
 }
 
-// TestQuickSearchFromIssuesScreenJumpsToMain covers a search opened while the sync issues screen
-// is up: the match still has to switch the screen back to main, or the issues list stays on top
+// TestQuickSearchFromChangesScreenJumpsToMain covers a search opened while the changes screen
+// is up: the match still has to switch the screen back to main, or the changes list stays on top
 // of the task the search just loaded.
-func TestQuickSearchFromIssuesScreenJumpsToMain(t *testing.T) {
+func TestQuickSearchFromChangesScreenJumpsToMain(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
 	press(tm, "!")
-	waitFor(t, tm, "Sync issues (")
+	waitFor(t, tm, "Changes, last")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
@@ -499,8 +500,8 @@ func TestQuickSearchFromIssuesScreenJumpsToMain(t *testing.T) {
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 	view := finalView(t, tm)
-	if strings.Contains(view, "Sync issues (") || !strings.Contains(view, "#1200000") {
-		t.Errorf("enter from a search opened on the issues screen should land on main with the task:\n%s", view)
+	if strings.Contains(view, "Changes, last") || !strings.Contains(view, "#1200000") {
+		t.Errorf("enter from a search opened on the changes screen should land on main with the task:\n%s", view)
 	}
 }
 
@@ -668,14 +669,14 @@ func TestDatesDialogSetsDue(t *testing.T) {
 	}
 }
 
-func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
+func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
 
 	from := mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (3)")
+	waitAfter(t, tm, from, "Changes, last 30 days")
 	waitAfter(t, tm, from, "Task not found")
 
 	// Move to the second failure and confirm it is listed too, before acting on it.
@@ -687,29 +688,79 @@ func TestSyncIssuesScreenRetriesAndDiscards(t *testing.T) {
 	press(tm, "x")
 	waitAfter(t, tm, from, "Discard this write?")
 
+	// The screen's own repaint is not a safe signal for the store's state, a shifted row repaints words that were there before.
+	// The store is polled for each outcome, the frame is checked after it.
+	waitCounts := func(wantPending, wantFailed int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			pending, failed, err := st.Outbox().Counts(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pending == wantPending && failed == wantFailed {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("counts = pending %d, failed %d, want %d, %d", pending, failed, wantPending, wantFailed)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	// The discarded time entry leaves the queue block and lands at the top of the history, marked so.
 	from = mark(t, tm)
 	press(tm, "y")
-	waitAfter(t, tm, from, "Sync issues (2)")
+	waitCounts(1, 1)
+	waitAfter(t, tm, from, "discarded")
 
+	// The failed update is the first queue row, the retrying comment the second, see the demo seed.
 	from = mark(t, tm)
+	press(tm, "k")
 	press(tm, "r")
-	waitAfter(t, tm, from, "Sync issues (1)")
+	waitCounts(2, 0)
+	waitAfter(t, tm, from, "queued")
 
-	// The comment retrying after a failure is the last row, a retry sends it at once and takes it off the list.
-	from = mark(t, tm)
+	// A retry of the retrying comment keeps the counts, its error goes and it is due at once.
+	press(tm, "j")
 	press(tm, "r")
-	waitAfter(t, tm, from, "Sync issues (0)")
-
-	pending, failed, err := st.Outbox().Counts(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending != 2 || failed != 0 {
-		t.Errorf("outbox counts after retry = pending %d, failed %d, want 2, 0", pending, failed)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		rows, err := st.Outbox().ListChanges(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) > 1 && rows[1].State == store.StatePending && rows[1].LastError == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the retrying comment after r = %+v, want plain pending", rows[1])
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
+// The history rows the demo seeds show their old and new values, the command's row its tag, and a discarded one its mark.
+func TestChangesScreenShowsASentWriteWithItsOldValue(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	from := mark(t, tm)
+	press(tm, "!")
+	waitAfter(t, tm, from, "Changes, last 30 days")
+	waitAfter(t, tm, from, "Backlog -> In progress")
+	view := finalView(t, tm)
+	for _, want := range []string{
+		"Design dependencies", "status  Backlog -> In progress", "2 h ago  cli",
+		"title  Check the config loader ->", "importance  High -> Normal", "dates  Backlog ->",
+		"comment: Moved it along", "time entry 1h 30m on", "discarded",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("changes screen lacks %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestChangesEnterOpensTheTask(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
@@ -728,7 +779,7 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 
 	from = mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (3)")
+	waitAfter(t, tm, from, "Changes, last 30 days")
 
 	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
 	from = mark(t, tm)
@@ -745,8 +796,8 @@ func TestSyncIssuesEnterOpensTheTask(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	view := finalView(t, tm)
-	if strings.Contains(view, "Sync issues") {
-		t.Errorf("enter should leave the issues screen for the task detail:\n%s", view)
+	if strings.Contains(view, "Changes, last") {
+		t.Errorf("enter should leave the changes screen for the task detail:\n%s", view)
 	}
 	if !strings.Contains(view, "#1200001") {
 		t.Errorf("the opened task should still be selected after the outbox message:\n%s", view)
@@ -913,27 +964,27 @@ func TestEmptyListDropsTheSelectedTask(t *testing.T) {
 	}
 }
 
-// TestSyncIssuesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
-// (here s for the status dialog) does nothing on the issues screen, since there is no task pane
+// TestChangesRoutesKeysToTheScreen checks that a key the main screen binds to a task action
+// (here s for the status dialog) does nothing on the changes screen, since there is no task pane
 // underneath it to act on and the key would otherwise reach whatever task was selected before.
-func TestSyncIssuesRoutesKeysToTheScreen(t *testing.T) {
+func TestChangesRoutesKeysToTheScreen(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
 
 	from := mark(t, tm)
 	press(tm, "!")
-	waitAfter(t, tm, from, "Sync issues (3)")
+	waitAfter(t, tm, from, "Changes, last 30 days")
 
 	press(tm, "s")
 	// Give a stray Update a moment to land before asserting nothing happened.
 	time.Sleep(50 * time.Millisecond)
 
 	view := finalView(t, tm)
-	// Nothing on the issues screen itself says "Status", the detail pane label of the same
+	// Nothing on the changes screen itself says "Status", the detail pane label of the same
 	// name is part of the main screen this box replaces, so its presence means the dialog opened.
-	if strings.Contains(view, "Status") || !strings.Contains(view, "Sync issues") {
-		t.Errorf("s should not open the status dialog on the issues screen:\n%s", view)
+	if strings.Contains(view, "Status") || !strings.Contains(view, "Changes, last") {
+		t.Errorf("s should not open the status dialog on the changes screen:\n%s", view)
 	}
 }
 

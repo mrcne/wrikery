@@ -312,7 +312,7 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 	}
 	if p.Description != "" {
 		set = append(set, "description = ?", "description_plain = ?")
-		args = append(args, p.Description, stripHTML(p.Description))
+		args = append(args, p.Description, StripHTML(p.Description))
 	}
 	if p.CustomStatusID != "" {
 		set = append(set, "custom_status_id = ?")

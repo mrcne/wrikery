@@ -75,7 +75,7 @@ The scopes table lists the followed spaces and projects, plus one row for the us
 Each row remembers how far the last sync got.
 Unfollowing a scope clears that memory, so following it again later pulls it from the start instead of asking only for the changes since the day it was dropped.
 The pins table lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
-The outbox table holds the queued writes and is described below.
+The outbox table holds the queued writes, and for thirty days the sent and discarded ones, and is described below.
 
 ## Getting changes from Wrike
 
@@ -97,16 +97,23 @@ The first day of the window is written to the meta table, and the timesheet mark
 
 ## Sending changes back
 
-Every write becomes a row in the outbox: operation type, entity id, a JSON payload, state (pending, in flight, failed), attempt count and the last error.
+Every write becomes a row in the outbox: operation type, entity id, a JSON payload, state (pending, in flight, failed, sent, discarded), attempt count and the last error.
 The row and the matching change to the local cache are written in one transaction.
 The UI shows the change at once, and the queue can never disagree with the cache.
 The engine sends rows in order.
 A write waits while an earlier write on the same entity is backing off after a failure, where the entity is the task for an update, a comment or a time entry create, and the time entry for its own update or delete.
 Two changes to one task reach Wrike in the order they were made across sync cycles, and a command queued behind such a write says which write it waits for and why that one failed.
-A write Wrike rejected holds nothing, the writes after it go out, and a retry of it from the sync issues view lands after them.
+A write Wrike rejected holds nothing, the writes after it go out, and a retry of it from the changes screen lands after them.
 When a write succeeds, the temporary local row is swapped for the version the server returned, again in one transaction.
 A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
 The drain sends Wrike only the custom status id and lets it derive the group.
+
+A row is not deleted when it has been sent or discarded.
+It stays for thirty days, marked sent or discarded with the time, and the sweep that removes the older ones runs inside the transaction that completes or discards a row.
+The row also carries the values the write replaced, read in the enqueue transaction before its own update overwrites the cache row, which is the last moment they exist: the old title, status, importance or dates block of a task update, the old hours, day and note of a time entry edit, the whole entry for a delete, and the mirror of an assignee or folder change.
+It names the task it belongs to, with the title at the time, and the front end that queued it, the interface or a command.
+The changes screen reads these rows next to the queue through one list.
+The queries that work the queue, the due pick, the blocker, the marks and the counts, filter on the three queue states and never see the history.
 
 A created task has no id until Wrike answers, so the store gives it a local one, the outbox row's number behind a `local:` prefix, the same way a queued comment or time entry gets its row.
 Until then the row shows the first Active status of the default task workflow of the folder's space, which the sync stores with the space, so the row keeps its place when the answer lands.
@@ -152,7 +159,7 @@ The second copy shows up with the next pull and is deleted in the web applicatio
 
 Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.
 Those rows move to the failed state.
-A sync issues view lists them, together with the rows still retrying after a failure, and offers a retry or a discard.
+The changes screen lists them, together with the rows still retrying after a failure, and offers a retry or a discard.
 The engine cannot tell a failure that passes from one the write earns on every attempt, a garbled answer or a server error for that one payload, and such a row holds the later writes on its entity, so the view is where it is seen and discarded.
 The status bar always shows the pending and failed counts, so nothing fails without the user seeing it.
 

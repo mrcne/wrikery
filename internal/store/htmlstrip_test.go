@@ -15,8 +15,8 @@ func TestStripHTML(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := stripHTML(c.in); got != c.want {
-				t.Errorf("stripHTML(%q) = %q, want %q", c.in, got, c.want)
+			if got := StripHTML(c.in); got != c.want {
+				t.Errorf("StripHTML(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
 	}

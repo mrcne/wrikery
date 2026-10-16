@@ -1,15 +1,15 @@
-+- Sync issues (3) ----------------------------------------------------------------------------------------------------+
-|> Add signing keys  status change  0 s ago                                                                            |
++- Changes, last 30 days ----------------------------------------------------------------------------------------------+
+|> Add signing keys  status  In progress -> In review  failed 0 s ago                                                  |
 |    wrike: 404 Task not found                                                                                         |
-|  Rotate rate limit test  time entry 1h on 2026-08-26  0 s ago                                                        |
-|  Fix auth retry loop  comment: Queued while offline.  retrying  0 s ago                                              |
-|                                                                                                                      |
-|                                                                                                                      |
-|                                                                                                                      |
-|                                                                                                                      |
-|                                                                                                                      |
-|                                                                                                                      |
-|                                                                                                                      |
+|  Rotate rate limit test  time entry 1h on 26 Aug  failed 0 s ago                                                     |
+|  Fix auth retry loop  comment: Queued while offline.  retrying 0 s ago                                               |
+|  Design dependencies  status  Backlog -> In progress  2 h ago  cli                                                   |
+|  Design dependencies  comment: Moved it along, the fix is on staging.  yesterday                                     |
+|  Investigate legacy config l...  title  Check the config loader -> Investigate legacy co...  1 Sep                   |
+|  Bump rate limit test  comment: Wrong task, sorry.  discarded 31 Aug                                                 |
+|  Bump error codes  time entry 1h 30m on 24 Aug  30 Aug                                                               |
+|  Bump rate limit test  dates  Backlog -> 2 Sep to 5 Sep  29 Aug                                                      |
+|  Bump rate limit test  importance  High -> Normal  29 Aug                                                            |
 |                                                                                                                      |
 |                                                                                                                      |
 |                                                                                                                      |

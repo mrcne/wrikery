@@ -58,10 +58,10 @@ In the sidebar, the list and the task detail, ctrl+d, ctrl+u, page down and page
 In the sidebar `/` filters the tree by name and shows the matches with the folders above them, Enter keeps the filter and Esc clears it with the match still selected.
 Space in the sidebar pins the space, project or folder under the cursor, and `P` shows only the pinned ones, with their parents and whatever is open under them.
 The pins and the toggle are kept across restarts.
-A jump to a task, from the search, the sync issues screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
+A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
-A jump to a completed task, from the search, the sync issues screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
+A jump to a completed task, from the search, the changes screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
 ### Search
 
@@ -139,7 +139,7 @@ Elsewhere nobody is assigned.
 `a`, `d`, `p` and `E` fill in the rest.
 The task shows at once with `(sending)` next to its title and is sent to Wrike in the background.
 Every key works on it right away and the writes wait in the queue until the create has landed, except `o`, `y`, `Y` and `i`, which say the task is not on Wrike yet.
-A create that Wrike rejects shows on the sync issues screen, and discarding it removes the task together with everything queued on it.
+A create that Wrike rejects shows on the changes screen, and discarding it removes the task together with everything queued on it.
 
 ### Views
 
@@ -177,19 +177,23 @@ A card shows the title on one line, or on two when it is long, and the break pre
 A blank line separates the cards of a column.
 A code in parentheses at the start of a title, `(MX)`, is drawn muted and a short part prefix closed by `: ` or ` - `, `Backend: Kafka - `, slightly muted, on cards and rows alike, so the eye lands on the words that differ between tasks.
 
-### Sync issues
+### Changes
 
-`!` opens the list of writes the sync engine could not send.
-Each row shows the task title, a short summary of the write (a new task, a comment, a status, assignee or dates change, a time entry) and the error Wrike returned.
-A write that failed and waits for its next attempt is listed as well, marked retrying, so one that fails the same way every time can be discarded instead of holding the later writes on its task.
-`r` retries the highlighted row, a retrying one at once, `x` asks for confirmation and then discards it, enter opens the task, esc goes back to the previous screen.
+`!` opens the changes screen: the writes made through Wrikery over the last thirty days, newest first, each with the task, the field and the old and the new value.
+A status move reads `status  In Progress -> Done`, a date change `dates  Backlog -> due 15 Oct`, an assignee change `assignee  + Ada Nowak  - Bartek Lis`, a comment or a new task shows its first words, a time entry its hours and day.
+The row under the cursor shows the values in full on a second line, a long title or the first line of the old and the new description.
+The writes still queued or failed sit at the top, marked `queued`, `sending`, `retrying` or `failed` with the error Wrike returned on the second line, so one that fails the same way every time can be discarded instead of holding the later writes on its task.
+`r` retries the highlighted queued row, a retrying one at once, `x` asks for confirmation and then discards it, and a discarded row stays in the list marked so.
+Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
+A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
+The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
 
 ### Timesheet
 
 A separate view (key T) shows the current week as a grid: tasks as rows, Monday to Sunday as columns.
 A cell is the time logged on that task on that day as hours and minutes, `1:20`, or a dash when there is nothing.
-Everywhere else logged time reads as `1h 20m`, `45m` or `2h`: the time section of a task, the message after logging, the entry lists and the sync issues.
+Everywhere else logged time reads as `1h 20m`, `45m` or `2h`: the time section of a task, the message after logging, the entry lists and the changes screen.
 Each row carries a total for the task, each column a total for the day, and the grid ends with a total for the week.
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
@@ -260,6 +264,7 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
 The commands are `sync`, `task list`, `task show`, `task status` and `task create`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
+A write a command made shows on the changes screen with a `cli` tag.
 A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.

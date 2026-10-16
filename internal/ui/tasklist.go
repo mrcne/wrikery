@@ -53,7 +53,7 @@ func newTaskList(keys KeyMap) taskListModel {
 }
 
 // setRows replaces the rows and reports whether keepID, or the task selected before, is still among them.
-// A jump from the search, the issues screen or the timesheet, and a create landing on its new row, name a keepID with lift:
+// A jump from the search, the changes screen or the timesheet, and a create landing on its new row, name a keepID with lift:
 // that lifts whatever would hide the task, the done toggle, the filter and the filter box's choice,
 // and a lifted toggle falls back once a plain move takes the list to another node.
 // A reload that follows a queued task's swap names its row without lift, and a plain reload names none,

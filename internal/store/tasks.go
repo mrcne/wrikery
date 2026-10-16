@@ -64,7 +64,7 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 				dates_duration = excluded.dates_duration, dates_start = excluded.dates_start,
 				dates_due = excluded.dates_due, created_date = excluded.created_date,
 				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count`,
-			t.ID, t.Title, t.Description, stripHTML(t.Description), t.Status,
+			t.ID, t.Title, t.Description, StripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
 			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount); err != nil {
 			return err

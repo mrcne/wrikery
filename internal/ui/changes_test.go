@@ -7,42 +7,158 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-func TestSummarize(t *testing.T) {
+var changesRef = refData{
+	contacts: map[string]store.Contact{"U1": {FirstName: "Ada", LastName: "Nowak"}, "U2": {FirstName: "Bartek", LastName: "Lis"}},
+	statuses: map[string]store.CustomStatus{"S1": {Name: "In Progress"}, "S2": {Name: "Done"}},
+}
+
+func TestDescribeWritesOldAndNew(t *testing.T) {
+	folders := map[string]string{"F1": "Backlog", "F2": "v0.5"}
 	cases := []struct {
-		row  store.OutboxRow
-		want string
+		name    string
+		row     store.OutboxRow
+		summary string
+		detail  string
 	}{
-		{store.OutboxRow{Kind: store.KindCommentCreate, Payload: []byte(`{"text":"Queued while offline, quite a long comment indeed"}`)}, "comment: Queued while offline, quite a long comm..."},
-		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"customStatusId":"X"}`)}, "status change"},
-		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"addResponsibles":["A"]}`)}, "assignee change"},
-		{store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned"}}`)}, "dates change"},
-		{store.OutboxRow{Kind: store.KindTimelogCreate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-26"}`)}, "time entry 1h on 2026-08-26"},
-		{store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":2,"trackedDate":"2026-08-27"}`)}, "time entry 2h on 2026-08-27"},
-		{store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"comment":"fixed the totals"}`)}, "time entry change"},
-		{store.OutboxRow{Kind: store.KindTimelogDelete}, "delete time entry"},
+		{"status", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"customStatusId":"S2"}`), Before: []byte(`{"customStatusId":"S1"}`)},
+			"status  In Progress -> Done", "status  In Progress -> Done"},
+		{"status unknown id", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"customStatusId":"X"}`), Before: []byte(`{"customStatusId":"S1"}`)},
+			"status  In Progress -> X", "status  In Progress -> X"},
+		{"status ghost", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"customStatusId":"S2"}`)},
+			"status  -> Done", "status  -> Done"},
+		{"assignee", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"addResponsibles":["U1"],"removeResponsibles":["U2"]}`)},
+			"assignee  + Ada Nowak  - Bartek Lis", "assignee  + Ada Nowak  - Bartek Lis"},
+		{"folder", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"addParents":["F2"],"removeParents":["F1","F9"]}`)},
+			"folder  + v0.5  - Backlog  - F9", "folder  + v0.5  - Backlog  - F9"},
+		{"title", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"title":"A much longer title than fits here"}`), Before: []byte(`{"title":"Short"}`)},
+			"title  Short -> A much longer title t...", "title  Short -> A much longer title than fits here"},
+		{"description", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"description":"<p>New <b>first</b> line</p><p>second</p>"}`), Before: []byte(`{"description":"<p>Old line</p>"}`)},
+			"description changed", "description  Old line -> New first line second"},
+		{"importance", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"importance":"High"}`), Before: []byte(`{"importance":"Normal"}`)},
+			"importance  Normal -> High", "importance  Normal -> High"},
+		{"dates first", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned","due":"2026-10-15"}}`), Before: []byte(`{"dates":{"type":"Backlog"}}`)},
+			"dates  Backlog -> due 15 Oct", "dates  Backlog -> due 15 Oct"},
+		{"dates range", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned","start":"2026-10-10","due":"2026-10-15"}}`), Before: []byte(`{"dates":{"type":"Milestone","due":"2026-10-12"}}`)},
+			"dates  milestone 12 Oct -> 10 Oct to 15 Oct", "dates  milestone 12 Oct -> 10 Oct to 15 Oct"},
+		{"comment", store.OutboxRow{Kind: store.KindCommentCreate, Payload: []byte(`{"text":"Queued while offline, quite a long comment indeed\nwith a second line"}`)},
+			"comment: Queued while offline, quite a long comm...", "Queued while offline, quite a long comment indeed with a second line"},
+		{"new task", store.OutboxRow{Kind: store.KindTaskCreate, Payload: []byte(`{"title":"Ship it"}`)}, "new task: Ship it", "Ship it"},
+		{"time entry", store.OutboxRow{Kind: store.KindTimelogCreate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-26","comment":"pairing"}`)},
+			"time entry 1h on 26 Aug", "time entry 1h on 26 Aug, pairing"},
+		{"time entry hours", store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":2,"trackedDate":"2026-08-27"}`), Before: []byte(`{"hours":1,"trackedDate":"2026-08-27"}`)},
+			"time entry 1h -> 2h", "time entry 1h on 27 Aug -> 2h on 27 Aug"},
+		{"time entry date", store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-28"}`), Before: []byte(`{"hours":1,"trackedDate":"2026-08-27"}`)},
+			"time entry 27 Aug -> 28 Aug", "time entry 1h on 27 Aug -> 1h on 28 Aug"},
+		{"time entry note", store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":1,"trackedDate":"2026-08-27","comment":"fixed the totals"}`), Before: []byte(`{"hours":1,"trackedDate":"2026-08-27"}`)},
+			"time entry note changed", "time entry 1h on 27 Aug -> 1h on 27 Aug, fixed the totals"},
+		{"time entry ghost", store.OutboxRow{Kind: store.KindTimelogUpdate, Payload: []byte(`{"hours":2,"trackedDate":"2026-08-27"}`)},
+			"time entry -> 2h", "time entry -> 2h on 27 Aug"},
+		{"delete", store.OutboxRow{Kind: store.KindTimelogDelete, Before: []byte(`{"hours":1,"trackedDate":"2026-08-26"}`)},
+			"deleted time entry 1h on 26 Aug", "deleted time entry 1h on 26 Aug"},
+		{"delete ghost", store.OutboxRow{Kind: store.KindTimelogDelete}, "deleted time entry", ""},
 	}
 	for _, c := range cases {
-		if got := summarize(c.row); got != c.want {
-			t.Errorf("summarize(%s) = %q, want %q", c.row.Kind, got, c.want)
+		summary, detail := describe(c.row, changesRef, folders)
+		if summary != c.summary || detail != c.detail {
+			t.Errorf("%s: describe = %q, %q\n want %q, %q", c.name, summary, detail, c.summary, c.detail)
 		}
 	}
 }
 
-// TestLoadIssuesFallbackTitles covers the two rows loadIssues cannot fully resolve: a task
-// update whose task is gone from the cache, and a timelog edit whose timelog is gone too, so
-// its task can no longer be looked up. Both fall back to a placeholder title built from the id.
-func TestLoadIssuesFallbackTitles(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "issues-fallback.db"))
+func TestStateText(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		row  store.OutboxRow
+		want string
+	}{
+		{store.OutboxRow{State: store.StatePending, CreatedAt: "2026-10-15T11:58:00Z"}, "queued"},
+		{store.OutboxRow{State: store.StateInflight, CreatedAt: "2026-10-15T11:58:00Z"}, "sending"},
+		{store.OutboxRow{State: store.StatePending, LastError: "503", CreatedAt: "2026-10-15T11:58:00Z"}, "retrying 2 min ago"},
+		{store.OutboxRow{State: store.StateFailed, LastError: "404", CreatedAt: "2026-10-14T11:58:00Z"}, "failed yesterday"},
+		{store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z"}, "2 h ago"},
+		{store.OutboxRow{State: store.StateDiscarded, DoneAt: "2026-10-01T10:00:00Z"}, "discarded 1 Oct"},
+	}
+	for _, c := range cases {
+		if got := stateText(c.row, now); got != c.want {
+			t.Errorf("stateText(%s) = %q, want %q", c.row.State, got, c.want)
+		}
+	}
+}
+
+// The second line under the cursor is the error on a row the engine still retries, and the values in full on every other row.
+func TestChangesViewShowsTheErrorOrTheValuesUnderTheCursor(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	m := changesModel{height: 6}
+	m.set([]changeRow{
+		{row: store.OutboxRow{State: store.StateFailed, LastError: "wrike: 404 Task not found", CreatedAt: "2026-10-15T11:00:00Z"}, title: "Failed one", summary: "status  -> Done", detail: "status  -> Done"},
+		{row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z", Source: store.SourceCLI}, title: "Sent one", summary: "title  Short -> A much longer title t...", detail: "title  Short -> A much longer title than fits here"},
+	})
+	out := m.View(th, now, 100, 6)
+	if !strings.Contains(out, "404 Task not found") || !strings.Contains(out, "Sent one") || !strings.Contains(out, "2 h ago  cli") {
+		t.Errorf("view with the cursor on the failed row:\n%s", out)
+	}
+	m.move(1)
+	out = m.View(th, now, 100, 6)
+	if !strings.Contains(out, "A much longer title than fits here") || strings.Contains(out, "404 Task not found") {
+		t.Errorf("view with the cursor on the sent row:\n%s", out)
+	}
+}
+
+// Retry and discard mean nothing on a row that went out or was dropped, the keys only say so.
+func TestRetryAndDiscardOnAHistoryRowOnlyWriteTheStatusLine(t *testing.T) {
+	m := changesModel{keys: defaultKeyMap(), height: 6}
+	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateSent}}, {row: store.OutboxRow{ID: 8, State: store.StateDiscarded}}})
+	for _, c := range []struct {
+		key  string
+		want string
+	}{{"r", "already sent, nothing to retry"}, {"x", "already sent, nothing to discard"}} {
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
+		msg, ok := cmd().(toastMsg)
+		if !ok || msg.text != c.want {
+			t.Errorf("%s on a sent row = %#v, want the toast %q", c.key, cmd(), c.want)
+		}
+	}
+	m.move(1)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if msg, ok := cmd().(toastMsg); !ok || msg.text != "already discarded, nothing to retry" {
+		t.Errorf("r on a discarded row = %#v", cmd())
+	}
+}
+
+func TestChangesKeysMoveByPageAndToTheEnds(t *testing.T) {
+	m := changesModel{keys: defaultKeyMap(), height: 5}
+	rows := make([]changeRow, 20)
+	m.set(rows)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	if m.cursor != 19 || m.offset != 16 {
+		t.Errorf("after G: cursor %d offset %d, want 19 and 16", m.cursor, m.offset)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	if m.cursor != 17 {
+		t.Errorf("after ctrl+u: cursor %d, want 17, half of the four rows on screen", m.cursor)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	if m.cursor != 0 || m.offset != 0 {
+		t.Errorf("after g: cursor %d offset %d, want 0 and 0", m.cursor, m.offset)
+	}
+}
+
+// TestLoadChangesFallbackTitles covers the rows loadChanges cannot resolve through the cache: a task update whose task is gone,
+// a time entry delete whose entry was never cached, so no task is known at all, and a task that left the cache after the enqueue.
+func TestLoadChangesFallbackTitles(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "changes-fallback.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
 	ctx := context.Background()
-
 	taskID, err := st.Outbox().EnqueueTaskUpdate(ctx, "GHOSTTASK1", store.TaskUpdatePayload{CustomStatusID: "X"})
 	if err != nil {
 		t.Fatal(err)
@@ -57,51 +173,35 @@ func TestLoadIssuesFallbackTitles(t *testing.T) {
 	if err := st.Outbox().Fail(ctx, logID, "wrike: 404 Timelog not found"); err != nil {
 		t.Fatal(err)
 	}
+	// A task that was in the cache at enqueue and left it since keeps the title the row took.
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "WAS1", Title: "Was here", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "WAS1", "U1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Delete(ctx, "WAS1"); err != nil {
+		t.Fatal(err)
+	}
 
 	m := New(Options{Store: st, Now: func() time.Time { return time.Now() }})
-	msg := m.loadIssues()()
-	loaded, ok := msg.(issuesLoadedMsg)
+	msg := m.loadChanges()()
+	loaded, ok := msg.(changesLoadedMsg)
 	if !ok {
-		t.Fatalf("loadIssues() = %#v, want issuesLoadedMsg", msg)
+		t.Fatalf("loadChanges() = %#v, want changesLoadedMsg", msg)
 	}
-	if len(loaded.rows) != 2 {
-		t.Fatalf("rows = %+v, want 2", loaded.rows)
+	if len(loaded.rows) != 3 {
+		t.Fatalf("rows = %+v, want 3", loaded.rows)
 	}
-	if loaded.rows[0].title != "(task GHOSTTASK1)" {
-		t.Errorf("task row title = %q, want (task GHOSTTASK1)", loaded.rows[0].title)
-	}
-	if loaded.rows[1].title != "(time entry GHOSTLOG1)" {
-		t.Errorf("timelog row title = %q, want (time entry GHOSTLOG1)", loaded.rows[1].title)
-	}
-}
-
-// TestIssuesViewKeepsTheCursorRowInBudget checks that the cursor's extra error line is counted
-// against the height budget. Without that, scrolling the cursor to the last row a plain row
-// count lets in pushes the output one line past height, and the box drawn around it trims that
-// extra line, which happens to be the very error text the cursor is there to show.
-func TestIssuesViewKeepsTheCursorRowInBudget(t *testing.T) {
-	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
-	m := issuesModel{height: 2}
-	m.set([]issueRow{
-		{row: store.OutboxRow{LastError: "row0 error"}, title: "row0", summary: "s0"},
-		{row: store.OutboxRow{LastError: "row1 error"}, title: "row1", summary: "s1"},
-		{row: store.OutboxRow{LastError: "row2 error"}, title: "row2", summary: "s2"},
-	})
-	m.cursor = 2
-	m.scroll() // the same call Down makes, scrolling the cursor's row into view
-
-	out := m.View(th, time.Now(), 60, 2)
-	lines := strings.Split(out, "\n")
-	if len(lines) > 2 {
-		t.Fatalf("View with height 2 produced %d lines, want at most 2:\n%s", len(lines), out)
-	}
-	if !strings.Contains(out, "row2 error") {
-		t.Errorf("the cursor's error line should fit the height budget:\n%s", out)
+	for i, want := range []string{"(task GHOSTTASK1)", "(time entry GHOSTLOG1)", "Was here"} {
+		if loaded.rows[i].title != want {
+			t.Errorf("row %d title = %q, want %q", i, loaded.rows[i].title, want)
+		}
 	}
 }
 
 // TestEnqueueIssueOpMapsNotFoundToAPlainToast covers the case where the engine already took the
-// row inflight, or somebody else cleared it, between the issues screen listing it and the key
+// row inflight, or somebody else cleared it, between the screen listing it and the key
 // press acting on it. store.ErrNotFound then must not surface as a raw "store: not found" toast.
 func TestEnqueueIssueOpMapsNotFoundToAPlainToast(t *testing.T) {
 	m := New(Options{Now: func() time.Time { return time.Now() }})
@@ -112,41 +212,5 @@ func TestEnqueueIssueOpMapsNotFoundToAPlainToast(t *testing.T) {
 	}
 	if got.toast != "already being sent, list refreshed" {
 		t.Errorf("toast = %q, want a plain sentence rather than the raw store error", got.toast)
-	}
-}
-
-func TestSummarizeNamesANewTask(t *testing.T) {
-	row := store.OutboxRow{Kind: store.KindTaskCreate, Payload: []byte(`{"title":"Ship it"}`)}
-	if got := summarize(row); got != "new task: Ship it" {
-		t.Errorf("summary = %q", got)
-	}
-}
-
-// A row waiting for its next attempt after a failure is listed with the failed ones and marked as retrying,
-// so a write that fails the same way every time can be seen and discarded.
-func TestLoadIssuesListsARowStillRetrying(t *testing.T) {
-	st, err := store.Open(filepath.Join(t.TempDir(), "issues-retrying.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-	ctx := context.Background()
-	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "GHOSTTASK1", store.TaskUpdatePayload{Title: "X"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Outbox().Reschedule(ctx, id, "wrike: 503 no healthy upstream", "2999-01-01T00:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	m := New(Options{Store: st, Now: func() time.Time { return time.Now() }})
-	loaded, ok := m.loadIssues()().(issuesLoadedMsg)
-	if !ok || len(loaded.rows) != 1 || loaded.rows[0].row.State != store.StatePending {
-		t.Fatalf("loadIssues() = %+v, want the one retrying row", loaded)
-	}
-	v := issuesModel{height: 5}
-	v.set(loaded.rows)
-	out := v.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), time.Now(), 80, 5)
-	if !strings.Contains(out, "retrying") || !strings.Contains(out, "no healthy upstream") {
-		t.Errorf("view should mark the row as retrying and show its error:\n%s", out)
 	}
 }

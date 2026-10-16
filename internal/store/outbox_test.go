@@ -10,7 +10,7 @@ import (
 )
 
 // The queued time and the optimistic rows' dates come from the store's clock rather than SQLite's,
-// so the sync issues screen agrees with the app's own clock, and a golden that shows a queued row does not change with the calendar.
+// so the changes screen agrees with the app's own clock, and a golden that shows a queued row does not change with the calendar.
 func TestEnqueueStampsRowsFromTheStoreClock(t *testing.T) {
 	st := newTestStore(t)
 	st.Now = func() time.Time { return time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) }

@@ -16,7 +16,7 @@ func seedOutboxTask(t *testing.T, st *Store) {
 	}
 }
 
-// issueRows is what the sync issues list used to return: the failed rows and the pending ones that failed at least once.
+// issueRows is the rows a person has to look at: the failed ones and the pending ones that failed at least once.
 func issueRows(t *testing.T, st *Store) []OutboxRow {
 	t.Helper()
 	all, err := st.Outbox().ListChanges(context.Background())

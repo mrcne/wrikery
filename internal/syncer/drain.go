@@ -37,7 +37,7 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 		}
 		if err := st.Outbox().MarkInflight(start, row.ID); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				// Discarded from the sync issues view between the read and the claim.
+				// Discarded from the changes screen between the read and the claim.
 				continue
 			}
 			return changed, err
@@ -160,7 +160,7 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 		if err != nil {
 			return err
 		}
-		// CompleteTimelog drops the row and writes the server version in one transaction.
+		// CompleteTimelog marks the row sent and writes the server version in one transaction.
 		// Its local id cleanup matches nothing for an update, the row never had a local timelog.
 		return st.Outbox().CompleteTimelog(done, row.ID, timelogFromWrike(tl))
 

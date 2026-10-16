@@ -48,7 +48,7 @@ type screen int
 const (
 	screenMain screen = iota
 	screenTimesheet
-	screenIssues
+	screenChanges
 	screenSettings
 	screenFirstRun
 )
@@ -85,7 +85,7 @@ type Model struct {
 	board     boardModel
 	detail    taskDetailModel
 	search    searchModel
-	issues    issuesModel
+	changes   changesModel
 	timesheet timesheetModel
 	settings  settingsModel
 	dialog    dialog
@@ -104,7 +104,7 @@ func New(o Options) Model {
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
-	m.issues.keys = m.keys
+	m.changes.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
 	m.board.keys = m.keys
@@ -163,8 +163,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.reload(msg.Entities)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
-		if m.screen == screenIssues {
-			return m, m.loadIssues()
+		if m.screen == screenChanges {
+			return m, m.loadChanges()
 		}
 		if m.selectedNode.kind == nodeNone {
 			// The queue can change before the tree lands, and there is no list to reread until a node is picked.
@@ -385,8 +385,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openConfirmMsg:
 		m.openDialog(confirmDialog(msg))
 		return m, nil
-	case issuesLoadedMsg:
-		m.issues.set(msg.rows)
+	case changesLoadedMsg:
+		m.changes.set(msg.rows)
 		return m, nil
 	case weekLoadedMsg:
 		m.timesheet.set(msg)
@@ -435,8 +435,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent(msg.selectID)}
-		if m.screen == screenIssues {
-			cmds = append(cmds, m.loadIssues())
+		if m.screen == screenChanges {
+			cmds = append(cmds, m.loadChanges())
 		}
 		if m.screen == screenTimesheet {
 			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
@@ -664,7 +664,7 @@ func (m Model) openedOnFocus(prev pane) tea.Cmd {
 	return m.markOpened(m.selectedTaskID)
 }
 
-// jumpToTask leaves the search overlay, the sync issues screen or the timesheet and shows the task on the main screen.
+// jumpToTask leaves the search overlay, the changes screen or the timesheet and shows the task on the main screen.
 // selectedTaskID is set here rather than waiting for the sidebar/list round trip:
 // taskLoadedMsg drops an answer for a task nobody is on yet, and openedOnFocus below has to mark the right task.
 // A task whose folder is outside the tree reaches the detail pane too, but only until the next list reload,
@@ -840,7 +840,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sidebar.filtering {
 		return m, m.updateSidebar(msg)
 	}
-	if m.screen == screenIssues || m.screen == screenTimesheet || m.screen == screenSettings {
+	if m.screen == screenChanges || m.screen == screenTimesheet || m.screen == screenSettings {
 		// Only the keys that make sense with no task on screen fall through:
 		// everything else would otherwise reach whatever task the main screen had last selected,
 		// underneath the box this screen is showing instead, the task action keys below included.
@@ -855,10 +855,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.search.reset()
 		case key.Matches(msg, m.keys.Refresh):
 			return m.refresh()
-		case key.Matches(msg, m.keys.Issues) && m.screen != screenIssues:
+		case key.Matches(msg, m.keys.Issues) && m.screen != screenChanges:
 			closing := m.closeTimesheetDetail()
-			m.screen = screenIssues
-			return m, tea.Batch(closing, m.loadIssues())
+			m.screen = screenChanges
+			return m, tea.Batch(closing, m.loadChanges())
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
 			m.screen = screenTimesheet
 			return m, m.loadWeek(time.Time{})
@@ -877,8 +877,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		switch m.screen {
-		case screenIssues:
-			m.issues, cmd = m.issues.Update(msg)
+		case screenChanges:
+			m.changes, cmd = m.changes.Update(msg)
 		case screenTimesheet:
 			return m.timesheetKey(msg)
 		default:
@@ -901,8 +901,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		return m.refresh()
 	case key.Matches(msg, m.keys.Issues):
-		m.screen = screenIssues
-		return m, m.loadIssues()
+		m.screen = screenChanges
+		return m, m.loadChanges()
 	case key.Matches(msg, m.keys.Settings):
 		m.screen = screenSettings
 		return m, tea.Batch(m.loadScopes(), m.loadHost())
@@ -1280,8 +1280,8 @@ func (m Model) View() string {
 	switch m.screen {
 	case screenFirstRun:
 		body = m.firstRun.View(m.theme, m.width, bodyHeight)
-	case screenIssues:
-		body = m.viewIssues(bodyHeight)
+	case screenChanges:
+		body = m.viewChanges(bodyHeight)
 	case screenTimesheet:
 		body = m.viewTimesheet(bodyHeight)
 	case screenSettings:
@@ -1326,8 +1326,8 @@ func (m *Model) syncPaneSizes() {
 	if r, ok := m.detailRect(lay); ok {
 		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.UI.Theme)
 	}
-	// The issues screen replaces the whole body with one box, its inner height mirrors what viewIssues gives its View.
-	m.issues.height = max(0, m.height-3)
+	// The changes screen replaces the whole body with one box, its inner height mirrors what viewChanges gives its View.
+	m.changes.height = max(0, m.height-3)
 	// Same box, same formula: the timesheet screen also replaces the whole body with one box.
 	m.timesheet.height = max(0, m.height-3)
 }
@@ -1346,14 +1346,13 @@ func (m Model) detailRect(lay layout) (rect, bool) {
 	return r, ok
 }
 
-// viewIssues fills the whole body with one box, there is no sidebar or detail pane to share it with.
-func (m Model) viewIssues(height int) string {
-	title := fmt.Sprintf("Sync issues (%d)", len(m.issues.rows))
-	body := m.issues.View(m.theme, m.opts.Now(), m.width-2, height-2)
-	return m.theme.box(title, body, m.width, height, true)
+// viewChanges fills the whole body with one box, there is no sidebar or detail pane to share it with.
+func (m Model) viewChanges(height int) string {
+	body := m.changes.View(m.theme, m.opts.Now(), m.width-2, height-2)
+	return m.theme.box("Changes, last 30 days", body, m.width, height, true)
 }
 
-// viewTimesheet fills the whole body with the grid's box, the same way viewIssues does,
+// viewTimesheet fills the whole body with the grid's box, the same way viewChanges does,
 // or shares it with the detail pane while a task is open beside the grid.
 // Before the first weekLoadedMsg lands the box is titled plainly, with nothing in it yet.
 func (m Model) viewTimesheet(height int) string {
@@ -1421,7 +1420,7 @@ func (m Model) paneBody(p pane, r rect) string {
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
-	if m.screen == screenIssues {
+	if m.screen == screenChanges {
 		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
 	}
 	if m.screen == screenTimesheet {
@@ -1497,8 +1496,8 @@ func (m Model) folderCrumbs() map[string]string {
 }
 
 func (m Model) helpGroups() [][]key.Binding {
-	if m.screen == screenIssues {
-		return [][]key.Binding{m.keys.global(), m.keys.issues()}
+	if m.screen == screenChanges {
+		return [][]key.Binding{m.keys.global(), m.keys.changes()}
 	}
 	if m.screen == screenTimesheet {
 		if m.timesheet.detailFocus {
