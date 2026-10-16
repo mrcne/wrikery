@@ -173,12 +173,12 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		if store.IsLocalID(l.ID) {
 			line += " " + sending
 		}
+		style := muted
 		if l.UserID == ref.meID {
-			line = lipgloss.NewStyle().Foreground(th.Text).Render(line)
-		} else {
-			line = muted.Render(line)
+			style = lipgloss.NewStyle().Foreground(th.Text)
 		}
-		b.WriteString(line + "\n")
+		// Wrapped to the pane like a comment, the viewport would cut a long note at the edge.
+		b.WriteString(style.Width(width).Render(line) + "\n")
 	}
 	d.vp.SetContent(b.String())
 }

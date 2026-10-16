@@ -223,3 +223,18 @@ func TestDetailCutsALongRelatedTitleToThePane(t *testing.T) {
 		}
 	}
 }
+
+// A time entry line is wrapped to the pane width like a comment, a long note is not cut at the edge.
+func TestDetailWrapsALongTimeEntryNote(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{
+		task: store.Task{ID: "T1", Title: "Fix auth retry", UpdatedDate: "2026-09-03T10:00:00Z"},
+		logs: []store.Timelog{{ID: "L1", UserID: "U1", TrackedDate: "2026-09-02", Hours: 1.5,
+			Comment: "Pairing on the retry loop, " + strings.Repeat("checked the backoff, ", 4) + "the end"}},
+	})
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	if out := d.View(); !strings.Contains(out, "the end") {
+		t.Errorf("the end of a long note is cut at the pane edge:\n%s", out)
+	}
+}

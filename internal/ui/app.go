@@ -376,7 +376,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
-		d, cmd := newTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate, m.opts.Now())
+		d, cmd := newTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate, m.opts.Now(), min(m.width-4, 80))
 		m.openDialog(d)
 		return m, cmd
 	case closeDialogMsg:
@@ -406,14 +406,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.pickMode = true
 			return m, cmd
 		}
-		d, cmd := newTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date, m.opts.Now())
+		d, cmd := newTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date, m.opts.Now(), min(m.width-4, 80))
 		m.openDialog(d)
 		return m, cmd
 	case editEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
 		}
-		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "", m.opts.Now())
+		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "", m.opts.Now(), min(m.width-4, 80))
 		m.openDialog(d)
 		return m, cmd
 	case deleteEntryMsg:
@@ -1052,7 +1052,7 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 			if m.screen == screenTimesheet && m.timesheet.loaded {
 				date = m.timesheet.cellDate()
 			}
-			d, cmd := newTimelogDialog(t.ID, t.Title, nil, date, m.opts.Now())
+			d, cmd := newTimelogDialog(t.ID, t.Title, nil, date, m.opts.Now(), min(m.width-4, 80))
 			m.openDialog(d)
 			return cmd
 		})

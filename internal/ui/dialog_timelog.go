@@ -27,7 +27,10 @@ type timelogDialog struct {
 	now                      time.Time
 }
 
-func newTimelogDialog(taskID, title string, existing *store.Timelog, date string, now time.Time) (timelogDialog, tea.Cmd) {
+// timelogBoxWidth is the most the box takes, the fields are sized from it when the box opens.
+const timelogBoxWidth = 70
+
+func newTimelogDialog(taskID, title string, existing *store.Timelog, date string, now time.Time, width int) (timelogDialog, tea.Cmd) {
 	d := timelogDialog{taskID: taskID, title: title, now: now}
 	labels := []string{"hours", "date", "note"}
 	values := []string{"", date, ""}
@@ -41,8 +44,15 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 	for i := range d.inputs {
 		in := textinput.New()
 		in.Prompt = fmt.Sprintf("%-6s", labels[i])
+		// Hours and a date are a few characters, the limit keeps them inside the box and the day hint right after the date.
+		in.CharLimit = 24
+		if i == 2 {
+			// A note is long, so it gets the inner width of the box less its prompt and one cell for the cursor after the last character, and scrolls under the cursor.
+			// A field without a width draws its whole value, and the box cuts the line at its border without a mark.
+			in.CharLimit = 200
+			in.Width = min(width, timelogBoxWidth) - 2 - len(in.Prompt) - 1
+		}
 		in.SetValue(values[i])
-		in.CharLimit = 200
 		d.inputs[i] = in
 	}
 	d.inputs[0].Placeholder = "1.5, 1:30, 90m, 1h 20m"
@@ -91,7 +101,7 @@ func (d timelogDialog) View(th Theme, width, height int) string {
 		title = "Edit time on " + d.title
 	}
 	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateBack) + "\n" + d.inputs[2].View() + "\n\n"
-	width = min(width, 70)
+	width = min(width, timelogBoxWidth)
 	if d.errText != "" {
 		body += th.errorLine(d.errText, width-2) + "\n"
 	}

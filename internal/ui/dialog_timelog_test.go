@@ -13,7 +13,7 @@ import (
 
 func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
-	d, _ := newTimelogDialog("T", "Fix", nil, "2026-09-02", now)
+	d, _ := newTimelogDialog("T", "Fix", nil, "2026-09-02", now, 80)
 	var dl dialog = d
 	for _, r := range "1:30" {
 		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
@@ -25,7 +25,7 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 		t.Errorf("create -> %#v", msgs)
 	}
 	existing := &store.Timelog{ID: "L1", TaskID: "T", Hours: 2, TrackedDate: "2026-09-01", Comment: "old"}
-	d2, _ := newTimelogDialog("T", "Fix", existing, "", now)
+	d2, _ := newTimelogDialog("T", "Fix", existing, "", now, 80)
 	_, cmd = dialog(d2).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs = collect(cmd)
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.timelogID != "L1" || got.hours != 2 || got.comment != "old" {
@@ -82,7 +82,7 @@ func TestTimelogLocked(t *testing.T) {
 // Time is logged after the fact, so a bare weekday in the date field is the last one, not the coming one.
 func TestTimelogDialogReadsAWeekdayAsTheLastOne(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
-	d, _ := newTimelogDialog("T", "Fix", nil, "", now)
+	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	var dl dialog = d
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -105,7 +105,7 @@ func TestTimelogDialogReadsAWeekdayAsTheLastOne(t *testing.T) {
 func TestTimelogDialogShowsTheDayItReads(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
-	d, _ := newTimelogDialog("T", "Fix", nil, "", now)
+	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	var dl dialog = d
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "today Thu 3 Sep 2026") {
@@ -136,5 +136,33 @@ func TestTimelogDialogShowsTheDayItReads(t *testing.T) {
 	// The list of forms is longer than the box is wide, it wraps instead of being cut at the edge.
 	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "+3d or 12 sep") {
 		t.Errorf("view cuts the error short:\n%s", dl.View(th, 80, 30))
+	}
+}
+
+// The note takes up to 200 characters and the box is 70 wide, so the field has to scroll with the cursor.
+// Without a width the input draws its whole value and the box cuts the line at its border, end of text and cursor outside it.
+func TestTimelogDialogScrollsALongNote(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
+	var dl dialog = d
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	for _, r := range "START " + strings.Repeat("abcdefghij ", 8) + "the end" {
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	view := dl.View(th, 80, 30)
+	if !strings.Contains(view, "the end") {
+		t.Errorf("the end of a long note is outside the box:\n%s", view)
+	}
+	if strings.Contains(view, "START") {
+		t.Errorf("the field shows the start of the note instead of the part under the cursor:\n%s", view)
+	}
+	// An edit opens with the cursor after the existing note, so the box shows its end before any key.
+	existing := &store.Timelog{ID: "L1", TaskID: "T", Hours: 2, TrackedDate: "2026-09-01", Comment: "START " + strings.Repeat("abcdefghij ", 8) + "the end"}
+	d2, _ := newTimelogDialog("T", "Fix", existing, "", now, 80)
+	if view := d2.View(th, 80, 30); !strings.Contains(view, "the end") || strings.Contains(view, "START") {
+		t.Errorf("an edit of a long note does not open on its end:\n%s", view)
 	}
 }
