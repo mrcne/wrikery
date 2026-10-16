@@ -14,14 +14,15 @@ import (
 type outcome int
 
 const (
-	queued   outcome = iota // the row is still pending, Wrike was not reached inside the deadline
-	sent                    // the row completed, the change is on Wrike
-	rejected                // Wrike refused the write, the row is failed and listed on the changes screen
-	blocked                 // the token was rejected, the row is pending but only a new sign in in the interface sends it
+	queued    outcome = iota // the row is still pending, Wrike was not reached inside the deadline
+	sent                     // the row completed, the change is on Wrike
+	rejected                 // Wrike refused the write, the row is failed and listed on the changes screen
+	blocked                  // the token was rejected, the row is pending but only a new sign in in the interface sends it
+	discarded                // the row was discarded in the interface while the command waited, nothing goes out
 )
 
 func (o outcome) String() string {
-	return [...]string{"queued", "sent", "rejected", "blocked"}[o]
+	return [...]string{"queued", "sent", "rejected", "blocked", "discarded"}[o]
 }
 
 // preflight reads the token and resolves the host before anything is queued,
@@ -63,6 +64,8 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 		return sent, "", nil
 	case store.StateFailed:
 		return rejected, row.LastError, nil
+	case store.StateDiscarded:
+		return discarded, "", nil
 	}
 	var apiErr *wrike.APIError
 	if errors.As(drainErr, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()) {
@@ -98,7 +101,8 @@ func send(ctx context.Context, env Env, token, host string, rowID int64) (outcom
 }
 
 // subject names the write the drain stopped at by its kind and the task it is on, as far as the cache can tell.
-// A time entry update still has its row in the cache, a delete took the row with it when it was queued.
+// A time entry edit or delete names the entry, the task it was on is kept on the row from the enqueue,
+// a delete took the entry's own row with it when it was queued.
 func subject(ctx context.Context, env Env, row store.OutboxRow) string {
 	ctx = context.WithoutCancel(ctx)
 	switch row.Kind {
@@ -110,11 +114,14 @@ func subject(ctx context.Context, env Env, row store.OutboxRow) string {
 	case store.KindTimelogCreate:
 		return "a time entry on " + taskName(ctx, env, row.EntityID)
 	case store.KindTimelogUpdate:
-		if l, err := env.Store.Timelogs().Get(ctx, row.EntityID); err == nil {
-			return "a time entry on " + taskName(ctx, env, l.TaskID)
+		if row.TaskID != "" {
+			return "a time entry on " + taskName(ctx, env, row.TaskID)
 		}
 		return "a time entry"
 	case store.KindTimelogDelete:
+		if row.TaskID != "" {
+			return "a time entry on " + taskName(ctx, env, row.TaskID)
+		}
 		return "a time entry delete"
 	}
 	return "a change to " + taskName(ctx, env, row.EntityID)
@@ -174,6 +181,8 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 		return reportBlocked(env)
 	case rejected:
 		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed on the changes screen in wrikery", reason))
+	case discarded:
+		return fail(env, errors.New("the change was discarded in wrikery before it was sent"))
 	case queued:
 		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
 	}

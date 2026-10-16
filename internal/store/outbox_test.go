@@ -620,3 +620,27 @@ func TestEnqueueTimelogUpdateAndDeleteKeepTheOldEntryAndItsTask(t *testing.T) {
 		t.Errorf("delete of an unknown entry = task %q before %q, want nothing", row.TaskID, row.Before)
 	}
 }
+
+// The mirror comes from the link tables and not from the payload alone: an id the dialog adds that a pull put on the task
+// meanwhile changes nothing on Wrike, so putting it back must not remove it, and the same for a remove of an id already gone.
+func TestEnqueueTaskUpdateMirrorsOnlyWhatReallyChanges(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.ResponsibleIDs, task.ParentIDs = []string{"U1", "U2"}, []string{"F1", "F2"}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{
+		AddResponsibles: []string{"U1", "U3"}, RemoveResponsibles: []string{"U2", "U9"},
+		AddParents: []string{"F1", "F3"}, RemoveParents: []string{"F2", "F9"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := decodeTaskPayload(t, readRow(t, st, id).Before)
+	if strings.Join(b.RemoveResponsibles, ",") != "U3" || strings.Join(b.AddResponsibles, ",") != "U2" ||
+		strings.Join(b.RemoveParents, ",") != "F3" || strings.Join(b.AddParents, ",") != "F2" {
+		t.Errorf("before = %+v, want only U3 and F3 to remove and only U2 and F2 to add back", b)
+	}
+}

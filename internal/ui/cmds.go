@@ -438,27 +438,47 @@ func (m Model) swapWatch() string {
 	return ""
 }
 
-// loadChanges reads every row the outbox holds for the changes screen and resolves what the rows name:
+// loadChanges reads the rows for the changes screen and resolves what they name:
 // the task for its current title and the folder a jump needs, and the folder ids a summary shows by title.
-// A task gone from the cache keeps the title the row took at enqueue, a time entry whose task was never cached shows the entry id.
+// A task gone from the cache keeps the title the row took at enqueue and gets no task id, enter has nowhere to go,
+// a time entry whose task was never cached shows the entry id.
+// The same task and folder come up many times in a month of writes, each is read once, and the folder titles the tree
+// already holds are not read at all.
 func (m Model) loadChanges() tea.Cmd {
 	st, ref := m.opts.Store, m.ref
+	folders := map[string]string{}
+	for id, title := range m.list.folders.title {
+		folders[id] = title
+	}
 	return func() tea.Msg {
 		ctx := context.Background()
 		all, err := st.Outbox().ListChanges(ctx)
 		if err != nil {
 			return errMsg{err}
 		}
-		folders := map[string]string{}
+		type known struct {
+			title, parent string
+			ok            bool
+		}
+		tasks := map[string]known{}
 		var rows []changeRow
 		for _, r := range all {
-			cr := changeRow{row: r, taskID: r.TaskID, title: r.TaskTitle}
-			if cr.taskID == "" {
+			cr := changeRow{row: r, title: r.TaskTitle}
+			if r.TaskID == "" {
 				cr.title = "(time entry " + r.EntityID + ")"
-			} else if t, err := st.Tasks().Get(ctx, cr.taskID); err == nil {
-				cr.title, cr.parentID = t.Title, firstParent(t)
-			} else if cr.title == "" {
-				cr.title = "(task " + cr.taskID + ")"
+			} else {
+				k, seen := tasks[r.TaskID]
+				if !seen {
+					if t, err := st.Tasks().Get(ctx, r.TaskID); err == nil {
+						k = known{title: t.Title, parent: firstParent(t), ok: true}
+					}
+					tasks[r.TaskID] = k
+				}
+				if k.ok {
+					cr.taskID, cr.title, cr.parentID = r.TaskID, k.title, k.parent
+				} else if cr.title == "" {
+					cr.title = "(task " + r.TaskID + ")"
+				}
 			}
 			if r.Kind == store.KindTaskUpdate {
 				var p store.TaskUpdatePayload
@@ -468,6 +488,8 @@ func (m Model) loadChanges() tea.Cmd {
 						if _, seen := folders[id]; seen {
 							continue
 						}
+						// A folder the store has no row for keeps its id as the title, and is not asked for again.
+						folders[id] = id
 						if f, err := st.Folders().Get(ctx, id); err == nil {
 							folders[id] = f.Title
 						}
@@ -481,16 +503,21 @@ func (m Model) loadChanges() tea.Cmd {
 	}
 }
 
-// enqueueIssueOp runs a retry or discard for the changes screen. ErrNotFound means the engine
+// enqueueWriteOp runs a retry or discard for the changes screen. ErrNotFound means the engine
 // already took the row inflight or somebody else cleared it, which is not a failure worth an
 // error toast, just a sign the list is stale and needs another read.
-func (m Model) enqueueIssueOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
+// The counts travel with every answer, the status bar takes them as they are.
+func (m Model) enqueueWriteOp(op func(ctx context.Context) error, doneToast string) tea.Cmd {
 	st, hooks := m.opts.Store, m.opts.Hooks
 	return func() tea.Msg {
 		ctx := context.Background()
 		err := op(ctx)
 		if errors.Is(err, store.ErrNotFound) {
-			return writeQueuedMsg{toast: "already being sent, list refreshed"}
+			pending, failed, err := st.Outbox().Counts(ctx)
+			if err != nil {
+				return errMsg{err}
+			}
+			return writeQueuedMsg{toast: "already being sent, list refreshed", pending: pending, failed: failed}
 		}
 		if err != nil {
 			return errMsg{err}

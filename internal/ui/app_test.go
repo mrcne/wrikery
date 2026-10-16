@@ -712,6 +712,9 @@ func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 	press(tm, "y")
 	waitCounts(1, 1)
 	waitAfter(t, tm, from, "discarded")
+	if rows, err := st.Outbox().ListChanges(context.Background()); err != nil || len(rows) < 3 || rows[2].State != store.StateDiscarded || rows[2].Kind != store.KindTimelogCreate {
+		t.Errorf("rows after the discard = %+v, %v, want the discarded time entry first in the history", rows, err)
+	}
 
 	// The failed update is the first queue row, the retrying comment the second, see the demo seed.
 	from = mark(t, tm)

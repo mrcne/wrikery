@@ -197,20 +197,60 @@ func TestLoadChangesFallbackTitles(t *testing.T) {
 		if loaded.rows[i].title != want {
 			t.Errorf("row %d title = %q, want %q", i, loaded.rows[i].title, want)
 		}
+		// Enter has nowhere to go for any of the three, the task is not in the cache.
+		if loaded.rows[i].taskID != "" {
+			t.Errorf("row %d task = %q, want none, the cache has no such task", i, loaded.rows[i].taskID)
+		}
 	}
 }
 
-// TestEnqueueIssueOpMapsNotFoundToAPlainToast covers the case where the engine already took the
+// A row being sent right now belongs to the engine, the keys say so instead of handing a stale count to the status bar.
+func TestRetryAndDiscardOnARowBeingSentOnlyWriteTheStatusLine(t *testing.T) {
+	m := changesModel{keys: defaultKeyMap(), height: 6}
+	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateInflight}}})
+	for _, k := range []string{"r", "x"} {
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		if msg, ok := cmd().(toastMsg); !ok || msg.text != "being sent right now" {
+			t.Errorf("%s on a row being sent = %#v, want the toast", k, cmd())
+		}
+	}
+}
+
+func TestEnterOnARowWithoutATaskSaysSo(t *testing.T) {
+	m := changesModel{keys: defaultKeyMap(), height: 6}
+	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateDiscarded}, title: "(task local:3)"}})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on a row without a task did nothing, want a status line")
+	}
+	if msg, ok := cmd().(toastMsg); !ok || msg.text != "the task is not in the cache" {
+		t.Errorf("enter = %#v, want the toast", cmd())
+	}
+}
+
+// TestEnqueueWriteOpMapsNotFoundToAPlainToastWithTheCounts covers the case where the engine already took the
 // row inflight, or somebody else cleared it, between the screen listing it and the key
 // press acting on it. store.ErrNotFound then must not surface as a raw "store: not found" toast.
-func TestEnqueueIssueOpMapsNotFoundToAPlainToast(t *testing.T) {
-	m := New(Options{Now: func() time.Time { return time.Now() }})
-	cmd := m.enqueueIssueOp(func(ctx context.Context) error { return store.ErrNotFound }, "Retrying")
+func TestEnqueueWriteOpMapsNotFoundToAPlainToastWithTheCounts(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "write-op.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if _, err := st.Outbox().EnqueueTaskUpdate(context.Background(), "T1", store.TaskUpdatePayload{Title: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	m := New(Options{Store: st, Now: func() time.Time { return time.Now() }})
+	cmd := m.enqueueWriteOp(func(ctx context.Context) error { return store.ErrNotFound }, "Retrying")
 	got, ok := cmd().(writeQueuedMsg)
 	if !ok {
-		t.Fatalf("enqueueIssueOp on ErrNotFound = %#v, want writeQueuedMsg", cmd())
+		t.Fatalf("enqueueWriteOp on ErrNotFound = %#v, want writeQueuedMsg", cmd())
 	}
 	if got.toast != "already being sent, list refreshed" {
 		t.Errorf("toast = %q, want a plain sentence rather than the raw store error", got.toast)
+	}
+	// The status bar copies the counts from this message, zeros would wipe the real ones until the next engine event.
+	if got.pending != 1 {
+		t.Errorf("pending = %d, want the queue's count read along with the toast", got.pending)
 	}
 }

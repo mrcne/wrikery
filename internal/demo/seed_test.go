@@ -192,6 +192,8 @@ func TestSeedLeavesHistoryRowsWithoutMovingTheTasks(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	ctx := context.Background()
 	now := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	// The list cuts the history at thirty days before the store clock, so the clock has to be the seed's now.
+	st.Now = func() time.Time { return now }
 	if err := Seed(ctx, st, now); err != nil {
 		t.Fatal(err)
 	}

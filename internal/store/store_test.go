@@ -256,7 +256,7 @@ func TestOutboxRebuildKeepsRowsAndTheIDSequence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	rows := issueRows(t, st)
+	rows := stuckRows(t, st)
 	if len(rows) != 1 || rows[0].ID != 1 || rows[0].LastError != "boom" {
 		t.Fatalf("failed rows after the rebuild = %+v, want row 1 as it was", rows)
 	}
@@ -334,8 +334,8 @@ func TestOutboxHistoryRebuildKeepsRowsAndNamesTheirTasks(t *testing.T) {
 		}
 	}
 	row, err := st.Outbox().Get(ctx, 1)
-	if err != nil || row.State != StateFailed || row.LastError != "boom" {
-		t.Errorf("row 1 = %+v, %v, want the failed row as it was", row, err)
+	if err != nil || row.State != StateFailed || row.LastError != "boom" || row.TaskTitle != "one" {
+		t.Errorf("row 1 = %+v, %v, want the failed row as it was, with its task's title", row, err)
 	}
 	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
 	if err != nil {

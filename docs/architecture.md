@@ -110,7 +110,7 @@ The drain sends Wrike only the custom status id and lets it derive the group.
 
 A row is not deleted when it has been sent or discarded.
 It stays for thirty days, marked sent or discarded with the time, and the sweep that removes the older ones runs inside the transaction that completes or discards a row.
-The row also carries the values the write replaced, read in the enqueue transaction before its own update overwrites the cache row, which is the last moment they exist: the old title, status, importance or dates block of a task update, the old hours, day and note of a time entry edit, the whole entry for a delete, and the mirror of an assignee or folder change.
+The row also carries the values the write replaced, read in the enqueue transaction before its own update overwrites the cache row, which is the last moment they exist: the old title, description, status, importance or dates block of a task update, the old hours, day and note of a time entry edit, the whole entry for a delete, and the mirror of an assignee or folder change.
 It names the task it belongs to, with the title at the time, and the front end that queued it, the interface or a command.
 The changes screen reads these rows next to the queue through one list.
 The queries that work the queue, the due pick, the blocker, the marks and the counts, filter on the three queue states and never see the history.

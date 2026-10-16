@@ -33,3 +33,5 @@ UPDATE outbox SET task_id = entity_id WHERE kind IN ('task_update', 'comment_cre
 UPDATE outbox SET task_id = 'local:' || id WHERE kind = 'task_create';
 UPDATE outbox SET task_id = COALESCE((SELECT task_id FROM timelogs WHERE timelogs.id = outbox.entity_id), '')
     WHERE kind IN ('timelog_update', 'timelog_delete');
+-- A time entry delete queued before this migration keeps no task: its entry left the cache when it was queued.
+UPDATE outbox SET task_title = COALESCE((SELECT title FROM tasks WHERE tasks.id = outbox.task_id), '');

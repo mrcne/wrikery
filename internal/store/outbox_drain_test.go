@@ -16,8 +16,8 @@ func seedOutboxTask(t *testing.T, st *Store) {
 	}
 }
 
-// issueRows is the rows a person has to look at: the failed ones and the pending ones that failed at least once.
-func issueRows(t *testing.T, st *Store) []OutboxRow {
+// stuckRows is the rows a person has to look at: the failed ones and the pending ones that failed at least once.
+func stuckRows(t *testing.T, st *Store) []OutboxRow {
 	t.Helper()
 	all, err := st.Outbox().ListChanges(context.Background())
 	if err != nil {
@@ -89,13 +89,13 @@ func TestChangesNameARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows := issueRows(t, st); len(rows) != 0 {
+	if rows := stuckRows(t, st); len(rows) != 0 {
 		t.Fatalf("issues before any failure = %+v, want none", rows)
 	}
 	if err := st.Outbox().Reschedule(ctx, id, "decoding PUT response: unexpected end of JSON input", "2026-09-03T10:05:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	rows := issueRows(t, st)
+	rows := stuckRows(t, st)
 	if len(rows) != 1 || rows[0].ID != id || rows[0].State != StatePending || rows[0].Attempts != 1 {
 		t.Fatalf("issues = %+v, want the retrying row with its attempt", rows)
 	}
@@ -106,7 +106,7 @@ func TestChangesNameARowStillRetryingAndRetrySendsItAtOnce(t *testing.T) {
 	if err != nil || row.ID != id || row.Attempts != 0 || row.LastError != "" {
 		t.Fatalf("row = %+v, %v, want the retried row due at once and clean", row, err)
 	}
-	if rows := issueRows(t, st); len(rows) != 0 {
+	if rows := stuckRows(t, st); len(rows) != 0 {
 		t.Fatalf("issues after the retry = %+v, want none", rows)
 	}
 }
@@ -221,7 +221,7 @@ func TestFailRetryDiscard(t *testing.T) {
 	if err := st.Outbox().Fail(ctx, id, "403 access forbidden"); err != nil {
 		t.Fatal(err)
 	}
-	failedRows := issueRows(t, st)
+	failedRows := stuckRows(t, st)
 	if len(failedRows) != 1 || failedRows[0].LastError != "403 access forbidden" {
 		t.Fatalf("failed = %+v", failedRows)
 	}
@@ -1051,5 +1051,120 @@ func TestListChangesPutsTheQueueFirstAndTheHistoryNewestFirst(t *testing.T) {
 	want := []int64{ids[1], ids[3], ids[4], ids[2], ids[0]}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("order = %v, want the two queued oldest first, then the history newest first %v", got, want)
+	}
+}
+
+// The history is ordered by the time a row went out or was dropped, a failed row discarded today was queued before
+// the writes that went out since, and the user who discarded it has to find it at the top.
+func TestListChangesOrdersTheHistoryByTheTimeItFinished(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	clock := time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	st.Now = func() time.Time { return clock }
+	ids := make([]int64, 3)
+	for i := range ids {
+		id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "c")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	if err := st.Outbox().CompleteComment(ctx, ids[2], Comment{ID: "C2", TaskID: "T1", AuthorID: "U1", Text: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Hour)
+	if err := st.Outbox().Discard(ctx, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	for _, r := range rows {
+		got = append(got, r.ID)
+	}
+	want := []int64{ids[1], ids[0], ids[2]}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("order = %v, want the queued row, then the row discarded an hour later, then the sent one %v", got, want)
+	}
+}
+
+// A finished row stays, so a late bookkeeping call from a second drainer must not put it back into the queue or send it again.
+func TestCompleteRescheduleAndFailRefuseAHistoryRow(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	sent, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "sent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, sent, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "sent"}); err != nil {
+		t.Fatal(err)
+	}
+	dropped, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "dropped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, dropped); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		call func(id int64) error
+	}{
+		{"Complete", func(id int64) error { return st.Outbox().Complete(ctx, id) }},
+		{"CompleteComment", func(id int64) error {
+			return st.Outbox().CompleteComment(ctx, id, Comment{ID: "C9", TaskID: "T1", AuthorID: "U1", Text: "again"})
+		}},
+		{"Reschedule", func(id int64) error { return st.Outbox().Reschedule(ctx, id, "503", "2026-10-16T00:00:00Z") }},
+		{"Fail", func(id int64) error { return st.Outbox().Fail(ctx, id, "404") }},
+	} {
+		for _, id := range []int64{sent, dropped} {
+			if err := c.call(id); !errors.Is(err, ErrNotFound) {
+				t.Errorf("%s on row %d = %v, want ErrNotFound", c.name, id, err)
+			}
+		}
+	}
+	if row, err := st.Outbox().Get(ctx, sent); err != nil || row.State != StateSent {
+		t.Errorf("sent row = %+v, %v, want still sent", row, err)
+	}
+	if row, err := st.Outbox().Get(ctx, dropped); err != nil || row.State != StateDiscarded {
+		t.Errorf("discarded row = %+v, %v, want still discarded", row, err)
+	}
+}
+
+// The sweep runs with a write, a user who only reads for a while would otherwise see rows older than the title promises.
+func TestListChangesLeavesOutHistoryOlderThanThirtyDays(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedOutboxTask(t, st)
+	clock := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	st.Now = func() time.Time { return clock }
+	old, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().CompleteComment(ctx, old, Comment{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	stuck, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "stuck")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, stuck, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.AddDate(0, 0, 31)
+	rows, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != stuck {
+		t.Errorf("rows = %+v, want only the queued row, the sent one is past thirty days", rows)
+	}
+	if _, err := st.Outbox().Get(ctx, old); err != nil {
+		t.Errorf("the old row = %v, want still in the table until a write sweeps it", err)
 	}
 }

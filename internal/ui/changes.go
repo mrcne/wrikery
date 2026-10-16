@@ -32,12 +32,24 @@ type changesModel struct {
 }
 
 type changesLoadedMsg struct{ rows []changeRow }
-type retryIssueMsg struct{ id int64 }
-type discardIssueMsg struct{ id int64 }
+type retryWriteMsg struct{ id int64 }
+type discardWriteMsg struct{ id int64 }
 
 // inQueue tells a row the engine still works on from one that went out or was dropped.
 func inQueue(r store.OutboxRow) bool {
 	return r.State == store.StatePending || r.State == store.StateInflight || r.State == store.StateFailed
+}
+
+// refusal is the status line for a key that cannot act on the row, empty when it can:
+// a row being sent belongs to the engine, and a finished row is history.
+func refusal(r store.OutboxRow, verb string) string {
+	switch r.State {
+	case store.StateInflight:
+		return "being sent right now"
+	case store.StateSent, store.StateDiscarded:
+		return "already " + string(r.State) + ", nothing to " + verb
+	}
+	return ""
 }
 
 // stateText is the muted text after a row: where a queued write stands, or when a finished one went out.
@@ -96,11 +108,6 @@ func datesText(d *store.TaskDates) string {
 	return d.Type
 }
 
-// oneLine is a description or a comment as one line of plain text.
-func oneLine(html string) string {
-	return strings.Join(strings.Fields(store.StripHTML(html)), " ")
-}
-
 func timelogText(hours float64, date, note string) string {
 	s := hoursText(hours) + " on " + shortDate(date)
 	if note != "" {
@@ -156,7 +163,7 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 		case p.Title != "":
 			return "title  " + arrow(ansi.Truncate(b.Title, 24, "..."), ansi.Truncate(p.Title, 24, "...")), "title  " + arrow(b.Title, p.Title)
 		case p.Description != "":
-			return "description changed", "description  " + arrow(ansi.Truncate(oneLine(b.Description), 60, "..."), ansi.Truncate(oneLine(p.Description), 60, "..."))
+			return "description changed", "description  " + arrow(ansi.Truncate(store.StripHTML(b.Description), 60, "..."), ansi.Truncate(store.StripHTML(p.Description), 60, "..."))
 		case p.Importance != "":
 			s := "importance  " + arrow(b.Importance, p.Importance)
 			return s, s
@@ -244,16 +251,16 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 	case key.Matches(msg, s.keys.Retry):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if !inQueue(r.row) {
-				return s, intent(toastMsg{text: "already " + string(r.row.State) + ", nothing to retry"})
+			if text := refusal(r.row, "retry"); text != "" {
+				return s, intent(toastMsg{text: text})
 			}
-			return s, intent(retryIssueMsg{id: r.row.ID})
+			return s, intent(retryWriteMsg{id: r.row.ID})
 		}
 	case key.Matches(msg, s.keys.Discard):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if !inQueue(r.row) {
-				return s, intent(toastMsg{text: "already " + string(r.row.State) + ", nothing to discard"})
+			if text := refusal(r.row, "discard"); text != "" {
+				return s, intent(toastMsg{text: text})
 			}
 			// store.Outbox().Discard only rolls back the optimistic row for a create,
 			// a task update leaves the cache ahead of the server until the next pull corrects it.
@@ -263,11 +270,15 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 				prompt = "Discard this new task? Its queued comments and time entries go with it."
 			}
 			prompt += "\n" + r.summary
-			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardIssueMsg{id: r.row.ID}})
+			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardWriteMsg{id: r.row.ID}})
 		}
 	case key.Matches(msg, s.keys.Enter):
-		if s.cursor < len(s.rows) && s.rows[s.cursor].taskID != "" {
+		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
+			if r.taskID == "" {
+				// A discarded new task, or a task the pull sweep removed since, has no detail to open.
+				return s, intent(toastMsg{text: "the task is not in the cache"})
+			}
 			return s, intent(openTaskMsg{id: r.taskID, parentID: r.parentID})
 		}
 	}
@@ -276,7 +287,7 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 
 func (s changesModel) View(th Theme, now time.Time, width, height int) string {
 	if len(s.rows) == 0 {
-		return lipgloss.NewStyle().Foreground(th.Muted).Render("No changes in the last thirty days.")
+		return lipgloss.NewStyle().Foreground(th.Muted).Render(fmt.Sprintf("No changes in the last %d days.", store.HistoryDays))
 	}
 	// The cursor's row always prints a second line, so only height-1 rows are drawn here,
 	// the same capacity scroll() clamps offset against, or that second line would be the one

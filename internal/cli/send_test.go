@@ -173,8 +173,9 @@ func TestSubjectNamesTheWriteByItsKindAndItsTask(t *testing.T) {
 		{store.OutboxRow{Kind: store.KindTaskUpdate, EntityID: "T9"}, "a change to " + title},
 		{store.OutboxRow{Kind: store.KindCommentCreate, EntityID: "T9"}, "a comment on " + title},
 		{store.OutboxRow{Kind: store.KindTimelogCreate, EntityID: "T9"}, "a time entry on " + title},
-		{store.OutboxRow{Kind: store.KindTimelogUpdate, EntityID: "L1"}, "a time entry on " + title},
-		{store.OutboxRow{Kind: store.KindTimelogDelete, EntityID: "L1"}, "a time entry delete"},
+		{store.OutboxRow{Kind: store.KindTimelogUpdate, EntityID: "L1", TaskID: "T9"}, "a time entry on " + title},
+		{store.OutboxRow{Kind: store.KindTimelogDelete, EntityID: "L1", TaskID: "T9"}, "a time entry on " + title},
+		{store.OutboxRow{Kind: store.KindTimelogDelete, EntityID: "L0"}, "a time entry delete"},
 		{store.OutboxRow{Kind: store.KindTaskCreate, ID: 7}, "a new task local:7"},
 		{store.OutboxRow{Kind: store.KindTaskUpdate, EntityID: "T0"}, "a change to T0"},
 	}
@@ -287,5 +288,30 @@ func TestSendReadsSentFromTheRowState(t *testing.T) {
 	}
 	if got, err := env.Store.Outbox().Get(context.Background(), row.ID); err != nil || got.State != store.StateSent {
 		t.Errorf("row after send = %+v, %v, want kept as sent", got, err)
+	}
+}
+
+// A row the user discards in the interface while the command waits for the lock must not be reported as queued,
+// a script would sync and wait for a write that never goes out.
+func TestSendReportsARowDiscardedMeanwhile(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	env = withNetwork(t, env, nil)
+	queueUpdate(t, env, false)
+	row, err := env.Store.Outbox().NextDue(context.Background(), "2030-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Outbox().Discard(context.Background(), row.ID); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := send(context.Background(), env, "test-token", "stub", row.ID)
+	if err != nil || out != discarded {
+		t.Fatalf("send = %v, %v, want discarded", out, err)
+	}
+	if code := reportWrite(context.Background(), env, out, "", false, false, store.Task{}, nil, ""); code != exitError {
+		t.Errorf("code = %d, want %d", code, exitError)
+	}
+	if !strings.Contains(errOut.String(), "discarded") {
+		t.Errorf("stderr = %q, want it to say the change was discarded", errOut.String())
 	}
 }

@@ -426,12 +426,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pickEntryMsg:
 		m.openDialog(newEntryPicker(msg.logs, msg.forDelete))
 		return m, nil
-	case retryIssueMsg:
+	case retryWriteMsg:
 		st := m.opts.Store
-		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
-	case discardIssueMsg:
+		return m, m.enqueueWriteOp(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
+	case discardWriteMsg:
 		st := m.opts.Store
-		return m, m.enqueueIssueOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
+		return m, m.enqueueWriteOp(func(ctx context.Context) error { return st.Outbox().Discard(ctx, msg.id) }, "Discarded")
 	case writeQueuedMsg:
 		m.status.pending, m.status.failed = msg.pending, msg.failed
 		cmds := []tea.Cmd{m.status.show(msg.toast, false), m.reloadCurrent(msg.selectID)}
@@ -855,7 +855,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.search.reset()
 		case key.Matches(msg, m.keys.Refresh):
 			return m.refresh()
-		case key.Matches(msg, m.keys.Issues) && m.screen != screenChanges:
+		case key.Matches(msg, m.keys.Changes) && m.screen != screenChanges:
 			closing := m.closeTimesheetDetail()
 			m.screen = screenChanges
 			return m, tea.Batch(closing, m.loadChanges())
@@ -900,7 +900,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.search.reset()
 	case key.Matches(msg, m.keys.Refresh):
 		return m.refresh()
-	case key.Matches(msg, m.keys.Issues):
+	case key.Matches(msg, m.keys.Changes):
 		m.screen = screenChanges
 		return m, m.loadChanges()
 	case key.Matches(msg, m.keys.Settings):
@@ -1349,7 +1349,7 @@ func (m Model) detailRect(lay layout) (rect, bool) {
 // viewChanges fills the whole body with one box, there is no sidebar or detail pane to share it with.
 func (m Model) viewChanges(height int) string {
 	body := m.changes.View(m.theme, m.opts.Now(), m.width-2, height-2)
-	return m.theme.box("Changes, last 30 days", body, m.width, height, true)
+	return m.theme.box(fmt.Sprintf("Changes, last %d days", store.HistoryDays), body, m.width, height, true)
 }
 
 // viewTimesheet fills the whole body with the grid's box, the same way viewChanges does,
