@@ -258,3 +258,50 @@ func TestReauthNoticeNamesTheSession(t *testing.T) {
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike no longer accepts the session")
 }
+
+func TestFirstRunPickerStartsFromTheFollowedSet(t *testing.T) {
+	st := freshStore(t)
+	ctx := context.Background()
+	// A sign out and a new sign in run the first run over a cache that still follows spaces, the picker must show that set.
+	if err := st.Spaces().ReplaceAll(ctx, []store.Space{{ID: demo.SpacePlatform, Title: "Platform"}, {ID: demo.SpaceMobile, Title: "Mobile"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Folders().ReplaceTree(ctx, []store.Folder{
+		{ID: demo.SpacePlatform, Title: "Platform", Space: true},
+		{ID: demo.SpaceMobile, Title: "Mobile", Space: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Scopes().SetFollowed(ctx, []store.Scope{{ID: demo.SpacePlatform, Kind: store.ScopeKindSpace, Title: "Platform", Followed: true}}); err != nil {
+		t.Fatal(err)
+	}
+	opts := testOptions(st)
+	opts.Demo = false
+	opts.FirstRun = true
+	opts.Hooks.VerifyToken = func(context.Context, string) (string, error) { return "Ada Nowak", nil }
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Paste a permanent access token")
+	press(tm, "abc", "enter")
+	waitFor(t, tm, "[x] Platform")
+	if seen := seenOutput(t, tm); !strings.Contains(seen.String(), "[ ] Mobile") {
+		t.Fatal("an unfollowed space shows as ticked")
+	}
+}
+
+func TestFirstRunCtrlYCopiesTheAddress(t *testing.T) {
+	opts, _, _, _ := browserOptions(t, freshStore(t), "s3cret")
+	var copied []string
+	opts.Hooks.Copy = func(text string) error {
+		copied = append(copied, text)
+		return nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "waiting for the browser")
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlY})
+	waitFor(t, tm, "address copied")
+	if len(copied) != 1 || copied[0] != "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s" {
+		t.Fatalf("copied %q", copied)
+	}
+}

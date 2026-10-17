@@ -323,6 +323,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.verifyToken(msg.token)
 	case firstRunStartSignInMsg:
 		return m, m.startSignIn(msg.attempt, msg.secret)
+	case firstRunCopyAddressMsg:
+		return m, m.copyText(msg.address, "address copied")
 	case signInStartedMsg:
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
@@ -1336,24 +1338,29 @@ func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
 		if unconfirmed(t) {
 			return m.status.show(notOnWrike, true)
 		}
-		cp := m.opts.Hooks.Copy
-		if cp == nil {
-			return m.status.show("clipboard not available", true)
-		}
 		text, toast := pick(t)
 		if text == "" {
 			// The permalink is the only one of the three that can be missing, the id and the branch name are always there.
 			return m.status.show(noPermalink, true)
 		}
-		// The hook writes to the terminal and runs a clipboard tool, so it goes into a command rather than into the update loop.
-		return func() tea.Msg {
-			if err := cp(text); err != nil {
-				// The error says what did and did not reach the clipboard, so it is shown as it is.
-				return toastMsg{text: err.Error(), isErr: true}
-			}
-			return toastMsg{text: toast}
-		}
+		return m.copyText(text, toast)
 	})
+}
+
+// copyText puts text on the clipboard through the hook and answers with a toast.
+// The hook writes to the terminal and runs a clipboard tool, so it goes into a command rather than into the update loop.
+func (m Model) copyText(text, toast string) tea.Cmd {
+	cp := m.opts.Hooks.Copy
+	if cp == nil {
+		return m.status.show("clipboard not available", true)
+	}
+	return func() tea.Msg {
+		if err := cp(text); err != nil {
+			// The error says what did and did not reach the clipboard, so it is shown as it is.
+			return toastMsg{text: err.Error(), isErr: true}
+		}
+		return toastMsg{text: toast}
+	}
 }
 
 func (m Model) View() string {

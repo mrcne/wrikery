@@ -111,6 +111,7 @@ type firstRunStartSignInMsg struct {
 	attempt int
 	secret  string
 }
+type firstRunCopyAddressMsg struct{ address string }
 
 // signInStartedMsg lands when the hook started a browser sign in, or could not.
 type signInStartedMsg struct {

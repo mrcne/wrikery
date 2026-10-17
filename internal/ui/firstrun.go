@@ -210,6 +210,9 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 				f.paste.SetValue("")
 			}
 			return f, nil
+		case tea.KeyCtrlY:
+			// The address breaks across lines inside the box, so a click on it in the terminal gets one line.
+			return f, intent(firstRunCopyAddressMsg{address: f.signIn.URL})
 		}
 		var cmd tea.Cmd
 		f.paste, cmd = f.paste.Update(msg)
@@ -239,7 +242,11 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 }
 
 // mergePicker rebuilds the checklist from the store and keeps what the user already ticked.
+// The first list starts from the set the cache follows: after a sign out and a new sign in that set is still there.
 func (f firstRunModel) mergePicker(msg pickerLoadedMsg) []pickerItem {
+	if len(f.items) == 0 {
+		return pickerItems(msg, followedSet(msg.followed))
+	}
 	checked := map[string]bool{}
 	for _, it := range f.items {
 		checked[it.scope.ID] = it.checked
@@ -251,6 +258,10 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 	accent := lipgloss.NewStyle().Foreground(th.Accent).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	w := min(width-4, 72)
+	if f.step == stepSignIn && f.browser && !f.useToken && f.signIn != nil {
+		// The authorize address is long, a wider box breaks it into fewer lines.
+		w = min(width-4, 110)
+	}
 	steps := []string{"1 Sign in", "2 Follow", "3 Sync"}
 	var head []string
 	for i, s := range steps {
@@ -316,7 +327,7 @@ func (f firstRunModel) viewSignIn(body *strings.Builder, th Theme, muted lipglos
 		body.WriteString(muted.Width(w-2).Render(f.signIn.URL) + "\n\n")
 		body.WriteString("Or paste the address the browser lands on:\n")
 		body.WriteString(f.paste.View() + "\n\n")
-		body.WriteString(muted.Render("enter to send the address, esc to start over"))
+		body.WriteString(muted.Render("enter to send the address, ctrl+y to copy it, esc to start over"))
 	case f.browser && !f.useToken:
 		body.WriteString("Sign in through the browser.\n")
 		body.WriteString(muted.Render("wrikery opens Wrike's sign in page for the app "+f.clientID+".") + "\n\n")
