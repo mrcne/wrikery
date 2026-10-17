@@ -94,6 +94,9 @@ func TestDefaultPathsHonorXDGEnv(t *testing.T) {
 	if p.LogFile != "/tmp/xdg-state/wrikery/wrikery.log" {
 		t.Errorf("LogFile = %q", p.LogFile)
 	}
+	if p.SessionFile != "/tmp/xdg-config/wrikery/oauth.json" || p.AuthLockFile != "/tmp/xdg-config/wrikery/auth.lock" {
+		t.Errorf("SessionFile = %q, AuthLockFile = %q, want both beside the token file", p.SessionFile, p.AuthLockFile)
+	}
 }
 
 func TestEnsureDirsCreatesParents(t *testing.T) {

@@ -11,6 +11,10 @@ type Paths struct {
 	DBFile     string
 	LogFile    string
 	TokenFile  string
+	// SessionFile and AuthLockFile sit beside the token file: an OAuth session when there is no keychain,
+	// and the lock a renewal holds so two processes never refresh the same pair.
+	SessionFile  string
+	AuthLockFile string
 }
 
 func DefaultPaths() (Paths, error) {
@@ -36,10 +40,12 @@ func DefaultPaths() (Paths, error) {
 	}
 
 	return Paths{
-		ConfigFile: filepath.Join(configDir, "wrikery", "config.toml"),
-		DBFile:     filepath.Join(dataDir, "wrikery", "wrike.db"),
-		LogFile:    filepath.Join(stateDir, "wrikery", "wrikery.log"),
-		TokenFile:  filepath.Join(configDir, "wrikery", "token"),
+		ConfigFile:   filepath.Join(configDir, "wrikery", "config.toml"),
+		DBFile:       filepath.Join(dataDir, "wrikery", "wrike.db"),
+		LogFile:      filepath.Join(stateDir, "wrikery", "wrikery.log"),
+		TokenFile:    filepath.Join(configDir, "wrikery", "token"),
+		SessionFile:  filepath.Join(configDir, "wrikery", "oauth.json"),
+		AuthLockFile: filepath.Join(configDir, "wrikery", "auth.lock"),
 	}, nil
 }
 

@@ -142,7 +142,7 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 			slog.Warn("could not store the detected Wrike host", "error", err)
 		}
 	}
-	if err := a.tokens.Save(token); err != nil {
+	if err := a.tokens.SaveToken(token); err != nil {
 		return "", err
 	}
 	a.startEngine(token, host)

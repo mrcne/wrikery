@@ -144,7 +144,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	if err != nil {
 		return err
 	}
-	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
+	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	if logout {
 		if err := tokens.Delete(); err != nil {
 			return err
@@ -190,11 +190,12 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	slog.Info("started", "version", buildVersion(), "db", paths.DBFile)
 
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths)}
-	token, err := tokens.Load()
+	session, err := tokens.Load()
 	firstRun := errors.Is(err, auth.ErrNoToken)
 	if err != nil && !firstRun {
 		return err
 	}
+	token := session.AccessToken
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
@@ -270,7 +271,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	}
 	defer func() { _ = st.Close() }()
 	st.Source = store.SourceCLI
-	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
+	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.
 	if !signal.Ignored(syscall.SIGHUP) {
@@ -284,11 +285,11 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Config: cfg,
 		Store:  st,
 		Token: func() (string, error) {
-			token, err := tokens.Load()
+			session, err := tokens.Load()
 			if errors.Is(err, auth.ErrNoToken) {
 				return "", nil
 			}
-			return token, err
+			return session.AccessToken, err
 		},
 		Client:   func(token, host string) *wrike.Client { return newClient(token, host) },
 		Host:     func(ctx context.Context, token string) (string, error) { return resolveHost(ctx, cfg, st, token) },
