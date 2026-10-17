@@ -43,14 +43,11 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 		}
 		tasks, err = env.Store.Tasks().ListInFolder(ctx, fo.ID)
 	} else {
-		meID, merr := env.Store.GetMeta(ctx, store.MetaKeyMe)
-		if errors.Is(merr, store.ErrNotFound) {
-			return fail(env, errors.New("run wrikery sync first, the cache does not know who you are yet"))
-		}
+		me, merr := meID(ctx, env.Store)
 		if merr != nil {
 			return fail(env, merr)
 		}
-		tasks, err = env.Store.Tasks().ListForResponsible(ctx, meID)
+		tasks, err = env.Store.Tasks().ListForResponsible(ctx, me)
 	}
 	if err != nil {
 		return fail(env, err)
@@ -147,10 +144,6 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 2 {
 		return usageError(env, fs, statusUsage, "task status takes a task and a status name")
 	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
-	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
 		return fail(env, err)
@@ -164,7 +157,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 		return fail(env, err)
 	}
 	line := func(_ context.Context, x store.Task) string { return "[" + ref.statusName(x) + "]" }
-	return finishUpdate(ctx, env, token, host, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, *asJSON, line, "")
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, *asJSON, line, "")
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.
@@ -238,17 +231,13 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, token, host, rowID)
+	out, reason, task, readOK, err := deliver(ctx, env, token, host, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	task, readOK := store.Task{ID: store.LocalID(rowID), Title: title}, false
-	if out == sent || out == queued {
-		task, readOK = readBack(ctx, env, out, task.ID, task, &ref, *asJSON)
-	}
-	if *asJSON || out == rejected || out == blocked || !readOK {
+	if *asJSON || !readOK {
 		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "")
 	}
 	word := "created"
@@ -264,7 +253,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 }
 
 // importanceLevel matches High, Normal or Low without case and returns it as Wrike spells it.
-// The three values are the TaskImportance enum of https://developers.wrike.com/reference/puttaskssingle.md .
+// The three values are the TaskImportance enum of https://developers.wrike.com/reference/puttaskssingle .
 // An empty argument is the flag left out, which keeps the task as it is.
 func importanceLevel(arg string) (string, error) {
 	if strings.TrimSpace(arg) == "" {

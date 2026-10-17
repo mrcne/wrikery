@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -44,7 +45,7 @@ func TestTaskCommentOfflineQueuesALocalCommentAsMe(t *testing.T) {
 }
 
 func TestTaskCommentNeedsATextAndAKnownAuthor(t *testing.T) {
-	env, _, errOut := testEnv(t)
+	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	env = withNetwork(t, env, nil)
 	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1"}); code != exitUsage {
@@ -63,5 +64,39 @@ func TestTaskCommentNeedsATextAndAKnownAuthor(t *testing.T) {
 	if !strings.Contains(freshErr.String(), "does not know who you are") {
 		t.Errorf("stderr = %q, want the author problem named", freshErr.String())
 	}
-	_ = errOut
+}
+
+func TestTaskCommentJSONCarriesTheComment(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env, _, _, _ = recordWrite(t, env, commentAnswer)
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "--json", "Pushed", "the", "branch"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	var got struct {
+		ID      string `json:"id"`
+		Sent    bool   `json:"sent"`
+		Comment struct {
+			ID     string `json:"id"`
+			Author string `json:"author"`
+			Text   string `json:"text"`
+		} `json:"comment"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	if got.ID != "TASK1" || !got.Sent || got.Comment.ID != "C9" || got.Comment.Author != "Marcin Tester" || got.Comment.Text != "Pushed the branch" {
+		t.Errorf("got = %+v, want the task, sent and the server's comment", got)
+	}
+	out.Reset()
+	env = withNetwork(t, env, nil)
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "--json", "Offline"}); code != exitQueued {
+		t.Fatalf("offline code = %d\n%s", code, out.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out.String())
+	}
+	if got.Sent || got.Comment.ID != "local:2" || got.Comment.Text != "Offline" {
+		t.Errorf("got = %+v, want the local comment and sent false", got)
+	}
 }

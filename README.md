@@ -41,7 +41,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - change task title, description, importance, status, assignee and dates
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
-- commands for scripts and agents: list, show, create, edit, comment on, assign and move tasks from a shell, with JSON output
+- commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, with JSON output
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
 
 ## Keys

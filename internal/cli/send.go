@@ -231,25 +231,58 @@ func reportFate(env Env, out outcome, id string, asJSON bool) int {
 	return exitOK
 }
 
-// finishUpdate queues p on t, sends it and reports the task before and after, in the two line shape of task status:
-// line is what follows the title on both lines, the status, the importance, the people or the folders, suffix ends the now line.
-func finishUpdate(ctx context.Context, env Env, token, host string, t store.Task, ref *refData, p store.TaskUpdatePayload, asJSON bool,
+// deliver sends the row just queued and reads the task back, the middle every write command shares.
+// After it the write is decided, so the caller reports on a context a Ctrl-C cannot cut.
+func deliver(ctx context.Context, env Env, token, host string, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
+	out, reason, err = send(ctx, env, token, host, rowID)
+	if err != nil {
+		return out, reason, t, false, err
+	}
+	after = t
+	if out == sent || out == queued {
+		after, readOK = readBack(context.WithoutCancel(ctx), env, out, t.ID, t, ref, asJSON)
+	}
+	return out, reason, after, readOK, nil
+}
+
+// finishUpdate drops the fields of p the task already has, sends what is left and reports the task before and after,
+// in the two line shape of task status: line is what follows the title on both lines, the status, the importance,
+// the people or the folders, suffix ends the now line.
+// A field already so is noted on stderr, the way the boxes close without a write on the same value,
+// and with nothing left the command ends as unchanged without reading the token.
+func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p store.TaskUpdatePayload, asJSON bool,
 	line func(context.Context, store.Task) string, suffix string) int {
+	same := func(field, now string, want *string) {
+		if *want != "" && *want == now {
+			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %s unchanged\n", field)
+			*want = ""
+		}
+	}
+	same("title", t.Title, &p.Title)
+	same("description", t.Description, &p.Description)
+	same("importance", t.Importance, &p.Importance)
+	if p.CustomStatusID != "" && p.CustomStatusID == t.CustomStatusID {
+		_, _ = fmt.Fprintln(env.Stderr, "wrikery: status unchanged")
+		p.CustomStatusID, p.Status = "", ""
+	}
+	if p.Title == "" && p.Description == "" && p.Importance == "" && p.CustomStatusID == "" && p.Dates == nil &&
+		len(p.AddResponsibles)+len(p.RemoveResponsibles)+len(p.AddParents)+len(p.RemoveParents) == 0 {
+		return reportUnchanged(ctx, env, t, ref, asJSON, line(ctx, t))
+	}
 	before := line(ctx, t)
+	token, host, code := preflight(ctx, env)
+	if code != exitOK {
+		return code
+	}
 	rowID, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, t.ID, p)
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, token, host, rowID)
+	out, reason, after, readOK, err := deliver(ctx, env, token, host, rowID, t, ref, asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
-	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	after, readOK := t, false
-	if out == sent || out == queued {
-		after, readOK = readBack(ctx, env, out, t.ID, t, ref, asJSON)
-	}
 	if !asJSON && readOK {
 		_, _ = fmt.Fprintf(env.Stdout, "was: %s  %s\n", t.Title, before)
 	}
@@ -257,11 +290,12 @@ func finishUpdate(ctx context.Context, env Env, token, host string, t store.Task
 }
 
 // reportUnchanged ends a write command that found nothing to send: everybody named is on the task already,
-// the task is in the folder already, or the description is as it was. Nothing is queued, so the exit is 0.
+// the task is in the folder already, or every field is as it was. Nothing is queued, so the exit is 0.
 func reportUnchanged(ctx context.Context, env Env, t store.Task, ref *refData, asJSON bool, line string) int {
 	if asJSON {
 		type unchanged struct {
 			taskJSON
+			Sent      bool `json:"sent"`
 			Unchanged bool `json:"unchanged"`
 		}
 		return printJSON(env, unchanged{taskJSON: taskRow(ctx, env, t, ref), Unchanged: true})

@@ -61,12 +61,12 @@ func TestTaskEditMergesTheDescriptionAndKeepsTheUntouchedBlock(t *testing.T) {
 	seedBoard(t, env.Store)
 	// The first paragraph is description_markdown as task show prints it, the second is new.
 	env.Stdin = strings.NewReader("Three flags, **no** subcommands.\n\nRelated: the other task\n")
-	env, _, form, _ := recordWrite(t, env, answer("TASK1", "Headless commands for scripts", "High", []string{"U1"}, []string{"PROJ1"}))
+	env, _, form, requests := recordWrite(t, env, answer("TASK1", "Headless commands for scripts", "High", []string{"U1"}, []string{"PROJ1"}))
 	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--description", "-"}); code != exitOK {
 		t.Fatalf("code = %d\n%s", code, out.String())
 	}
-	if d := form.Get("description"); d != "<p>Three flags, <b>no</b> subcommands.</p><p>Related: the other task</p>" {
-		t.Errorf("description = %q, want the stored block kept byte for byte and the new paragraph converted", d)
+	if d := form.Get("description"); *requests != 1 || d != "<p>Three flags, <b>no</b> subcommands.</p><p>Related: the other task</p>" {
+		t.Errorf("requests = %d, description = %q, want one write with the stored block kept byte for byte and the new paragraph converted", *requests, d)
 	}
 	if form.Has("title") || form.Has("importance") {
 		t.Errorf("form = %v, want the description alone", *form)
@@ -110,5 +110,55 @@ func TestTaskEditNeedsATaskAndAFlagAndRefusesAnEmptyTitle(t *testing.T) {
 	}
 	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 0 {
 		t.Errorf("a usage error queued a row")
+	}
+}
+
+func TestTaskEditRefusesAnEmptyImportanceOrDescription(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env, _, _, requests := recordWrite(t, env, answer("TASK1", "Headless commands for scripts", "High", []string{"U1"}, []string{"PROJ1"}))
+	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--importance", ""}); code != exitUsage {
+		t.Errorf("empty importance code = %d, want %d, stderr %q", code, exitUsage, errOut.String())
+	}
+	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--description="}); code != exitUsage {
+		t.Errorf("empty description code = %d, want %d, stderr %q", code, exitUsage, errOut.String())
+	}
+	if *requests != 0 {
+		t.Errorf("requests = %d, want none for an empty flag", *requests)
+	}
+	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 0 {
+		t.Errorf("an empty flag queued a row")
+	}
+}
+
+func TestTaskEditDropsAFieldThatIsAlreadySo(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env, _, form, requests := recordWrite(t, env, answer("TASK1", "New title", "High", []string{"U1"}, []string{"PROJ1"}))
+	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--importance", "high", "--title", "Headless commands for scripts"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if *requests != 0 || !strings.Contains(out.String(), "unchanged: Headless commands for scripts  [High]\n") {
+		t.Errorf("requests = %d, out %q, want no write and the unchanged line", *requests, out.String())
+	}
+	if !strings.Contains(errOut.String(), "title unchanged") || !strings.Contains(errOut.String(), "importance unchanged") {
+		t.Errorf("stderr = %q, want both fields named", errOut.String())
+	}
+	out.Reset()
+	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--importance", "High", "--title", "New title"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if *requests != 1 || form.Get("title") != "New title" || form.Has("importance") {
+		t.Errorf("requests = %d, form = %v, want the title alone sent", *requests, *form)
+	}
+}
+
+func TestTaskEditUnchangedDescriptionNeedsNoToken(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env.Stdin = strings.NewReader("Three flags, **no** subcommands.\n")
+	env.Token = func() (string, error) { return "", fmt.Errorf("keychain locked") }
+	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--description", "-"}); code != exitOK {
+		t.Errorf("code = %d, want %d, a no-op must not read the token\n%s", code, exitOK, out.String())
 	}
 }

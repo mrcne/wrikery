@@ -35,6 +35,7 @@ func runTaskEdit(ctx context.Context, env Env, args []string) int {
 	if !given(fs, "title") && !given(fs, "importance") && !given(fs, "description") {
 		return usageError(env, fs, editUsage, "task edit needs --title, --importance or --description")
 	}
+	// A flag given empty, --importance "$LEVEL" with the variable unset, is refused rather than sent as nothing.
 	var p store.TaskUpdatePayload
 	if given(fs, "title") {
 		p.Title = strings.TrimSpace(*title)
@@ -42,23 +43,25 @@ func runTaskEdit(ctx context.Context, env Env, args []string) int {
 			return usageError(env, fs, editUsage, "the title is empty")
 		}
 	}
+	if given(fs, "importance") && strings.TrimSpace(*importance) == "" {
+		return usageError(env, fs, editUsage, "the importance is empty")
+	}
 	level, err := importanceLevel(*importance)
 	if err != nil {
 		return usageError(env, fs, editUsage, err.Error())
 	}
 	p.Importance = level
 	var md string
-	if *description != "" {
+	if given(fs, "description") {
+		if *description == "" {
+			return usageError(env, fs, editUsage, "the description is empty")
+		}
 		if md, err = readMarkdown(env, *description); err != nil {
 			return fail(env, err)
 		}
 		if strings.TrimSpace(md) == "" {
 			return usageError(env, fs, editUsage, "the description is empty")
 		}
-	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
 	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
@@ -71,19 +74,14 @@ func runTaskEdit(ctx context.Context, env Env, args []string) int {
 	line := func(_ context.Context, x store.Task) string { return "[" + x.Importance + "]" }
 	suffix := ""
 	if md != "" {
-		html, changed := ui.MergeDescription(t.Description, md)
-		switch {
-		case changed:
+		if html, changed := ui.MergeDescription(t.Description, md); changed {
 			p.Description, suffix = html, "  description updated"
-		case p.Title == "" && p.Importance == "":
-			_, _ = fmt.Fprintln(env.Stderr, "wrikery: description unchanged")
-			return reportUnchanged(ctx, env, t, &ref, *asJSON, line(ctx, t))
-		default:
+		} else {
 			// The other fields still go out, the editor's "description unchanged" toast becomes a note.
 			_, _ = fmt.Fprintln(env.Stderr, "wrikery: description unchanged")
 		}
 	}
-	return finishUpdate(ctx, env, token, host, t, &ref, p, *asJSON, line, suffix)
+	return finishUpdate(ctx, env, t, &ref, p, *asJSON, line, suffix)
 }
 
 // given reports whether the flag was on the command line, so --title "" is refused while a missing --title is no edit.
@@ -117,17 +115,10 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if text == "" {
 		return usageError(env, fs, commentUsage, "task comment needs a text")
 	}
-	// The comment is written as the user, whose id the first sync stores. A cache read, so it comes before the token.
-	meID, err := env.Store.GetMeta(ctx, store.MetaKeyMe)
-	if errors.Is(err, store.ErrNotFound) {
-		return fail(env, errors.New("run wrikery sync first, the cache does not know who you are yet"))
-	}
+	// The comment is written as the user. A cache read, so it comes before the token.
+	me, err := meID(ctx, env.Store)
 	if err != nil {
 		return fail(env, err)
-	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
 	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
@@ -137,21 +128,24 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	rowID, err := env.Store.Outbox().EnqueueComment(ctx, t.ID, meID, text)
+	token, host, code := preflight(ctx, env)
+	if code != exitOK {
+		return code
+	}
+	rowID, err := env.Store.Outbox().EnqueueComment(ctx, t.ID, me, text)
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, token, host, rowID)
+	out, reason, task, readOK, err := deliver(ctx, env, token, host, rowID, t, &ref, *asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	task, readOK := t, false
-	if out == sent || out == queued {
-		task, readOK = readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
+	if *asJSON && readOK {
+		return reportComment(ctx, env, out, reason, rowID, task, &ref, text)
 	}
-	if *asJSON || out == rejected || out == blocked || out == discarded || !readOK {
+	if *asJSON || !readOK {
 		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "comment on "+task.Title)
 	}
 	if out == queued {
@@ -163,11 +157,46 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	return exitOK
 }
 
+// reportComment is the JSON ending of a comment: the task as every write prints it, plus the comment itself,
+// under the server's id once the create landed and under its local id while it is queued, so a script can refer to it.
+func reportComment(ctx context.Context, env Env, out outcome, reason string, rowID int64, t store.Task, ref *refData, text string) int {
+	if out != sent && out != queued {
+		return reportWrite(ctx, env, out, reason, true, true, t, ref, "")
+	}
+	if out == queued {
+		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
+	}
+	id := store.LocalID(rowID)
+	if real, err := env.Store.Outbox().RealID(ctx, id); err == nil {
+		id = real
+	}
+	c := commentJSON{ID: id, Text: text}
+	if comments, err := env.Store.Comments().ListForTask(ctx, t.ID); err == nil {
+		for _, row := range comments {
+			if row.ID == id {
+				c = commentJSON{ID: row.ID, AuthorID: row.AuthorID, Author: contactName(*ref, row.AuthorID), Created: row.CreatedDate, Text: row.Text}
+			}
+		}
+	}
+	type result struct {
+		taskJSON
+		Comment commentJSON `json:"comment"`
+		Sent    bool        `json:"sent"`
+	}
+	if code := printJSON(env, result{taskJSON: taskRow(ctx, env, t, ref), Comment: c, Sent: out == sent}); code != exitOK {
+		return code
+	}
+	if out == queued {
+		return exitQueued
+	}
+	return exitOK
+}
+
 const assignUsage = `usage: wrikery task assign T P... [--json]
        wrikery task unassign T P... [--json]
 
 Puts people on a task, or takes them off, one write.
-P is me, a contact id, or a part of a name that matches exactly one contact in the cache.
+P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
 `
 
 // runTaskAssign serves assign and unassign, the same command with the other list of the write.
@@ -185,10 +214,6 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	if len(positional) < 2 {
 		return usageError(env, fs, assignUsage, name+" takes a task and at least one person")
 	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
-	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
 		return fail(env, err)
@@ -199,7 +224,12 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	}
 	var ids []string
 	for _, arg := range positional[1:] {
-		id, err := resolveContact(ctx, env.Store, &ref, arg)
+		var id string
+		if remove {
+			id, err = resolveOnTask(ctx, env.Store, &ref, t, arg)
+		} else {
+			id, err = resolveContact(ctx, env.Store, &ref, arg)
+		}
 		if err != nil {
 			return fail(env, err)
 		}
@@ -220,16 +250,13 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 		}
 	}
 	line := func(_ context.Context, x store.Task) string { return peopleLine(x.ResponsibleIDs, &ref) }
-	if len(keep) == 0 {
-		return reportUnchanged(ctx, env, t, &ref, *asJSON, line(ctx, t))
-	}
 	var p store.TaskUpdatePayload
 	if remove {
 		p.RemoveResponsibles = keep
 	} else {
 		p.AddResponsibles = keep
 	}
-	return finishUpdate(ctx, env, token, host, t, &ref, p, *asJSON, line, "")
+	return finishUpdate(ctx, env, t, &ref, p, *asJSON, line, "")
 }
 
 func peopleLine(ids []string, ref *refData) string {
@@ -275,10 +302,6 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 	}
 	if len(to)+len(from) == 0 {
 		return usageError(env, fs, moveUsage, "task move needs --to or --from")
-	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
 	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
@@ -333,12 +356,47 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 	if len(add)+len(remove) == 0 {
 		return reportUnchanged(ctx, env, t, &ref, *asJSON, line(ctx, t))
 	}
-	if len(t.ParentIDs)-len(remove)+len(add) == 0 {
+	var left []string
+	for _, id := range t.ParentIDs {
+		if !slices.Contains(remove, id) {
+			left = append(left, id)
+		}
+	}
+	left = append(left, add...)
+	if len(left) == 0 {
 		// Wrike accepts a task with no folder left and puts it in the account root, which no followed scope covers,
 		// so it would drop out of the cache at the next sync. The folders box in the interface refuses it the same way.
 		return fail(env, errors.New("a task needs a folder, give --to as well"))
 	}
-	return finishUpdate(ctx, env, token, host, t, &ref, store.TaskUpdatePayload{AddParents: add, RemoveParents: remove}, *asJSON, line, "")
+	// The cache holds the whole folder tree, so --to can name a folder nobody follows, which the box cannot offer.
+	// A move to another team's space may be meant, so it goes out with a note instead of a refusal.
+	if followed, err := followedFolders(ctx, env.Store); err == nil && len(followed) > 0 && !slices.ContainsFunc(left, func(id string) bool { return followed[id] }) {
+		_, _ = fmt.Fprintln(env.Stderr, "wrikery: no followed folder is left on the task, it leaves the cache at the next sync")
+	}
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{AddParents: add, RemoveParents: remove}, *asJSON, line, "")
+}
+
+// followedFolders is every folder under a followed space or project, the tree the interface shows.
+func followedFolders(ctx context.Context, st *store.Store) (map[string]bool, error) {
+	scopes, err := st.Scopes().Followed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]bool{}
+	for _, sc := range scopes {
+		if sc.Kind != store.ScopeKindSpace && sc.Kind != store.ScopeKindProject {
+			continue
+		}
+		sub, err := st.Folders().Subtree(ctx, sc.ID)
+		if err != nil {
+			return nil, err
+		}
+		ids[sc.ID] = true
+		for _, fo := range sub {
+			ids[fo.ID] = true
+		}
+	}
+	return ids, nil
 }
 
 func foldersLine(ctx context.Context, env Env, ids []string, ref *refData) string {

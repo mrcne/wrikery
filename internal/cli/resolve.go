@@ -159,32 +159,74 @@ func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Fold
 	return store.Folder{}, ambiguous(arg, "folders", lines)
 }
 
-// resolveContact takes me, a contact id or a part of a name that matches exactly one contact in the cache.
+// meID is the user's own contact id, which the first sync stores.
+func meID(ctx context.Context, st *store.Store) (string, error) {
+	id, err := st.GetMeta(ctx, store.MetaKeyMe)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", errors.New("run wrikery sync first, the cache does not know who you are yet")
+	}
+	return id, err
+}
+
+// resolveContact takes me, a contact id or a part of a name that matches exactly one person in the cache.
 // The name is folded like a title, so "nowak" and "Nowak" are the same person.
-// Deleted contacts are left out, a task is not assigned to someone who left the account.
+// A Wrike contact is a Person or a Group (https://developers.wrike.com/api/v4/contacts/), and the assignee box offers people only,
+// so a group is no match here either, by name or by id, nor is a deleted contact: a task is not assigned to someone who left.
 func resolveContact(ctx context.Context, st *store.Store, ref *refData, arg string) (string, error) {
 	arg = strings.TrimSpace(arg)
 	if arg == "" {
 		return "", errors.New("a person is needed, me, a contact id or a part of a name")
 	}
 	if strings.EqualFold(arg, "me") {
-		id, err := st.GetMeta(ctx, store.MetaKeyMe)
-		if errors.Is(err, store.ErrNotFound) {
-			return "", errors.New("run wrikery sync first, the cache does not know who you are yet")
-		}
-		return id, err
+		return meID(ctx, st)
 	}
-	if c, ok := ref.contacts[arg]; ok {
+	person := func(c store.Contact) bool { return !c.Deleted && c.Type != "Group" }
+	if c, ok := ref.contacts[arg]; ok && person(c) {
 		return c.ID, nil
 	}
+	var people []store.Contact
+	for _, c := range ref.contacts {
+		if person(c) {
+			people = append(people, c)
+		}
+	}
+	return matchContact(arg, people)
+}
+
+// resolveOnTask is the resolver for an unassign: the people on the task come first, by id or by a part of the name,
+// whatever their state, so a person who left the account can still be taken off, and an id the cache never saw as well.
+// "anna" is one person when one Anna is on the task, however many the cache holds.
+// Nobody on the task matching falls back to the cache, so the caller can say that the person is not on the task.
+func resolveOnTask(ctx context.Context, st *store.Store, ref *refData, t store.Task, arg string) (string, error) {
+	arg = strings.TrimSpace(arg)
+	if strings.EqualFold(arg, "me") {
+		return meID(ctx, st)
+	}
+	var on []store.Contact
+	for _, id := range t.ResponsibleIDs {
+		if id == arg {
+			return id, nil
+		}
+		if c, ok := ref.contacts[id]; ok {
+			on = append(on, c)
+		}
+	}
+	if id, err := matchContact(arg, on); err == nil {
+		return id, nil
+	}
+	return resolveContact(ctx, st, ref, arg)
+}
+
+// matchContact picks the one contact whose folded name holds the folded fragment, with the candidates listed when several do.
+func matchContact(arg string, contacts []store.Contact) (string, error) {
 	folded := store.FoldTitle(arg)
 	var hits []store.Contact
-	for _, c := range ref.contacts {
-		if !c.Deleted && strings.Contains(store.FoldTitle(c.Name()), folded) {
+	for _, c := range contacts {
+		if strings.Contains(store.FoldTitle(c.Name()), folded) {
 			hits = append(hits, c)
 		}
 	}
-	// The contacts come from a map, the candidates are listed in a steady order.
+	// The contacts may come from a map, the candidates are listed in a steady order.
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].Name() != hits[j].Name() {
 			return hits[i].Name() < hits[j].Name()

@@ -150,28 +150,37 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 		var p, b store.TaskUpdatePayload
 		_ = json.Unmarshal(row.Payload, &p)
 		_ = json.Unmarshal(row.Before, &b)
-		switch {
-		case p.CustomStatusID != "":
-			s := "status  " + arrow(statusName(b.CustomStatusID), statusName(p.CustomStatusID))
-			return s, s
-		case len(p.AddResponsibles)+len(p.RemoveResponsibles) > 0:
-			s := "assignee  " + plusMinus(p.AddResponsibles, p.RemoveResponsibles, contact)
-			return s, s
-		case len(p.AddParents)+len(p.RemoveParents) > 0:
-			s := "folder  " + plusMinus(p.AddParents, p.RemoveParents, folderName)
-			return s, s
-		case p.Title != "":
-			return "title  " + arrow(ansi.Truncate(b.Title, 24, "..."), ansi.Truncate(p.Title, 24, "...")), "title  " + arrow(b.Title, p.Title)
-		case p.Description != "":
-			return "description changed", "description  " + arrow(ansi.Truncate(store.StripHTML(b.Description), 60, "..."), ansi.Truncate(store.StripHTML(p.Description), 60, "..."))
-		case p.Importance != "":
-			s := "importance  " + arrow(b.Importance, p.Importance)
-			return s, s
-		case p.Dates != nil:
-			s := "dates  " + arrow(datesText(b.Dates), datesText(p.Dates))
-			return s, s
+		// A box writes one field at a time, a command's task edit can send several in one row, so every field present is listed.
+		var short, long []string
+		both := func(s string) { short, long = append(short, s), append(long, s) }
+		if p.CustomStatusID != "" {
+			both("status  " + arrow(statusName(b.CustomStatusID), statusName(p.CustomStatusID)))
 		}
-		return "task change", ""
+		if len(p.AddResponsibles)+len(p.RemoveResponsibles) > 0 {
+			both("assignee  " + plusMinus(p.AddResponsibles, p.RemoveResponsibles, contact))
+		}
+		if len(p.AddParents)+len(p.RemoveParents) > 0 {
+			both("folder  " + plusMinus(p.AddParents, p.RemoveParents, folderName))
+		}
+		if p.Title != "" {
+			short = append(short, "title  "+arrow(ansi.Truncate(b.Title, 24, "..."), ansi.Truncate(p.Title, 24, "...")))
+			long = append(long, "title  "+arrow(b.Title, p.Title))
+		}
+		if p.Importance != "" {
+			both("importance  " + arrow(b.Importance, p.Importance))
+		}
+		if p.Dates != nil {
+			both("dates  " + arrow(datesText(b.Dates), datesText(p.Dates)))
+		}
+		// The description is the long one, it comes last so the short fields stay on screen in a cut summary.
+		if p.Description != "" {
+			short = append(short, "description changed")
+			long = append(long, "description  "+arrow(ansi.Truncate(store.StripHTML(b.Description), 60, "..."), ansi.Truncate(store.StripHTML(p.Description), 60, "...")))
+		}
+		if len(short) == 0 {
+			return "task change", ""
+		}
+		return strings.Join(short, ", "), strings.Join(long, ", ")
 	case store.KindTimelogCreate:
 		var p store.TimelogCreatePayload
 		_ = json.Unmarshal(row.Payload, &p)
