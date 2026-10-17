@@ -211,3 +211,100 @@ func TestDoSaysWrikeIsUnavailableWithAShortTextBody(t *testing.T) {
 		}
 	}
 }
+
+// fakeSource hands out its tokens in order, one per call, and records the rejected value of each call.
+type fakeSource struct {
+	tokens     []string
+	calls      []string
+	errOnRenew error
+}
+
+func (f *fakeSource) Token(_ context.Context, rejected string) (string, error) {
+	f.calls = append(f.calls, rejected)
+	if rejected != "" && f.errOnRenew != nil {
+		return "", f.errOnRenew
+	}
+	return f.tokens[min(len(f.calls)-1, len(f.tokens)-1)], nil
+}
+
+func unauthorized(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"error":"not_authorized","errorDescription":"Access token is unknown or invalid"}`))
+}
+
+func TestClientRetriesOnceAfter401WithARenewedToken(t *testing.T) {
+	var seen []string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") != "Bearer new" {
+			unauthorized(w)
+			return
+		}
+		_, _ = w.Write([]byte(`{"kind":"things","data":[{"id":"A"}]}`))
+	}))
+	src := &fakeSource{tokens: []string{"old", "new"}}
+	WithTokenSource(src)(c)
+	var out []struct {
+		ID string `json:"id"`
+	}
+	// A POST, the renewal send is not a retry and runs for every method.
+	if _, err := c.do(context.Background(), http.MethodPost, "/things", nil, url.Values{"a": {"b"}}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0].ID != "A" {
+		t.Errorf("out = %+v, want the answer of the second send", out)
+	}
+	if strings.Join(seen, ",") != "Bearer old,Bearer new" {
+		t.Errorf("tokens sent = %q, want old then new", seen)
+	}
+	if strings.Join(src.calls, "|") != "|old" {
+		t.Errorf("source asked with %q, want an empty value then the rejected token", src.calls)
+	}
+}
+
+func TestClientReturnsThe401WhenTheSourceHandsTheSameToken(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		unauthorized(w)
+	}))
+	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.IsAuth() {
+		t.Fatalf("err = %v, want the 401", err)
+	}
+	if calls != 1 {
+		t.Errorf("requests = %d, want one, a permanent token is not sent twice", calls)
+	}
+}
+
+func TestClientWrapsThe401WhenTheSourceFails(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { unauthorized(w) }))
+	WithTokenSource(&fakeSource{tokens: []string{"old"}, errOnRenew: errors.New("refresh token invalid")})(c)
+	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.IsAuth() {
+		t.Fatalf("err = %v, want the 401 to be found", err)
+	}
+	if !strings.Contains(err.Error(), "refresh token invalid") {
+		t.Errorf("err = %q, want the source's reason in the text", err)
+	}
+}
+
+func TestClientReturnsASecond401(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		unauthorized(w)
+	}))
+	src := &fakeSource{tokens: []string{"old", "new"}}
+	WithTokenSource(src)(c)
+	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.IsAuth() {
+		t.Fatalf("err = %v, want the 401", err)
+	}
+	if calls != 2 || len(src.calls) != 2 {
+		t.Errorf("requests = %d, source calls = %d, want two and two", calls, len(src.calls))
+	}
+}

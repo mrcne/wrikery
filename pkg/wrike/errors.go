@@ -67,13 +67,19 @@ func (e *APIError) IsWrongHost() bool { return e.StatusCode == http.StatusMultip
 
 func parseAPIError(method, path string, status int, header http.Header, body []byte) *APIError {
 	apiErr := &APIError{StatusCode: status, Method: method, Path: path}
+	// The API spells the description errorDescription, the token endpoint error_description,
+	// the field name of RFC 6749 section 5.2, https://www.rfc-editor.org/rfc/rfc6749#section-5.2 .
 	var payload struct {
-		Code        string `json:"error"`
-		Description string `json:"errorDescription"`
+		Code             string `json:"error"`
+		Description      string `json:"errorDescription"`
+		OAuthDescription string `json:"error_description"`
 	}
 	if json.Unmarshal(body, &payload) == nil {
 		apiErr.Code = payload.Code
 		apiErr.Description = payload.Description
+		if apiErr.Description == "" {
+			apiErr.Description = payload.OAuthDescription
+		}
 	} else if text := strings.TrimSpace(string(body)); shortText(text) {
 		apiErr.Description = text
 	}

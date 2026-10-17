@@ -33,7 +33,7 @@ func BaseURL(host string) string {
 // since a POST that failed on the server side may already be applied and retrying it could duplicate the write.
 type Client struct {
 	baseURL    string
-	token      string
+	source     TokenSource
 	userAgent  string
 	httpClient *http.Client
 	maxRetries int
@@ -59,12 +59,32 @@ func WithUserAgent(ua string) Option {
 	return func(c *Client) { c.userAgent = ua }
 }
 
+// TokenSource hands the client a bearer token for each request.
+// rejected is the token Wrike answered 401 to, empty on a first attempt.
+// A source that cannot replace a rejected token returns it again, or an error, and the client gives up on the request.
+type TokenSource interface {
+	Token(ctx context.Context, rejected string) (string, error)
+}
+
+// StaticToken is a TokenSource for a token that never changes, a permanent access token.
+func StaticToken(token string) TokenSource { return staticToken(token) }
+
+type staticToken string
+
+func (t staticToken) Token(context.Context, string) (string, error) { return string(t), nil }
+
+// WithTokenSource replaces the token New was given with a source asked before every request,
+// for an OAuth access token that is renewed while the client lives.
+func WithTokenSource(src TokenSource) Option {
+	return func(c *Client) { c.source = src }
+}
+
 // New creates a Client for the given API token,
 // defaulting to DefaultHost until an Option such as WithBaseURL points it elsewhere.
 func New(token string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    BaseURL(DefaultHost),
-		token:      token,
+		source:     StaticToken(token),
 		userAgent:  "wrikery (+https://github.com/mrcne/wrikery)",
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		maxRetries: 3,
@@ -83,9 +103,9 @@ type envelope struct {
 	Data          json.RawMessage `json:"data"`
 }
 
-// doOnce performs one API request and unmarshals the envelope's data into out.
+// doOnce performs one API request with the given bearer token and unmarshals the envelope's data into out.
 // out may be nil when the caller does not need the response body.
-func (c *Client) doOnce(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
+func (c *Client) doOnce(ctx context.Context, token, method, path string, query url.Values, form url.Values, out any) (string, error) {
 	u := c.baseURL + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -98,7 +118,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", c.userAgent)
 	if len(form) > 0 {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -133,20 +153,39 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 
 // do wraps doOnce with the retry policy: rate limits and transient
 // failures are retried with backoff, everything else returns immediately.
+// A 401 gets one more send with a token the source renewed, before the policy looks at it.
+// That send is safe for every method, a request Wrike refused the token of was not applied.
+// A source that hands the rejected token back, the permanent token always, leaves the 401 as it is.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, form url.Values, out any) (string, error) {
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		next, err := c.doOnce(ctx, method, path, query, form, out)
+	token, err := c.source.Token(ctx, "")
+	if err != nil {
+		return "", fmt.Errorf("%s %s: getting the token: %w", method, path, err)
+	}
+	renewed := false
+	for retries := 0; ; {
+		next, err := c.doOnce(ctx, token, method, path, query, form, out)
 		if err == nil {
 			return next, nil
 		}
-		lastErr = err
-		if attempt >= c.maxRetries || !retryable(method, err) {
-			return "", lastErr
+		var apiErr *APIError
+		if !renewed && errors.As(err, &apiErr) && apiErr.IsAuth() {
+			renewed = true
+			fresh, serr := c.source.Token(ctx, token)
+			if serr != nil {
+				return "", fmt.Errorf("%w (renewing the token: %w)", err, serr)
+			}
+			if fresh != token {
+				token = fresh
+				continue
+			}
 		}
-		if serr := c.sleep(ctx, retryDelay(err, attempt)); serr != nil {
+		if retries >= c.maxRetries || !retryable(method, err) {
+			return "", err
+		}
+		if serr := c.sleep(ctx, retryDelay(err, retries)); serr != nil {
 			return "", serr
 		}
+		retries++
 	}
 }
 
