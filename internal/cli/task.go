@@ -163,25 +163,8 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	before := ref.statusName(t)
-	rowID, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, t.ID, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group})
-	if err != nil {
-		return fail(env, err)
-	}
-	out, reason, err := send(ctx, env, token, host, rowID)
-	if err != nil {
-		return fail(env, err)
-	}
-	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
-	ctx = context.WithoutCancel(ctx)
-	after, readOK := t, false
-	if out == sent || out == queued {
-		after, readOK = readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
-	}
-	if !*asJSON && readOK {
-		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
-	}
-	return reportWrite(ctx, env, out, reason, *asJSON, readOK, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
+	line := func(_ context.Context, x store.Task) string { return "[" + ref.statusName(x) + "]" }
+	return finishUpdate(ctx, env, token, host, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, *asJSON, line, "")
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.

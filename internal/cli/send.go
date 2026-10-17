@@ -230,3 +230,42 @@ func reportFate(env Env, out outcome, id string, asJSON bool) int {
 	}
 	return exitOK
 }
+
+// finishUpdate queues p on t, sends it and reports the task before and after, in the two line shape of task status:
+// line is what follows the title on both lines, the status, the importance, the people or the folders, suffix ends the now line.
+func finishUpdate(ctx context.Context, env Env, token, host string, t store.Task, ref *refData, p store.TaskUpdatePayload, asJSON bool,
+	line func(context.Context, store.Task) string, suffix string) int {
+	before := line(ctx, t)
+	rowID, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, t.ID, p)
+	if err != nil {
+		return fail(env, err)
+	}
+	out, reason, err := send(ctx, env, token, host, rowID)
+	if err != nil {
+		return fail(env, err)
+	}
+	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
+	ctx = context.WithoutCancel(ctx)
+	after, readOK := t, false
+	if out == sent || out == queued {
+		after, readOK = readBack(ctx, env, out, t.ID, t, ref, asJSON)
+	}
+	if !asJSON && readOK {
+		_, _ = fmt.Fprintf(env.Stdout, "was: %s  %s\n", t.Title, before)
+	}
+	return reportWrite(ctx, env, out, reason, asJSON, readOK, after, ref, fmt.Sprintf("%s  %s%s", after.Title, line(ctx, after), suffix))
+}
+
+// reportUnchanged ends a write command that found nothing to send: everybody named is on the task already,
+// the task is in the folder already, or the description is as it was. Nothing is queued, so the exit is 0.
+func reportUnchanged(ctx context.Context, env Env, t store.Task, ref *refData, asJSON bool, line string) int {
+	if asJSON {
+		type unchanged struct {
+			taskJSON
+			Unchanged bool `json:"unchanged"`
+		}
+		return printJSON(env, unchanged{taskJSON: taskRow(ctx, env, t, ref), Unchanged: true})
+	}
+	_, _ = fmt.Fprintf(env.Stdout, "unchanged: %s  %s\n", t.Title, line)
+	return exitOK
+}

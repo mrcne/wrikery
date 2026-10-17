@@ -51,17 +51,32 @@ Commands:
                                             list tasks, your own by default
   wrikery task show T                       print one task with its description and comments
   wrikery task status T STATUS              move a task to a status of its workflow
-  wrikery task create --folder F TITLE...   create a task, the words make the title
+  wrikery task create --folder F [--importance L] [--description FILE|-] TITLE...
+                                            create a task, the words make the title
+  wrikery task edit T [--title TITLE] [--importance L] [--description FILE|-]
+                                            change the title, the importance or the description
+  wrikery task comment T TEXT...            add a comment as you
+  wrikery task assign T P...                put people on a task
+  wrikery task unassign T P...              take people off a task
+  wrikery task move T [--to F]... [--from F]...
+                                            put a task in folders, take it out of others
 
 A task or folder is an id or a part of its title that matches exactly one cached row.
 A task may also be the number or the link from the browser, a bare number is always the number from the link, the link in quotes, like "https://app-eu.wrike.com/open.htm?id=4552825748".
+A person is me, a contact id or a part of a name that matches exactly one contact.
+A description is markdown, the text the E editor in the interface writes.
 Every command takes --json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 `
 
 const taskUsage = `usage: wrikery task list [--folder F | --me] [--all]
        wrikery task show T
        wrikery task status T STATUS
-       wrikery task create --folder F TITLE...
+       wrikery task create --folder F [--importance L] [--description FILE|-] TITLE...
+       wrikery task edit T [--title TITLE] [--importance L] [--description FILE|-]
+       wrikery task comment T TEXT...
+       wrikery task assign T P...
+       wrikery task unassign T P...
+       wrikery task move T [--to F]... [--from F]...
 `
 
 // Run executes args and returns the exit code.
@@ -99,6 +114,16 @@ func runTask(ctx context.Context, env Env, args []string) int {
 		return runTaskStatus(ctx, env, args[1:])
 	case "create":
 		return runTaskCreate(ctx, env, args[1:])
+	case "edit":
+		return runTaskEdit(ctx, env, args[1:])
+	case "comment":
+		return runTaskComment(ctx, env, args[1:])
+	case "assign":
+		return runTaskAssign(ctx, env, args[1:], false)
+	case "unassign":
+		return runTaskAssign(ctx, env, args[1:], true)
+	case "move":
+		return runTaskMove(ctx, env, args[1:])
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown task command %q\n", args[0])
 	_, _ = fmt.Fprint(env.Stderr, taskUsage)

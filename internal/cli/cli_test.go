@@ -71,7 +71,8 @@ func TestRunHelpPrintsTheUsageOnStdout(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"help"}); code != exitOK {
 		t.Errorf("code = %d, want 0", code)
 	}
-	for _, want := range []string{"wrikery sync", "wrikery task list", "wrikery task show", "wrikery task status", "wrikery task create", "--json"} {
+	for _, want := range []string{"wrikery sync", "wrikery task list", "wrikery task show", "wrikery task status", "wrikery task create",
+		"wrikery task edit", "wrikery task comment", "wrikery task assign", "wrikery task unassign", "wrikery task move", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage lacks %q:\n%s", want, out.String())
 		}

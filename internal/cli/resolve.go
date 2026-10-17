@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -156,6 +157,58 @@ func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Fold
 		lines = append(lines, h.ID+"  "+h.Title)
 	}
 	return store.Folder{}, ambiguous(arg, "folders", lines)
+}
+
+// resolveContact takes me, a contact id or a part of a name that matches exactly one contact in the cache.
+// The name is folded like a title, so "nowak" and "Nowak" are the same person.
+// Deleted contacts are left out, a task is not assigned to someone who left the account.
+func resolveContact(ctx context.Context, st *store.Store, ref *refData, arg string) (string, error) {
+	arg = strings.TrimSpace(arg)
+	if arg == "" {
+		return "", errors.New("a person is needed, me, a contact id or a part of a name")
+	}
+	if strings.EqualFold(arg, "me") {
+		id, err := st.GetMeta(ctx, store.MetaKeyMe)
+		if errors.Is(err, store.ErrNotFound) {
+			return "", errors.New("run wrikery sync first, the cache does not know who you are yet")
+		}
+		return id, err
+	}
+	if c, ok := ref.contacts[arg]; ok {
+		return c.ID, nil
+	}
+	folded := store.FoldTitle(arg)
+	var hits []store.Contact
+	for _, c := range ref.contacts {
+		if !c.Deleted && strings.Contains(store.FoldTitle(c.Name()), folded) {
+			hits = append(hits, c)
+		}
+	}
+	// The contacts come from a map, the candidates are listed in a steady order.
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].Name() != hits[j].Name() {
+			return hits[i].Name() < hits[j].Name()
+		}
+		return hits[i].ID < hits[j].ID
+	})
+	switch len(hits) {
+	case 0:
+		return "", fmt.Errorf("no contact matching %q in the cache", arg)
+	case 1:
+		return hits[0].ID, nil
+	}
+	names := make([]string, len(hits))
+	for i, h := range hits {
+		names[i] = h.Name()
+	}
+	if i := exactTitle(arg, names); i >= 0 {
+		return hits[i].ID, nil
+	}
+	lines := make([]string, 0, len(hits))
+	for _, h := range hits {
+		lines = append(lines, h.ID+"  "+h.Name())
+	}
+	return "", ambiguous(arg, "contacts", lines)
 }
 
 func ambiguous(arg, what string, lines []string) error {
