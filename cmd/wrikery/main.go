@@ -174,6 +174,9 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
+		if l := startControl(demoSocketPath(), controlHandler(p.Send, outboxCounts(st))); l != nil {
+			defer func() { _ = l.Close() }()
+		}
 		_, err = p.Run()
 		return err
 	}
@@ -195,6 +198,9 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, FirstRun: firstRun, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
+	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
+		defer func() { _ = l.Close() }()
+	}
 	if !firstRun {
 		host, err := resolveHost(context.Background(), cfg, st, token)
 		if err != nil {
@@ -278,6 +284,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Client:   func(token, host string) *wrike.Client { return newClient(token, host) },
 		Host:     func(ctx context.Context, token string) (string, error) { return resolveHost(ctx, cfg, st, token) },
 		LockFile: lockPath(paths),
+		Socket:   socketPath(paths),
 		Theme:    ui.NewTheme(cfg.UI),
 		Width:    width,
 		Deadline: 15 * time.Second,
@@ -299,4 +306,9 @@ func resolveTheme(cfg config.UIConfig, terminal bool) config.UIConfig {
 		cfg.Theme = "light"
 	}
 	return cfg
+}
+
+// outboxCounts reads the queue counts for a reload asked for on the control socket.
+func outboxCounts(st *store.Store) func() (int, int, error) {
+	return func() (int, int, error) { return st.Outbox().Counts(context.Background()) }
 }

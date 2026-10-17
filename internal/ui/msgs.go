@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -115,3 +117,27 @@ type scopesSavedMsg struct {
 }
 
 func intent(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
+
+// ControlMsg is a request from a command on the control socket, handed in by cmd/wrikery the way the engine events are.
+// The fields follow the operation, the rest stay empty. Reply is buffered by the sender, so Update never waits on it.
+// Deadline is when the sender stopped waiting: a message held up behind an external editor is dropped past it,
+// the command was told the interface is busy and a filter that lands minutes later would surprise. Zero means no deadline.
+type ControlMsg struct {
+	Op         string
+	Importance []string
+	Person     string
+	Statuses   []string
+	TaskID     string
+	ParentID   string
+	FolderID   string
+	Shape      string
+	Screen     string
+	Deadline   time.Time
+	Reply      chan<- ControlReply
+}
+
+// ControlReply is the interface's answer: a line for the person, or the reason it did nothing.
+type ControlReply struct {
+	Text string
+	Err  error
+}

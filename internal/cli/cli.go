@@ -35,6 +35,7 @@ type Env struct {
 	Client   func(token, host string) *wrike.Client                  // main's constructor, it carries the User-Agent
 	Host     func(ctx context.Context, token string) (string, error) // main's config, meta, probe chain
 	LockFile string                                                  // the sync lock next to the database
+	Socket   string                                                  // the control socket of a running interface, next to the database as well
 	Theme    ui.Theme
 	Width    int           // columns of the terminal stdout is, 0 in a pipe
 	Deadline time.Duration // how long a write waits for the lock and to start, a create already sent waits for Wrike's answer, up to a minute and a half when Wrike rate limits

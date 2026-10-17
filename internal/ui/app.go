@@ -165,6 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onSyncState(msg.State)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
+	case ControlMsg:
+		return m.control(msg)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
 		if m.screen == screenChanges {
@@ -882,16 +884,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			return m.refresh()
 		case key.Matches(msg, m.keys.Changes) && m.screen != screenChanges:
-			closing := m.closeTimesheetDetail()
-			m.screen = screenChanges
-			return m, tea.Batch(closing, m.loadChanges())
+			return m, m.openScreen(screenChanges)
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
-			m.screen = screenTimesheet
-			return m, m.loadWeek(time.Time{})
+			return m, m.openScreen(screenTimesheet)
 		case key.Matches(msg, m.keys.Settings) && m.screen != screenSettings:
-			closing := m.closeTimesheetDetail()
-			m.screen = screenSettings
-			return m, tea.Batch(closing, m.loadScopes(), m.loadHost())
+			return m, m.openScreen(screenSettings)
 		case key.Matches(msg, m.keys.Back):
 			if m.paneBesideGrid() {
 				// One level at a time: the pane beside the grid goes first, the next esc leaves the timesheet.
@@ -927,14 +924,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		return m.refresh()
 	case key.Matches(msg, m.keys.Changes):
-		m.screen = screenChanges
-		return m, m.loadChanges()
+		return m, m.openScreen(screenChanges)
 	case key.Matches(msg, m.keys.Settings):
-		m.screen = screenSettings
-		return m, tea.Batch(m.loadScopes(), m.loadHost())
+		return m, m.openScreen(screenSettings)
 	case key.Matches(msg, m.keys.Timesheet):
-		m.screen = screenTimesheet
-		return m, m.loadWeek(time.Time{})
+		return m, m.openScreen(screenTimesheet)
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = m.cyclePane(1)
 	case key.Matches(msg, m.keys.PrevPane):
