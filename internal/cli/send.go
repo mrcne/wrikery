@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/mrcne/wrikery/internal/control"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/pkg/wrike"
@@ -241,6 +242,10 @@ func deliver(ctx context.Context, env Env, token, host string, rowID int64, t st
 	after = t
 	if out == sent || out == queued {
 		after, readOK = readBack(context.WithoutCancel(ctx), env, out, t.ID, t, ref, asJSON)
+	}
+	// The cache changed whatever the outcome, a rejected write is on the changes screen, so a running interface re-reads it now.
+	if env.Socket != "" {
+		control.Nudge(env.Socket)
 	}
 	return out, reason, after, readOK, nil
 }

@@ -28,6 +28,7 @@ Writing:
 From a shell, for scripts and agents:
 
 - list tasks, show one, create one, change its status, title, importance, description, people and folders, and comment on it, as text or JSON
+- drive the interface that is running: set its filter, show a task, open a folder, switch the shape or the screen, refresh
 - run one sync cycle
 
 Not in v1: creating subtasks and dependencies, editing custom fields, dashboards, Gantt charts.
@@ -293,4 +294,13 @@ A person already on the task, a folder it is already in, or a title, importance 
 Taking a task out of its last folder is refused, as in the folders box, and a move that leaves no followed folder on the task goes out with a note, since the task leaves the cache at the next sync.
 On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
 Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.
-The interface, when it is running at the same time, shows a command's change at its next poll or after a refresh with `R`.
+The interface, when it is running at the same time, is told to re-read the cache by every write command and by `wrikery sync`, so their changes show at once.
+
+The `ui` commands act on the interface that is running instead of the cache, through a socket next to the database, and print what it did.
+`wrikery ui filter` narrows the list and the board the way the filter box does, with `--importance` and `--status` repeated for each level or status and one `--person`, and replaces the filter in place, `wrikery ui filter --clear` is `F`.
+`wrikery ui select T` shows a task the way a pick from the search does, `wrikery ui folder F` opens a space, project or folder the way enter on it in the sidebar does, and `me` is My tasks.
+`wrikery ui list` and `wrikery ui board` set the shape, `wrikery ui open tasks|timesheet|changes|settings` a screen, and `wrikery ui refresh` is `R`.
+A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
+With no interface running the command says so and exits with 1, and a box, the search, the help or the first run screen open in the interface refuse the request the same way.
+Two interfaces on one cache: the first keeps the socket, the second runs without it.
+`wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.

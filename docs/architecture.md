@@ -24,6 +24,7 @@ The code is split into five parts with strict boundaries, plus a small config pa
   When sync changes the store, the UI hears about it through a bubbletea message and refreshes.
   The task list owns the rows and their order, grouped or not, and two views draw them: the list with sections and a board with a column per workflow status and a lane per group.
   The board moves the list's own cursor, so there is one selection and no state to carry across when the shape changes.
+- `internal/control` is the channel between a command and a running interface, a unix socket with one JSON line each way.
 - `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
   It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
@@ -39,6 +40,13 @@ Wrike serves accounts from more than one data center under a different host, so 
 Later runs read that host back instead of probing again, and the `host` config key overrides both when set.
 When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the token, the client constructor and the host resolver instead of starting the program.
 A command appends to the same log file and never rotates it, the interface does the rotation at its start.
+
+A running interface listens on a unix socket next to the database, `wrikery.sock` beside the sync lock, and `internal/control` is the channel: one JSON request in, one JSON reply out, a connection per request.
+`cmd/wrikery` owns the listener as it owns the engine forwarder, and turns a request into a `ui.ControlMsg` with a buffered reply channel that the model answers from its update loop, so `internal/ui` sees no socket.
+The send to the program runs on a goroutine of its own, because the program blocks while an external editor holds it, and a request nobody answers in five seconds is reported as busy and carries a deadline past which the model drops it.
+A reload, what every write command and `wrikery sync` send when they are done, becomes the two messages the engine forwarder sends after a cycle and never reaches the model as a request.
+A socket path has room for 104 bytes on macOS, so a long data directory gets a hashed name in the temp dir, computed the same way on both sides.
+The first interface keeps the socket, a second one logs that and runs without it, a stale file from a crash is removed before the bind, and the demo listens on a fixed name in the temp dir.
 
 ## What gets cached
 

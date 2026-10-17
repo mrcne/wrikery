@@ -61,11 +61,20 @@ Commands:
   wrikery task unassign T P...              take people off a task
   wrikery task move T [--to F]... [--from F]...
                                             put a task in folders, take it out of others
+  wrikery ui filter [--importance L]... [--person P] [--status S]... | --clear
+                                            narrow the running interface, or clear its filter
+  wrikery ui select T                       show a task in the running interface
+  wrikery ui folder F                       open a space, project or folder there, me for My tasks
+  wrikery ui list | wrikery ui board        its shape
+  wrikery ui open tasks|timesheet|changes|settings
+                                            one of its screens
+  wrikery ui refresh                        a sync cycle now, what R does
 
 A task or folder is an id or a part of its title that matches exactly one cached row.
 A task may also be the number or the link from the browser, a bare number is always the number from the link, the link in quotes, like "https://app-eu.wrike.com/open.htm?id=4552825748".
 A person is me, a contact id or a part of a name that matches exactly one contact.
 A description is markdown, the text the E editor in the interface writes.
+The ui commands act on the interface that is running and print what it did, wrikery --demo ui ... drives a demo.
 Every command takes --json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 `
 
@@ -95,6 +104,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		return runSync(ctx, env, args[1:])
 	case "task":
 		return runTask(ctx, env, args[1:])
+	case "ui":
+		return runUI(ctx, env, args[1:])
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown command %q\n", args[0])
 	_, _ = fmt.Fprint(env.Stderr, rootUsage)

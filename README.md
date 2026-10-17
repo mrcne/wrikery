@@ -42,6 +42,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
 - commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, with JSON output
+- commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
 
 ## Keys
@@ -85,11 +86,14 @@ wrikery task edit MAAAAAEPXpuT --title "A plainer title" --description -
 wrikery task comment MAAAAAEPXpuT Pushed the branch
 wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT --to "Next release" --from Backlog
+wrikery ui filter --importance High --person me # narrow the interface that is running
+wrikery ui folder "Next release"                # open a folder there, as from the sidebar
 ```
 
 A task or a folder is an id or a part of its title that matches exactly one cached row.
 A task may also be the number or the link from the browser, the link goes in quotes.
 A person is `me`, a contact id or a part of a name, a description is markdown from a file or from stdin with `-`.
+The `ui` commands act on the interface that is running and print what it did, a write command tells it to re-read the cache.
 Every command takes `--json`.
 A write is sent right away and reported as sent, queued when Wrike could not be reached, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
