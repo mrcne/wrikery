@@ -80,6 +80,10 @@ func StartLogin(oauth wrike.OAuth) (*Login, error) {
 		} else {
 			l.srv = &http.Server{Handler: http.HandlerFunc(l.handle), ReadHeaderTimeout: 10 * time.Second}
 			go func() { _ = l.srv.Serve(ln) }()
+			// A resolver may give the browser only ::1 for localhost, so the same port answers there too when it is free.
+			if ln6, err := net.Listen("tcp", "[::1]:"+u.Port()); err == nil {
+				go func() { _ = l.srv.Serve(ln6) }()
+			}
 		}
 	}
 	return l, nil

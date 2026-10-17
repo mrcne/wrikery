@@ -333,6 +333,7 @@ func TestReauthNoticeNamesTheSession(t *testing.T) {
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike no longer accepts the session")
+	waitFor(t, tm, "sign in rejected")
 }
 
 func TestFirstRunPickerStartsFromTheFollowedSet(t *testing.T) {
@@ -379,5 +380,17 @@ func TestFirstRunCtrlYCopiesTheAddress(t *testing.T) {
 	waitFor(t, tm, "address copied")
 	if len(copied) != 1 || copied[0] != "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s" {
 		t.Fatalf("copied %q", copied)
+	}
+}
+
+func TestFirstRunShowsNoKeyHints(t *testing.T) {
+	opts := testOptions(freshStore(t))
+	opts.Demo = false
+	opts.FirstRun = true
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Paste a permanent access token")
+	// None of the main screen keys work under the box, and q is swallowed by the field.
+	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "ctrl+f search") || strings.Contains(seen.String(), "q quit") {
+		t.Fatal("the first run frame carries the main screen key hints")
 	}
 }

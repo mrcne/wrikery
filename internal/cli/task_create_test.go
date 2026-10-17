@@ -150,7 +150,7 @@ func TestTaskCreateAuthFailureIsAnErrorInJSONToo(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "later", "--json", "Try it"}); code != exitError {
 		t.Fatalf("code = %d, want %d", code, exitError)
 	}
-	if !strings.Contains(errOut.String(), "token rejected") || out.Len() != 0 {
+	if !strings.Contains(errOut.String(), "sign in rejected") || out.Len() != 0 {
 		t.Errorf("stderr %q, stdout %q", errOut.String(), out.String())
 	}
 }

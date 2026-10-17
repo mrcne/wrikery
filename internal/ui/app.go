@@ -1392,7 +1392,8 @@ func (m Model) View() string {
 		body = m.viewMain()
 	}
 	hints := ""
-	if m.height >= 20 {
+	// None of the main screen keys work under the first run box, so it gets no hints.
+	if m.height >= 20 && m.screen != screenFirstRun {
 		available := m.width - m.status.leftWidth(m.theme, m.opts.Now()) - 3
 		hints = fitHints(m.help, m.hintBindings(), available)
 	}

@@ -169,7 +169,7 @@ func warnReadBack(env Env, out outcome, err error) {
 }
 
 func reportBlocked(env Env) int {
-	_, _ = fmt.Fprintln(env.Stderr, "wrikery: token rejected, run wrikery to sign in again, the change stays queued")
+	_, _ = fmt.Fprintln(env.Stderr, "wrikery: sign in rejected, run wrikery to sign in again, the change stays queued")
 	return exitError
 }
 

@@ -223,3 +223,22 @@ func TestLoginAnswersTheRootWhenTheRedirectHasNoPath(t *testing.T) {
 		t.Fatalf("Wait = %+v, %v", s, err)
 	}
 }
+
+func TestLoginAnswersOverTheIPv6Loopback(t *testing.T) {
+	probe, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skip("no IPv6 loopback here")
+	}
+	_ = probe.Close()
+	port := freePort(t)
+	l, state, _ := startTestLogin(t, "http://localhost:"+port+"/callback")
+	done := waitFor(l)
+	// A resolver may give localhost only ::1, and the browser then connects there.
+	status, _ := get(t, "http://[::1]:"+port+"/callback?code=c0de&state="+state)
+	if status != http.StatusOK {
+		t.Errorf("the IPv6 loopback answered %d", status)
+	}
+	if s, err := (<-done)(); err != nil || s.AccessToken != "at1" {
+		t.Fatalf("Wait = %+v, %v", s, err)
+	}
+}
