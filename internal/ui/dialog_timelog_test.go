@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -31,6 +33,13 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	msgs = collect(cmd)
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.timelogID != "L1" || got.hours != 2 || got.comment != "old" {
 		t.Errorf("edit -> %#v", msgs)
+	}
+	// A note written in the Wrike web app can be longer than anything typed here, an edit of the hours sends it back whole.
+	long := strings.Repeat("abcdefghij", 25)
+	d3, _ := newTimelogDialog("T", "Fix", &store.Timelog{ID: "L2", TaskID: "T", Hours: 1, TrackedDate: "2026-09-01", Comment: long}, "", now, 80)
+	_, cmd = dialog(d3).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got, ok := collect(cmd)[0].(submitTimelogMsg); !ok || got.comment != long {
+		t.Errorf("an edit cut a %d character note to %d characters", len(long), len(got.comment))
 	}
 }
 
@@ -177,12 +186,17 @@ func TestEarlierNotesOwnFirstNewestFirstDistinct(t *testing.T) {
 		{ID: "4", UserID: "me", TrackedDate: "2026-09-03", CreatedDate: "2026-09-03T09:00:00Z", Comment: "Review"},
 		{ID: "5", UserID: "me", TrackedDate: "2026-09-03", CreatedDate: "2026-09-03T11:00:00Z", Comment: ""},
 		{ID: "6", UserID: "U2", TrackedDate: "2026-08-20", CreatedDate: "2026-08-20T10:00:00Z", Comment: "Tests"},
+		{ID: "7", UserID: "me", TrackedDate: "2026-09-03", CreatedDate: "2026-09-03T11:30:00Z", Comment: "Standup"},
 	}
-	got := earlierNotes(logs, "me")
-	if want := []string{"Review", "Tests", "Pairing"}; !slices.Equal(got, want) {
+	got := earlierNotes(logs, "me", "")
+	if want := []string{"Standup", "Review", "Tests", "Pairing"}; !slices.Equal(got, want) {
 		t.Errorf("earlierNotes = %q, want %q", got, want)
 	}
-	if got := earlierNotes(nil, "me"); len(got) != 0 {
+	// The wording already in the field is not an earlier note, an edit would get its own text back on the first ctrl+p.
+	if got, want := earlierNotes(logs, "me", "Review"), []string{"Standup", "Tests", "Pairing"}; !slices.Equal(got, want) {
+		t.Errorf("earlierNotes with the field on Review = %q, want %q", got, want)
+	}
+	if got := earlierNotes(nil, "me", ""); len(got) != 0 {
 		t.Errorf("no entries gave notes %q", got)
 	}
 }
@@ -193,13 +207,19 @@ func TestTimelogDialogStepsThroughEarlierNotes(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
-	if view := squeeze(d.View(th, 80, 30)); strings.Contains(view, "ctrl+p") {
+	before := d.View(th, 80, 30)
+	if view := squeeze(before); strings.Contains(view, "ctrl+p") {
 		t.Errorf("a task without earlier notes offers them:\n%s", view)
 	}
 	d.notes = []string{"Review", "Tests"}
 	var dl dialog = d
-	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "ctrl+p earlier note") {
+	after := dl.View(th, 80, 30)
+	if view := squeeze(after); !strings.Contains(view, "ctrl+p earlier note") {
 		t.Errorf("the hint is missing:\n%s", view)
+	}
+	// The notes land a frame after the box opens, a box that grows then moves on the screen.
+	if lipgloss.Height(before) != lipgloss.Height(after) {
+		t.Errorf("the box grows from %d to %d lines when the notes land", lipgloss.Height(before), lipgloss.Height(after))
 	}
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
@@ -230,10 +250,112 @@ func TestTimelogDialogStepsThroughEarlierNotes(t *testing.T) {
 			}
 		}
 	}
+	// A change to a taken note makes it the typed text: the hint drops the position, and the steps start over from it.
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if view := squeeze(dl.View(th, 80, 30)); strings.Contains(view, "note 1 of 2") || !strings.Contains(view, "ctrl+p earlier note") {
+		t.Errorf("the hint still counts a changed note:\n%s", view)
+	}
+	for i, s := range []struct {
+		key  tea.KeyType
+		want string
+	}{{tea.KeyCtrlN, "Reviews"}, {tea.KeyCtrlP, "Review"}, {tea.KeyCtrlN, "Reviews"}} {
+		dl, _ = dl.Update(tea.KeyMsg{Type: s.key})
+		if got := note(); got != s.want {
+			t.Errorf("after the change, step %d: note = %q, want %q", i, got, s.want)
+		}
+	}
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
 	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.comment != "Review" {
 		t.Errorf("a taken note is not what enter saves: %#v", msgs)
+	}
+}
+
+// A note of another entry can be longer than anything typed here, ctrl+p lands it whole.
+func TestTimelogDialogTakesALongNoteWhole(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	long := strings.Repeat("abcdefghij", 25)
+	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
+	d.notes = []string{long}
+	var dl dialog = d
+	for _, k := range []tea.KeyType{tea.KeyTab, tea.KeyTab, tea.KeyCtrlP} {
+		dl, _ = dl.Update(tea.KeyMsg{Type: k})
+	}
+	if got := dl.(timelogDialog).inputs[2].Value(); got != long {
+		t.Errorf("ctrl+p cut a %d character note to %d characters", len(long), len(got))
+	}
+}
+
+// The box is drawn at the width of each frame, so the field follows a resize while the box is open.
+func TestTimelogDialogFollowsAResize(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	existing := &store.Timelog{ID: "L1", TaskID: "T", Hours: 2, TrackedDate: "2026-09-01", Comment: "START " + strings.Repeat("abcdefghij ", 4) + "the end"}
+	d, _ := newTimelogDialog("T", "Fix", existing, "", now, 80)
+	d.setWidth(40)
+	if view := d.View(th, 40, 30); !strings.Contains(view, "the end") || strings.Contains(view, "START") {
+		t.Errorf("after a resize to 40 the field does not show the end of the note:\n%s", view)
+	}
+	m := New(Options{Now: func() time.Time { return now }})
+	mm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = mm.(Model)
+	m.openTimelogDialog("T", "Fix", existing, "")
+	mm, _ = m.Update(tea.WindowSizeMsg{Width: 40, Height: 30})
+	m = mm.(Model)
+	if view := m.dialog.View(th, m.dialogWidth(), 30); !strings.Contains(view, "the end") || strings.Contains(view, "START") {
+		t.Errorf("a resize of the terminal did not reach the open box:\n%s", view)
+	}
+}
+
+// The notes land only in a box still open on their task, a read for another task or a closed box is dropped,
+// and a second read starts the steps over so the hint cannot count past the new list.
+func TestNotesLandOnlyInTheOpenBox(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	m := New(Options{Now: func() time.Time { return now }})
+	mm, _ := m.Update(notesLoadedMsg{taskID: "T", notes: []string{"Review"}})
+	m = mm.(Model)
+	if m.dialog != nil {
+		t.Fatalf("notes without a box opened one: %#v", m.dialog)
+	}
+	m.openTimelogDialog("T", "Fix", nil, "")
+	mm, _ = m.Update(notesLoadedMsg{taskID: "U", notes: []string{"Other"}})
+	m = mm.(Model)
+	if d := m.dialog.(timelogDialog); len(d.notes) != 0 {
+		t.Errorf("the notes of another task landed in the box: %q", d.notes)
+	}
+	mm, _ = m.Update(notesLoadedMsg{taskID: "T", notes: []string{"Review", "Tests"}})
+	m = mm.(Model)
+	for _, k := range []tea.KeyType{tea.KeyTab, tea.KeyTab, tea.KeyCtrlP, tea.KeyCtrlP} {
+		mm, _ = m.Update(tea.KeyMsg{Type: k})
+		m = mm.(Model)
+	}
+	if view := squeeze(m.dialog.View(th, 80, 30)); !strings.Contains(view, "note 2 of 2") {
+		t.Fatalf("the keys did not reach the box:\n%s", view)
+	}
+	mm, _ = m.Update(notesLoadedMsg{taskID: "T", notes: []string{"Review"}})
+	m = mm.(Model)
+	if view := squeeze(m.dialog.View(th, 80, 30)); !strings.Contains(view, "ctrl+p earlier note") {
+		t.Errorf("the hint counts a position in the old list:\n%s", view)
+	}
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = mm.(Model)
+	if got := m.dialog.(timelogDialog).inputs[2].Value(); got != "Review" {
+		t.Errorf("ctrl+p after a second read: note = %q, want the first of the new list", got)
+	}
+}
+
+// The notes only feed a hint, so a failed read is logged and the box works without them instead of showing the raw error.
+func TestLoadNotesDropsAFailedRead(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "notes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	m := New(Options{Store: st, Now: time.Now})
+	if msg := m.loadNotes("T", "")(); msg != nil {
+		t.Errorf("a failed read of the notes gave %#v, want nothing", msg)
 	}
 }

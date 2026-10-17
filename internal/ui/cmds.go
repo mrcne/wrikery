@@ -351,16 +351,18 @@ func (m Model) markOpened(id string) tea.Cmd {
 }
 
 // loadNotes reads the task's entries for the note field of the log time box, see earlierNotes.
-func (m Model) loadNotes(taskID string) tea.Cmd {
+// The notes only feed the hint, so a failed read is logged and the box works without them.
+func (m Model) loadNotes(taskID, current string) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		logs, err := st.Timelogs().ListForTask(ctx, taskID)
 		if err != nil {
-			return errMsg{err}
+			slog.Warn("earlier notes", "task", taskID, "error", err)
+			return nil
 		}
-		return notesLoadedMsg{taskID: taskID, notes: earlierNotes(logs, meID)}
+		return notesLoadedMsg{taskID: taskID, notes: earlierNotes(logs, meID, current)}
 	}
 }
 

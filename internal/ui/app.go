@@ -154,6 +154,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.syncPaneSizes()
+		if d, ok := m.dialog.(timelogDialog); ok {
+			d.setWidth(m.dialogWidth())
+			m.dialog = d
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -376,11 +380,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
-		return m, m.openTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate)
+		cmd := m.openTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate)
+		return m, cmd
 	case notesLoadedMsg:
 		if d, ok := m.dialog.(timelogDialog); ok && m.overlay == overlayDialog && d.taskID == msg.taskID {
 			// The notes landed while the box is open, see openTimelogDialog.
-			d.notes = msg.notes
+			// A second read for the same box starts the steps over, a position in the old list could count past the new one.
+			d.notes, d.noteIdx = msg.notes, -1
 			m.dialog = d
 		}
 		return m, nil
@@ -411,12 +417,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.pickMode = true
 			return m, cmd
 		}
-		return m, m.openTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date)
+		cmd := m.openTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date)
+		return m, cmd
 	case editEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
 		}
-		return m, m.openTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "")
+		cmd := m.openTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "")
+		return m, cmd
 	case deleteEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
@@ -784,9 +792,18 @@ func (m *Model) clearIfListEmpty() {
 // openTimelogDialog opens the log time box and starts the read of the task's earlier notes for its note field.
 // The notes land through notesLoadedMsg, into the box only while it is still open on that task.
 func (m *Model) openTimelogDialog(taskID, title string, existing *store.Timelog, date string) tea.Cmd {
-	d, cmd := newTimelogDialog(taskID, title, existing, date, m.opts.Now(), min(m.width-4, 80))
+	d, cmd := newTimelogDialog(taskID, title, existing, date, m.opts.Now(), m.dialogWidth())
 	m.openDialog(d)
-	return tea.Batch(cmd, m.loadNotes(taskID))
+	current := ""
+	if existing != nil {
+		current = existing.Comment
+	}
+	return tea.Batch(cmd, m.loadNotes(taskID, current))
+}
+
+// dialogWidth is what a dialog and the search box are drawn at, and what a field inside one is sized from.
+func (m Model) dialogWidth() int {
+	return min(m.width-4, 80)
 }
 
 // openDialog opens a dialog and switches the overlay to it.
@@ -1306,10 +1323,10 @@ func (m Model) View() string {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	if m.overlay == overlaySearch {
-		out = centered(out, m.search.View(m.theme, m.ref, min(m.width-4, 80), searchMaxRows(m.height)), m.width, m.height)
+		out = centered(out, m.search.View(m.theme, m.ref, m.dialogWidth(), searchMaxRows(m.height)), m.width, m.height)
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
-		out = centered(out, m.dialog.View(m.theme, min(m.width-4, 80), m.height), m.width, m.height)
+		out = centered(out, m.dialog.View(m.theme, m.dialogWidth(), m.height), m.width, m.height)
 	}
 	return out
 }

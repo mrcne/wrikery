@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -98,12 +99,14 @@ func TestDetailKeepsItsLinesWholeWithAJoinedEmoji(t *testing.T) {
 	d.set(taskLoadedMsg{
 		task:     store.Task{ID: "T1", Title: "Plan " + family + " trip with the kids ab END1 second line", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z"},
 		comments: []store.Comment{{ID: "C1", AuthorID: "U1", Text: "We take " + family + " to the lake and swim", CreatedDate: "2026-09-02T11:00:00Z"}},
+		logs:     []store.Timelog{{ID: "L1", UserID: "U2", TrackedDate: "2026-09-02", Hours: 1.5, Comment: "ok END3"}},
 		crumb:    "Platform / " + family + " Family",
 	})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 30, 30, "dark")
+	ref := refData{contacts: map[string]store.Contact{"U2": {ID: "U2", FirstName: family, LastName: "Smith"}}}
+	d.layout(th, ref, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 30, 30, "dark")
 	out := th.box("T", d.View(), 32, 32, true)
 	text := boxText(out)
-	for _, want := range []string{"kids ab END1 second line", "to the lake and swim", "Family"} {
+	for _, want := range []string{"kids ab END1 second line", "to the lake and swim", "Family", "ok END3"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the box cut %q off its line:\n%s", want, ansi.Strip(out))
 		}
@@ -234,7 +237,17 @@ func TestDetailWrapsALongTimeEntryNote(t *testing.T) {
 			Comment: "Pairing on the retry loop, " + strings.Repeat("checked the backoff, ", 4) + "the end"}},
 	})
 	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
-	if out := d.View(); !strings.Contains(out, "the end") {
+	out := d.View()
+	if !strings.Contains(out, "the end") {
 		t.Errorf("the end of a long note is cut at the pane edge:\n%s", out)
+	}
+	// The part after the first line is indented, a continuation at the left edge reads as a second entry without a date.
+	lines := strings.Split(ansi.Strip(out), "\n")
+	first := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "2 Sep  U1  1h 30m  Pairing") })
+	if first < 0 || first+1 >= len(lines) {
+		t.Fatalf("the entry line is missing:\n%s", ansi.Strip(out))
+	}
+	if next := lines[first+1]; !strings.HasPrefix(next, "  ") || strings.TrimSpace(next) == "" {
+		t.Errorf("the wrapped part of the entry is not indented under the first line:\n%s", ansi.Strip(out))
 	}
 }
