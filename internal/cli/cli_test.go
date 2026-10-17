@@ -44,7 +44,7 @@ func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 		Config:   cfg,
 		Store:    st,
 		Theme:    ui.NewTheme(cfg.UI),
-		Token:    func() (string, error) { return "", nil },
+		SignedIn: func() (bool, error) { return false, nil },
 		Deadline: 300 * time.Millisecond,
 		Stdin:    strings.NewReader(""),
 		Stdout:   &out,
@@ -83,9 +83,9 @@ func TestRunHelpPrintsTheUsageOnStdout(t *testing.T) {
 func TestReadsAndUsageErrorsNeverAskForTheToken(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
-	env.Token = func() (string, error) {
-		t.Error("the token was read")
-		return "", nil
+	env.SignedIn = func() (bool, error) {
+		t.Error("the credentials were read")
+		return false, nil
 	}
 	for _, args := range [][]string{
 		{"help"}, {"task", "list"}, {"task", "show", "TASK1"}, {"task", "status", "TASK1"}, {"task", "create", "x"}, {"frobnicate"},

@@ -24,12 +24,14 @@ With Go 1.26 or newer installed, `go install github.com/mrcne/wrikery/cmd/wriker
 ## First run
 
 `wrikery` asks for a Wrike API token, a permanent access token created in the Wrike App Console with Get token, and keeps it in the system keychain.
+With an API app named in the config it signs in through the browser instead, with short lived tokens it renews on its own, see [docs/overview.md](docs/overview.md).
 Accounts hosted in the EU data center are detected automatically.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
 `wrikery --demo` runs on built in sample data instead, with no token and no network, to look around first.
 
 ## Features
 
+- sign in with a permanent token, or through the browser with OAuth 2.0 when the config names an API app
 - browse the spaces, projects and folders you follow, and change that set from the settings screen
 - task list and task detail: description, status, assignee, dates, comments, subtasks, dependencies and the number of attachments
 - instant full text search over everything cached

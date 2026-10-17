@@ -26,30 +26,30 @@ func (o outcome) String() string {
 	return [...]string{"queued", "sent", "rejected", "blocked", "discarded"}[o]
 }
 
-// preflight reads the token and resolves the host before anything is queued,
+// preflight checks the sign in and resolves the host before anything is queued,
 // so a failure here never hides a row behind an error exit.
-// It is the only place that reads the token, the commands that only read the cache never touch the keychain.
-func preflight(ctx context.Context, env Env) (token, host string, code int) {
-	token, err := env.Token()
+// It is the only place that reads the credentials, the commands that only read the cache never touch the keychain.
+func preflight(ctx context.Context, env Env) (host string, code int) {
+	ok, err := env.SignedIn()
 	if err != nil {
-		return "", "", fail(env, err)
+		return "", fail(env, err)
 	}
-	if token == "" {
-		return "", "", fail(env, errors.New("no token stored, run wrikery once to sign in"))
+	if !ok {
+		return "", fail(env, errors.New("not signed in, run wrikery once to sign in"))
 	}
-	host, err = env.Host(ctx, token)
+	host, err = env.Host(ctx)
 	if err != nil {
-		return "", "", fail(env, fmt.Errorf("could not reach Wrike: %w", err))
+		return "", fail(env, fmt.Errorf("could not reach Wrike: %w", err))
 	}
-	return token, host, exitOK
+	return host, exitOK
 }
 
 // send runs one drain pass for the row just queued and reads its fate back from the outbox.
 // The pass sends every due row older than this one first, the order the engine keeps.
 // The deadline bounds the wait for the lock and the start of a write, a create already sent runs to Wrike's answer.
 // The drain error is the reason behind a queued outcome or the sign of a rejected token, otherwise the row's state is the truth.
-func send(ctx context.Context, env Env, token, host string, rowID int64) (outcome, string, error) {
-	eng := syncer.New(env.Client(token, host), env.Store,
+func send(ctx context.Context, env Env, host string, rowID int64) (outcome, string, error) {
+	eng := syncer.New(env.Client(host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
 	drainErr := eng.Drain(ctx, env.Deadline)
 	// Ctrl-C cancels ctx while the drain runs, the engine puts its row back on purpose.
@@ -169,7 +169,7 @@ func warnReadBack(env Env, out outcome, err error) {
 }
 
 func reportBlocked(env Env) int {
-	_, _ = fmt.Fprintln(env.Stderr, "wrikery: token rejected, run wrikery to sign in again, the change stays queued")
+	_, _ = fmt.Fprintln(env.Stderr, "wrikery: sign in rejected, run wrikery to sign in again, the change stays queued")
 	return exitError
 }
 
@@ -234,8 +234,8 @@ func reportFate(env Env, out outcome, id string, asJSON bool) int {
 
 // deliver sends the row just queued and reads the task back, the middle every write command shares.
 // After it the write is decided, so the caller reports on a context a Ctrl-C cannot cut.
-func deliver(ctx context.Context, env Env, token, host string, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
-	out, reason, err = send(ctx, env, token, host, rowID)
+func deliver(ctx context.Context, env Env, host string, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
+	out, reason, err = send(ctx, env, host, rowID)
 	if err != nil {
 		return out, reason, t, false, err
 	}
@@ -276,7 +276,7 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 		return reportUnchanged(ctx, env, t, ref, asJSON, line(ctx, t))
 	}
 	before := line(ctx, t)
-	token, host, code := preflight(ctx, env)
+	host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -284,7 +284,7 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, after, readOK, err := deliver(ctx, env, token, host, rowID, t, ref, asJSON)
+	out, reason, after, readOK, err := deliver(ctx, env, host, rowID, t, ref, asJSON)
 	if err != nil {
 		return fail(env, err)
 	}

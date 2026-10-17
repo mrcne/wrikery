@@ -98,3 +98,26 @@ func TestSettingsSidebarRowTogglesIt(t *testing.T) {
 		t.Errorf("Sidebar row = %q, want shown", rows[i].value)
 	}
 }
+
+func TestSettingsShowsTheSignInRow(t *testing.T) {
+	s := testSettings()
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	if view := s.View(th, 100, 30); strings.Contains(view, "Signed in with") {
+		t.Errorf("a row for a sign in that did not happen:\n%s", view)
+	}
+	// The app comes from the session, the config may have lost its table since the sign in.
+	s.setSignedIn(SignedInWithBrowser, "id1")
+	if view := s.View(th, 100, 30); !strings.Contains(view, "Signed in with") || !strings.Contains(view, "the browser, app id1") {
+		t.Errorf("the browser sign in row is missing:\n%s", view)
+	}
+	s.setSignedIn(SignedInWithToken, "")
+	if view := s.View(th, 100, 30); !strings.Contains(view, "a permanent token") {
+		t.Errorf("the token row is missing:\n%s", view)
+	}
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	toast, ok := msgs[0].(toastMsg)
+	if !ok || !strings.Contains(toast.text, "--logout") {
+		t.Errorf("enter on the sign in row should say how to change it, got %#v", msgs)
+	}
+}

@@ -61,7 +61,7 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 	case "failed":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sync failing since " + s.since.Format("15:04")))
 	case "auth_required":
-		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " token rejected"))
+		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sign in rejected"))
 	default:
 		when := "never"
 		if !s.lastSynced.IsZero() {

@@ -90,7 +90,7 @@ func main() {
 	}
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	demoMode := fs.Bool("demo", false, "run on built in sample data, no token and no network")
-	logout := fs.Bool("logout", false, "remove the stored token and exit")
+	logout := fs.Bool("logout", false, "sign out, remove the stored token or session, and exit")
 	configPath := fs.String("config", "", "read this config file instead of the default")
 	noColor := fs.Bool("no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
 
@@ -144,12 +144,12 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	if err != nil {
 		return err
 	}
-	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
+	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	if logout {
 		if err := tokens.Delete(); err != nil {
 			return err
 		}
-		fmt.Println("token removed")
+		fmt.Println("signed out")
 		return nil
 	}
 
@@ -190,24 +190,25 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	slog.Info("started", "version", buildVersion(), "db", paths.DBFile)
 
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths)}
-	token, err := tokens.Load()
+	session, err := tokens.Load()
 	firstRun := errors.Is(err, auth.ErrNoToken)
 	if err != nil && !firstRun {
 		return err
 	}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, FirstRun: firstRun, Hooks: a.hooks(),
+		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile,
+		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()
 	}
 	if !firstRun {
-		host, err := resolveHost(context.Background(), cfg, st, token)
+		host, err := resolveHost(context.Background(), cfg, st, session)
 		if err != nil {
 			slog.Warn("could not detect the Wrike data center", "error", err)
 			host = wrike.DefaultHost
 		}
-		a.startEngine(token, host)
+		a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
 	}
 	_, err = a.prog.Run()
 	a.shutdown()
@@ -270,7 +271,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	}
 	defer func() { _ = st.Close() }()
 	st.Source = store.SourceCLI
-	tokens := auth.Tokens{FallbackFile: paths.TokenFile}
+	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.
 	if !signal.Ignored(syscall.SIGHUP) {
@@ -280,18 +281,13 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	defer stop()
 	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
 	go func() { <-ctx.Done(); stop() }()
+	creds := &cmdAuth{tokens: tokens, cfg: cfg, st: st}
 	return cli.Run(ctx, cli.Env{
-		Config: cfg,
-		Store:  st,
-		Token: func() (string, error) {
-			token, err := tokens.Load()
-			if errors.Is(err, auth.ErrNoToken) {
-				return "", nil
-			}
-			return token, err
-		},
-		Client:   func(token, host string) *wrike.Client { return newClient(token, host) },
-		Host:     func(ctx context.Context, token string) (string, error) { return resolveHost(ctx, cfg, st, token) },
+		Config:   cfg,
+		Store:    st,
+		SignedIn: creds.signedIn,
+		Client:   creds.client,
+		Host:     creds.host,
 		LockFile: lockPath(paths),
 		Socket:   socketPath(paths),
 		Theme:    ui.NewTheme(cfg.UI),
@@ -301,6 +297,54 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Stdout:   os.Stdout,
 		Stderr:   os.Stderr,
 	}, args)
+}
+
+// signedInWith names the stored sign in for the settings screen and the re-auth notice.
+func signedInWith(s auth.Session, firstRun bool) string {
+	switch {
+	case firstRun:
+		return ""
+	case s.OAuth():
+		return ui.SignedInWithBrowser
+	}
+	return ui.SignedInWithToken
+}
+
+// cmdAuth is the sign in of a command. It reads the credentials once, on the first command that sends,
+// so a list or a show never touches the keychain.
+type cmdAuth struct {
+	tokens  auth.Tokens
+	cfg     config.Config
+	st      *store.Store
+	loaded  bool
+	session auth.Session
+	err     error
+}
+
+func (c *cmdAuth) load() (auth.Session, error) {
+	if !c.loaded {
+		c.loaded = true
+		c.session, c.err = c.tokens.Load()
+	}
+	return c.session, c.err
+}
+
+func (c *cmdAuth) signedIn() (bool, error) {
+	_, err := c.load()
+	if errors.Is(err, auth.ErrNoToken) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (c *cmdAuth) client(host string) *wrike.Client {
+	s, _ := c.load()
+	return newClient(auth.NewSource(c.tokens, s, nil, userAgent()), host)
+}
+
+func (c *cmdAuth) host(ctx context.Context) (string, error) {
+	s, _ := c.load()
+	return resolveHost(ctx, c.cfg, c.st, s)
 }
 
 // resolveTheme turns the auto theme into dark or light.

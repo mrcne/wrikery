@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrcne/wrikery/internal/lockfile"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
@@ -137,11 +138,11 @@ func TestDrainGivesUpWhenTheLockIsHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockPath := filepath.Join(t.TempDir(), "sync.lock")
-	held, err := acquire(ctx, lockPath)
+	held, err := lockfile.Acquire(ctx, lockPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.release()
+	defer held.Release()
 	fc := &fakeClient{}
 	e := New(fc, st, Config{LockFile: lockPath}, nil)
 	dctx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
@@ -275,7 +276,7 @@ func TestRunWaitsForTheLockBeforeTheFirstDrainPass(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockPath := filepath.Join(t.TempDir(), "sync.lock")
-	held, err := acquire(ctx, lockPath)
+	held, err := lockfile.Acquire(ctx, lockPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +292,7 @@ func TestRunWaitsForTheLockBeforeTheFirstDrainPass(t *testing.T) {
 	if err != nil || row.State != store.StateInflight {
 		t.Fatalf("row under a held lock = %+v, %v, want still inflight", row, err)
 	}
-	held.release()
+	held.Release()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		if row, err := st.Outbox().Get(ctx, id); err == nil && row.State == store.StateSent {

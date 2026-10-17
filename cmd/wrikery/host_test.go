@@ -6,8 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"testing"
 
+	"github.com/mrcne/wrikery/internal/auth"
+	"github.com/mrcne/wrikery/internal/config"
+	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
@@ -99,5 +103,23 @@ func TestProbeHostReturnsErrNoDataCenterWhenEveryHostAnswers300(t *testing.T) {
 	_, _, err := probeHost(context.Background(), "tok", apiHosts, hc)
 	if !errors.Is(err, errNoDataCenter) {
 		t.Fatalf("want errNoDataCenter, got %v", err)
+	}
+}
+
+func TestResolveHostPrefersTheSessionHost(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "hosts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	session := auth.Session{AccessToken: "at", RefreshToken: "rt", Host: wrike.EUHost}
+	// No probe runs for a browser session, the token answer named the host, so no fake server is needed.
+	host, err := resolveHost(context.Background(), config.Config{}, st, session)
+	if err != nil || host != wrike.EUHost {
+		t.Fatalf("host = %q, %v, want the session's host", host, err)
+	}
+	host, err = resolveHost(context.Background(), config.Config{Host: "x.wrike.com"}, st, session)
+	if err != nil || host != "x.wrike.com" {
+		t.Fatalf("host = %q, %v, want the config to win", host, err)
 	}
 }

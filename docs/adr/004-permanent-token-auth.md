@@ -1,6 +1,6 @@
 # 004: Permanent API token for authentication
 
-Status: Accepted
+Status: Superseded by 005
 
 ## Context
 

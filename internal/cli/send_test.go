@@ -28,9 +28,9 @@ func withNetwork(t *testing.T, env Env, handler http.Handler) Env {
 	} else {
 		t.Cleanup(srv.Close)
 	}
-	env.Token = func() (string, error) { return "test-token", nil }
-	env.Host = func(ctx context.Context, token string) (string, error) { return "stub", nil }
-	env.Client = func(token, host string) *wrike.Client { return wrike.New(token, wrike.WithBaseURL(srv.URL)) }
+	env.SignedIn = func() (bool, error) { return true, nil }
+	env.Host = func(context.Context) (string, error) { return "stub", nil }
+	env.Client = func(string) *wrike.Client { return wrike.New("test-token", wrike.WithBaseURL(srv.URL)) }
 	env.LockFile = filepath.Join(t.TempDir(), "sync.lock")
 	return env
 }
@@ -132,7 +132,7 @@ func TestSendNamesTheEarlierWriteTheDrainStoppedAt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, reason, err := send(ctx, env, "test-token", "stub", second)
+		out, reason, err := send(ctx, env, "stub", second)
 		want := `waiting behind an earlier write that failed, a new task "Earlier": wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream`
 		if err != nil || out != queued || reason != want {
 			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -145,7 +145,7 @@ func TestSendNamesTheEarlierWriteTheDrainStoppedAt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, reason, err := send(ctx, env, "test-token", "stub", first)
+		out, reason, err := send(ctx, env, "stub", first)
 		want := "wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream"
 		if err != nil || out != queued || reason != want {
 			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -231,11 +231,11 @@ func TestSendNamesTheWriteOnItsOwnTaskOverTheOneThePassStoppedAt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, host, code := preflight(ctx, env)
+	host, code := preflight(ctx, env)
 	if code != exitOK {
 		t.Fatalf("preflight = %d", code)
 	}
-	out, reason, err := send(ctx, env, token, host, change)
+	out, reason, err := send(ctx, env, host, change)
 	want := `waiting behind an earlier write that failed, a change to "Headless commands for scripts": wrike: 503 earlier`
 	if err != nil || out != queued || reason != want {
 		t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -260,11 +260,11 @@ func TestSendNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, host, code := preflight(ctx, env)
+	host, code := preflight(ctx, env)
 	if code != exitOK {
 		t.Fatalf("preflight = %d", code)
 	}
-	out, reason, err := send(ctx, env, token, host, change)
+	out, reason, err := send(ctx, env, host, change)
 	want := `waiting behind an earlier write that failed, a new task "Fresh": wrike: 503 no healthy upstream`
 	if err != nil || out != queued || reason != want {
 		t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -282,7 +282,7 @@ func TestSendReadsSentFromTheRowState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, reason, err := send(context.Background(), env, "test-token", "stub", row.ID)
+	out, reason, err := send(context.Background(), env, "stub", row.ID)
 	if err != nil || out != sent || reason != "" {
 		t.Fatalf("send = %v, %q, %v, want sent", out, reason, err)
 	}
@@ -304,7 +304,7 @@ func TestSendReportsARowDiscardedMeanwhile(t *testing.T) {
 	if err := env.Store.Outbox().Discard(context.Background(), row.ID); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := send(context.Background(), env, "test-token", "stub", row.ID)
+	out, _, err := send(context.Background(), env, "stub", row.ID)
 	if err != nil || out != discarded {
 		t.Fatalf("send = %v, %v, want discarded", out, err)
 	}

@@ -82,8 +82,10 @@ type pickerLoadedMsg struct {
 type hostLoadedMsg struct{ host string }    // the Wrike host the token probe found, shown on the settings screen
 type sidebarHiddenMsg struct{ hidden bool } // the saved sidebar flag, read once at start
 type tokenVerifiedMsg struct {
-	name string
-	err  error
+	name    string
+	err     error
+	browser bool   // the sign in ran through the browser, not through a pasted token
+	app     string // the client id of the app a browser sign in used
 }
 type searchResultsMsg struct {
 	seq    int
@@ -106,6 +108,26 @@ type openConfirmMsg struct {
 
 // Intents from the first run child. The root turns them into commands.
 type firstRunSubmitTokenMsg struct{ token string }
+type firstRunStartSignInMsg struct {
+	attempt int
+	secret  string
+}
+type firstRunCopyAddressMsg struct{ address string }
+
+// signInStartedMsg lands when the hook started a browser sign in, or could not.
+type signInStartedMsg struct {
+	attempt int
+	signIn  SignIn
+	err     error
+}
+
+// signInResultMsg is the end of a browser sign in. The attempt tells the late answer of a cancelled one apart from the current one.
+type signInResultMsg struct {
+	attempt int
+	name    string
+	app     string
+	err     error
+}
 type firstRunConfirmScopesMsg struct{ scopes []store.Scope }
 type firstRunFinishedMsg struct{}
 

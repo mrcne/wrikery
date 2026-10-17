@@ -26,9 +26,33 @@ type Hooks struct {
 	Refresh     func()
 	WakeOutbox  func()
 	VerifyToken func(ctx context.Context, token string) (string, error)
-	OpenURL     func(url string) error
-	Copy        func(text string) error
+	// SignIn starts a browser sign in with the secret typed on the screen, empty when the config has it.
+	// Nil when the config names no API app, the first run then offers the token alone.
+	SignIn  func(secret string) (SignIn, error)
+	OpenURL func(url string) error
+	Copy    func(text string) error
 }
+
+// SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
+type SignIn struct {
+	URL       string
+	Listening bool                // a listener waits on the port of the redirect address, else only a paste can finish the attempt
+	Result    <-chan SignInResult // one value, after the listener, a paste or Cancel
+	Paste     func(address string) error
+	Cancel    func()
+}
+
+type SignInResult struct {
+	Name string
+	App  string // the client id of the app the session was made with
+	Err  error
+}
+
+// The values of Options.SignedInWith, what the settings screen and the re-auth notice say.
+const (
+	SignedInWithToken   = "token"
+	SignedInWithBrowser = "browser"
+)
 
 type Options struct {
 	Version string
@@ -40,6 +64,8 @@ type Options struct {
 	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
 	Demo         bool
 	FirstRun     bool
+	SignedInWith string // SignedInWithToken or SignedInWithBrowser, empty on a first run and in the demo
+	SignedInApp  string // the client id of a stored browser session, for the settings screen
 	Now          func() time.Time
 }
 
@@ -107,6 +133,7 @@ func New(o Options) Model {
 	m.changes.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
+	m.settings.setSignedIn(o.SignedInWith, o.SignedInApp)
 	m.board.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
@@ -120,9 +147,19 @@ func New(o Options) Model {
 	}
 	if o.FirstRun {
 		m.screen = screenFirstRun
-		m.firstRun = newFirstRun(stepToken, "", m.keys)
+		m.firstRun = m.newFirstRun("")
 	}
 	return m
+}
+
+// browserSignIn is true when the sign in screen offers the browser: the config names an app and main gave the hook.
+func (m Model) browserSignIn() bool {
+	return m.opts.Hooks.SignIn != nil && m.opts.Config.OAuth.ClientID != ""
+}
+
+func (m Model) newFirstRun(notice string) firstRunModel {
+	oauth := m.opts.Config.OAuth
+	return newFirstRun(stepSignIn, notice, m.keys, m.browserSignIn(), oauth.ClientSecret == "", oauth.ClientID)
 }
 
 // panes is the pane order of the current shape, what tab cycles through and the layout slides over.
@@ -290,6 +327,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show("that task is no longer in the cache", true)
 	case firstRunSubmitTokenMsg:
 		return m, m.verifyToken(msg.token)
+	case firstRunStartSignInMsg:
+		return m, m.startSignIn(msg.attempt, msg.secret)
+	case firstRunCopyAddressMsg:
+		return m, m.copyText(msg.address, "address copied")
+	case signInStartedMsg:
+		var cmd tea.Cmd
+		m.firstRun, cmd = m.firstRun.Update(msg)
+		if msg.err == nil && msg.attempt == m.firstRun.attempt {
+			cmd = tea.Batch(cmd, waitSignIn(msg.attempt, msg.signIn.Result))
+		}
+		return m, cmd
+	case signInResultMsg:
+		// A cancelled attempt answers too, late, and esc moved the counter on.
+		if msg.attempt != m.firstRun.attempt || m.firstRun.signIn == nil {
+			return m, nil
+		}
+		m.firstRun.signIn = nil
+		return m.Update(tokenVerifiedMsg{name: msg.name, err: msg.err, browser: true, app: msg.app})
 	case firstRunConfirmScopesMsg:
 		return m, tea.Batch(m.saveScopes(msg.scopes, ""), m.firstRun.spinner.Tick)
 	case scopesLoadedMsg:
@@ -351,6 +406,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tokenVerifiedMsg:
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
+		if msg.err == nil {
+			with := SignedInWithToken
+			if msg.browser {
+				with = SignedInWithBrowser
+			}
+			m.settings.setSignedIn(with, msg.app)
+		}
 		if msg.err == nil && !m.firstRun.reauth {
 			cmd = tea.Batch(cmd, m.loadPicker(), m.firstRun.spinner.Tick)
 		}
@@ -591,7 +653,15 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 			// The way back lands on the main screen, which must not find the pane beside the grid still open.
 			cmd = m.closeTimesheetDetail()
 			m.screen = screenFirstRun
-			m.firstRun = newFirstRun(stepToken, "Wrike did not accept the stored token. Paste it again to continue.", m.keys)
+			notice := "Wrike did not accept the stored token. Paste it again to continue."
+			switch {
+			case m.settings.signedIn == SignedInWithBrowser:
+				notice = "Wrike no longer accepts the session. Sign in again to continue."
+			case m.browserSignIn():
+				// The box below is the browser one, the token field is a tab away.
+				notice = "Wrike did not accept the stored token. Sign in again to continue."
+			}
+			m.firstRun = m.newFirstRun(notice)
 			m.firstRun.reauth = true
 		}
 	}
@@ -846,8 +916,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.screen == screenFirstRun {
-		// A token may contain a q, so only the step with the input swallows it.
-		if m.firstRun.step != stepToken && key.Matches(msg, m.keys.Quit) {
+		// A token or a secret may contain a q, so only the step with the fields swallows it.
+		if m.firstRun.step != stepSignIn && key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
 		}
 		var cmd tea.Cmd
@@ -1278,24 +1348,29 @@ func (m *Model) copy(pick func(store.Task) (text, toast string)) tea.Cmd {
 		if unconfirmed(t) {
 			return m.status.show(notOnWrike, true)
 		}
-		cp := m.opts.Hooks.Copy
-		if cp == nil {
-			return m.status.show("clipboard not available", true)
-		}
 		text, toast := pick(t)
 		if text == "" {
 			// The permalink is the only one of the three that can be missing, the id and the branch name are always there.
 			return m.status.show(noPermalink, true)
 		}
-		// The hook writes to the terminal and runs a clipboard tool, so it goes into a command rather than into the update loop.
-		return func() tea.Msg {
-			if err := cp(text); err != nil {
-				// The error says what did and did not reach the clipboard, so it is shown as it is.
-				return toastMsg{text: err.Error(), isErr: true}
-			}
-			return toastMsg{text: toast}
-		}
+		return m.copyText(text, toast)
 	})
+}
+
+// copyText puts text on the clipboard through the hook and answers with a toast.
+// The hook writes to the terminal and runs a clipboard tool, so it goes into a command rather than into the update loop.
+func (m Model) copyText(text, toast string) tea.Cmd {
+	cp := m.opts.Hooks.Copy
+	if cp == nil {
+		return m.status.show("clipboard not available", true)
+	}
+	return func() tea.Msg {
+		if err := cp(text); err != nil {
+			// The error says what did and did not reach the clipboard, so it is shown as it is.
+			return toastMsg{text: err.Error(), isErr: true}
+		}
+		return toastMsg{text: toast}
+	}
 }
 
 func (m Model) View() string {
@@ -1317,7 +1392,8 @@ func (m Model) View() string {
 		body = m.viewMain()
 	}
 	hints := ""
-	if m.height >= 20 {
+	// None of the main screen keys work under the first run box, so it gets no hints.
+	if m.height >= 20 && m.screen != screenFirstRun {
 		available := m.width - m.status.leftWidth(m.theme, m.opts.Now()) - 3
 		hints = fitHints(m.help, m.hintBindings(), available)
 	}

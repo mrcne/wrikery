@@ -36,11 +36,11 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if len(positional) > 0 {
 		return usageError(env, fs, syncUsage, "sync takes no arguments")
 	}
-	token, host, code := preflight(ctx, env)
+	host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
-	eng := syncer.New(env.Client(token, host), env.Store,
+	eng := syncer.New(env.Client(host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
 	state, cycleErr := eng.Once(ctx, *full)
 	// The pull changed the cache, a running interface shows it now and not at its own next poll.

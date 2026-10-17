@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -17,9 +18,20 @@ type Config struct {
 	PollInterval time.Duration `toml:"poll_interval"`
 	// Host is the Wrike API host to use, empty means detect it on first run.
 	// The answer is remembered, see cmd/wrikery for the probe.
-	Host string   `toml:"host"`
-	UI   UIConfig `toml:"ui"`
+	Host string `toml:"host"`
+	// OAuth names the API app for the browser sign in, the first run offers it only when ClientID is set.
+	OAuth OAuthConfig `toml:"oauth"`
+	UI    UIConfig    `toml:"ui"`
 }
+
+// OAuthConfig is an API app registered in Wrike's App Console, the bring your own app of the browser sign in.
+type OAuthConfig struct {
+	ClientID     string `toml:"client_id"`
+	ClientSecret string `toml:"client_secret"` // optional, the first run asks for it when missing
+	RedirectURI  string `toml:"redirect_uri"`  // must match the app's registration, a port on localhost gets a listener
+}
+
+const defaultRedirectURI = "http://localhost:8731/callback"
 
 type UIConfig struct {
 	Theme          string `toml:"theme"`
@@ -43,6 +55,7 @@ func defaults() Config {
 	return Config{
 		LogLevel:     "info",
 		PollInterval: 60 * time.Second,
+		OAuth:        OAuthConfig{RedirectURI: defaultRedirectURI},
 		UI:           UIConfig{Theme: "auto", BranchTemplate: defaultBranchTemplate},
 	}
 }
@@ -88,6 +101,18 @@ func Load(path string) (Config, error) {
 	// so reject anything that is not a bare host name up front.
 	if cfg.Host != "" && strings.Contains(cfg.Host, "/") {
 		return Config{}, fmt.Errorf("reading %s: host %q must be a host name such as app-eu.wrike.com", path, cfg.Host)
+	}
+	cfg.OAuth.ClientID = strings.TrimSpace(cfg.OAuth.ClientID)
+	cfg.OAuth.ClientSecret = strings.TrimSpace(cfg.OAuth.ClientSecret)
+	if cfg.OAuth.ClientSecret != "" && cfg.OAuth.ClientID == "" {
+		return Config{}, fmt.Errorf("reading %s: oauth.client_secret needs oauth.client_id, the id of the same API app", path)
+	}
+	if cfg.OAuth.RedirectURI == "" {
+		cfg.OAuth.RedirectURI = defaultRedirectURI
+	}
+	// The sign in binds a listener to the port of this address and Wrike compares it with the registered one, so a bare host or another scheme would fail late.
+	if u, err := url.Parse(cfg.OAuth.RedirectURI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return Config{}, fmt.Errorf("reading %s: oauth.redirect_uri %q must be an http or https address such as %s", path, cfg.OAuth.RedirectURI, defaultRedirectURI)
 	}
 	return cfg, nil
 }
