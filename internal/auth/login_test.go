@@ -198,3 +198,16 @@ func TestLoginWaitEndsWithTheContext(t *testing.T) {
 		t.Fatalf("Wait err = %v, want the deadline", err)
 	}
 }
+
+func TestLoginAnswersTheRootWhenTheRedirectHasNoPath(t *testing.T) {
+	port := freePort(t)
+	l, state, _ := startTestLogin(t, "http://localhost:"+port)
+	done := waitFor(l)
+	status, body := get(t, "http://127.0.0.1:"+port+"/?code=c0de&state="+state)
+	if status != http.StatusOK || !strings.Contains(body, "signed in") {
+		t.Errorf("the root answered %d %q", status, body)
+	}
+	if s, err := (<-done)(); err != nil || s.AccessToken != "at1" {
+		t.Fatalf("Wait = %+v, %v", s, err)
+	}
+}

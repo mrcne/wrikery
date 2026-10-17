@@ -6,7 +6,8 @@ A browser session also holds the client id and secret of the API app it was made
 It leaves your machine only in requests to Wrike and is never written to the log.
 
 If a permanent token leaked, revoke it in Wrike in the API app it was created for, then create a new one.
-The access token of a browser session runs out within an hour on its own, and Wrike revokes both of its tokens when you revoke them in the app's settings or reset your password.
+A browser session is revoked in Wrike under Authorized Apps on your profile page, where every app you allowed is listed with its date, and the next sync asks for a new sign in.
+Its access token runs out within an hour on its own, and a password reset revokes every token too.
 `wrikery --logout` signs out, whichever way the sign in happened, and the next start asks for a new one.
 
 To report a problem in the app itself, use GitHub's private vulnerability reporting on this repository (the Security tab, "Report a vulnerability") instead of a public issue.

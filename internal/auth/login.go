@@ -70,6 +70,10 @@ func StartLogin(app wrike.OAuthApp, oauth wrike.OAuth) (*Login, error) {
 		path:     u.Path,
 		result:   make(chan outcome, 1),
 	}
+	if l.path == "" {
+		// A redirect URI that is a bare origin brings the browser to the root.
+		l.path = "/"
+	}
 	host := u.Hostname()
 	if u.Scheme == "http" && (host == "localhost" || host == "127.0.0.1") && u.Port() != "" {
 		ln, err := net.Listen("tcp", "127.0.0.1:"+u.Port())

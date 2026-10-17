@@ -40,13 +40,6 @@ func NewSource(tokens Tokens, s Session, hc *http.Client, userAgent string) *Sou
 	}
 }
 
-// Session is the pair the source holds now, the host in it is where the client talks to.
-func (s *Source) Session() Session {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.session
-}
-
 // Token implements wrike.TokenSource.
 // A renewal that fails while nothing was rejected keeps the held token:
 // an access token stays valid until its expiry whatever happened to the refresh token,
@@ -96,9 +89,12 @@ func (s *Source) renew(ctx context.Context, rejected string) (string, error) {
 	}
 	defer lock.Release()
 	if stored, err := s.tokens.Load(); err == nil && stored.OAuth() &&
-		stored.AccessToken != s.session.AccessToken && stored.AccessToken != rejected && s.fresh(stored) {
+		stored.AccessToken != s.session.AccessToken && stored.AccessToken != rejected {
+		// The other process renewed the pair, and its refresh token is the live one even when the access token is about to expire.
 		s.adopt(stored)
-		return stored.AccessToken, nil
+		if s.fresh(stored) {
+			return stored.AccessToken, nil
+		}
 	}
 	resp, err := s.oauth.Refresh(ctx, wrike.TokenURL(s.session.Host), s.session.RefreshToken)
 	if err != nil {

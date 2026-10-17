@@ -114,9 +114,6 @@ func TestSourceRefreshesNearTheExpiryAndSavesFirst(t *testing.T) {
 	if !stored.Expiry.Equal(now.Add(time.Hour)) || stored.Host != "app-eu.wrike.com" || stored.ClientID != "id1" || stored.ClientSecret != "s3cret" {
 		t.Errorf("stored = %+v, want the expiry an hour on, the host and the app kept", stored)
 	}
-	if s := src.Session(); s.AccessToken != "at2" {
-		t.Errorf("Session() = %+v, want the renewed one", s)
-	}
 }
 
 func TestSourceAdoptsAPairAnotherSourceWrote(t *testing.T) {
@@ -195,5 +192,33 @@ func TestClientWithTheSourceRenewsARejectedToken(t *testing.T) {
 	}
 	if stored, err := tk.Load(); err != nil || stored.AccessToken != "at2" {
 		t.Errorf("stored = %+v, %v, want the renewed pair", stored, err)
+	}
+}
+
+func TestSourceRefreshesWithAnAdoptedPairWhenItIsStaleToo(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service"))
+	e, hc := refreshServer(t, http.StatusOK)
+	tk := testTokens(t)
+	base := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	first := NewSource(tk, oauthSession(base.Add(2*time.Minute)), hc, "wrikery/test")
+	first.now = func() time.Time { return base }
+	if got, err := first.Token(context.Background(), ""); err != nil || got != "at2" {
+		t.Fatalf("first Token = %q, %v", got, err)
+	}
+	// The second process slept through most of the hour: its own pair is old and the stored one is about to expire as well.
+	// Its own refresh token is dead, the stored pair's is the live one, so the refresh must use that.
+	second := NewSource(tk, oauthSession(base.Add(2*time.Minute)), hc, "wrikery/test")
+	second.now = func() time.Time { return base.Add(58 * time.Minute) }
+	e.refresh = "rt2"
+	e.body = `{"access_token":"at3","refresh_token":"rt3","token_type":"bearer","expires_in":"3600","host":"app-eu.wrike.com"}`
+	got, err := second.Token(context.Background(), "")
+	if err != nil || got != "at3" {
+		t.Fatalf("second Token = %q, %v, want a pair refreshed from the stored one", got, err)
+	}
+	if e.calls != 2 {
+		t.Errorf("refresh calls = %d, want two", e.calls)
+	}
+	if stored, err := tk.Load(); err != nil || stored.AccessToken != "at3" || stored.RefreshToken != "rt3" {
+		t.Errorf("stored = %+v, %v", stored, err)
 	}
 }
