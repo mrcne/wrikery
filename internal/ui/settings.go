@@ -32,6 +32,7 @@ type settingsModel struct {
 	keys          KeyMap
 	scopes        []store.Scope
 	sidebarHidden bool
+	signedIn      string // SignedInWithToken or SignedInWithBrowser, empty in the demo and before the first sign in
 	cursor        int
 }
 
@@ -42,6 +43,8 @@ func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsMod
 func (s *settingsModel) setScopes(scopes []store.Scope) { s.scopes = scopes }
 
 func (s *settingsModel) setSidebarHidden(hidden bool) { s.sidebarHidden = hidden }
+
+func (s *settingsModel) setSignedIn(with string) { s.signedIn = with }
 
 func (s settingsModel) rows() []settingRow {
 	var names []string
@@ -67,7 +70,15 @@ func (s settingsModel) rows() []settingRow {
 	if s.sidebarHidden {
 		sidebar = "hidden"
 	}
-	return []settingRow{
+	var rows []settingRow
+	if s.signedIn != "" {
+		with := "a permanent token"
+		if s.signedIn == SignedInWithBrowser {
+			with = "the browser, app " + s.cfg.OAuth.ClientID
+		}
+		rows = append(rows, settingRow{group: "Account", label: "Signed in with", value: with, key: "oauth.client_id"})
+	}
+	return append(rows, []settingRow{
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
 		{group: "Sync", label: "Wrike host", value: host, key: "host"},
@@ -78,7 +89,7 @@ func (s settingsModel) rows() []settingRow {
 		{group: "Interface", label: "Hidden title prefixes", value: orText(strings.Join(ui.HidePrefixes, " "), "none"), key: "ui.hide_prefixes"},
 		{group: "Interface", label: "Branch name template", value: ui.BranchTemplate, key: "ui.branch_template"},
 		{group: "Logging", label: "Log level", value: s.cfg.LogLevel, key: "log_level"},
-	}
+	}...)
 }
 
 func orText(s, fallback string) string {

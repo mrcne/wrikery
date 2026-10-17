@@ -28,7 +28,7 @@ func probeHost(ctx context.Context, token string, hosts []string, hc *http.Clien
 		if hc != nil {
 			opts = append(opts, wrike.WithHTTPClient(hc))
 		}
-		me, err := newClient(token, host, opts...).Me(ctx)
+		me, err := newClient(wrike.StaticToken(token), host, opts...).Me(ctx)
 		if err == nil {
 			return host, me, nil
 		}

@@ -70,7 +70,7 @@ func TestTaskMoveRefusesLeavingTheLastFolderAndNeedsAFlag(t *testing.T) {
 func TestTaskMoveUsageErrorsNeedNoToken(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
-	env.Token = func() (string, error) { return "", fmt.Errorf("keychain locked") }
+	env.SignedIn = func() (bool, error) { return false, fmt.Errorf("keychain locked") }
 	if code := Run(context.Background(), env, []string{"task", "move", "TASK1", "--to", "PROJ2", "--from", "PROJ2"}); code != exitUsage {
 		t.Errorf("code = %d, want %d, the usage error comes before the token", code, exitUsage)
 	}

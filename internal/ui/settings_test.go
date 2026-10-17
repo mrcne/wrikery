@@ -98,3 +98,20 @@ func TestSettingsSidebarRowTogglesIt(t *testing.T) {
 		t.Errorf("Sidebar row = %q, want shown", rows[i].value)
 	}
 }
+
+func TestSettingsShowsTheSignInRow(t *testing.T) {
+	s := testSettings()
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	if view := s.View(th, 100, 30); strings.Contains(view, "Signed in with") {
+		t.Errorf("a row for a sign in that did not happen:\n%s", view)
+	}
+	s.cfg.OAuth.ClientID = "id1"
+	s.setSignedIn(SignedInWithBrowser)
+	if view := s.View(th, 100, 30); !strings.Contains(view, "Signed in with") || !strings.Contains(view, "the browser, app id1") {
+		t.Errorf("the browser sign in row is missing:\n%s", view)
+	}
+	s.setSignedIn(SignedInWithToken)
+	if view := s.View(th, 100, 30); !strings.Contains(view, "a permanent token") {
+		t.Errorf("the token row is missing:\n%s", view)
+	}
+}

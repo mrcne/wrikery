@@ -15,7 +15,7 @@ import (
 type firstRunStep int
 
 const (
-	stepToken firstRunStep = iota
+	stepSignIn firstRunStep = iota
 	stepScopes
 	stepSyncing
 )
@@ -28,30 +28,62 @@ type pickerItem struct {
 }
 
 type firstRunModel struct {
-	step      firstRunStep
-	reauth    bool   // a 401 sent the user back here, so a good token returns to the main screen instead of asking again
-	notice    string // shown above the token input, set after a 401
-	input     textinput.Model
-	spinner   spinner.Model
-	verifying bool
-	errText   string
-	name      string
-	items     []pickerItem
-	cursor    int
-	scopes    []store.Scope
-	keys      KeyMap
+	step       firstRunStep
+	reauth     bool   // a 401 sent the user back here, so a good sign in returns to the main screen instead of asking again
+	notice     string // shown above the fields, set after a 401
+	browser    bool   // the config names an API app and main gave the hook, so the browser sign in is offered
+	needSecret bool   // the config has no secret, a field asks for it
+	clientID   string
+	useToken   bool            // the token field is in view instead of the browser box, tab flips it
+	input      textinput.Model // the permanent token
+	secret     textinput.Model
+	paste      textinput.Model
+	signIn     *SignIn // the browser attempt in flight, nil before enter and after its end
+	attempt    int     // counts the browser attempts, the late answer of a cancelled one is told apart by it
+	spinner    spinner.Model
+	verifying  bool
+	errText    string
+	name       string
+	items      []pickerItem
+	cursor     int
+	scopes     []store.Scope
+	keys       KeyMap
 }
 
-func newFirstRun(step firstRunStep, notice string, keys KeyMap) firstRunModel {
+func newFirstRun(step firstRunStep, notice string, keys KeyMap, browser, needSecret bool, clientID string) firstRunModel {
 	in := textinput.New()
 	in.Placeholder = "paste the token here"
 	in.EchoMode = textinput.EchoPassword
 	// A permanent token is a JWT of several hundred characters and a character limit would cut it without a word,
 	// so the input takes any length and scrolls it instead of wrapping out of the border.
 	in.Width = 60
-	in.Focus()
+	secret := textinput.New()
+	secret.Placeholder = "paste the client secret here"
+	secret.EchoMode = textinput.EchoPassword
+	secret.Width = 60
+	paste := textinput.New()
+	paste.Placeholder = "http://localhost:8731/callback?code=..."
+	paste.Width = 60
 	sp := spinner.New(spinner.WithSpinner(spinner.Line))
-	return firstRunModel{step: step, notice: notice, input: in, spinner: sp, keys: keys}
+	f := firstRunModel{step: step, notice: notice, browser: browser, needSecret: needSecret, clientID: clientID,
+		input: in, secret: secret, paste: paste, spinner: sp, keys: keys}
+	f.focus()
+	return f
+}
+
+// focus puts the cursor into the field the box shows: the paste field while the browser is out, the secret before that, the token in token mode.
+func (f *firstRunModel) focus() {
+	f.input.Blur()
+	f.secret.Blur()
+	f.paste.Blur()
+	switch {
+	case !f.browser || f.useToken:
+		f.input.Focus()
+	case f.signIn != nil:
+		f.paste.Focus()
+	case f.needSecret:
+		f.secret.Focus()
+	}
 }
 
 func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
@@ -60,6 +92,7 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 		f.verifying = false
 		if msg.err != nil {
 			f.errText = msg.err.Error()
+			f.focus()
 			return f, nil
 		}
 		f.name, f.errText = msg.name, ""
@@ -67,6 +100,18 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 			return f, intent(firstRunFinishedMsg{})
 		}
 		f.step = stepScopes
+		return f, nil
+	case signInStartedMsg:
+		if msg.attempt != f.attempt {
+			return f, nil
+		}
+		if msg.err != nil {
+			f.verifying, f.errText = false, msg.err.Error()
+			return f, nil
+		}
+		si := msg.signIn
+		f.signIn = &si
+		f.focus()
 		return f, nil
 	case pickerLoadedMsg:
 		f.items = f.mergePicker(msg)
@@ -79,7 +124,7 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 		f.scopes = msg.scopes
 		return f, nil
 	case spinner.TickMsg:
-		// Both the token check and the sync step animate, so the ticks have to keep coming for either one.
+		// The sign in and the sync step animate, so the ticks have to keep coming for either one.
 		if !f.verifying && f.step != stepSyncing {
 			return f, nil
 		}
@@ -94,7 +139,16 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 
 func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 	switch f.step {
-	case stepToken:
+	case stepSignIn:
+		if f.browser && !f.useToken {
+			return f.handleBrowserKey(msg)
+		}
+		// Tab and not a letter, a token may contain any letter.
+		if msg.Type == tea.KeyTab && f.browser {
+			f.useToken, f.errText = false, ""
+			f.focus()
+			return f, nil
+		}
 		if msg.Type == tea.KeyEnter {
 			token := strings.TrimSpace(f.input.Value())
 			if token == "" || f.verifying {
@@ -138,6 +192,52 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 	return f, nil
 }
 
+// handleBrowserKey is the browser box: the secret and enter before the attempt, the paste field and esc while the browser is out.
+func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
+	if f.signIn != nil {
+		switch msg.Type {
+		case tea.KeyEsc:
+			// The attempt moves on, so the cancelled one's late answer is dropped by the root.
+			f.signIn.Cancel()
+			f.signIn, f.verifying, f.errText = nil, false, ""
+			f.attempt++
+			f.paste.SetValue("")
+			f.focus()
+			return f, nil
+		case tea.KeyEnter:
+			if address := strings.TrimSpace(f.paste.Value()); address != "" {
+				f.signIn.Paste(address)
+				f.paste.SetValue("")
+			}
+			return f, nil
+		}
+		var cmd tea.Cmd
+		f.paste, cmd = f.paste.Update(msg)
+		return f, cmd
+	}
+	switch msg.Type {
+	case tea.KeyTab:
+		f.useToken, f.errText = true, ""
+		f.focus()
+		return f, nil
+	case tea.KeyEnter:
+		if f.verifying {
+			return f, nil
+		}
+		secret := strings.TrimSpace(f.secret.Value())
+		if f.needSecret && secret == "" {
+			f.errText = "the client secret is needed"
+			return f, nil
+		}
+		f.attempt++
+		f.verifying, f.errText = true, ""
+		return f, tea.Batch(intent(firstRunStartSignInMsg{attempt: f.attempt, secret: secret}), f.spinner.Tick)
+	}
+	var cmd tea.Cmd
+	f.secret, cmd = f.secret.Update(msg)
+	return f, cmd
+}
+
 // mergePicker rebuilds the checklist from the store and keeps what the user already ticked.
 func (f firstRunModel) mergePicker(msg pickerLoadedMsg) []pickerItem {
 	checked := map[string]bool{}
@@ -151,7 +251,7 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 	accent := lipgloss.NewStyle().Foreground(th.Accent).Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	w := min(width-4, 72)
-	steps := []string{"1 Token", "2 Follow", "3 Sync"}
+	steps := []string{"1 Sign in", "2 Follow", "3 Sync"}
 	var head []string
 	for i, s := range steps {
 		if firstRunStep(i) == f.step {
@@ -163,22 +263,11 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 	var body strings.Builder
 	body.WriteString(strings.Join(head, muted.Render("  ->  ")) + "\n\n")
 	switch f.step {
-	case stepToken:
+	case stepSignIn:
 		if f.notice != "" {
 			body.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(f.notice) + "\n\n")
 		}
-		body.WriteString("Paste a permanent access token.\n")
-		body.WriteString(muted.Render("Create one in the Wrike App Console (Get token). Wrike shows it once.") + "\n")
-		body.WriteString(muted.Render("https://www.wrike.com/appconsole.htm?#/api") + "\n\n")
-		body.WriteString(f.input.View() + "\n\n")
-		switch {
-		case f.verifying:
-			body.WriteString(f.spinner.View() + " checking the token")
-		case f.errText != "":
-			body.WriteString(th.errorLine(f.errText, w-2))
-		default:
-			body.WriteString(muted.Render("enter to continue"))
-		}
+		f.viewSignIn(&body, th, muted, w)
 	case stepScopes:
 		body.WriteString("Hello " + f.name + ". Pick the spaces and projects to follow.\n")
 		body.WriteString(muted.Render("Only these are synced and searchable.") + "\n")
@@ -216,4 +305,47 @@ func (f firstRunModel) View(th Theme, width, height int) string {
 	}
 	box := th.box("Welcome to wrikery", body.String(), w, min(height, lipgloss.Height(body.String())+2), true)
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// viewSignIn draws step 1: the browser box waiting or idle, or the token field.
+func (f firstRunModel) viewSignIn(body *strings.Builder, th Theme, muted lipgloss.Style, w int) {
+	switch {
+	case f.browser && !f.useToken && f.signIn != nil:
+		body.WriteString(f.spinner.View() + " waiting for the browser\n\n")
+		body.WriteString(muted.Render("If it did not open, use this address:") + "\n")
+		body.WriteString(muted.Width(w-2).Render(f.signIn.URL) + "\n\n")
+		body.WriteString("Or paste the address the browser lands on:\n")
+		body.WriteString(f.paste.View() + "\n\n")
+		body.WriteString(muted.Render("enter to send the address, esc to start over"))
+	case f.browser && !f.useToken:
+		body.WriteString("Sign in through the browser.\n")
+		body.WriteString(muted.Render("wrikery opens Wrike's sign in page for the app "+f.clientID+".") + "\n\n")
+		if f.needSecret {
+			body.WriteString("Client secret " + muted.Render("from the same API app, kept in the keychain") + "\n")
+			body.WriteString(f.secret.View() + "\n\n")
+		}
+		switch {
+		case f.verifying:
+			body.WriteString(f.spinner.View() + " starting the sign in")
+		case f.errText != "":
+			body.WriteString(th.errorLine(f.errText, w-2))
+		default:
+			body.WriteString(muted.Render("enter to open the browser, tab to paste a permanent token instead"))
+		}
+	default:
+		body.WriteString("Paste a permanent access token.\n")
+		body.WriteString(muted.Render("Create one in the Wrike App Console (Get token). Wrike shows it once.") + "\n")
+		body.WriteString(muted.Render("https://www.wrike.com/appconsole.htm?#/api") + "\n\n")
+		body.WriteString(f.input.View() + "\n\n")
+		switch {
+		case f.verifying:
+			body.WriteString(f.spinner.View() + " checking the token")
+		case f.errText != "":
+			body.WriteString(th.errorLine(f.errText, w-2))
+		case f.browser:
+			body.WriteString(muted.Render("enter to continue, tab to sign in through the browser instead"))
+		default:
+			body.WriteString(muted.Render("enter to continue"))
+		}
+	}
 }

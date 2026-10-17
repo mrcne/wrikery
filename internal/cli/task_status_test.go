@@ -114,7 +114,7 @@ func TestTaskStatusWithoutATokenQueuesNothing(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitError {
 		t.Fatalf("code = %d", code)
 	}
-	if !strings.Contains(errOut.String(), "no token stored") {
+	if !strings.Contains(errOut.String(), "not signed in") {
 		t.Errorf("stderr:\n%s", errOut.String())
 	}
 	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 0 {

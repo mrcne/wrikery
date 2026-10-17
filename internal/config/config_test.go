@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,5 +212,46 @@ func TestDefaultPathsHasTokenFile(t *testing.T) {
 	}
 	if p.TokenFile != "/tmp/xdg-config/wrikery/token" {
 		t.Errorf("TokenFile = %q", p.TokenFile)
+	}
+}
+
+func TestLoadReadsTheOAuthTable(t *testing.T) {
+	cfg, err := config.Load(writeConfig(t, "[oauth]\nclient_id = \" id1 \"\nclient_secret = \"s3cret\"\nredirect_uri = \"http://localhost:9000/cb\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config.OAuthConfig{ClientID: "id1", ClientSecret: "s3cret", RedirectURI: "http://localhost:9000/cb"}
+	if cfg.OAuth != want {
+		t.Errorf("OAuth = %+v, want %+v", cfg.OAuth, want)
+	}
+}
+
+func TestLoadDefaultsTheRedirectURI(t *testing.T) {
+	for name, body := range map[string]string{"with an app": "[oauth]\nclient_id = \"id1\"\n", "without": ""} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := config.Load(writeConfig(t, body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.OAuth.RedirectURI != "http://localhost:8731/callback" {
+				t.Errorf("RedirectURI = %q", cfg.OAuth.RedirectURI)
+			}
+		})
+	}
+}
+
+func TestLoadRefusesASecretWithoutAnID(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "[oauth]\nclient_secret = \"s3cret\"\n"))
+	if err == nil || !strings.Contains(err.Error(), "client_id") {
+		t.Fatalf("err = %v, want a refusal naming client_id", err)
+	}
+}
+
+func TestLoadRefusesABadRedirectURI(t *testing.T) {
+	for _, uri := range []string{"ftp://localhost/cb", "localhost:8731/cb", "http://", "://x"} {
+		_, err := config.Load(writeConfig(t, "[oauth]\nclient_id = \"id1\"\nredirect_uri = \""+uri+"\"\n"))
+		if err == nil || !strings.Contains(err.Error(), "redirect_uri") {
+			t.Errorf("redirect_uri %q: err = %v, want a refusal", uri, err)
+		}
 	}
 }

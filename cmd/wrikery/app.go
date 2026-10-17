@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,24 +21,32 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// newClient builds a Wrike client for host, with the app's own version in the User-Agent.
-// That lets Wrike support tell wrikery traffic apart from other API clients.
-func newClient(token, host string, opts ...wrike.Option) *wrike.Client {
-	all := []wrike.Option{
-		wrike.WithBaseURL(wrike.BaseURL(host)),
-		wrike.WithUserAgent("wrikery/" + buildVersion() + " (+https://github.com/mrcne/wrikery)"),
-	}
-	all = append(all, opts...)
-	return wrike.New(token, all...)
+// userAgent names the app and its version, so Wrike support can tell wrikery traffic apart from other API clients.
+func userAgent() string {
+	return "wrikery/" + buildVersion() + " (+https://github.com/mrcne/wrikery)"
 }
 
-// app owns the engine lifecycle. The engine is rebuilt when the token changes, because the client holds the token.
+// newClient builds a Wrike client for host that takes its token from src.
+func newClient(src wrike.TokenSource, host string, opts ...wrike.Option) *wrike.Client {
+	all := []wrike.Option{
+		wrike.WithBaseURL(wrike.BaseURL(host)),
+		wrike.WithUserAgent(userAgent()),
+		wrike.WithTokenSource(src),
+	}
+	all = append(all, opts...)
+	return wrike.New("", all...)
+}
+
+// app owns the engine lifecycle. The engine is rebuilt when the sign in changes, because the client holds the token source.
 type app struct {
 	cfg    config.Config
 	st     *store.Store
 	tokens auth.Tokens
 	prog   *tea.Program
 	lock   string
+	// hc and loginTokenURL are set by the tests, which route every host to a fake server. Nil and empty otherwise.
+	hc            *http.Client
+	loginTokenURL string
 
 	mu     sync.Mutex
 	closed bool
@@ -49,14 +58,14 @@ type app struct {
 // startEngine holds the lock for its whole body, the stop of the old engine included.
 // verifyToken runs on a UI command goroutine, so without that a token arriving during shutdown could start an engine against a closing store.
 // Waiting under the lock is safe because only startEngine and shutdown ever take it, and neither runs while holding an engine.
-func (a *app) startEngine(token, host string) {
+func (a *app) startEngine(src wrike.TokenSource, host string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
 		return
 	}
 	a.stopLocked()
-	client := newClient(token, host)
+	client := newClient(src, host, a.clientOpts()...)
 	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock}, slog.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -88,6 +97,14 @@ func (a *app) stopLocked() {
 	}
 }
 
+// clientOpts routes the clients to the fake server of a test, nothing in production.
+func (a *app) clientOpts() []wrike.Option {
+	if a.hc == nil {
+		return nil
+	}
+	return []wrike.Option{wrike.WithHTTPClient(a.hc)}
+}
+
 func (a *app) current() *syncer.Engine {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -95,7 +112,7 @@ func (a *app) current() *syncer.Engine {
 }
 
 func (a *app) hooks() ui.Hooks {
-	return ui.Hooks{
+	h := ui.Hooks{
 		Refresh: func() {
 			if e := a.current(); e != nil {
 				e.Refresh()
@@ -110,6 +127,11 @@ func (a *app) hooks() ui.Hooks {
 		OpenURL:     openURL,
 		Copy:        copyText,
 	}
+	// Without an app in the config the browser sign in has nothing to open, so the screen does not offer it.
+	if a.cfg.OAuth.ClientID != "" {
+		h.SignIn = a.signIn
+	}
+	return h
 }
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
@@ -121,7 +143,7 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 	if a.cfg.Host != "" {
 		hosts = []string{a.cfg.Host}
 	}
-	host, me, err := probeHost(ctx, token, hosts, nil)
+	host, me, err := probeHost(ctx, token, hosts, a.hc)
 	if err != nil {
 		var apiErr *wrike.APIError
 		switch {
@@ -145,25 +167,28 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 	if err := a.tokens.SaveToken(token); err != nil {
 		return "", err
 	}
-	a.startEngine(token, host)
+	a.startEngine(wrike.StaticToken(token), host)
 	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
 }
 
 // resolveHost is the chain run uses before starting the engine:
-// the config wins, then the host remembered from a previous probe,
-// and only when both are empty is the network touched, once, under a short deadline.
+// the config wins, then the host a browser sign in got from the token answer, then the host remembered from a previous probe,
+// and only when all are empty is the network touched, once, under a short deadline.
 // The app must open on the cache when offline, so the probe cannot have the client's full retry budget:
 // a GET retries a network failure three times with backoff on top of the 30s client timeout.
-func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, token string) (string, error) {
+func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session) (string, error) {
 	if cfg.Host != "" {
 		return cfg.Host, nil
+	}
+	if s.Host != "" {
+		return s.Host, nil
 	}
 	if host, _ := st.GetMeta(ctx, store.MetaKeyHost); host != "" {
 		return host, nil
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	host, _, err := probeHost(probeCtx, token, apiHosts, nil)
+	host, _, err := probeHost(probeCtx, s.AccessToken, apiHosts, nil)
 	if err != nil {
 		return "", err
 	}

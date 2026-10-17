@@ -31,11 +31,11 @@ const (
 type Env struct {
 	Config   config.Config
 	Store    *store.Store
-	Token    func() (string, error)                                  // read only by the commands that send, empty when none is stored
-	Client   func(token, host string) *wrike.Client                  // main's constructor, it carries the User-Agent
-	Host     func(ctx context.Context, token string) (string, error) // main's config, meta, probe chain
-	LockFile string                                                  // the sync lock next to the database
-	Socket   string                                                  // the control socket of a running interface, next to the database as well
+	SignedIn func() (bool, error)                      // read only by the commands that send, false when nothing is stored
+	Client   func(host string) *wrike.Client           // main's constructor, it carries the User-Agent and the token source
+	Host     func(ctx context.Context) (string, error) // main's config, session, meta, probe chain
+	LockFile string                                    // the sync lock next to the database
+	Socket   string                                    // the control socket of a running interface, next to the database as well
 	Theme    ui.Theme
 	Width    int           // columns of the terminal stdout is, 0 in a pipe
 	Deadline time.Duration // how long a write waits for the lock and to start, a create already sent waits for Wrike's answer, up to a minute and a half when Wrike rate limits

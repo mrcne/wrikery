@@ -594,6 +594,35 @@ func (m Model) loadWeek(start time.Time) tea.Cmd {
 	}
 }
 
+// startSignIn asks the hook for a browser sign in and opens the address.
+// A browser that does not open is no error, the address is on the screen for a copy.
+func (m Model) startSignIn(attempt int, secret string) tea.Cmd {
+	start, open := m.opts.Hooks.SignIn, m.opts.Hooks.OpenURL
+	return func() tea.Msg {
+		if start == nil {
+			return signInStartedMsg{attempt: attempt, err: errors.New("the browser sign in is not available")}
+		}
+		si, err := start(secret)
+		if err != nil {
+			return signInStartedMsg{attempt: attempt, err: err}
+		}
+		if open != nil {
+			if err := open(si.URL); err != nil {
+				slog.Debug("could not open the browser, the address is on the screen", "error", err)
+			}
+		}
+		return signInStartedMsg{attempt: attempt, signIn: si}
+	}
+}
+
+// waitSignIn turns the one answer of a browser sign in into a message.
+func waitSignIn(attempt int, result <-chan SignInResult) tea.Cmd {
+	return func() tea.Msg {
+		r := <-result
+		return signInResultMsg{attempt: attempt, name: r.Name, err: r.Err}
+	}
+}
+
 func (m Model) verifyToken(token string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {

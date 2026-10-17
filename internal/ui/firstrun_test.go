@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
+	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
@@ -142,4 +143,118 @@ func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	if strings.Contains(view, "Follow") {
 		t.Errorf("a second token walked into the scope picker:\n%s", view)
 	}
+}
+
+// browserOptions is a first run whose config names an API app, with a fake sign in hook that hands the test every call.
+func browserOptions(t *testing.T, st *store.Store, secret string) (ui.Options, chan ui.SignInResult, chan string, chan struct{}) {
+	t.Helper()
+	opts := testOptions(st)
+	opts.Demo = false
+	opts.FirstRun = true
+	opts.Config.OAuth = config.OAuthConfig{ClientID: "id1", ClientSecret: secret, RedirectURI: "http://localhost:8731/callback"}
+	result := make(chan ui.SignInResult, 1)
+	pasted := make(chan string, 1)
+	cancelled := make(chan struct{}, 1)
+	opts.Hooks.SignIn = func(string) (ui.SignIn, error) {
+		return ui.SignIn{
+			URL:    "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s",
+			Result: result,
+			Paste:  func(address string) { pasted <- address },
+			Cancel: func() { cancelled <- struct{}{} },
+		}, nil
+	}
+	return opts, result, pasted, cancelled
+}
+
+func freshStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+func TestFirstRunBrowserShowsTheAddressAndTakesAPaste(t *testing.T) {
+	opts, result, pasted, _ := browserOptions(t, freshStore(t), "s3cret")
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "login.wrike.com")
+	address := "http://localhost:8731/callback?code=c0de&state=s"
+	press(tm, address, "enter")
+	select {
+	case got := <-pasted:
+		if got != address {
+			t.Fatalf("pasted %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the pasted address never reached the hook")
+	}
+	result <- ui.SignInResult{Name: "Ada Nowak"}
+	waitFor(t, tm, "Hello Ada Nowak")
+}
+
+func TestFirstRunBrowserNeedsTheSecret(t *testing.T) {
+	opts, _, _, _ := browserOptions(t, freshStore(t), "")
+	opts.Hooks.SignIn = func(string) (ui.SignIn, error) {
+		t.Error("the hook ran without a secret")
+		return ui.SignIn{}, nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Client secret")
+	press(tm, "enter")
+	waitFor(t, tm, "the client secret is needed")
+}
+
+func TestFirstRunTabSwitchesToTheTokenField(t *testing.T) {
+	opts, _, _, _ := browserOptions(t, freshStore(t), "s3cret")
+	verified := make(chan string, 1)
+	opts.Hooks.VerifyToken = func(_ context.Context, token string) (string, error) {
+		verified <- token
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "tab")
+	waitFor(t, tm, "Paste a permanent access token")
+	press(tm, "abc", "enter")
+	if got := <-verified; got != "abc" {
+		t.Fatalf("verified %q", got)
+	}
+	waitFor(t, tm, "Hello Ada Nowak")
+}
+
+func TestFirstRunEscCancelsTheAttempt(t *testing.T) {
+	opts, result, _, cancelled := browserOptions(t, freshStore(t), "s3cret")
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "waiting for the browser")
+	press(tm, "esc")
+	select {
+	case <-cancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("esc did not cancel the attempt")
+	}
+	// The cancelled attempt still answers, late, and that answer must not sign anybody in.
+	result <- ui.SignInResult{Name: "Late"}
+	time.Sleep(100 * time.Millisecond)
+	press(tm, "tab")
+	waitFor(t, tm, "Paste a permanent access token")
+	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Hello Late") {
+		t.Fatal("the late answer of a cancelled attempt was taken")
+	}
+}
+
+func TestReauthNoticeNamesTheSession(t *testing.T) {
+	st := seededStore(t)
+	opts, _, _, _ := browserOptions(t, st, "s3cret")
+	opts.FirstRun = false
+	opts.SignedInWith = ui.SignedInWithBrowser
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks")
+	tm.Send(ui.SyncStateMsg{State: "auth_required"})
+	waitFor(t, tm, "Wrike no longer accepts the session")
 }

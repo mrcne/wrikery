@@ -157,7 +157,7 @@ func TestTaskEditUnchangedDescriptionNeedsNoToken(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	env.Stdin = strings.NewReader("Three flags, **no** subcommands.\n")
-	env.Token = func() (string, error) { return "", fmt.Errorf("keychain locked") }
+	env.SignedIn = func() (bool, error) { return false, fmt.Errorf("keychain locked") }
 	if code := Run(context.Background(), env, []string{"task", "edit", "TASK1", "--description", "-"}); code != exitOK {
 		t.Errorf("code = %d, want %d, a no-op must not read the token\n%s", code, exitOK, out.String())
 	}
