@@ -62,6 +62,16 @@ func TestSeedFillsEveryTable(t *testing.T) {
 	if len(logs) == 0 {
 		t.Error("no timelogs on the first task")
 	}
+	// The log time box steps through the notes of a task's earlier entries, so a task has to carry a few.
+	notes := map[string]bool{}
+	for _, lg := range logs {
+		if lg.Comment != "" {
+			notes[lg.Comment] = true
+		}
+	}
+	if len(notes) < 2 {
+		t.Errorf("the first task has %d distinct notes, want at least two to step through", len(notes))
+	}
 	if ws, _ := st.Workflows().List(ctx); len(ws) != 2 || len(ws[0].CustomStatuses) == 0 {
 		t.Errorf("workflows = %+v", ws)
 	}

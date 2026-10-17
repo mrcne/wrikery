@@ -376,9 +376,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchPickMsg:
 		m.overlay, m.search.pickMode = overlayNone, false
 		m.search.blur()
-		d, cmd := newTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate, m.opts.Now(), min(m.width-4, 80))
-		m.openDialog(d)
-		return m, cmd
+		return m, m.openTimelogDialog(msg.task.ID, msg.task.Title, nil, m.pendingDate)
+	case notesLoadedMsg:
+		if d, ok := m.dialog.(timelogDialog); ok && m.overlay == overlayDialog && d.taskID == msg.taskID {
+			// The notes landed while the box is open, see openTimelogDialog.
+			d.notes = msg.notes
+			m.dialog = d
+		}
+		return m, nil
 	case closeDialogMsg:
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
@@ -406,16 +411,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.pickMode = true
 			return m, cmd
 		}
-		d, cmd := newTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date, m.opts.Now(), min(m.width-4, 80))
-		m.openDialog(d)
-		return m, cmd
+		return m, m.openTimelogDialog(msg.taskID, m.timesheet.titleFor(msg.taskID), nil, msg.date)
 	case editEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
 		}
-		d, cmd := newTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "", m.opts.Now(), min(m.width-4, 80))
-		m.openDialog(d)
-		return m, cmd
+		return m, m.openTimelogDialog(msg.log.TaskID, m.timesheet.titleFor(msg.log.TaskID), &msg.log, "")
 	case deleteEntryMsg:
 		if timelogLocked(msg.log) {
 			return m, m.status.show("this entry is locked or approved in Wrike and cannot be changed", true)
@@ -780,6 +781,14 @@ func (m *Model) clearIfListEmpty() {
 	}
 }
 
+// openTimelogDialog opens the log time box and starts the read of the task's earlier notes for its note field.
+// The notes land through notesLoadedMsg, into the box only while it is still open on that task.
+func (m *Model) openTimelogDialog(taskID, title string, existing *store.Timelog, date string) tea.Cmd {
+	d, cmd := newTimelogDialog(taskID, title, existing, date, m.opts.Now(), min(m.width-4, 80))
+	m.openDialog(d)
+	return tea.Batch(cmd, m.loadNotes(taskID))
+}
+
 // openDialog opens a dialog and switches the overlay to it.
 // The pointer receiver mutates the caller's m in place, and the caller returns that same m afterward,
 // so a caller must not also read m in the same statement, the order between the two is unspecified.
@@ -1052,9 +1061,7 @@ func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 			if m.screen == screenTimesheet && m.timesheet.loaded {
 				date = m.timesheet.cellDate()
 			}
-			d, cmd := newTimelogDialog(t.ID, t.Title, nil, date, m.opts.Now(), min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
+			return m.openTimelogDialog(t.ID, t.Title, nil, date)
 		})
 		return cmd, true
 	case key.Matches(msg, m.keys.Assignee):

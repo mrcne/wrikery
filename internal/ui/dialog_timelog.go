@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,13 +26,43 @@ type timelogDialog struct {
 	focus                    int
 	errText                  string
 	now                      time.Time
+	// The notes of the task's earlier entries, loaded after the box opens, see notesLoadedMsg.
+	// noteIdx is the one in the field, -1 for what was typed, kept in draft while a note is shown.
+	notes   []string
+	noteIdx int
+	draft   string
+}
+
+// earlierNotes is what the note field steps through: each wording once, own entries first, newest first.
+// Other people's notes come after, on a shared task they may be exactly what is wanted.
+func earlierNotes(logs []store.Timelog, meID string) []string {
+	sorted := slices.Clone(logs)
+	slices.SortStableFunc(sorted, func(a, b store.Timelog) int {
+		if (a.UserID == meID) != (b.UserID == meID) {
+			if a.UserID == meID {
+				return -1
+			}
+			return 1
+		}
+		if a.TrackedDate != b.TrackedDate {
+			return strings.Compare(b.TrackedDate, a.TrackedDate)
+		}
+		return strings.Compare(b.CreatedDate, a.CreatedDate)
+	})
+	var notes []string
+	for _, l := range sorted {
+		if c := strings.TrimSpace(l.Comment); c != "" && !slices.Contains(notes, c) {
+			notes = append(notes, c)
+		}
+	}
+	return notes
 }
 
 // timelogBoxWidth is the most the box takes, the fields are sized from it when the box opens.
 const timelogBoxWidth = 70
 
 func newTimelogDialog(taskID, title string, existing *store.Timelog, date string, now time.Time, width int) (timelogDialog, tea.Cmd) {
-	d := timelogDialog{taskID: taskID, title: title, now: now}
+	d := timelogDialog{taskID: taskID, title: title, now: now, noteIdx: -1}
 	labels := []string{"hours", "date", "note"}
 	values := []string{"", date, ""}
 	if date == "" {
@@ -69,6 +100,12 @@ func (d timelogDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		d.inputs[d.focus].Blur()
 		d.focus = (d.focus + 2) % 3
 		return d, d.inputs[d.focus].Focus()
+	case tea.KeyCtrlP, tea.KeyCtrlN:
+		if d.focus == 2 && len(d.notes) > 0 {
+			d.stepNote(msg.Type == tea.KeyCtrlP)
+			d.errText = ""
+			return d, nil
+		}
 	case tea.KeyEnter:
 		hours, err := parseHours(d.inputs[0].Value())
 		if err != nil {
@@ -95,12 +132,46 @@ func (d timelogDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 	return d, cmd
 }
 
+// stepNote moves through the earlier notes like a shell history, older on ctrl+p and newer on ctrl+n,
+// past the newest back to what was typed.
+func (d *timelogDialog) stepNote(older bool) {
+	next := d.noteIdx - 1
+	if older {
+		next = d.noteIdx + 1
+	}
+	if next < -1 || next >= len(d.notes) {
+		return
+	}
+	if d.noteIdx == -1 {
+		d.draft = d.inputs[2].Value()
+	}
+	d.noteIdx = next
+	if next == -1 {
+		d.inputs[2].SetValue(d.draft)
+	} else {
+		d.inputs[2].SetValue(d.notes[next])
+	}
+	d.inputs[2].CursorEnd()
+}
+
+// noteHint sits under the note field only when the task has earlier notes, so the keys can be found.
+func (d timelogDialog) noteHint(th Theme) string {
+	if len(d.notes) == 0 {
+		return ""
+	}
+	hint := "ctrl+p earlier note"
+	if d.noteIdx >= 0 {
+		hint = fmt.Sprintf("note %d of %d   ctrl+p older   ctrl+n newer", d.noteIdx+1, len(d.notes))
+	}
+	return lipgloss.NewStyle().Foreground(th.Muted).Render("      "+hint) + "\n"
+}
+
 func (d timelogDialog) View(th Theme, width, height int) string {
 	title := "Log time on " + d.title
 	if d.timelogID != "" {
 		title = "Edit time on " + d.title
 	}
-	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateBack) + "\n" + d.inputs[2].View() + "\n\n"
+	body := d.inputs[0].View() + "\n" + d.inputs[1].View() + dateHint(th, d.inputs[1].Value(), d.now, dateBack) + "\n" + d.inputs[2].View() + "\n" + d.noteHint(th) + "\n"
 	width = min(width, timelogBoxWidth)
 	if d.errText != "" {
 		body += th.errorLine(d.errText, width-2) + "\n"

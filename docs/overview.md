@@ -105,6 +105,7 @@ Saving lets Wrike recompute the duration from the new dates, a custom duration s
 Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h`, `2h30m` or `1h 20m`, the form logged time is shown in.
 The date takes the same quick words as the dates dialog and defaults to today, with one difference: time is logged after the fact, so a weekday or a day and month is the latest one and today counts, `mon` on a Thursday is three days back, `fri` on a Friday is today and `28 dec` in January is last year.
 The note is optional.
+Ctrl+p in the note field takes the note of an earlier entry on the task, own entries first and newest first, and ctrl+n goes back towards what was typed.
 Tab moves between the fields, enter saves, esc cancels.
 Editing an entry cannot clear a note that is already there.
 

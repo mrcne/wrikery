@@ -350,6 +350,20 @@ func (m Model) markOpened(id string) tea.Cmd {
 	}
 }
 
+// loadNotes reads the task's entries for the note field of the log time box, see earlierNotes.
+func (m Model) loadNotes(taskID string) tea.Cmd {
+	st, meID := m.opts.Store, m.ref.meID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		logs, err := st.Timelogs().ListForTask(ctx, taskID)
+		if err != nil {
+			return errMsg{err}
+		}
+		return notesLoadedMsg{taskID: taskID, notes: earlierNotes(logs, meID)}
+	}
+}
+
 // runSearch reads the crumb for each hit's first parent, the same folder title the list pane shows.
 func (m Model) runSearch(seq int, query string) tea.Cmd {
 	st := m.opts.Store
