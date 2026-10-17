@@ -33,7 +33,7 @@ type Glyphs struct {
 var unicodeGlyphs = Glyphs{Active: "○", Completed: "✓", Deferred: "◌", Cancelled: "✕", Expanded: "▾", Collapsed: "▸", Pending: "~", Failed: "!", Synced: "●", Syncing: "◐", Offline: "○", Cursor: ">", Important: "!"}
 var asciiGlyphs = Glyphs{Active: "o", Completed: "v", Deferred: "z", Cancelled: "x", Expanded: "v", Collapsed: ">", Pending: "~", Failed: "!", Synced: "*", Syncing: "~", Offline: "o", Cursor: ">", Important: "!"}
 
-var asciiBorder = lipgloss.Border{Top: "-", Bottom: "-", Left: "|", Right: "|", TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+"}
+var asciiBorder = lipgloss.Border{Top: "-", Bottom: "-", Left: "|", Right: "|", TopLeft: "+", TopRight: "+", BottomLeft: "+", BottomRight: "+", Middle: "+"}
 
 type palette struct{ light, dark string }
 

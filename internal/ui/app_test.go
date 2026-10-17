@@ -79,6 +79,8 @@ func press(tm *teatest.TestModel, keys ...string) {
 			tm.Send(tea.KeyMsg{Type: tea.KeySpace})
 		case "ctrl+f":
 			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlF})
+		case "ctrl+p":
+			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
 		default:
 			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
 		}
@@ -1529,4 +1531,21 @@ func TestAHiddenSidebarIsAwayFromTheStart(t *testing.T) {
 	if out := finalView(t, tm); strings.Contains(out, "Spaces") || !strings.Contains(out, "Tasks: My tasks (") {
 		t.Errorf("the frame with a saved hidden sidebar:\n%s", out)
 	}
+}
+
+// The notes of the task's earlier entries are read when the box opens and land in it while it is open,
+// so ctrl+p has something to step to. The first timesheet row is a task with seeded entries and notes.
+func TestLogTimeBoxOffersTheEarlierNotesOfTheTask(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks:")
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	press(tm, "n")
+	waitFor(t, tm, "Log time on")
+	waitFor(t, tm, "ctrl+p earlier note")
+	press(tm, "tab", "tab", "ctrl+p")
+	waitFor(t, tm, "note 1 of")
+	press(tm, "esc")
+	finalView(t, tm)
 }

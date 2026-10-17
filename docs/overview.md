@@ -105,6 +105,7 @@ Saving lets Wrike recompute the duration from the new dates, a custom duration s
 Hours take `1.5`, `1,5`, `1:30`, `90m`, `2h`, `2h30m` or `1h 20m`, the form logged time is shown in.
 The date takes the same quick words as the dates dialog and defaults to today, with one difference: time is logged after the fact, so a weekday or a day and month is the latest one and today counts, `mon` on a Thursday is three days back, `fri` on a Friday is today and `28 dec` in January is last year.
 The note is optional.
+Ctrl+p in the note field takes the note of an earlier entry on the task, own entries first and newest first, and ctrl+n goes back towards what was typed.
 Tab moves between the fields, enter saves, esc cancels.
 Editing an entry cannot clear a note that is already there.
 
@@ -195,6 +196,7 @@ A separate view (key T) shows the current week as a grid: tasks as rows, Monday 
 A cell is the time logged on that task on that day as hours and minutes, `1:20`, or a dash when there is nothing.
 Everywhere else logged time reads as `1h 20m`, `45m` or `2h`: the time section of a task, the message after logging, the entry lists and the changes screen.
 Each row carries a total for the task, each column a total for the day, and the grid ends with a total for the week.
+Rules set the totals apart from the entries, a vertical one before the task totals and one above the day totals.
 The last row, `+ new task`, is for logging time on a task that has no row yet.
 
 `h` and `l` move between days, `j` and `k` move between rows.

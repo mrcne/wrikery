@@ -166,19 +166,20 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	for _, l := range d.logs {
-		line := fmt.Sprintf("%s  %s  %s", shortDate(l.TrackedDate), contactName(l.UserID, ref), hoursText(l.Hours))
+		line := fmt.Sprintf("%s  %s  %s", shortDate(l.TrackedDate), stableWidth(contactName(l.UserID, ref)), hoursText(l.Hours))
 		if l.Comment != "" {
 			line += "  " + stableWidth(l.Comment)
 		}
 		if store.IsLocalID(l.ID) {
 			line += " " + sending
 		}
+		style := muted
 		if l.UserID == ref.meID {
-			line = lipgloss.NewStyle().Foreground(th.Text).Render(line)
-		} else {
-			line = muted.Render(line)
+			style = lipgloss.NewStyle().Foreground(th.Text)
 		}
-		b.WriteString(line + "\n")
+		// Wrapped to the pane, the viewport would cut a long note at the edge.
+		// The lines after the first are indented, at the left edge they would read as a second entry without a date.
+		b.WriteString(strings.ReplaceAll(style.Width(width-2).Render(line), "\n", "\n  ") + "\n")
 	}
 	d.vp.SetContent(b.String())
 }

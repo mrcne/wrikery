@@ -54,6 +54,13 @@ type tasksLoadedMsg struct {
 }
 type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
 type taskGoneMsg struct{ id string }     // the task is no longer in the cache and no swap explains it
+
+// notesLoadedMsg carries the notes of a task's earlier entries to the log time box open on it.
+type notesLoadedMsg struct {
+	taskID string
+	notes  []string
+}
+
 type taskLoadedMsg struct {
 	asked    string // the id the read was asked for, the task's own unless a swap stepped in
 	task     store.Task

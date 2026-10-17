@@ -194,6 +194,9 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 
 	// Three weeks of my time on my tasks, weekdays only, so the timesheet has totals to show.
 	var logs []store.Timelog
+	// The wordings rotate over a task's entries, so the note field of the log time box has a few to step through.
+	notes := []string{"Pairing on the fix", "Review and retest", "Writing tests", ""}
+	seen := map[string]int{}
 	n := 0
 	for offset := -21; offset <= 0; offset++ {
 		d := now.AddDate(0, 0, offset)
@@ -208,11 +211,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 				TaskID:      task.ID,
 				UserID:      MeID,
 				TrackedDate: d.Format("2006-01-02"),
-				Comment:     "",
+				Comment:     notes[seen[task.ID]%len(notes)],
 				Hours:       []float64{1.5, 2, 0.5, 3}[len(logs)%4],
 				CreatedDate: stamp(offset, 17),
 				UpdatedDate: stamp(offset, 17),
 			})
+			seen[task.ID]++
 		}
 	}
 	// One locked entry so the refusal path is visible.
