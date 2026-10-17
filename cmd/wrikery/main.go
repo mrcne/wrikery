@@ -90,7 +90,7 @@ func main() {
 	}
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	demoMode := fs.Bool("demo", false, "run on built in sample data, no token and no network")
-	logout := fs.Bool("logout", false, "remove the stored token and exit")
+	logout := fs.Bool("logout", false, "sign out, remove the stored token or session, and exit")
 	configPath := fs.String("config", "", "read this config file instead of the default")
 	noColor := fs.Bool("no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
 

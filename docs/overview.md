@@ -236,15 +236,21 @@ Applying runs a full refresh: a newly followed scope is pulled from the start, a
 The sidebar drops an unfollowed space at once and shows a newly followed one right away, its tasks arrive with the refresh.
 
 The Sidebar row says whether the pane is shown or hidden, enter flips it, the same as `S` on the main screen.
+The Account row names the sign in, a permanent token or the browser with the app's client id.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
 The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
 
 ### First run
 
 Paste a Wrike API token. The app checks it and stores it in the system keychain.
+When the config names an API app registered in Wrike, the first step offers a sign in through the browser instead, with the token one key away.
+The browser opens Wrike's sign in page, the user allows the app, and Wrike sends the browser back to a local port the app listens on.
+The address can also be opened by hand, and the one the browser lands on pasted into the box, for a terminal on another machine.
+A browser sign in gives an access token that lives an hour, the app renews it on its own, in the interface and in the commands.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
 The choice can be changed later from the settings screen.
 The goal is less than a minute from install to a working app.
+`wrikery --logout` signs out, whichever way the sign in happened, and the next start asks again.
 
 ### Demo mode
 
@@ -260,6 +266,7 @@ The config file lives at `~/.config/wrikery/config.toml`.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
 `hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title and the branch name `Y` copies leaves the prefix out too.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
+The `[oauth]` table names an API app for the browser sign in: `client_id`, `redirect_uri`, which is `http://localhost:8731/callback` unless the app was registered with another address, and `client_secret`, which the first run asks for when it is not in the file.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
 
 ### Commands

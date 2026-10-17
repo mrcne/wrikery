@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into six parts with strict boundaries, plus a small config package:
+The code is split into six parts with strict boundaries, plus two small packages, the config and the lock file helper:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
@@ -29,16 +29,19 @@ The code is split into six parts with strict boundaries, plus a small config pac
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
   It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
+- `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
 `cmd/wrikery` wires the parts together.
-It loads the token through `internal/auth`, builds the client and the engine, starts the bubbletea program and forwards engine events into it as messages.
-The UI gets a few callbacks (refresh, wake the outbox, verify a token), so it never imports the client or the engine.
-A new token rebuilds the client and the engine, because the client holds the token.
-Wrike serves accounts from more than one data center under a different host, so the first run probes the known hosts and keeps the one that accepted the token in the store meta table.
-Later runs read that host back instead of probing again, and the `host` config key overrides both when set.
-When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the token, the client constructor and the host resolver instead of starting the program.
+It loads the stored sign in through `internal/auth`, a permanent token or a browser session, hands the client a token source, builds the engine, starts the bubbletea program and forwards engine events into it as messages.
+The UI gets a few callbacks (refresh, wake the outbox, verify a token, start a browser sign in), so it never imports the client or the engine.
+A new sign in rebuilds the client and the engine, because the client holds the token source.
+A browser session is the OAuth 2.0 authorization code flow: `internal/auth` listens on the port of the redirect URI, hands the browser Wrike's authorize page, exchanges the code it gets back and keeps the pair with the expiry and the host the token answer named.
+The source renews the access token under five minutes before its expiry and after a 401, under a lock file beside the token file, and re-reads the stored session first, so a pair the other process renewed is adopted instead of a second refresh, which would leave one of them with a dead refresh token.
+Wrike serves accounts from more than one data center under a different host, so the first run with a token probes the known hosts and keeps the one that accepted the token in the store meta table.
+Later runs read that host back instead of probing again, a browser session carries its host, and the `host` config key overrides all of them when set.
+When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the sign in check, the client constructor and the host resolver instead of starting the program.
 A command appends to the same log file and never rotates it, the interface does the rotation at its start.
 
 A running interface listens on a unix socket next to the database, `wrikery.sock` beside the sync lock, and `internal/control` is the channel: one JSON request in, one JSON reply out, a connection per request.
@@ -180,7 +183,7 @@ A request that fails on the network or on Wrike's side puts the app in offline m
 A request Wrike rejects with a client error shows as a failing sync instead, the log line carries the request and the reason.
 Reads keep coming from the cache and writes keep going to the queue.
 The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).
-A 401 is the exception: sync pauses and asks for a new token instead of retrying.
+A 401 is the exception: the client asks its token source once for a renewed token, a browser session refreshes and a permanent token has nothing to renew, and when that does not help sync pauses and asks for a new sign in instead of retrying.
 A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
 Logs go to a file through log/slog, never onto the screen.
 Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.
@@ -196,7 +199,8 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 - logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`, two instances at once share the name and the first one's later lines end up in the `.1` file.
   A demo run writes `demo.log` in the same directory and rotates nothing.
 - API token: the system keychain (macOS Keychain, Linux Secret Service), falling back to `~/.config/wrikery/token` (mode 0600) on machines without one
-- `WRIKERY_TOKEN` in the environment overrides the stored token, keychain and file both
+- browser session: a second keychain item with the access token, the refresh token, the expiry, the host and the app, falling back to `~/.config/wrikery/oauth.json` (mode 0600), and `~/.config/wrikery/auth.lock` held while it is renewed
+- `WRIKERY_TOKEN` in the environment overrides the stored sign in, keychain and files both
 
 ## Testing
 
