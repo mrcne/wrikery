@@ -66,12 +66,12 @@ func TestControlHandlerMapsARequestAndItsReply(t *testing.T) {
 		got.Reply <- ui.ControlReply{Text: "showing High | Ada Nowak (me)"}
 	}
 	handle := controlHandler(send, func() (int, int, error) { return 0, 0, nil })
-	reply := handle(control.Request{Op: control.OpFilter, Importance: []string{"High"}, Person: "me", Statuses: []string{"New"}, TaskID: "T1", ParentIDs: []string{"F1", "F3"}, FolderID: "F2", Shape: "board", Screen: "changes"})
+	reply := handle(control.Request{Op: control.OpFilter, Importance: []string{"High"}, Person: "me", Statuses: []string{"New"}, TaskID: "T1", ParentIDs: []string{"F1", "F3"}, ResponsibleIDs: []string{"U1"}, FolderID: "F2", Shape: "board", Screen: "changes"})
 	if !reply.OK || reply.Text != "showing High | Ada Nowak (me)" || reply.Error != "" {
 		t.Errorf("reply = %+v", reply)
 	}
 	if got.Op != "filter" || got.Importance[0] != "High" || got.Person != "me" || got.Statuses[0] != "New" ||
-		got.TaskID != "T1" || strings.Join(got.ParentIDs, ",") != "F1,F3" || got.FolderID != "F2" || got.Shape != "board" || got.Screen != "changes" || got.Deadline.IsZero() {
+		got.TaskID != "T1" || strings.Join(got.ParentIDs, ",") != "F1,F3" || strings.Join(got.ResponsibleIDs, ",") != "U1" || got.FolderID != "F2" || got.Shape != "board" || got.Screen != "changes" || got.Deadline.IsZero() {
 		t.Errorf("message = %+v, want every field carried over and a deadline set", got)
 	}
 	refusing := controlHandler(func(msg tea.Msg) {

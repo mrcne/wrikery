@@ -201,8 +201,8 @@ func TestLoadChangesFallbackTitles(t *testing.T) {
 			t.Errorf("row %d title = %q, want %q", i, loaded.rows[i].title, want)
 		}
 		// Enter has nowhere to go for any of the three, the task is not in the cache.
-		if loaded.rows[i].taskID != "" {
-			t.Errorf("row %d task = %q, want none, the cache has no such task", i, loaded.rows[i].taskID)
+		if loaded.rows[i].task.ID != "" {
+			t.Errorf("row %d task = %q, want none, the cache has no such task", i, loaded.rows[i].task.ID)
 		}
 	}
 }

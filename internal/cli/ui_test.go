@@ -130,15 +130,16 @@ func TestUIFilterFindsAPersonWhoLeft(t *testing.T) {
 	}
 }
 
-func TestUISelectSendsTheTaskAndItsParent(t *testing.T) {
+func TestUISelectSendsTheTaskItsFoldersAndItsPeople(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
 	env, got := uiStub(t, env, control.Reply{OK: true, Text: "selected"})
 	if code := Run(context.Background(), env, []string{"ui", "select", "headless"}); code != exitOK {
 		t.Fatalf("code = %d\n%s", code, out.String())
 	}
-	if len(*got) != 1 || (*got)[0].Op != control.OpSelect || (*got)[0].TaskID != "TASK1" || strings.Join((*got)[0].ParentIDs, ",") != "PROJ1" {
-		t.Errorf("request = %+v, want the task and its folders", *got)
+	if len(*got) != 1 || (*got)[0].Op != control.OpSelect || (*got)[0].TaskID != "TASK1" ||
+		strings.Join((*got)[0].ParentIDs, ",") != "PROJ1" || strings.Join((*got)[0].ResponsibleIDs, ",") != "U1" {
+		t.Errorf("request = %+v, want the task, its folders and its people", *got)
 	}
 	if out.String() != "selected Headless commands for scripts\n" {
 		t.Errorf("out = %q", out.String())

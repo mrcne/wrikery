@@ -166,8 +166,9 @@ func runUISelect(ctx context.Context, env Env, args []string) int {
 		if err != nil {
 			return fail(env, err)
 		}
-		// Every folder goes along, the interface opens the first one its sidebar has.
-		req.TaskID, req.ParentIDs = t.ID, t.ParentIDs
+		// Every folder goes along, the interface opens the first one its sidebar has,
+		// and the people on the task, so the user's own task can land in My tasks when no folder is there.
+		req.TaskID, req.ParentIDs, req.ResponsibleIDs = t.ID, t.ParentIDs, t.ResponsibleIDs
 		text = "selected " + t.Title
 	}
 	return uiCall(ctx, env, req, *asJSON, text)
