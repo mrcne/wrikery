@@ -469,7 +469,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, intent(submitCommentMsg{taskID: msg.taskID, text: trimmed})
 	case descriptionReadyMsg:
-		cmd, err := openEditor(msg.task.ID, &descriptionEdit{html: msg.task.Description, text: editorText(msg.task.Description)})
+		cmd, err := openEditor(msg.task.ID, &descriptionEdit{html: msg.task.Description, text: EditorText(msg.task.Description)})
 		if err != nil {
 			return m, m.status.show(err.Error(), true)
 		}

@@ -97,6 +97,10 @@ func TestTaskShowJSONHasTheDescriptionAndComments(t *testing.T) {
 	if got["description_html"] != "<p>Three flags, <b>no</b> subcommands.</p>" || got["description_text"] != "Three flags, no subcommands." {
 		t.Errorf("description = %q / %q", got["description_html"], got["description_text"])
 	}
+	// The markdown the editor opens on, so an edit from a script starts from the same text a person sees.
+	if got["description_markdown"] != "Three flags, **no** subcommands.\n" {
+		t.Errorf("description_markdown = %q", got["description_markdown"])
+	}
 	comments := got["comments"].([]any)
 	if len(comments) != 2 || comments[0].(map[string]any)["author"] != "Anna Nowak" {
 		t.Errorf("comments = %v", comments)

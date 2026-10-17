@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -149,5 +152,65 @@ func TestTaskCreateAuthFailureIsAnErrorInJSONToo(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "token rejected") || out.Len() != 0 {
 		t.Errorf("stderr %q, stdout %q", errOut.String(), out.String())
+	}
+}
+
+func TestTaskCreateSendsADescriptionAndAnImportance(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env.Stdin = strings.NewReader("Why **now**\n\n- one\n- two\n")
+	var gotForm url.Values
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotForm = r.PostForm
+		_, _ = fmt.Fprintf(w, taskAnswer, "TASKNEW", "Described", "Active", "ST_NEW")
+	}))
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "later", "--importance", "high", "--description", "-", "Described"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if gotForm.Get("importance") != "High" {
+		t.Errorf("importance = %q, want High as Wrike spells it", gotForm.Get("importance"))
+	}
+	if d := gotForm.Get("description"); d != "<p>Why <strong>now</strong></p><ul><li>one</li><li>two</li></ul>" {
+		t.Errorf("description = %q, want the markdown as Wrike HTML", d)
+	}
+}
+
+func TestTaskCreateOfflineKeepsTheDescriptionAndTheImportanceOnTheLocalRow(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	path := filepath.Join(t.TempDir(), "desc.md")
+	if err := os.WriteFile(path, []byte("First paragraph.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env = withNetwork(t, env, nil)
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "PROJ1", "--importance", "Low", "--description", path, "Offline", "task"}); code != exitQueued {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	task, err := env.Store.Tasks().Get(context.Background(), "local:1")
+	if err != nil || task.Importance != "Low" || task.Description != "<p>First paragraph.</p>" || task.DescriptionPlain != "First paragraph." {
+		t.Errorf("optimistic row = %+v, %v, want the importance and the description", task, err)
+	}
+}
+
+func TestTaskCreateRefusesABadImportanceAndAnEmptyDescription(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, nil)
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "PROJ1", "--importance", "urgent", "Title"}); code != exitUsage {
+		t.Errorf("bad importance code = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(errOut.String(), "High, Normal or Low") {
+		t.Errorf("stderr = %q, want the three values named", errOut.String())
+	}
+	env.Stdin = strings.NewReader("  \n")
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "PROJ1", "--description", "-", "Title"}); code != exitUsage {
+		t.Errorf("empty description code = %d, want %d", code, exitUsage)
+	}
+	if code := Run(context.Background(), env, []string{"task", "create", "--folder", "PROJ1", "--description", filepath.Join(t.TempDir(), "missing.md"), "Title"}); code != exitError {
+		t.Errorf("missing file code = %d, want %d", code, exitError)
+	}
+	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 0 {
+		t.Errorf("a refused create queued a row")
 	}
 }

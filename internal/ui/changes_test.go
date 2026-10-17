@@ -42,6 +42,9 @@ func TestDescribeWritesOldAndNew(t *testing.T) {
 			"description changed", "description  Old line -> New first line second"},
 		{"importance", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"importance":"High"}`), Before: []byte(`{"importance":"Normal"}`)},
 			"importance  Normal -> High", "importance  Normal -> High"},
+		// A command edits several fields in one write, every one of them is on the screen.
+		{"several fields", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"title":"New","importance":"Low","description":"<p>Body</p>"}`), Before: []byte(`{"title":"Old","importance":"High","description":"<p>Was</p>"}`)},
+			"title  Old -> New, importance  High -> Low, description changed", "title  Old -> New, importance  High -> Low, description  Was -> Body"},
 		{"dates first", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned","due":"2026-10-15"}}`), Before: []byte(`{"dates":{"type":"Backlog"}}`)},
 			"dates  Backlog -> due 15 Oct", "dates  Backlog -> due 15 Oct"},
 		{"dates range", store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(`{"dates":{"type":"Planned","start":"2026-10-10","due":"2026-10-15"}}`), Before: []byte(`{"dates":{"type":"Milestone","due":"2026-10-12"}}`)},

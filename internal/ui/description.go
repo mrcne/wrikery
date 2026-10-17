@@ -204,8 +204,9 @@ func splitDescription(s string) (blocks []descBlock, trailing string) {
 	return kept, carry + trailing
 }
 
-// editorText is what the editor opens on: the blocks as markdown, a blank line between them.
-func editorText(description string) string {
+// EditorText is what the editor opens on: the blocks as markdown, a blank line between them.
+// A command prints it as description_markdown, so an agent edits the same text a person does and sends it back through MergeDescription.
+func EditorText(description string) string {
 	blocks, _ := splitDescription(description)
 	parts := make([]string, 0, len(blocks))
 	for _, b := range blocks {
@@ -252,10 +253,11 @@ type piece struct {
 	idx  int // index of the block the piece came from unchanged, -1 for a converted one
 }
 
-// mergeDescription rebuilds the description from the saved file.
+// MergeDescription rebuilds the description from the saved file.
 // Blocks whose markdown still stands in the file keep their HTML and their place, the text between them is converted.
 // changed is false when every block is still there in its order and nothing was added, and when what is left renders to nothing.
-func mergeDescription(description, edited string) (merged string, changed bool) {
+// An empty description makes it a plain markdown to Wrike HTML conversion, which is what a create from a command needs.
+func MergeDescription(description, edited string) (merged string, changed bool) {
 	blocks, trailing := splitDescription(description)
 	text := normalizeEdited(edited)
 	// A description with no paragraph elements came from Wrike's editor, and a new one is written with paragraphs.

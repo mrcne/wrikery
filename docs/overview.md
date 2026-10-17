@@ -27,7 +27,7 @@ Writing:
 
 From a shell, for scripts and agents:
 
-- list tasks, show one, change its status and create one, as text or JSON
+- list tasks, show one, create one, change its status, title, importance, description, people and folders, and comment on it, as text or JSON
 - run one sync cycle
 
 Not in v1: creating subtasks and dependencies, editing custom fields, dashboards, Gantt charts.
@@ -264,7 +264,7 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 ### Commands
 
 `wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
-The commands are `sync`, `task list`, `task show`, `task status` and `task create`, and `wrikery help` prints them with their flags.
+The commands are `sync`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
 A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
@@ -280,6 +280,17 @@ A command's flags may come before or after its arguments, so `wrikery task statu
 A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.
 A task in JSON has `pending` true while a write for it is waiting to be sent and `failed` true when Wrike rejected one.
+`task show --json` has the description three ways: the plain text, the HTML Wrike stores and `description_markdown`, the text the editor opens on.
+`task create` takes an importance and a description, and `task edit` changes the title, the importance or the description of a task in one write.
+A description is markdown, the text the `E` editor writes, from a file or from stdin with `-`.
+An edit merges it with the description the cache holds, so a paragraph left as `description_markdown` prints it keeps the bytes Wrike stored, and an input that changes nothing sends nothing.
+The write is the whole field, as from the editor, so a change made on Wrike between the show and the edit is overwritten by it.
+`task comment` adds a comment as you, and in JSON the result carries the comment with its id.
+`task assign` and `task unassign` put people on a task or take them off, and a person is `me`, a contact id or a part of a name that matches exactly one person in the cache, never a group.
+For an unassign the people on the task are matched first, so someone who left the account can still be taken off.
+`task move` puts a task in folders with `--to` and takes it out of others with `--from`, in one write, and `--to` alone adds a folder and keeps the rest, since a task can sit in several.
+A person already on the task, a folder it is already in, or a title, importance or status it already has is left out of the write with a note, and when nothing is left the command reports the task unchanged, `unchanged` true and `sent` false in JSON, and exits with 0.
+Taking a task out of its last folder is refused, as in the folders box, and a move that leaves no followed folder on the task goes out with a note, since the task leaves the cache at the next sync.
 On a terminal the text is colored through the same theme as the interface, in a pipe it is plain.
 Exit codes: 0 done, 1 an error including a write Wrike rejected, 2 bad usage, 3 the write is queued but not on Wrike yet.
 The interface, when it is running at the same time, shows a command's change at its next poll or after a refresh with `R`.

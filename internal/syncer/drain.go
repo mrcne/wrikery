@@ -98,7 +98,7 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 		if p.Title == "" || row.EntityID == "" {
 			return fmt.Errorf("%w %d: create without a title or a folder", errCorruptRow, row.ID)
 		}
-		task, err := c.CreateTask(ctx, row.EntityID, wrike.TaskCreate{Title: p.Title, Responsibles: p.Responsibles})
+		task, err := c.CreateTask(ctx, row.EntityID, wrike.TaskCreate{Title: p.Title, Description: p.Description, Importance: p.Importance, Responsibles: p.Responsibles})
 		if err != nil {
 			return err
 		}

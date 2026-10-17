@@ -114,7 +114,7 @@ func TestEditorFileStartsWithTheDescription(t *testing.T) {
 }
 
 func TestEditorDoneWithADescriptionQueuesTheMergedHTML(t *testing.T) {
-	edit := &descriptionEdit{html: "<p>a</p>", text: editorText("<p>a</p>")}
+	edit := &descriptionEdit{html: "<p>a</p>", text: EditorText("<p>a</p>")}
 	path := writeTempComment(t, "a\n\nb\n")
 	m := New(Options{})
 	_, cmd := m.Update(editorDoneMsg{taskID: "T1", path: path, edit: edit})
@@ -128,7 +128,7 @@ func TestEditorDoneWithADescriptionQueuesTheMergedHTML(t *testing.T) {
 }
 
 func TestEditorDoneWithAnUntouchedDescriptionSendsNothing(t *testing.T) {
-	edit := &descriptionEdit{html: "<p>a</p>", text: editorText("<p>a</p>")}
+	edit := &descriptionEdit{html: "<p>a</p>", text: EditorText("<p>a</p>")}
 	for text, want := range map[string]string{"a\n": "description unchanged", "  \n": "empty file, description unchanged"} {
 		path := writeTempComment(t, text)
 		m := New(Options{})

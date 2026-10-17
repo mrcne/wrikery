@@ -329,3 +329,15 @@ func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.
 		t.Errorf("%d PUTs after the second command, %d before, the second change must not be sent while the first backs off", n, sent)
 	}
 }
+
+func TestTaskStatusToTheStatusTheTaskHasSendsNothing(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env, _, _, requests := recordWrite(t, env, answer("TASK1", "Headless commands for scripts", "High", []string{"U1"}, []string{"PROJ1"}))
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "new"}); code != exitOK {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if *requests != 0 || !strings.Contains(out.String(), "unchanged: Headless commands for scripts  [New]\n") || !strings.Contains(errOut.String(), "status unchanged") {
+		t.Errorf("requests = %d, stdout %q, stderr %q", *requests, out.String(), errOut.String())
+	}
+}

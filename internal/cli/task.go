@@ -5,9 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/ui"
 )
 
 const listUsage = `usage: wrikery task list [--folder F | --me] [--all] [--json]
@@ -40,14 +43,11 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 		}
 		tasks, err = env.Store.Tasks().ListInFolder(ctx, fo.ID)
 	} else {
-		meID, merr := env.Store.GetMeta(ctx, store.MetaKeyMe)
-		if errors.Is(merr, store.ErrNotFound) {
-			return fail(env, errors.New("run wrikery sync first, the cache does not know who you are yet"))
-		}
+		me, merr := meID(ctx, env.Store)
 		if merr != nil {
 			return fail(env, merr)
 		}
-		tasks, err = env.Store.Tasks().ListForResponsible(ctx, meID)
+		tasks, err = env.Store.Tasks().ListForResponsible(ctx, me)
 	}
 	if err != nil {
 		return fail(env, err)
@@ -112,11 +112,12 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	}
 	if *asJSON {
 		d := taskDetailJSON{
-			taskJSON:        taskRow(ctx, env, t, &ref),
-			DescriptionText: t.DescriptionPlain,
-			DescriptionHTML: t.Description,
-			AttachmentCount: t.AttachmentCount,
-			Comments:        make([]commentJSON, 0, len(comments)),
+			taskJSON:            taskRow(ctx, env, t, &ref),
+			DescriptionText:     t.DescriptionPlain,
+			DescriptionHTML:     t.Description,
+			DescriptionMarkdown: ui.EditorText(t.Description),
+			AttachmentCount:     t.AttachmentCount,
+			Comments:            make([]commentJSON, 0, len(comments)),
 		}
 		d.SuperTasks, d.Subtasks, d.Predecessors, d.Successors = rel.json(t, &ref)
 		for _, c := range comments {
@@ -143,10 +144,6 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 2 {
 		return usageError(env, fs, statusUsage, "task status takes a task and a status name")
 	}
-	token, host, code := preflight(ctx, env)
-	if code != exitOK {
-		return code
-	}
 	t, err := resolveTask(ctx, env.Store, positional[0])
 	if err != nil {
 		return fail(env, err)
@@ -159,25 +156,8 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	before := ref.statusName(t)
-	rowID, err := env.Store.Outbox().EnqueueTaskUpdate(ctx, t.ID, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group})
-	if err != nil {
-		return fail(env, err)
-	}
-	out, reason, err := send(ctx, env, token, host, rowID)
-	if err != nil {
-		return fail(env, err)
-	}
-	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
-	ctx = context.WithoutCancel(ctx)
-	after, readOK := t, false
-	if out == sent || out == queued {
-		after, readOK = readBack(ctx, env, out, t.ID, t, &ref, *asJSON)
-	}
-	if !*asJSON && readOK {
-		_, _ = fmt.Fprintf(env.Stdout, "was: %s  [%s]\n", t.Title, before)
-	}
-	return reportWrite(ctx, env, out, reason, *asJSON, readOK, after, &ref, fmt.Sprintf("%s  [%s]", after.Title, ref.statusName(after)))
+	line := func(_ context.Context, x store.Task) string { return "[" + ref.statusName(x) + "]" }
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, *asJSON, line, "")
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.
@@ -194,16 +174,19 @@ func currentTask(ctx context.Context, env Env, id string) (store.Task, error) {
 	return env.Store.Tasks().Get(ctx, id)
 }
 
-const createUsage = `usage: wrikery task create --folder F [--json] TITLE...
+const createUsage = `usage: wrikery task create --folder F [--importance L] [--description FILE|-] [--json] TITLE...
 
 Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
 Nobody is assigned, the status is the folder's default on Wrike.
+The description is markdown, the text the E editor in the interface writes, from a file or from stdin with -.
 Put -- before a title with a word that starts with a dash, everything after it is title.
 `
 
 func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	fs := flag.NewFlagSet("task create", flag.ContinueOnError)
 	folder := fs.String("folder", "", "the folder, project or space, by id or by a part of its title")
+	importance := fs.String("importance", "", "High, Normal or Low, Normal when left out")
+	description := fs.String("description", "", "a markdown file with the description, - reads it from stdin")
 	asJSON := fs.Bool("json", false, "print JSON")
 	positional, code, done := parse(env, fs, createUsage, args)
 	if done {
@@ -215,6 +198,22 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	}
 	if title == "" {
 		return usageError(env, fs, createUsage, "task create needs a title")
+	}
+	level, err := importanceLevel(*importance)
+	if err != nil {
+		return usageError(env, fs, createUsage, err.Error())
+	}
+	var html string
+	if *description != "" {
+		md, err := readMarkdown(env, *description)
+		if err != nil {
+			return fail(env, err)
+		}
+		// A new task has no description to merge against, so the markdown is converted whole.
+		var ok bool
+		if html, ok = ui.MergeDescription("", md); !ok {
+			return usageError(env, fs, createUsage, "the description is empty")
+		}
 	}
 	token, host, code := preflight(ctx, env)
 	if code != exitOK {
@@ -228,21 +227,17 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	rowID, err := env.Store.Outbox().EnqueueTaskCreate(ctx, fo.ID, store.TaskCreatePayload{Title: title})
+	rowID, err := env.Store.Outbox().EnqueueTaskCreate(ctx, fo.ID, store.TaskCreatePayload{Title: title, Description: html, Importance: level})
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, err := send(ctx, env, token, host, rowID)
+	out, reason, task, readOK, err := deliver(ctx, env, token, host, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	task, readOK := store.Task{ID: store.LocalID(rowID), Title: title}, false
-	if out == sent || out == queued {
-		task, readOK = readBack(ctx, env, out, task.ID, task, &ref, *asJSON)
-	}
-	if *asJSON || out == rejected || out == blocked || !readOK {
+	if *asJSON || !readOK {
 		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "")
 	}
 	word := "created"
@@ -255,4 +250,34 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 		return exitQueued
 	}
 	return exitOK
+}
+
+// importanceLevel matches High, Normal or Low without case and returns it as Wrike spells it.
+// The three values are the TaskImportance enum of https://developers.wrike.com/reference/puttaskssingle .
+// An empty argument is the flag left out, which keeps the task as it is.
+func importanceLevel(arg string) (string, error) {
+	if strings.TrimSpace(arg) == "" {
+		return "", nil
+	}
+	for _, level := range []string{"High", "Normal", "Low"} {
+		if strings.EqualFold(strings.TrimSpace(arg), level) {
+			return level, nil
+		}
+	}
+	return "", fmt.Errorf("importance is High, Normal or Low, not %q", arg)
+}
+
+// readMarkdown reads the description named by --description, a file or stdin for -.
+func readMarkdown(env Env, arg string) (string, error) {
+	var b []byte
+	var err error
+	if arg == "-" {
+		b, err = io.ReadAll(env.Stdin)
+	} else {
+		b, err = os.ReadFile(arg)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading the description: %w", err)
+	}
+	return string(b), nil
 }

@@ -55,7 +55,7 @@ func TestSplitDescriptionKeepsEveryByte(t *testing.T) {
 
 func TestEditorTextOfABrowserDescription(t *testing.T) {
 	src, want := browserDescription(t)
-	if got := editorText(src); got != want {
+	if got := EditorText(src); got != want {
 		t.Errorf("editor text differs\n got:\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -63,7 +63,7 @@ func TestEditorTextOfABrowserDescription(t *testing.T) {
 func TestMergeUnchangedDescriptionWritesNothing(t *testing.T) {
 	src, md := browserDescription(t)
 	for _, edited := range []string{md, strings.TrimSuffix(md, "\n"), strings.ReplaceAll(md, "\n", "\r\n")} {
-		if html, changed := mergeDescription(src, edited); changed {
+		if html, changed := MergeDescription(src, edited); changed {
 			t.Errorf("an untouched file counts as a change, got %q", html)
 		}
 	}
@@ -73,7 +73,7 @@ func TestMergeReplacesOnlyTheEditedBlock(t *testing.T) {
 	src, md := browserDescription(t)
 	was := "Some paragraph with **bold text**, <u>underline</u>, *italics*, ~~strikethrough~~."
 	edited := strings.Replace(md, was, strings.TrimSuffix(was, ".")+" edited.", 1)
-	got, changed := mergeDescription(src, edited)
+	got, changed := MergeDescription(src, edited)
 	if !changed {
 		t.Fatal("the edit was not seen")
 	}
@@ -88,12 +88,12 @@ func TestMergeReplacesOnlyTheEditedBlock(t *testing.T) {
 func TestMergeInsertsAndDeletesBlocks(t *testing.T) {
 	src, md := browserDescription(t)
 	inserted := strings.Replace(md, "## Heading H2\n\n", "## Heading H2\n\nNew words here\n\n", 1)
-	got, _ := mergeDescription(src, inserted)
+	got, _ := MergeDescription(src, inserted)
 	if !strings.Contains(got, "<h2>Heading H2</h2>New words here<br /><br />Some paragraph with <b>bold text</b>") {
 		t.Errorf("inserted run is not separated from its neighbours as Wrike's editor would, got %s", got)
 	}
 	deleted := strings.Replace(md, "List of items:\n\n", "", 1)
-	got, _ = mergeDescription(src, deleted)
+	got, _ = MergeDescription(src, deleted)
 	if !strings.Contains(got, "<s>strikethrough</s>.<br /><ul><li>item 1</li>") {
 		t.Errorf("the list keeps its own line break after the deleted run, got %s", got)
 	}
@@ -103,7 +103,7 @@ func TestMergeInsertsAndDeletesBlocks(t *testing.T) {
 }
 
 func TestMergeOfAnEmptyDescriptionUsesParagraphs(t *testing.T) {
-	got, changed := mergeDescription("", "hello\nthere\n\nworld\n")
+	got, changed := MergeDescription("", "hello\nthere\n\nworld\n")
 	if !changed || got != "<p>hello<br />there</p><p>world</p>" {
 		t.Errorf("got %q, changed %v", got, changed)
 	}
@@ -160,11 +160,11 @@ func TestWrikeHTMLShapes(t *testing.T) {
 
 func TestEditorKeepsAMention(t *testing.T) {
 	src := `<p>hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there</p>`
-	text := editorText(src)
+	text := EditorText(src)
 	if want := `hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there` + "\n"; text != want {
 		t.Fatalf("editor text = %q, want %q", text, want)
 	}
-	got, changed := mergeDescription(src, strings.Replace(text, " there", " there, edited", 1))
+	got, changed := MergeDescription(src, strings.Replace(text, " there", " there, edited", 1))
 	if want := `<p>hi <a class="stream-user-id avatar" rel="KUAAAAAB">@Bob</a> there, edited</p>`; !changed || got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -172,7 +172,7 @@ func TestEditorKeepsAMention(t *testing.T) {
 
 func TestMergeThatRendersToNothingIsNotAChange(t *testing.T) {
 	for _, file := range []string{"[a]: http://example.com\n", "<!-- gone -->\n"} {
-		if got, changed := mergeDescription("<p>x</p>", file); changed || got != "" {
+		if got, changed := MergeDescription("<p>x</p>", file); changed || got != "" {
 			t.Errorf("file %q: got %q, changed %v", file, got, changed)
 		}
 	}
@@ -180,14 +180,14 @@ func TestMergeThatRendersToNothingIsNotAChange(t *testing.T) {
 
 func TestMergeIntoADescriptionWithNoBlocksDropsItsGlue(t *testing.T) {
 	for _, src := range []string{"<p></p>", "<br /><br />", ""} {
-		if got, changed := mergeDescription(src, "hello\n"); !changed || got != "<p>hello</p>" {
+		if got, changed := MergeDescription(src, "hello\n"); !changed || got != "<p>hello</p>" {
 			t.Errorf("source %q: got %q, changed %v", src, got, changed)
 		}
 	}
 }
 
 func TestMergeIgnoresAByteOrderMark(t *testing.T) {
-	if got, changed := mergeDescription("<p>a</p><p>b</p>", "\uFEFFa\n\nb\n"); changed {
+	if got, changed := MergeDescription("<p>a</p><p>b</p>", "\uFEFFa\n\nb\n"); changed {
 		t.Errorf("a byte order mark counted as an edit, got %q", got)
 	}
 }

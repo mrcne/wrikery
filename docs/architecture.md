@@ -26,7 +26,7 @@ The code is split into five parts with strict boundaries, plus a small config pa
   The board moves the list's own cursor, so there is one selection and no state to carry across when the shape changes.
 - `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
-  It imports the TUI's theme and description renderer so both front ends look the same, and nothing flows the other way.
+  It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
 - `internal/config` loads the TOML config file and resolves the paths listed at the end.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
@@ -135,6 +135,7 @@ The client never retries a POST after a network or server error, it does after a
 A description edit is the one write that sends a whole field, and the field is HTML while the editor shows markdown.
 The UI cuts the stored HTML into top level blocks, a block element or a run of text between two line breaks, and hands the editor one piece of markdown per block.
 On save, a block whose markdown is still in the file keeps the bytes it came with, only the blocks the user changed are translated back, and markup that markdown cannot express stays in the file as HTML tags.
+A description given to a command goes through the same split and merge, and a create converts it whole.
 So an untouched paragraph never changes on the server, whatever it holds.
 
 After a network error the engine waits before the next attempt, and the wait grows with every failure.

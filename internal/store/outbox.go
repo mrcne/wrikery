@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -98,8 +99,11 @@ type TaskUpdatePayload struct {
 
 // TaskCreatePayload mirrors CreateTask. The folder is the row's entity id.
 // Responsibles holds the user's own id for a create from My tasks, so the server copy stays in that view after the swap.
+// Description and Importance come from a command, the box creates with a title alone.
 type TaskCreatePayload struct {
 	Title        string   `json:"title"`
+	Description  string   `json:"description,omitempty"`
+	Importance   string   `json:"importance,omitempty"`
 	Responsibles []string `json:"responsibles,omitempty"`
 }
 
@@ -439,8 +443,8 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 	}
 	now := o.stamp()
 	local := Task{
-		ID: LocalID(id), Title: p.Title, Status: "Active", CustomStatusID: statusID, Importance: "Normal",
-		ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
+		ID: LocalID(id), Title: p.Title, Description: p.Description, Status: "Active", CustomStatusID: statusID,
+		Importance: cmp.Or(p.Importance, "Normal"), ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
 		CreatedDate: now, UpdatedDate: now,
 	}
 	if err := upsertTasksTx(ctx, tx, []Task{local}); err != nil {
