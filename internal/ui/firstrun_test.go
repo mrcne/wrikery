@@ -2,6 +2,7 @@ package ui_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -157,13 +158,88 @@ func browserOptions(t *testing.T, st *store.Store, secret string) (ui.Options, c
 	cancelled := make(chan struct{}, 1)
 	opts.Hooks.SignIn = func(string) (ui.SignIn, error) {
 		return ui.SignIn{
-			URL:    "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s",
-			Result: result,
-			Paste:  func(address string) { pasted <- address },
+			URL:       "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s",
+			Listening: true,
+			Result:    result,
+			Paste: func(address string) error {
+				if !strings.Contains(address, "state=") {
+					return errors.New("paste the whole address the browser landed on")
+				}
+				pasted <- address
+				return nil
+			},
 			Cancel: func() { cancelled <- struct{}{} },
 		}, nil
 	}
 	return opts, result, pasted, cancelled
+}
+
+func TestFirstRunPasteErrorKeepsTheAttempt(t *testing.T) {
+	opts, result, pasted, _ := browserOptions(t, freshStore(t), "s3cret")
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "login.wrike.com")
+	press(tm, "c0de", "enter")
+	waitFor(t, tm, "paste the whole address")
+	// The attempt is still there, a right paste after the wrong one completes it.
+	press(tm, "http://localhost:8731/callback?code=c0de&state=s", "enter")
+	select {
+	case <-pasted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the second paste never reached the hook")
+	}
+	result <- ui.SignInResult{Name: "Ada Nowak", App: "id1"}
+	waitFor(t, tm, "Hello Ada Nowak")
+}
+
+func TestFirstRunSaysWhenNoListenerRuns(t *testing.T) {
+	opts, _, _, _ := browserOptions(t, freshStore(t), "s3cret")
+	inner := opts.Hooks.SignIn
+	opts.Hooks.SignIn = func(secret string) (ui.SignIn, error) {
+		si, err := inner(secret)
+		si.Listening = false
+		return si, err
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "paste the address the browser lands on, nothing listens on the port")
+}
+
+func TestFirstRunTabIsIgnoredWhileTheSignInStarts(t *testing.T) {
+	opts, _, _, _ := browserOptions(t, freshStore(t), "s3cret")
+	inner := opts.Hooks.SignIn
+	release := make(chan struct{})
+	opts.Hooks.SignIn = func(secret string) (ui.SignIn, error) {
+		<-release
+		return inner(secret)
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "starting the sign in")
+	press(tm, "tab")
+	time.Sleep(100 * time.Millisecond)
+	close(release)
+	waitFor(t, tm, "waiting for the browser")
+	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Paste a permanent access token") {
+		t.Fatal("tab switched to the token field while the sign in was starting")
+	}
+}
+
+func TestReauthNoticeForATokenWithTheBrowserBox(t *testing.T) {
+	st := seededStore(t)
+	opts, _, _, _ := browserOptions(t, st, "s3cret")
+	opts.FirstRun = false
+	opts.SignedInWith = ui.SignedInWithToken
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks")
+	tm.Send(ui.SyncStateMsg{State: "auth_required"})
+	waitFor(t, tm, "Wrike did not accept the stored token. Sign in again to continue.")
+	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Paste it again") {
+		t.Fatal("the notice asks for a paste above the browser box")
+	}
 }
 
 func freshStore(t *testing.T) *store.Store {

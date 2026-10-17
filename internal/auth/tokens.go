@@ -31,7 +31,7 @@ var ErrNoToken = errors.New("auth: not signed in")
 type Session struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token,omitempty"`
-	Expiry       time.Time `json:"expiry,omitempty"`
+	Expiry       time.Time `json:"expiry"`
 	Host         string    `json:"host,omitempty"`
 	ClientID     string    `json:"client_id,omitempty"`
 	ClientSecret string    `json:"client_secret,omitempty"`
@@ -147,10 +147,30 @@ func write(account, file, value string) error {
 		return nil
 	}
 	slog.Info("keyring unavailable, storing the credential in a file", "path", file, "error", err)
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+	dir := filepath.Dir(file)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(file, []byte(value+"\n"), 0o600)
+	// A command in another process reads the file without the lock, so it must never see half of it:
+	// the value goes into a temporary file, mode 0600 from CreateTemp, that is renamed over the old one.
+	tmp, err := os.CreateTemp(dir, filepath.Base(file)+".*")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.WriteString(value + "\n"); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), file); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 // remove takes one kind out of the keychain and off the disk, a missing item or file is fine.

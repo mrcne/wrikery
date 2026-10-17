@@ -259,6 +259,9 @@ func (e *Engine) ensureMeScope(ctx context.Context) error {
 // drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
 // start bounds the wait for the lock and whether another row is started, post is the context of a send that may have reached Wrike.
 func (e *Engine) drain(start, post context.Context) (bool, error) {
+	// The row claim in the store is atomic on its own, the lock is there for two things it cannot cover:
+	// a startup reset while another process is mid-send, which would send that row twice,
+	// and two drainers sending two rows on the same task out of order.
 	lock, err := lockfile.Acquire(start, e.cfg.LockFile)
 	if err != nil {
 		if errors.Is(err, ErrLocked) || start.Err() != nil {

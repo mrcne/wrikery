@@ -100,6 +100,25 @@ func TestDefaultPathsHonorXDGEnv(t *testing.T) {
 	}
 }
 
+func TestEnsureDirsCreatesTheCredentialDirectory(t *testing.T) {
+	base := t.TempDir()
+	// --config points elsewhere, so the config file's directory is not the one the credentials and the lock live in.
+	p := config.Paths{
+		ConfigFile:   filepath.Join(base, "elsewhere", "config.toml"),
+		DBFile:       filepath.Join(base, "data", "wrike.db"),
+		LogFile:      filepath.Join(base, "state", "wrikery.log"),
+		TokenFile:    filepath.Join(base, "config", "wrikery", "token"),
+		SessionFile:  filepath.Join(base, "config", "wrikery", "oauth.json"),
+		AuthLockFile: filepath.Join(base, "config", "wrikery", "auth.lock"),
+	}
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "config", "wrikery")); err != nil {
+		t.Fatalf("the credential directory is missing: %v", err)
+	}
+}
+
 func TestEnsureDirsCreatesParents(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "c"))

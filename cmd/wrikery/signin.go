@@ -28,7 +28,7 @@ func (a *app) signIn(secret string) (ui.SignIn, error) {
 	if app.ClientID == "" || app.ClientSecret == "" {
 		return ui.SignIn{}, errors.New("the browser sign in needs the client id and the secret of an API app")
 	}
-	login, err := auth.StartLogin(app, wrike.OAuth{App: app, HTTPClient: a.hc, UserAgent: userAgent()})
+	login, err := auth.StartLogin(wrike.OAuth{App: app, HTTPClient: a.hc, UserAgent: userAgent()})
 	if err != nil {
 		return ui.SignIn{}, err
 	}
@@ -36,16 +36,26 @@ func (a *app) signIn(secret string) (ui.SignIn, error) {
 		login.TokenURL = a.loginTokenURL
 	}
 	result := make(chan ui.SignInResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), codeLifetime)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), codeLifetime)
 		defer cancel()
 		name, err := a.finishSignIn(ctx, login)
-		result <- ui.SignInResult{Name: name, Err: err}
+		result <- ui.SignInResult{Name: name, App: app.ClientID, Err: err}
 	}()
-	return ui.SignIn{URL: login.URL(), Result: result, Paste: login.Paste, Cancel: login.Close}, nil
+	return ui.SignIn{
+		URL:       login.URL(),
+		Listening: login.Listening(),
+		Result:    result,
+		Paste:     login.Paste,
+		// Esc ends the wait and the work after it, so an answer that came in a moment earlier stores nothing.
+		Cancel: func() {
+			cancel()
+			login.Close()
+		},
+	}, nil
 }
 
-// finishSignIn is the tail verifyToken has for a pasted token: the name through Me, the session kept, the engine started.
+// finishSignIn waits for the browser, checks the new session with Me and hands it to the tail every sign in shares.
 func (a *app) finishSignIn(ctx context.Context, login *auth.Login) (string, error) {
 	s, err := login.Wait(ctx)
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -58,13 +68,13 @@ func (a *app) finishSignIn(ctx context.Context, login *auth.Login) (string, erro
 		// The documentation always names the host in the token answer, this only keeps the client off an empty URL.
 		s.Host = wrike.DefaultHost
 	}
+	if a.cfg.Host != "" && a.cfg.Host != s.Host {
+		// The config host wins at every later start, and a host that does not serve the account answers 300 to every request.
+		return "", fmt.Errorf("host %s from the config file does not serve this account, the sign in named %s", a.cfg.Host, s.Host)
+	}
 	me, err := newClient(wrike.StaticToken(s.AccessToken), s.Host, a.clientOpts()...).Me(ctx)
 	if err != nil {
 		return "", fmt.Errorf("checking the new session: %w", err)
 	}
-	if err := a.tokens.SaveSession(s); err != nil {
-		return "", err
-	}
-	a.startEngine(auth.NewSource(a.tokens, s, a.hc, userAgent()), s.Host)
-	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
+	return a.finish(ctx, auth.NewSource(a.tokens, s, a.hc, userAgent()), s.Host, me, func() error { return a.tokens.SaveSession(s) })
 }

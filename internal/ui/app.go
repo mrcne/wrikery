@@ -35,14 +35,16 @@ type Hooks struct {
 
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
-	URL    string
-	Result <-chan SignInResult // one value, after the listener, a paste or Cancel
-	Paste  func(address string)
-	Cancel func()
+	URL       string
+	Listening bool                // a listener waits on the port of the redirect address, else only a paste can finish the attempt
+	Result    <-chan SignInResult // one value, after the listener, a paste or Cancel
+	Paste     func(address string) error
+	Cancel    func()
 }
 
 type SignInResult struct {
 	Name string
+	App  string // the client id of the app the session was made with
 	Err  error
 }
 
@@ -63,6 +65,7 @@ type Options struct {
 	Demo         bool
 	FirstRun     bool
 	SignedInWith string // SignedInWithToken or SignedInWithBrowser, empty on a first run and in the demo
+	SignedInApp  string // the client id of a stored browser session, for the settings screen
 	Now          func() time.Time
 }
 
@@ -130,7 +133,7 @@ func New(o Options) Model {
 	m.changes.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
-	m.settings.setSignedIn(o.SignedInWith)
+	m.settings.setSignedIn(o.SignedInWith, o.SignedInApp)
 	m.board.keys = m.keys
 	if m.theme.ASCII {
 		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
@@ -149,11 +152,14 @@ func New(o Options) Model {
 	return m
 }
 
-// newFirstRun builds the sign in screen: the browser option is there when the config names an app and main gave the hook.
+// browserSignIn is true when the sign in screen offers the browser: the config names an app and main gave the hook.
+func (m Model) browserSignIn() bool {
+	return m.opts.Hooks.SignIn != nil && m.opts.Config.OAuth.ClientID != ""
+}
+
 func (m Model) newFirstRun(notice string) firstRunModel {
 	oauth := m.opts.Config.OAuth
-	browser := m.opts.Hooks.SignIn != nil && oauth.ClientID != ""
-	return newFirstRun(stepSignIn, notice, m.keys, browser, oauth.ClientSecret == "", oauth.ClientID)
+	return newFirstRun(stepSignIn, notice, m.keys, m.browserSignIn(), oauth.ClientSecret == "", oauth.ClientID)
 }
 
 // panes is the pane order of the current shape, what tab cycles through and the layout slides over.
@@ -338,7 +344,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.firstRun.signIn = nil
-		return m.Update(tokenVerifiedMsg{name: msg.name, err: msg.err, browser: true})
+		return m.Update(tokenVerifiedMsg{name: msg.name, err: msg.err, browser: true, app: msg.app})
 	case firstRunConfirmScopesMsg:
 		return m, tea.Batch(m.saveScopes(msg.scopes, ""), m.firstRun.spinner.Tick)
 	case scopesLoadedMsg:
@@ -405,7 +411,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.browser {
 				with = SignedInWithBrowser
 			}
-			m.settings.setSignedIn(with)
+			m.settings.setSignedIn(with, msg.app)
 		}
 		if msg.err == nil && !m.firstRun.reauth {
 			cmd = tea.Batch(cmd, m.loadPicker(), m.firstRun.spinner.Tick)
@@ -648,8 +654,12 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 			cmd = m.closeTimesheetDetail()
 			m.screen = screenFirstRun
 			notice := "Wrike did not accept the stored token. Paste it again to continue."
-			if m.settings.signedIn == SignedInWithBrowser {
+			switch {
+			case m.settings.signedIn == SignedInWithBrowser:
 				notice = "Wrike no longer accepts the session. Sign in again to continue."
+			case m.browserSignIn():
+				// The box below is the browser one, the token field is a tab away.
+				notice = "Wrike did not accept the stored token. Sign in again to continue."
 			}
 			m.firstRun = m.newFirstRun(notice)
 			m.firstRun.reauth = true

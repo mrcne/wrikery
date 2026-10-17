@@ -47,7 +47,7 @@ func startTestLogin(t *testing.T, redirect string) (*Login, string, *string) {
 	t.Helper()
 	srv, code := exchangeServer(t)
 	app := wrike.OAuthApp{ClientID: "id1", ClientSecret: "s3cret", RedirectURI: redirect}
-	l, err := StartLogin(app, wrike.OAuth{App: app})
+	l, err := StartLogin(wrike.OAuth{App: app})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestLoginCompletesOnTheRightState(t *testing.T) {
 	l, state, code := startTestLogin(t, "http://localhost:"+port+"/callback")
 	done := waitFor(l)
 	status, body := get(t, "http://127.0.0.1:"+port+"/callback?code=c0de&state="+state)
-	if status != http.StatusOK || !strings.Contains(body, "signed in, you can close this tab") {
+	if status != http.StatusOK || !strings.Contains(body, "got the answer") {
 		t.Errorf("redirect answered %d %q", status, body)
 	}
 	s, err := (<-done)()
@@ -140,25 +140,35 @@ func TestLoginReportsAccessDenied(t *testing.T) {
 func TestLoginPasteCompletes(t *testing.T) {
 	l, state, code := startTestLogin(t, "https://localhost/callback")
 	done := waitFor(l)
-	l.Paste("  https://localhost/callback?code=c0de&state=" + state + "\n")
+	if err := l.Paste("  https://localhost/callback?code=c0de&state=" + state + "\n"); err != nil {
+		t.Fatal(err)
+	}
 	s, err := (<-done)()
 	if err != nil || s.AccessToken != "at1" || *code != "c0de" {
 		t.Fatalf("Wait = %+v, %v, code %q", s, err, *code)
 	}
 }
 
-func TestLoginPasteWithAnotherStateIsAnError(t *testing.T) {
-	l, _, _ := startTestLogin(t, "https://localhost/callback")
+func TestLoginPasteWithAnotherStateIsAnErrorAndTheAttemptGoesOn(t *testing.T) {
+	l, state, _ := startTestLogin(t, "https://localhost/callback")
 	done := waitFor(l)
-	l.Paste("https://localhost/callback?code=c0de&state=other")
-	if _, err := (<-done)(); err == nil {
+	if err := l.Paste("https://localhost/callback?code=c0de&state=other"); err == nil {
 		t.Fatal("a pasted answer with another state was accepted")
+	}
+	if err := l.Paste("c0de"); err == nil || !strings.Contains(err.Error(), "whole address") {
+		t.Fatalf("a bare code answered %v, want a hint that the whole address is needed", err)
+	}
+	if err := l.Paste("https://localhost/callback?code=c0de&state=" + state); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := (<-done)(); err != nil || s.AccessToken != "at1" {
+		t.Fatalf("Wait = %+v, %v, want the right paste to complete after the wrong ones", s, err)
 	}
 }
 
 func TestLoginWithoutAPortListensNowhere(t *testing.T) {
 	l, _, _ := startTestLogin(t, "https://localhost/callback")
-	if l.srv != nil {
+	if l.Listening() {
 		t.Fatal("a listener runs for a redirect without a port")
 	}
 }
@@ -171,11 +181,13 @@ func TestLoginFallsBackToPasteWhenThePortIsTaken(t *testing.T) {
 	defer func() { _ = ln.Close() }()
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 	l, state, _ := startTestLogin(t, "http://localhost:"+port+"/callback")
-	if l.srv != nil {
+	if l.Listening() {
 		t.Fatal("a listener was reported on a port another program holds")
 	}
 	done := waitFor(l)
-	l.Paste("http://localhost:" + port + "/callback?code=c0de&state=" + state)
+	if err := l.Paste("http://localhost:" + port + "/callback?code=c0de&state=" + state); err != nil {
+		t.Fatal(err)
+	}
 	if s, err := (<-done)(); err != nil || s.AccessToken != "at1" {
 		t.Fatalf("Wait = %+v, %v", s, err)
 	}
@@ -204,7 +216,7 @@ func TestLoginAnswersTheRootWhenTheRedirectHasNoPath(t *testing.T) {
 	l, state, _ := startTestLogin(t, "http://localhost:"+port)
 	done := waitFor(l)
 	status, body := get(t, "http://127.0.0.1:"+port+"/?code=c0de&state="+state)
-	if status != http.StatusOK || !strings.Contains(body, "signed in") {
+	if status != http.StatusOK || !strings.Contains(body, "got the answer") {
 		t.Errorf("the root answered %d %q", status, body)
 	}
 	if s, err := (<-done)(); err != nil || s.AccessToken != "at1" {

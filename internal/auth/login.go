@@ -33,7 +33,6 @@ type Login struct {
 	// TokenURL is where the code is exchanged, wrike.LoginTokenURL unless a test points elsewhere.
 	TokenURL string
 
-	app    wrike.OAuthApp
 	oauth  wrike.OAuth
 	state  string
 	url    string
@@ -52,21 +51,20 @@ type outcome struct {
 // The listener runs only for an http redirect URI on localhost with a port, on the loopback interface,
 // the shape RFC 8252 section 7.3 describes for a native app, https://www.rfc-editor.org/rfc/rfc8252#section-7.3 .
 // A port it cannot bind leaves the paste as the way in, the screen text is the same.
-func StartLogin(app wrike.OAuthApp, oauth wrike.OAuth) (*Login, error) {
+func StartLogin(oauth wrike.OAuth) (*Login, error) {
 	state, err := randomState()
 	if err != nil {
 		return nil, err
 	}
-	u, err := url.Parse(app.RedirectURI)
+	u, err := url.Parse(oauth.App.RedirectURI)
 	if err != nil {
 		return nil, fmt.Errorf("the redirect URI: %w", err)
 	}
 	l := &Login{
 		TokenURL: wrike.LoginTokenURL,
-		app:      app,
 		oauth:    oauth,
 		state:    state,
-		url:      wrike.AuthorizeURL(app, state, Scope),
+		url:      wrike.AuthorizeURL(oauth.App, state, Scope),
 		path:     u.Path,
 		result:   make(chan outcome, 1),
 	}
@@ -90,6 +88,9 @@ func StartLogin(app wrike.OAuthApp, oauth wrike.OAuth) (*Login, error) {
 // URL is the address the browser opens, shown on the screen for a copy by hand as well.
 func (l *Login) URL() string { return l.url }
 
+// Listening is false when the redirect URI gets no listener, or its port is taken, and only a paste can finish the sign in.
+func (l *Login) Listening() bool { return l.srv != nil }
+
 // Wait returns the session once the browser came back, through the listener or through Paste, and the code was exchanged.
 // It ends with the context, the caller gives it the ten minutes a code lives, and with ErrCancelled after Close.
 func (l *Login) Wait(ctx context.Context) (Session, error) {
@@ -107,25 +108,36 @@ func (l *Login) Wait(ctx context.Context) (Session, error) {
 	if err != nil {
 		return Session{}, fmt.Errorf("exchanging the code: %w", err)
 	}
+	if resp.AssumedExpiry {
+		slog.Warn("the token answer carried no usable expires_in, assuming an hour")
+	}
 	return Session{
 		AccessToken:  resp.AccessToken,
 		RefreshToken: resp.RefreshToken,
 		Expiry:       time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second),
 		Host:         resp.Host,
-		ClientID:     l.app.ClientID,
-		ClientSecret: l.app.ClientSecret,
+		ClientID:     l.oauth.App.ClientID,
+		ClientSecret: l.oauth.App.ClientSecret,
 	}, nil
 }
 
 // Paste takes the address the browser landed on, for a redirect URI without a listener or a browser on another machine.
-func (l *Login) Paste(address string) {
+// An address that does not pass is the error, and the attempt goes on, the way the listener ignores a wrong request.
+func (l *Login) Paste(address string) error {
 	u, err := url.Parse(strings.TrimSpace(address))
 	if err != nil {
-		l.deliver("", fmt.Errorf("that is not an address: %w", err))
-		return
+		return fmt.Errorf("that is not an address: %w", err)
 	}
-	code, err := l.check(u.Query())
-	l.deliver(code, err)
+	q := u.Query()
+	if q.Get("code") == "" && q.Get("state") == "" {
+		return errors.New("paste the whole address the browser landed on, it carries the code and the state")
+	}
+	code, err := l.check(q)
+	if err != nil {
+		return err
+	}
+	l.deliver(code, nil)
+	return nil
 }
 
 // Close stops the listener and ends Wait with ErrCancelled.
@@ -162,7 +174,8 @@ func (l *Login) handle(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		_, _ = fmt.Fprintf(w, "wrikery: sign in failed: %v\n", err)
 	default:
-		_, _ = fmt.Fprintln(w, "wrikery: signed in, you can close this tab.")
+		// The code is exchanged after this page, and the secret is checked only then, so the page does not claim more than it knows.
+		_, _ = fmt.Fprintln(w, "wrikery got the answer, go back to the terminal.")
 	}
 	l.deliver(code, err)
 }

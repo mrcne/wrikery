@@ -50,7 +50,8 @@ func DefaultPaths() (Paths, error) {
 }
 
 func (p Paths) EnsureDirs() error {
-	for _, f := range []string{p.ConfigFile, p.DBFile, p.LogFile} {
+	// The lock file's directory too: with --config elsewhere it is not the config file's, and a lock that cannot be opened runs the renewal unlocked.
+	for _, f := range []string{p.ConfigFile, p.DBFile, p.LogFile, p.AuthLockFile} {
 		if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
 			return err
 		}

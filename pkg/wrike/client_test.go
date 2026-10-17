@@ -3,6 +3,7 @@ package wrike
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -278,9 +279,9 @@ func TestClientReturnsThe401WhenTheSourceHandsTheSameToken(t *testing.T) {
 	}
 }
 
-func TestClientWrapsThe401WhenTheSourceFails(t *testing.T) {
+func TestClientWrapsThe401WhenTheSourceRefusesToRenew(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { unauthorized(w) }))
-	WithTokenSource(&fakeSource{tokens: []string{"old"}, errOnRenew: errors.New("refresh token invalid")})(c)
+	WithTokenSource(&fakeSource{tokens: []string{"old"}, errOnRenew: fmt.Errorf("%w: refresh token invalid", ErrRenewalRefused)})(c)
 	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || !apiErr.IsAuth() {
@@ -288,6 +289,20 @@ func TestClientWrapsThe401WhenTheSourceFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "refresh token invalid") {
 		t.Errorf("err = %q, want the source's reason in the text", err)
+	}
+}
+
+func TestClientReturnsARenewalFailureAloneWhenItIsNotARefusal(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { unauthorized(w) }))
+	// The token endpoint was unreachable, the session may well be fine, so the caller must see a failure to retry and not a rejected sign in.
+	WithTokenSource(&fakeSource{tokens: []string{"old"}, errOnRenew: errors.New("dial tcp: no route to host")})(c)
+	_, err := c.do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		t.Fatalf("err = %v, want no API error in the chain", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "no route to host") {
+		t.Errorf("err = %v, want the renewal failure", err)
 	}
 }
 

@@ -39,6 +39,8 @@ The UI gets a few callbacks (refresh, wake the outbox, verify a token, start a b
 A new sign in rebuilds the client and the engine, because the client holds the token source.
 A browser session is the OAuth 2.0 authorization code flow: `internal/auth` listens on the port of the redirect URI, hands the browser Wrike's authorize page, exchanges the code it gets back and keeps the pair with the expiry and the host the token answer named.
 The source renews the access token under five minutes before its expiry and after a 401, under a lock file beside the token file, and re-reads the stored session first, so a pair the other process renewed is adopted instead of a second refresh, which would leave one of them with a dead refresh token.
+The stored session is the authority: a renewal that finds nothing there, or a permanent token, stops, so an interface still open after a sign out never writes the session back.
+The refresh itself runs past the request's context, Wrike rotates the pair as it answers and a quit at that moment would lose the only live refresh token.
 Wrike serves accounts from more than one data center under a different host, so the first run with a token probes the known hosts and keeps the one that accepted the token in the store meta table.
 Later runs read that host back instead of probing again, a browser session carries its host, and the `host` config key overrides all of them when set.
 When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the sign in check, the client constructor and the host resolver instead of starting the program.
@@ -183,7 +185,8 @@ A request that fails on the network or on Wrike's side puts the app in offline m
 A request Wrike rejects with a client error shows as a failing sync instead, the log line carries the request and the reason.
 Reads keep coming from the cache and writes keep going to the queue.
 The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).
-A 401 is the exception: the client asks its token source once for a renewed token, a browser session refreshes and a permanent token has nothing to renew, and when that does not help sync pauses and asks for a new sign in instead of retrying.
+A 401 is the exception: the client asks its token source once for a renewed token, a browser session refreshes and a permanent token has nothing to renew.
+A refresh Wrike refused pauses sync and asks for a new sign in, a refresh that could not run, the token endpoint unreachable for example, leaves the request to the retry with the session intact.
 A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
 Logs go to a file through log/slog, never onto the screen.
 Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.

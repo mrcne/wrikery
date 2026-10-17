@@ -14,12 +14,8 @@ import (
 // ErrLocked is returned when another wrikery process held the lock until the deadline of the wait.
 var ErrLocked = errors.New("lockfile: another wrikery process holds the lock")
 
-// Lock is an advisory lock on a file.
-// The sync engine holds it on the file next to the database to serialize the outbox drain and the in-flight reset across processes.
-// The auth source holds one beside the token file while it renews an OAuth session, so two processes never refresh the same pair.
-// The row claim in the store is atomic on its own, the lock is there for two things it cannot cover:
-// a startup reset while another process is mid-send, which would send that row twice,
-// and two drainers sending two rows on the same task out of order.
+// Lock is an advisory lock on a file, shared by the processes of one user.
+// The sync engine holds one next to the database for the outbox drain, the auth source one beside the token file for a renewal.
 // flock is released by the kernel when the holder dies, so a crash cannot leave it taken.
 type Lock struct{ f *os.File }
 

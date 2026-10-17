@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -54,11 +54,12 @@ func AuthorizeURL(app OAuthApp, state string, scopes ...string) string {
 
 // TokenResponse is the answer of the token endpoint, for the exchange and for a refresh alike.
 type TokenResponse struct {
-	AccessToken  string
-	RefreshToken string
-	TokenType    string
-	ExpiresIn    int    // seconds, one hour in practice
-	Host         string // the API host of the user's data center, empty when the endpoint left it out
+	AccessToken   string
+	RefreshToken  string
+	TokenType     string
+	ExpiresIn     int    // seconds, one hour in practice
+	AssumedExpiry bool   // ExpiresIn is the hour the documentation names, the answer carried nothing usable
+	Host          string // the API host of the user's data center, empty when the endpoint left it out
 }
 
 // OAuth talks to the token endpoints for one app.
@@ -119,13 +120,14 @@ func (o OAuth) post(ctx context.Context, tokenURL string, form url.Values) (Toke
 	if resp.StatusCode >= 300 {
 		return TokenResponse{}, parseAPIError(http.MethodPost, req.URL.Path, resp.StatusCode, resp.Header, raw)
 	}
-	// The documentation shows expires_in as the string "3600", json.Number takes a number and a quoted one.
+	// The documentation shows expires_in as the string "3600", so it is read as a number with or without quotes,
+	// and anything else gets the hour: without an expiry a caller would treat the token as expired and renew it on every request.
 	var body struct {
-		AccessToken  string      `json:"access_token"`
-		RefreshToken string      `json:"refresh_token"`
-		TokenType    string      `json:"token_type"`
-		ExpiresIn    json.Number `json:"expires_in"`
-		Host         string      `json:"host"`
+		AccessToken  string          `json:"access_token"`
+		RefreshToken string          `json:"refresh_token"`
+		TokenType    string          `json:"token_type"`
+		ExpiresIn    json.RawMessage `json:"expires_in"`
+		Host         string          `json:"host"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return TokenResponse{}, fmt.Errorf("decoding the token response: %w", err)
@@ -133,17 +135,10 @@ func (o OAuth) post(ctx context.Context, tokenURL string, form url.Values) (Toke
 	if body.AccessToken == "" {
 		return TokenResponse{}, errors.New("wrike: the token response carries no access token")
 	}
-	expires, _ := body.ExpiresIn.Int64()
-	if expires <= 0 {
-		// Without an expiry a caller would treat the token as expired and renew it on every request.
-		slog.Warn("token response without expires_in, assuming an hour", "value", string(body.ExpiresIn))
-		expires = defaultExpiry
+	out := TokenResponse{AccessToken: body.AccessToken, RefreshToken: body.RefreshToken, TokenType: body.TokenType, Host: body.Host}
+	out.ExpiresIn, _ = strconv.Atoi(strings.Trim(string(body.ExpiresIn), `"`))
+	if out.ExpiresIn <= 0 {
+		out.ExpiresIn, out.AssumedExpiry = defaultExpiry, true
 	}
-	return TokenResponse{
-		AccessToken:  body.AccessToken,
-		RefreshToken: body.RefreshToken,
-		TokenType:    body.TokenType,
-		ExpiresIn:    int(expires),
-		Host:         body.Host,
-	}, nil
+	return out, nil
 }

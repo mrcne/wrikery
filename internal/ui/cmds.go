@@ -619,7 +619,7 @@ func (m Model) startSignIn(attempt int, secret string) tea.Cmd {
 func waitSignIn(attempt int, result <-chan SignInResult) tea.Cmd {
 	return func() tea.Msg {
 		r := <-result
-		return signInResultMsg{attempt: attempt, name: r.Name, err: r.Err}
+		return signInResultMsg{attempt: attempt, name: r.Name, app: r.App, err: r.Err}
 	}
 }
 

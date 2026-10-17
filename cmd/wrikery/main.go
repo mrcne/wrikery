@@ -197,7 +197,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile,
-		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), Hooks: a.hooks(),
+		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()

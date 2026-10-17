@@ -95,14 +95,18 @@ func TestRefreshPostsTheRefreshTokenAndDecodesANumberExpiry(t *testing.T) {
 	}
 }
 
-func TestExchangeAssumesAnHourWithoutExpiresIn(t *testing.T) {
-	srv, _ := tokenServer(t, http.StatusOK, `{"access_token":"at1","refresh_token":"rt1","token_type":"bearer","host":"www.wrike.com"}`)
-	got, err := OAuth{App: testApp}.Exchange(context.Background(), srv.URL+"/oauth2/token", "c0de")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.ExpiresIn != 3600 {
-		t.Errorf("ExpiresIn = %d, want 3600 so a source never renews on every request", got.ExpiresIn)
+func TestExchangeAssumesAnHourWithoutAUsableExpiresIn(t *testing.T) {
+	for name, field := range map[string]string{"missing": ``, "zero": `,"expires_in":0`, "empty": `,"expires_in":""`, "text": `,"expires_in":"soon"`} {
+		t.Run(name, func(t *testing.T) {
+			srv, _ := tokenServer(t, http.StatusOK, `{"access_token":"at1","refresh_token":"rt1","token_type":"bearer","host":"www.wrike.com"`+field+`}`)
+			got, err := OAuth{App: testApp}.Exchange(context.Background(), srv.URL+"/oauth2/token", "c0de")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ExpiresIn != 3600 || !got.AssumedExpiry {
+				t.Errorf("ExpiresIn = %d, AssumedExpiry = %v, want the hour and the flag so the caller can say so", got.ExpiresIn, got.AssumedExpiry)
+			}
+		})
 	}
 }
 

@@ -62,9 +62,14 @@ func WithUserAgent(ua string) Option {
 // TokenSource hands the client a bearer token for each request.
 // rejected is the token Wrike answered 401 to, empty on a first attempt.
 // A source that cannot replace a rejected token returns it again, or an error, and the client gives up on the request.
+// An error that wraps ErrRenewalRefused means the credential is dead and the 401 stands.
+// Any other error means the renewal could not run, the token endpoint was unreachable for example, and the request can be tried again later.
 type TokenSource interface {
 	Token(ctx context.Context, rejected string) (string, error)
 }
+
+// ErrRenewalRefused is what a TokenSource wraps when Wrike refused to renew the credential, so a new sign in is needed.
+var ErrRenewalRefused = errors.New("wrike: the renewal was refused")
 
 // StaticToken is a TokenSource for a token that never changes, a permanent access token.
 func StaticToken(token string) TokenSource { return staticToken(token) }
@@ -172,7 +177,11 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			renewed = true
 			fresh, serr := c.source.Token(ctx, token)
 			if serr != nil {
-				return "", fmt.Errorf("%w (renewing the token: %w)", err, serr)
+				if errors.Is(serr, ErrRenewalRefused) {
+					return "", fmt.Errorf("%w (renewing the token: %w)", err, serr)
+				}
+				// The session may be fine, only the renewal did not run, so the 401 must not reach the caller as a rejected sign in.
+				return "", fmt.Errorf("%s %s: renewing the token after a 401: %w", method, path, serr)
 			}
 			if fresh != token {
 				token = fresh

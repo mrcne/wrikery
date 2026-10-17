@@ -144,7 +144,7 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 			return f.handleBrowserKey(msg)
 		}
 		// Tab and not a letter, a token may contain any letter.
-		if msg.Type == tea.KeyTab && f.browser {
+		if msg.Type == tea.KeyTab && f.browser && !f.verifying {
 			f.useToken, f.errText = false, ""
 			f.focus()
 			return f, nil
@@ -205,8 +205,13 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 			f.focus()
 			return f, nil
 		case tea.KeyEnter:
+			// A paste that does not pass shows its error and the attempt goes on, the browser may still come back.
 			if address := strings.TrimSpace(f.paste.Value()); address != "" {
-				f.signIn.Paste(address)
+				if err := f.signIn.Paste(address); err != nil {
+					f.errText = err.Error()
+					return f, nil
+				}
+				f.errText = ""
 				f.paste.SetValue("")
 			}
 			return f, nil
@@ -220,6 +225,10 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 	}
 	switch msg.Type {
 	case tea.KeyTab:
+		// The hook is starting the attempt, a switch now would leave it running behind the token field.
+		if f.verifying {
+			return f, nil
+		}
 		f.useToken, f.errText = true, ""
 		f.focus()
 		return f, nil
@@ -325,8 +334,15 @@ func (f firstRunModel) viewSignIn(body *strings.Builder, th Theme, muted lipglos
 		body.WriteString(f.spinner.View() + " waiting for the browser\n\n")
 		body.WriteString(muted.Render("If it did not open, use this address:") + "\n")
 		body.WriteString(muted.Width(w-2).Render(f.signIn.URL) + "\n\n")
-		body.WriteString("Or paste the address the browser lands on:\n")
+		if f.signIn.Listening {
+			body.WriteString("Or paste the address the browser lands on:\n")
+		} else {
+			body.WriteString("Or paste the address the browser lands on, nothing listens on the port of the redirect address:\n")
+		}
 		body.WriteString(f.paste.View() + "\n\n")
+		if f.errText != "" {
+			body.WriteString(th.errorLine(f.errText, w-2) + "\n")
+		}
 		body.WriteString(muted.Render("enter to send the address, ctrl+y to copy it, esc to start over"))
 	case f.browser && !f.useToken:
 		body.WriteString("Sign in through the browser.\n")

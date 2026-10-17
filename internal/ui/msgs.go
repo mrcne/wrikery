@@ -84,7 +84,8 @@ type sidebarHiddenMsg struct{ hidden bool } // the saved sidebar flag, read once
 type tokenVerifiedMsg struct {
 	name    string
 	err     error
-	browser bool // the sign in ran through the browser, not through a pasted token
+	browser bool   // the sign in ran through the browser, not through a pasted token
+	app     string // the client id of the app a browser sign in used
 }
 type searchResultsMsg struct {
 	seq    int
@@ -124,6 +125,7 @@ type signInStartedMsg struct {
 type signInResultMsg struct {
 	attempt int
 	name    string
+	app     string
 	err     error
 }
 type firstRunConfirmScopesMsg struct{ scopes []store.Scope }

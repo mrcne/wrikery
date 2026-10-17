@@ -33,6 +33,7 @@ type settingsModel struct {
 	scopes        []store.Scope
 	sidebarHidden bool
 	signedIn      string // SignedInWithToken or SignedInWithBrowser, empty in the demo and before the first sign in
+	signedInApp   string // the client id of a browser session, from the session itself, the config may have lost its table since
 	cursor        int
 }
 
@@ -44,7 +45,7 @@ func (s *settingsModel) setScopes(scopes []store.Scope) { s.scopes = scopes }
 
 func (s *settingsModel) setSidebarHidden(hidden bool) { s.sidebarHidden = hidden }
 
-func (s *settingsModel) setSignedIn(with string) { s.signedIn = with }
+func (s *settingsModel) setSignedIn(with, app string) { s.signedIn, s.signedInApp = with, app }
 
 func (s settingsModel) rows() []settingRow {
 	var names []string
@@ -74,9 +75,11 @@ func (s settingsModel) rows() []settingRow {
 	if s.signedIn != "" {
 		with := "a permanent token"
 		if s.signedIn == SignedInWithBrowser {
-			with = "the browser, app " + s.cfg.OAuth.ClientID
+			with = "the browser, app " + s.signedInApp
 		}
-		rows = append(rows, settingRow{group: "Account", label: "Signed in with", value: with, key: "oauth.client_id"})
+		// No config key changes a stored sign in, only a sign out and a new one do.
+		rows = append(rows, settingRow{group: "Account", label: "Signed in with", value: with,
+			msg: toastMsg{text: "wrikery --logout signs out, the next start asks for a new sign in"}})
 	}
 	return append(rows, []settingRow{
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},

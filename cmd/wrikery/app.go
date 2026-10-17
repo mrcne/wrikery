@@ -157,17 +157,27 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 			return "", fmt.Errorf("could not reach Wrike: %w", err)
 		}
 	}
+	return a.finish(ctx, wrike.StaticToken(token), host, me, func() error { return a.tokens.SaveToken(token) })
+}
+
+// finish is the tail every sign in shares once Wrike named the user: the host remembered for the settings screen,
+// the credential stored, the engine started.
+// A context that ended on the way, esc on the screen, stores nothing and starts nothing.
+func (a *app) finish(ctx context.Context, src wrike.TokenSource, host string, me wrike.Contact, save func() error) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if a.cfg.Host == "" {
 		// A failed write here only means the next start probes again,
-		// the token Wrike already accepted must not be thrown away over it.
+		// the credential Wrike already accepted must not be thrown away over it.
 		if err := a.st.SetMeta(ctx, store.MetaKeyHost, host); err != nil {
 			slog.Warn("could not store the detected Wrike host", "error", err)
 		}
 	}
-	if err := a.tokens.SaveToken(token); err != nil {
+	if err := save(); err != nil {
 		return "", err
 	}
-	a.startEngine(wrike.StaticToken(token), host)
+	a.startEngine(src, host)
 	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
 }
 

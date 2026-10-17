@@ -121,6 +121,27 @@ func TestSessionRoundTripThroughTheFile(t *testing.T) {
 	}
 }
 
+func TestSessionFileLeavesNoTemporaryFileBehind(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no secret service"))
+	tk := testTokens(t)
+	for range 3 {
+		if err := tk.SaveSession(oauthSession(time.Now().Add(time.Hour))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Dir(tk.SessionFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "oauth.json" {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("directory holds %v, want the session file alone", names)
+	}
+}
+
 func TestSessionRoundTripThroughTheKeyring(t *testing.T) {
 	keyring.MockInit()
 	tk := testTokens(t)
