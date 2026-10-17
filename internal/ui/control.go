@@ -8,18 +8,29 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// The operations a control request names, the same words internal/control puts on the socket.
+// The two sets are kept equal by a test in cmd/wrikery, the one package that sees both.
+const (
+	OpFilter  = "filter"
+	OpSelect  = "select"
+	OpFolder  = "folder"
+	OpShape   = "shape"
+	OpScreen  = "screen"
+	OpRefresh = "refresh"
+)
+
 // control answers a request from the command line, the operations a script can ask for.
 // Each one goes through the code its key uses, so a command and a key leave the interface in the same state.
-// A box, the search, the help or the first run screen refuse the request: the person is in the middle of something.
+// A box, the search, the help, a filter field being typed in or the first run screen refuse the request: the person is in the middle of something.
 func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 	if !msg.Deadline.IsZero() && time.Now().After(msg.Deadline) {
 		return m, nil
 	}
-	if m.screen == screenFirstRun || m.overlay != overlayNone {
-		return m.answer(msg, "", errors.New("a box is open in the interface"))
+	if m.screen == screenFirstRun || m.overlay != overlayNone || m.typing() {
+		return m.answer(msg, "", errors.New("a box or a filter field is open in the interface"))
 	}
 	switch msg.Op {
-	case "filter":
+	case OpFilter:
 		f := rowFilter{}
 		if len(msg.Importance) > 0 {
 			f.importance = map[string]bool{}
@@ -50,15 +61,24 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		}
 		next, _ := m.answer(msg, text, nil)
 		return next, cmd
-	case "select":
-		next, cmd := m.jumpToTask(msg.TaskID, msg.ParentID)
+	case OpSelect:
+		// The first folder of the task the sidebar has, a task in two folders may have only its second one followed.
+		parent := ""
+		for _, id := range msg.ParentIDs {
+			if m.sidebar.indexOf(id) >= 0 {
+				parent = id
+				break
+			}
+		}
+		next, cmd := m.jumpToTask(msg.TaskID, parent)
 		msg.send("selected", nil)
 		return next, cmd
-	case "folder":
+	case OpFolder:
 		if !m.sidebar.reveal(msg.FolderID) {
 			return m.answer(msg, "", errors.New("not in the sidebar, follow its space"))
 		}
 		// Enter on the node: the main screen, the node selected, its tasks loaded, the keys on the list.
+		// The pin changes reveal may have queued are written before the reply, on the model that is returned.
 		n, _ := m.sidebar.current()
 		closing := m.closeTimesheetDetail()
 		m.screen, m.selectedNode = screenMain, n
@@ -67,9 +87,10 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 			m.focus = paneBoard
 		}
 		m.syncPaneSizes()
+		cmd := tea.Batch(closing, m.loadTasks(n, m.sidebar.crumb(n), "", false), m.flushPins())
 		next, _ := m.answer(msg, "opened "+n.title, nil)
-		return next, tea.Batch(closing, m.loadTasks(n, m.sidebar.crumb(n), "", false), m.flushPins())
-	case "shape":
+		return next, cmd
+	case OpShape:
 		var want shape
 		switch msg.Shape {
 		case "list":
@@ -83,7 +104,7 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 			m.toggleShape()
 		}
 		return m.answer(msg, msg.Shape, nil)
-	case "screen":
+	case OpScreen:
 		var want screen
 		switch msg.Screen {
 		case "tasks":
@@ -100,7 +121,7 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		cmd := m.openScreen(want)
 		next, _ := m.answer(msg, msg.Screen, nil)
 		return next, cmd
-	case "refresh":
+	case OpRefresh:
 		if m.opts.Hooks.Refresh == nil {
 			return m.answer(msg, "", errors.New("refresh is not available"))
 		}
@@ -109,6 +130,11 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	return m.answer(msg, "", fmt.Errorf("the running interface does not know the operation %q, restart it", msg.Op))
+}
+
+// typing says whether a filter field has the keys, the list's or the sidebar's: not an overlay, but every key goes to it.
+func (m Model) typing() bool {
+	return m.list.filtering || m.sidebar.filtering
 }
 
 // answer sends the reply and returns the model as it is, for the operations that change nothing more.

@@ -40,11 +40,11 @@ func runUI(ctx context.Context, env Env, args []string) int {
 	case "folder":
 		return runUIFolder(ctx, env, args[1:])
 	case "list", "board":
-		return runUIPlain(env, args[1:], control.Request{Op: control.OpShape, Shape: args[0]}, "ui "+args[0])
+		return runUIPlain(ctx, env, args[1:], control.Request{Op: control.OpShape, Shape: args[0]}, "ui "+args[0])
 	case "open":
-		return runUIOpen(env, args[1:])
+		return runUIOpen(ctx, env, args[1:])
 	case "refresh":
-		return runUIPlain(env, args[1:], control.Request{Op: control.OpRefresh}, "ui refresh")
+		return runUIPlain(ctx, env, args[1:], control.Request{Op: control.OpRefresh}, "ui refresh")
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown ui command %q\n", args[0])
 	_, _ = fmt.Fprint(env.Stderr, uiUsage)
@@ -57,7 +57,7 @@ func runUIFilter(ctx context.Context, env Env, args []string) int {
 	fs.Var(&levels, "importance", "High, Normal or Low, may repeat")
 	person := fs.String("person", "", "me, unassigned, a contact id or a part of a name")
 	fs.Var(&statuses, "status", "a status name, may repeat")
-	clear := fs.Bool("clear", false, "clear the filter, what F does")
+	clearAll := fs.Bool("clear", false, "clear the filter, what F does")
 	asJSON := fs.Bool("json", false, "print JSON")
 	positional, code, done := parse(env, fs, uiUsage, args)
 	if done {
@@ -66,11 +66,15 @@ func runUIFilter(ctx context.Context, env Env, args []string) int {
 	if len(positional) > 0 {
 		return usageError(env, fs, uiUsage, "ui filter takes flags only")
 	}
-	given := len(levels)+len(statuses) > 0 || *person != ""
-	if *clear && given {
+	if given(fs, "person") && strings.TrimSpace(*person) == "" {
+		// A blank person must not pass as no person and clear the filter.
+		return usageError(env, fs, uiUsage, "the person is empty")
+	}
+	wanted := len(levels)+len(statuses) > 0 || *person != ""
+	if *clearAll && wanted {
 		return usageError(env, fs, uiUsage, "--clear goes alone")
 	}
-	if !*clear && !given {
+	if !*clearAll && !wanted {
 		return usageError(env, fs, uiUsage, "ui filter needs --importance, --person, --status or --clear")
 	}
 	req := control.Request{Op: control.OpFilter}
@@ -99,7 +103,7 @@ func runUIFilter(ctx context.Context, env Env, args []string) int {
 	case env.Store == nil:
 		req.Person = p
 	default:
-		id, err := resolveContact(ctx, env.Store, &ref, p)
+		id, err := resolveFilterPerson(ref, p)
 		if err != nil {
 			return fail(env, err)
 		}
@@ -115,7 +119,22 @@ func runUIFilter(ctx context.Context, env Env, args []string) int {
 		}
 		req.Statuses = append(req.Statuses, name)
 	}
-	return uiCall(env, req, *asJSON, "")
+	return uiCall(ctx, env, req, *asJSON, "")
+}
+
+// resolveFilterPerson is the person resolver for the filter: a contact id or a part of a name, groups left out,
+// but someone who left the account kept, the filter box offers whoever is on a task in view and finding their tasks is the point.
+func resolveFilterPerson(ref refData, arg string) (string, error) {
+	if c, ok := ref.contacts[arg]; ok && c.Type != "Group" {
+		return c.ID, nil
+	}
+	var people []store.Contact
+	for _, c := range ref.contacts {
+		if c.Type != "Group" {
+			people = append(people, c)
+		}
+	}
+	return matchContact(arg, people)
 }
 
 // knownStatus says whether some cached workflow spells a status so, case aside. The interface keys the filter by name.
@@ -147,17 +166,11 @@ func runUISelect(ctx context.Context, env Env, args []string) int {
 		if err != nil {
 			return fail(env, err)
 		}
-		req.TaskID, req.ParentID = t.ID, firstParentID(t)
+		// Every folder goes along, the interface opens the first one its sidebar has.
+		req.TaskID, req.ParentIDs = t.ID, t.ParentIDs
 		text = "selected " + t.Title
 	}
-	return uiCall(env, req, *asJSON, text)
-}
-
-func firstParentID(t store.Task) string {
-	if len(t.ParentIDs) == 0 {
-		return ""
-	}
-	return t.ParentIDs[0]
+	return uiCall(ctx, env, req, *asJSON, text)
 }
 
 func runUIFolder(ctx context.Context, env Env, args []string) int {
@@ -181,10 +194,10 @@ func runUIFolder(ctx context.Context, env Env, args []string) int {
 		}
 		req.FolderID = fo.ID
 	}
-	return uiCall(env, req, *asJSON, "")
+	return uiCall(ctx, env, req, *asJSON, "")
 }
 
-func runUIOpen(env Env, args []string) int {
+func runUIOpen(ctx context.Context, env Env, args []string) int {
 	fs := flag.NewFlagSet("ui open", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print JSON")
 	positional, code, done := parse(env, fs, uiUsage, args)
@@ -199,11 +212,11 @@ func runUIOpen(env Env, args []string) int {
 	default:
 		return usageError(env, fs, uiUsage, fmt.Sprintf("no screen %q, tasks, timesheet, changes or settings", positional[0]))
 	}
-	return uiCall(env, control.Request{Op: control.OpScreen, Screen: positional[0]}, *asJSON, "")
+	return uiCall(ctx, env, control.Request{Op: control.OpScreen, Screen: positional[0]}, *asJSON, "")
 }
 
 // runUIPlain serves the commands with no argument of their own, list, board and refresh.
-func runUIPlain(env Env, args []string, req control.Request, name string) int {
+func runUIPlain(ctx context.Context, env Env, args []string, req control.Request, name string) int {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print JSON")
 	positional, code, done := parse(env, fs, uiUsage, args)
@@ -213,13 +226,13 @@ func runUIPlain(env Env, args []string, req control.Request, name string) int {
 	if len(positional) > 0 {
 		return usageError(env, fs, uiUsage, name+" takes no arguments")
 	}
-	return uiCall(env, req, *asJSON, "")
+	return uiCall(ctx, env, req, *asJSON, "")
 }
 
 // uiCall sends the request and prints the interface's line, or text when the command has a better one.
 // No interface, a refusal and a name that matched nothing are all exit 1, the command did not do what it was asked.
-func uiCall(env Env, req control.Request, asJSON bool, text string) int {
-	reply, err := control.Call(env.Socket, req)
+func uiCall(ctx context.Context, env Env, req control.Request, asJSON bool, text string) int {
+	reply, err := control.Call(ctx, env.Socket, req)
 	if errors.Is(err, control.ErrNotRunning) {
 		return fail(env, errors.New("no wrikery interface is running"))
 	}

@@ -128,7 +128,7 @@ type ControlMsg struct {
 	Person     string
 	Statuses   []string
 	TaskID     string
-	ParentID   string
+	ParentIDs  []string // the folders of the task to select, the first one the sidebar has is opened
 	FolderID   string
 	Shape      string
 	Screen     string

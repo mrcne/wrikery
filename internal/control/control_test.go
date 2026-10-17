@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -43,7 +44,7 @@ func TestCallReachesTheHandlerAndReturnsItsReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = l.Close() }()
-	reply, err := Call(path, Request{Op: OpFilter, Importance: []string{"High"}, Person: "me"})
+	reply, err := Call(context.Background(), path, Request{Op: OpFilter, Importance: []string{"High"}, Person: "me"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestListenRemovesAStaleSocket(t *testing.T) {
 		t.Fatalf("a stale socket must be removed and bound again: %v", err)
 	}
 	defer func() { _ = again.Close() }()
-	reply, err := Call(path, Request{Op: OpRefresh})
+	reply, err := Call(context.Background(), path, Request{Op: OpRefresh})
 	if err != nil || reply.Text != "fresh" {
 		t.Errorf("reply = %+v, %v", reply, err)
 	}
@@ -91,7 +92,7 @@ func TestListenRefusesASocketInUse(t *testing.T) {
 	if _, err := Listen(path, func(Request) Reply { return Reply{OK: true, Text: "second"} }); !errors.Is(err, ErrInUse) {
 		t.Fatalf("second listen err = %v, want ErrInUse", err)
 	}
-	reply, err := Call(path, Request{Op: OpRefresh})
+	reply, err := Call(context.Background(), path, Request{Op: OpRefresh})
 	if err != nil || reply.Text != "first" {
 		t.Errorf("the first interface must keep the socket: %+v, %v", reply, err)
 	}
@@ -99,7 +100,7 @@ func TestListenRefusesASocketInUse(t *testing.T) {
 
 func TestCallWithoutAListenerIsNotRunning(t *testing.T) {
 	dir := socketDir(t)
-	if _, err := Call(filepath.Join(dir, "missing.sock"), Request{Op: OpRefresh}); !errors.Is(err, ErrNotRunning) {
+	if _, err := Call(context.Background(), filepath.Join(dir, "missing.sock"), Request{Op: OpRefresh}); !errors.Is(err, ErrNotRunning) {
 		t.Errorf("missing file err = %v, want ErrNotRunning", err)
 	}
 	path := filepath.Join(dir, "stale.sock")
@@ -108,7 +109,7 @@ func TestCallWithoutAListenerIsNotRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	leaveStale(t, l)
-	if _, err := Call(path, Request{Op: OpRefresh}); !errors.Is(err, ErrNotRunning) {
+	if _, err := Call(context.Background(), path, Request{Op: OpRefresh}); !errors.Is(err, ErrNotRunning) {
 		t.Errorf("stale file err = %v, want ErrNotRunning", err)
 	}
 }
@@ -130,7 +131,7 @@ func TestCloseRemovesTheSocketFile(t *testing.T) {
 func TestNudgeDropsEveryError(t *testing.T) {
 	// No listener, no panic, no wait worth noticing.
 	start := time.Now()
-	Nudge(filepath.Join(socketDir(t), "none.sock"))
+	Nudge(context.Background(), filepath.Join(socketDir(t), "none.sock"))
 	if time.Since(start) > 2*time.Second {
 		t.Errorf("nudge without a listener took %v", time.Since(start))
 	}
@@ -144,8 +145,51 @@ func TestNudgeDropsEveryError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = l.Close() }()
-	Nudge(path)
-	if got.Op != OpReload {
-		t.Errorf("nudge sent %+v, want the reload operation", got)
+	Nudge(context.Background(), path, "tasks", "comments")
+	if got.Op != OpReload || len(got.Entities) != 2 || got.Entities[0] != "tasks" || got.Entities[1] != "comments" {
+		t.Errorf("nudge sent %+v, want the reload operation with the kinds", got)
+	}
+}
+
+func TestCallStopsWithTheContext(t *testing.T) {
+	path := filepath.Join(socketDir(t), "wrikery.sock")
+	hold := make(chan struct{})
+	t.Cleanup(func() { close(hold) })
+	l, err := Listen(path, func(Request) Reply {
+		<-hold
+		return Reply{OK: true}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := Call(ctx, path, Request{Op: OpRefresh}); err == nil {
+		t.Errorf("a call cut by its context must fail")
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("the call ran %v past its context", time.Since(start))
+	}
+}
+
+func TestCloseLeavesANewerSocketAlone(t *testing.T) {
+	path := filepath.Join(socketDir(t), "wrikery.sock")
+	first, err := Listen(path, func(Request) Reply { return Reply{OK: true, Text: "first"} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The first interface's listener goes down and unlinks its file, a second interface binds, then the first finishes its Close.
+	_ = first.listener.Close()
+	second, err := Listen(path, func(Request) Reply { return Reply{OK: true, Text: "second"} })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.Close() }()
+	_ = first.Close()
+	reply, err := Call(context.Background(), path, Request{Op: OpRefresh})
+	if err != nil || reply.Text != "second" {
+		t.Errorf("after the first Close the second interface must still answer: %+v, %v", reply, err)
 	}
 }

@@ -61,6 +61,8 @@ func TestControlIsBusyWithABoxOpen(t *testing.T) {
 		{"help", func(m *Model) { m.overlay = overlayHelp }},
 		{"search", func(m *Model) { m.overlay = overlaySearch }},
 		{"first run", func(m *Model) { m.screen = screenFirstRun }},
+		{"list filter", func(m *Model) { m.list.filtering = true }},
+		{"sidebar filter", func(m *Model) { m.sidebar.filtering = true }},
 	} {
 		m := controlRoot(t)
 		c.prep(&m)
@@ -74,7 +76,7 @@ func TestControlIsBusyWithABoxOpen(t *testing.T) {
 func TestControlSelectShowsTheTask(t *testing.T) {
 	m := controlRoot(t)
 	m.screen = screenTimesheet
-	m, r := control(t, m, ControlMsg{Op: "select", TaskID: "T7", ParentID: "API"})
+	m, r := control(t, m, ControlMsg{Op: "select", TaskID: "T7", ParentIDs: []string{"API"}})
 	if r.Err != nil || r.Text != "selected" {
 		t.Errorf("reply = %+v", r)
 	}
@@ -165,5 +167,38 @@ func TestControlUnknownOperationIsRefused(t *testing.T) {
 	_, r := control(t, controlRoot(t), ControlMsg{Op: "dance"})
 	if r.Err == nil {
 		t.Errorf("reply = %+v, want a refusal", r)
+	}
+}
+
+func TestControlSelectPicksAParentTheSidebarHas(t *testing.T) {
+	m := controlRoot(t)
+	m, r := control(t, m, ControlMsg{Op: "select", TaskID: "T7", ParentIDs: []string{"NOPE", "API"}})
+	if r.Err != nil {
+		t.Fatalf("reply = %+v", r)
+	}
+	if n, _ := m.sidebar.current(); n.id != "API" {
+		t.Errorf("sidebar on %q, want the first folder of the task that is in the sidebar", n.id)
+	}
+}
+
+func TestControlFilterKeepsThePaneBesideTheGrid(t *testing.T) {
+	m := controlRoot(t)
+	m.screen, m.timesheet.detailOpen, m.selectedTaskID = screenTimesheet, true, "T9"
+	m, r := control(t, m, ControlMsg{Op: "filter", Importance: []string{"High"}})
+	if r.Err != nil || m.selectedTaskID != "T9" || m.screen != screenTimesheet {
+		t.Errorf("reply %+v, task %q, screen %v, want the pane beside the grid left alone", r, m.selectedTaskID, m.screen)
+	}
+}
+
+func TestControlFolderWritesThePinChangesBeforeAnswering(t *testing.T) {
+	m := controlRoot(t)
+	m.sidebar.pinnedOnly = true
+	m.sidebar.rebuild()
+	m, r := control(t, m, ControlMsg{Op: "folder", FolderID: "ONC"})
+	if r.Err != nil {
+		t.Fatalf("reply = %+v", r)
+	}
+	if len(m.sidebar.changes) != 0 {
+		t.Errorf("the returned model still holds %d pin changes, want them written before the reply", len(m.sidebar.changes))
 	}
 }

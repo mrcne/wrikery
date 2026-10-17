@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mrcne/wrikery/internal/control"
+	"github.com/mrcne/wrikery/internal/store"
 )
 
 // uiStub listens like an interface on a socket in a short temp dir, records every request and answers each with reply.
@@ -71,6 +72,9 @@ func TestUIFilterClearAndUsage(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"ui", "filter", "--importance", "urgent"}); code != exitUsage {
 		t.Errorf("bad level code = %d, want %d", code, exitUsage)
 	}
+	if code := Run(context.Background(), env, []string{"ui", "filter", "--person", " "}); code != exitUsage {
+		t.Errorf("blank person code = %d, want %d, a blank must not clear the filter", code, exitUsage)
+	}
 	if len(*got) != 1 {
 		t.Errorf("a usage error reached the interface: %+v", *got)
 	}
@@ -103,6 +107,29 @@ func TestUIFilterChecksTheStatusNamesAndThePerson(t *testing.T) {
 	}
 }
 
+func TestUIFilterFindsAPersonWhoLeft(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.Contacts().ReplaceAll(context.Background(), []store.Contact{
+		{ID: "U1", FirstName: "Marcin", LastName: "Tester", Me: true},
+		{ID: "U9", FirstName: "Former", LastName: "Colleague", Deleted: true},
+		{ID: "G1", FirstName: "Design", Type: "Group"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env, got := uiStub(t, env, control.Reply{OK: true, Text: "showing Former Colleague"})
+	// The filter box lists whoever is on a task in view, a former colleague included, so the command finds them too.
+	if code := Run(context.Background(), env, []string{"ui", "filter", "--person", "former"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if len(*got) != 1 || (*got)[0].Person != "U9" {
+		t.Errorf("request = %+v, want the deleted contact's id", *got)
+	}
+	if code := Run(context.Background(), env, []string{"ui", "filter", "--person", "design"}); code != exitError {
+		t.Errorf("group code = %d, want %d, a group is no person", code, exitError)
+	}
+}
+
 func TestUISelectSendsTheTaskAndItsParent(t *testing.T) {
 	env, out, _ := testEnv(t)
 	seedBoard(t, env.Store)
@@ -110,8 +137,8 @@ func TestUISelectSendsTheTaskAndItsParent(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"ui", "select", "headless"}); code != exitOK {
 		t.Fatalf("code = %d\n%s", code, out.String())
 	}
-	if len(*got) != 1 || (*got)[0].Op != control.OpSelect || (*got)[0].TaskID != "TASK1" || (*got)[0].ParentID != "PROJ1" {
-		t.Errorf("request = %+v, want the task and its folder", *got)
+	if len(*got) != 1 || (*got)[0].Op != control.OpSelect || (*got)[0].TaskID != "TASK1" || strings.Join((*got)[0].ParentIDs, ",") != "PROJ1" {
+		t.Errorf("request = %+v, want the task and its folders", *got)
 	}
 	if out.String() != "selected Headless commands for scripts\n" {
 		t.Errorf("out = %q", out.String())
@@ -213,7 +240,7 @@ func TestUIWithoutAStoreSendsValuesAsGiven(t *testing.T) {
 			t.Errorf("%v code = %d\n%s", args, code, out.String())
 		}
 	}
-	if len(*got) != 3 || (*got)[0].TaskID != "IEAATASK03" || (*got)[0].ParentID != "" || (*got)[1].FolderID != "MOB" ||
+	if len(*got) != 3 || (*got)[0].TaskID != "IEAATASK03" || len((*got)[0].ParentIDs) != 0 || (*got)[1].FolderID != "MOB" ||
 		(*got)[2].Statuses[0] != "In Progress" || (*got)[2].Person != "me" || (*got)[2].Importance[0] != "High" {
 		t.Errorf("requests = %+v", *got)
 	}
@@ -230,8 +257,8 @@ func TestWriteCommandsAndSyncNudgeTheInterface(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "In Progress"}); code != exitOK {
 		t.Fatalf("status code = %d\n%s", code, out.String())
 	}
-	if len(*got) != 1 || (*got)[0].Op != control.OpReload {
-		t.Errorf("after a write the interface got %+v, want one reload", *got)
+	if len(*got) != 1 || (*got)[0].Op != control.OpReload || strings.Join((*got)[0].Entities, ",") != "tasks,comments,timelogs" {
+		t.Errorf("after a write the interface got %+v, want one reload of what a write can touch", *got)
 	}
 	// The server's answer put the task back on New, so the same change goes out again, this time with nobody listening.
 	socket := env.Socket
@@ -244,7 +271,7 @@ func TestWriteCommandsAndSyncNudgeTheInterface(t *testing.T) {
 	env = withNetwork(t, env, nil)
 	env.Socket = socket
 	_ = Run(context.Background(), env, []string{"sync"})
-	if len(*got) != 2 || (*got)[1].Op != control.OpReload {
-		t.Errorf("after a sync the interface got %+v, want a second reload", *got)
+	if len(*got) != 2 || (*got)[1].Op != control.OpReload || len((*got)[1].Entities) != 0 {
+		t.Errorf("after a sync the interface got %+v, want a second reload of every kind", *got)
 	}
 }

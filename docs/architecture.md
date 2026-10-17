@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into five parts with strict boundaries, plus a small config package:
+The code is split into six parts with strict boundaries, plus a small config package:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
@@ -43,10 +43,11 @@ A command appends to the same log file and never rotates it, the interface does 
 
 A running interface listens on a unix socket next to the database, `wrikery.sock` beside the sync lock, and `internal/control` is the channel: one JSON request in, one JSON reply out, a connection per request.
 `cmd/wrikery` owns the listener as it owns the engine forwarder, and turns a request into a `ui.ControlMsg` with a buffered reply channel that the model answers from its update loop, so `internal/ui` sees no socket.
-The send to the program runs on a goroutine of its own, because the program blocks while an external editor holds it, and a request nobody answers in five seconds is reported as busy and carries a deadline past which the model drops it.
-A reload, what every write command and `wrikery sync` send when they are done, becomes the two messages the engine forwarder sends after a cycle and never reaches the model as a request.
-A socket path has room for 104 bytes on macOS, so a long data directory gets a hashed name in the temp dir, computed the same way on both sides.
-The first interface keeps the socket, a second one logs that and runs without it, a stale file from a crash is removed before the bind, and the demo listens on a fixed name in the temp dir.
+Every send to the program runs on a goroutine of its own, because the program blocks while an external editor holds it, and a request nobody answers in five seconds is reported as busy and carries a deadline past which the model drops it.
+The command reads for longer than that wait, so the busy answer reaches it instead of a timeout of its own.
+A reload, what every write command and `wrikery sync` send when they are done, becomes the two messages the engine forwarder sends after a cycle and never reaches the model as a request, and it names the kinds it touched, a write the tasks, comments and time entries, a sync every kind.
+A socket path has room for 104 bytes on macOS, so a long data directory gets a hashed name in a directory of the user's own under /tmp, made 0700 and checked, computed the same way on both sides.
+The first interface keeps the socket, a second one logs that and runs without it, a file a crash left behind is removed before the bind, and the demo listens on a fixed name in the data directory.
 
 ## What gets cached
 

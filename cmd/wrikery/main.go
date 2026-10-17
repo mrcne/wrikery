@@ -174,7 +174,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
-		if l := startControl(demoSocketPath(), controlHandler(p.Send, outboxCounts(st))); l != nil {
+		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
 			defer func() { _ = l.Close() }()
 		}
 		_, err = p.Run()
@@ -222,7 +222,12 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 			return 2
 		}
 		// The demo's cache is a throwaway in the running process's temp dir, so a ui command talks to its socket and resolves nothing.
-		return cli.Run(context.Background(), cli.Env{Socket: demoSocketPath(), Stdout: os.Stdout, Stderr: os.Stderr}, args)
+		paths, _, err := setup(configPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+			return 1
+		}
+		return cli.Run(context.Background(), cli.Env{Socket: demoSocketPath(paths), Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	if showVersion || logout {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")

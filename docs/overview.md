@@ -301,6 +301,6 @@ The `ui` commands act on the interface that is running instead of the cache, thr
 `wrikery ui select T` shows a task the way a pick from the search does, `wrikery ui folder F` opens a space, project or folder the way enter on it in the sidebar does, and `me` is My tasks.
 `wrikery ui list` and `wrikery ui board` set the shape, `wrikery ui open tasks|timesheet|changes|settings` a screen, and `wrikery ui refresh` is `R`.
 A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
-With no interface running the command says so and exits with 1, and a box, the search, the help or the first run screen open in the interface refuse the request the same way.
+With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.
 `wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.

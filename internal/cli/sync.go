@@ -45,7 +45,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	state, cycleErr := eng.Once(ctx, *full)
 	// The pull changed the cache, a running interface shows it now and not at its own next poll.
 	if env.Socket != "" {
-		control.Nudge(env.Socket)
+		control.Nudge(ctx, env.Socket)
 	}
 	shown := string(state)
 	if errors.Is(cycleErr, context.Canceled) {

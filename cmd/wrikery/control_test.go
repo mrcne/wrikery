@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,8 +24,12 @@ func TestSocketPathFallsBackForALongPath(t *testing.T) {
 	}
 	long := config.Paths{DBFile: filepath.Join("/", strings.Repeat("d", 120), "wrike.db")}
 	got := socketPath(long)
-	if len(got) > 100 || !strings.HasSuffix(got, ".sock") || !strings.Contains(got, "wrikery-") {
-		t.Errorf("long = %q, want a short hashed name in the temp dir", got)
+	userDir := filepath.Join("/tmp", fmt.Sprintf("wrikery-%d", os.Getuid()))
+	if len(got) > 100 || !strings.HasSuffix(got, ".sock") || filepath.Dir(got) != userDir {
+		t.Errorf("long = %q, want a short hashed name under the user's own %s", got, userDir)
+	}
+	if info, err := os.Stat(userDir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("user dir = %v, %v, want it made with mode 0700", info, err)
 	}
 	if again := socketPath(long); again != got {
 		t.Errorf("the fallback must be the same every time, %q then %q", got, again)
@@ -33,6 +40,25 @@ func TestSocketPathFallsBackForALongPath(t *testing.T) {
 	}
 }
 
+func TestDemoSocketLivesInTheDataDirectory(t *testing.T) {
+	p := config.Paths{DBFile: "/home/u/.local/share/wrikery/wrike.db"}
+	if got := demoSocketPath(p); got != "/home/u/.local/share/wrikery/wrikery-demo.sock" {
+		t.Errorf("demo = %q, want it beside the real database, in a directory only the user owns", got)
+	}
+}
+
+func TestControlOpsMatchTheInterface(t *testing.T) {
+	pairs := map[string]string{
+		control.OpFilter: ui.OpFilter, control.OpSelect: ui.OpSelect, control.OpFolder: ui.OpFolder,
+		control.OpShape: ui.OpShape, control.OpScreen: ui.OpScreen, control.OpRefresh: ui.OpRefresh,
+	}
+	for wire, model := range pairs {
+		if wire != model {
+			t.Errorf("the socket says %q and the interface %q, a request would be refused as unknown", wire, model)
+		}
+	}
+}
+
 func TestControlHandlerMapsARequestAndItsReply(t *testing.T) {
 	var got ui.ControlMsg
 	send := func(msg tea.Msg) {
@@ -40,12 +66,12 @@ func TestControlHandlerMapsARequestAndItsReply(t *testing.T) {
 		got.Reply <- ui.ControlReply{Text: "showing High | Ada Nowak (me)"}
 	}
 	handle := controlHandler(send, func() (int, int, error) { return 0, 0, nil })
-	reply := handle(control.Request{Op: control.OpFilter, Importance: []string{"High"}, Person: "me", Statuses: []string{"New"}, TaskID: "T1", ParentID: "F1", FolderID: "F2", Shape: "board", Screen: "changes"})
+	reply := handle(control.Request{Op: control.OpFilter, Importance: []string{"High"}, Person: "me", Statuses: []string{"New"}, TaskID: "T1", ParentIDs: []string{"F1", "F3"}, FolderID: "F2", Shape: "board", Screen: "changes"})
 	if !reply.OK || reply.Text != "showing High | Ada Nowak (me)" || reply.Error != "" {
 		t.Errorf("reply = %+v", reply)
 	}
 	if got.Op != "filter" || got.Importance[0] != "High" || got.Person != "me" || got.Statuses[0] != "New" ||
-		got.TaskID != "T1" || got.ParentID != "F1" || got.FolderID != "F2" || got.Shape != "board" || got.Screen != "changes" || got.Deadline.IsZero() {
+		got.TaskID != "T1" || strings.Join(got.ParentIDs, ",") != "F1,F3" || got.FolderID != "F2" || got.Shape != "board" || got.Screen != "changes" || got.Deadline.IsZero() {
 		t.Errorf("message = %+v, want every field carried over and a deadline set", got)
 	}
 	refusing := controlHandler(func(msg tea.Msg) {
@@ -57,20 +83,60 @@ func TestControlHandlerMapsARequestAndItsReply(t *testing.T) {
 }
 
 func TestControlHandlerReloadSendsTheEngineMessages(t *testing.T) {
-	var sent []tea.Msg
-	handle := controlHandler(func(msg tea.Msg) { sent = append(sent, msg) }, func() (int, int, error) { return 2, 1, nil })
+	sent := make(chan tea.Msg, 4)
+	handle := controlHandler(func(msg tea.Msg) { sent <- msg }, func() (int, int, error) { return 2, 1, nil })
+	if reply := handle(control.Request{Op: control.OpReload, Entities: []string{"tasks", "comments"}}); !reply.OK {
+		t.Errorf("reply = %+v", reply)
+	}
+	first, second := <-sent, <-sent
+	if store, ok := first.(ui.StoreChangedMsg); !ok || strings.Join(store.Entities, ",") != "tasks,comments" {
+		t.Errorf("first = %+v, want the kinds the request named", first)
+	}
+	if outbox, ok := second.(ui.OutboxChangedMsg); !ok || outbox.Pending != 2 || outbox.Failed != 1 {
+		t.Errorf("second = %+v, want the counts", second)
+	}
 	if reply := handle(control.Request{Op: control.OpReload}); !reply.OK {
 		t.Errorf("reply = %+v", reply)
 	}
-	if len(sent) != 2 {
-		t.Fatalf("sent %d messages, want the store and the outbox ones", len(sent))
+	if store, ok := (<-sent).(ui.StoreChangedMsg); !ok || len(store.Entities) != 8 {
+		t.Errorf("a reload without kinds = %+v, want every kind", store)
 	}
-	store, ok := sent[0].(ui.StoreChangedMsg)
-	if !ok || !strings.Contains(strings.Join(store.Entities, ","), "tasks") || !strings.Contains(strings.Join(store.Entities, ","), "comments") {
-		t.Errorf("first = %+v, want every entity kind", sent[0])
+	<-sent
+}
+
+func TestControlHandlerReloadDoesNotWaitForTheProgram(t *testing.T) {
+	// An editor holds the program, so Program.Send blocks: the nudge of a write command must still get its answer at once.
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	handle := controlHandler(func(tea.Msg) { <-block }, func() (int, int, error) { return 0, 0, nil })
+	start := time.Now()
+	if reply := handle(control.Request{Op: control.OpReload}); !reply.OK {
+		t.Errorf("reply = %+v", reply)
 	}
-	if outbox, ok := sent[1].(ui.OutboxChangedMsg); !ok || outbox.Pending != 2 || outbox.Failed != 1 {
-		t.Errorf("second = %+v, want the counts", sent[1])
+	if time.Since(start) > time.Second {
+		t.Errorf("the reload waited %v on the held program", time.Since(start))
+	}
+}
+
+func TestBusyReachesTheCommandThroughTheSocket(t *testing.T) {
+	was := controlWait
+	controlWait = 30 * time.Millisecond
+	t.Cleanup(func() { controlWait = was })
+	dir, err := os.MkdirTemp("", "wk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	l, err := control.Listen(filepath.Join(dir, "ui.sock"), controlHandler(func(tea.Msg) { <-block }, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	reply, err := control.Call(context.Background(), filepath.Join(dir, "ui.sock"), control.Request{Op: control.OpRefresh})
+	if err != nil || reply.OK || reply.Error != "the interface is busy" {
+		t.Errorf("reply = %+v, err = %v, want the busy answer and not a socket timeout", reply, err)
 	}
 }
 
