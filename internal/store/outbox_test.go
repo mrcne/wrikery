@@ -644,3 +644,34 @@ func TestEnqueueTaskUpdateMirrorsOnlyWhatReallyChanges(t *testing.T) {
 		t.Errorf("before = %+v, want only U3 and F3 to remove and only U2 and F2 to add back", b)
 	}
 }
+
+func TestEnqueueTaskCreateCarriesTheDescriptionAndTheImportance(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Workflows().ReplaceAll(ctx, []Workflow{{ID: "W1", Name: "Default", Standard: true,
+		CustomStatuses: []CustomStatus{{ID: "CS1", Name: "New", Group: "Active"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "Described", Description: "<p>Why <b>now</b></p>", Importance: "High"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().Get(ctx, LocalID(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != "<p>Why <b>now</b></p>" || got.DescriptionPlain != "Why now" || got.Importance != "High" {
+		t.Errorf("local task = %q %q %q, want the description, its plain text and the importance", got.Description, got.DescriptionPlain, got.Importance)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p TaskCreatePayload
+	if err := json.Unmarshal(row.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Description != "<p>Why <b>now</b></p>" || p.Importance != "High" {
+		t.Errorf("payload = %+v, want both fields for the drain", p)
+	}
+}

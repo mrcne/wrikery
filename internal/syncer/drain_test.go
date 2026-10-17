@@ -464,3 +464,22 @@ func TestDrainKeepsTheOrderOnATaskAcrossPasses(t *testing.T) {
 		t.Errorf("pending = %d, %v, want X and Y still queued in order", pending, err)
 	}
 }
+
+func TestDrainSendsTheDescriptionAndTheImportanceOfACreate(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if _, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "Described", Description: "<p>Why</p>", Importance: "High"}); err != nil {
+		t.Fatal(err)
+	}
+	var got wrike.TaskCreate
+	fc := &fakeClient{createTask: func(folderID string, tc wrike.TaskCreate) (wrike.Task, error) {
+		got = tc
+		return wrike.Task{ID: "TNEW", Title: tc.Title, Status: "Active", Importance: tc.Importance, Description: tc.Description, ParentIDs: []string{folderID}}, nil
+	}}
+	if _, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != "<p>Why</p>" || got.Importance != "High" {
+		t.Errorf("create sent = %+v, want the description and the importance", got)
+	}
+}

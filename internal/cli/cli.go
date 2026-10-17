@@ -38,6 +38,7 @@ type Env struct {
 	Theme    ui.Theme
 	Width    int           // columns of the terminal stdout is, 0 in a pipe
 	Deadline time.Duration // how long a write waits for the lock and to start, a create already sent waits for Wrike's answer, up to a minute and a half when Wrike rate limits
+	Stdin    io.Reader     // a description given as - is read from here
 	Stdout   io.Writer
 	Stderr   io.Writer
 }

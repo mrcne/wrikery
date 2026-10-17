@@ -46,6 +46,7 @@ func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 		Theme:    ui.NewTheme(cfg.UI),
 		Token:    func() (string, error) { return "", nil },
 		Deadline: 300 * time.Millisecond,
+		Stdin:    strings.NewReader(""),
 		Stdout:   &out,
 		Stderr:   &errOut,
 	}

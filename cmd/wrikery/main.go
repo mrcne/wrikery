@@ -281,6 +281,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Theme:    ui.NewTheme(cfg.UI),
 		Width:    width,
 		Deadline: 15 * time.Second,
+		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
 		Stderr:   os.Stderr,
 	}, args)

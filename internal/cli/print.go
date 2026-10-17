@@ -50,14 +50,16 @@ type datesJSON struct {
 
 type taskDetailJSON struct {
 	taskJSON
-	DescriptionText string           `json:"description_text"`
-	DescriptionHTML string           `json:"description_html"`
-	AttachmentCount int              `json:"attachment_count"`
-	SuperTasks      []relatedJSON    `json:"super_tasks"`
-	Subtasks        []subtaskJSON    `json:"subtasks"`
-	Predecessors    []dependencyJSON `json:"predecessors"`
-	Successors      []dependencyJSON `json:"successors"`
-	Comments        []commentJSON    `json:"comments"`
+	DescriptionText string `json:"description_text"`
+	DescriptionHTML string `json:"description_html"`
+	// DescriptionMarkdown is the text the interface's editor opens on, the start of an edit from a script.
+	DescriptionMarkdown string           `json:"description_markdown"`
+	AttachmentCount     int              `json:"attachment_count"`
+	SuperTasks          []relatedJSON    `json:"super_tasks"`
+	Subtasks            []subtaskJSON    `json:"subtasks"`
+	Predecessors        []dependencyJSON `json:"predecessors"`
+	Successors          []dependencyJSON `json:"successors"`
+	Comments            []commentJSON    `json:"comments"`
 }
 
 // relatedJSON names a task the cache may not hold, the title is empty then and the id is all there is.

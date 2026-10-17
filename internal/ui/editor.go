@@ -94,7 +94,7 @@ func (m *Model) finishDescriptionEdit(taskID string, edit *descriptionEdit, text
 	if strings.TrimSpace(text) == "" {
 		return m.status.show("empty file, description unchanged", false)
 	}
-	html, changed := mergeDescription(edit.html, text)
+	html, changed := MergeDescription(edit.html, text)
 	if !changed {
 		return m.status.show("description unchanged", false)
 	}
