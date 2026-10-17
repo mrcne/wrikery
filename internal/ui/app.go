@@ -165,6 +165,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onSyncState(msg.State)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
+	case ControlMsg:
+		return m.control(msg)
 	case OutboxChangedMsg:
 		m.status.pending, m.status.failed = msg.Pending, msg.Failed
 		if m.screen == screenChanges {
@@ -882,16 +884,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Refresh):
 			return m.refresh()
 		case key.Matches(msg, m.keys.Changes) && m.screen != screenChanges:
-			closing := m.closeTimesheetDetail()
-			m.screen = screenChanges
-			return m, tea.Batch(closing, m.loadChanges())
+			cmd := m.openScreen(screenChanges)
+			return m, cmd
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
-			m.screen = screenTimesheet
-			return m, m.loadWeek(time.Time{})
+			cmd := m.openScreen(screenTimesheet)
+			return m, cmd
 		case key.Matches(msg, m.keys.Settings) && m.screen != screenSettings:
-			closing := m.closeTimesheetDetail()
-			m.screen = screenSettings
-			return m, tea.Batch(closing, m.loadScopes(), m.loadHost())
+			cmd := m.openScreen(screenSettings)
+			return m, cmd
 		case key.Matches(msg, m.keys.Back):
 			if m.paneBesideGrid() {
 				// One level at a time: the pane beside the grid goes first, the next esc leaves the timesheet.
@@ -927,14 +927,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Refresh):
 		return m.refresh()
 	case key.Matches(msg, m.keys.Changes):
-		m.screen = screenChanges
-		return m, m.loadChanges()
+		cmd := m.openScreen(screenChanges)
+		return m, cmd
 	case key.Matches(msg, m.keys.Settings):
-		m.screen = screenSettings
-		return m, tea.Batch(m.loadScopes(), m.loadHost())
+		cmd := m.openScreen(screenSettings)
+		return m, cmd
 	case key.Matches(msg, m.keys.Timesheet):
-		m.screen = screenTimesheet
-		return m, m.loadWeek(time.Time{})
+		cmd := m.openScreen(screenTimesheet)
+		return m, cmd
 	case key.Matches(msg, m.keys.NextPane):
 		m.focus = m.cyclePane(1)
 	case key.Matches(msg, m.keys.PrevPane):
@@ -1178,7 +1178,10 @@ func (m *Model) setNarrow(f rowFilter) tea.Cmd {
 	if m.shape == shapeBoard {
 		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
-	m.clearIfListEmpty()
+	// Beside the timesheet grid the selected task is the pane's, not the list's, a filter from a command must not blank it.
+	if !m.paneBesideGrid() {
+		m.clearIfListEmpty()
+	}
 	m.syncPaneSizes()
 	_, cmd := m.list.afterMove(before, nil)
 	return cmd

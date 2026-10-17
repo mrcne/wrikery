@@ -24,6 +24,9 @@ const (
 	KindDependencies EntityKind = "dependencies"
 )
 
+// AllEntities is every kind, what a full reload names. A new kind goes here next to its constant.
+var AllEntities = []EntityKind{KindTasks, KindFolders, KindSpaces, KindContacts, KindWorkflows, KindComments, KindTimelogs, KindDependencies}
+
 type EventKind string
 
 const (

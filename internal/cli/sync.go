@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mrcne/wrikery/internal/control"
 	"github.com/mrcne/wrikery/internal/syncer"
 )
 
@@ -42,6 +43,10 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	eng := syncer.New(env.Client(token, host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
 	state, cycleErr := eng.Once(ctx, *full)
+	// The pull changed the cache, a running interface shows it now and not at its own next poll.
+	if env.Socket != "" {
+		control.Nudge(ctx, env.Socket)
+	}
 	shown := string(state)
 	if errors.Is(cycleErr, context.Canceled) {
 		// The engine calls a cancelled cycle offline, which is wrong for a run the user stopped.
