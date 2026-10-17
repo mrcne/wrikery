@@ -232,15 +232,6 @@ func (m Model) loadTree() tea.Cmd {
 
 func isDone(t store.Task) bool { return t.Status == "Completed" || t.Status == "Cancelled" }
 
-// firstParent is the folder a jump to the task lands in.
-// The store sorts ParentIDs, so this is the lowest folder id and not an order Wrike has, any of them will do to show the task.
-func firstParent(t store.Task) string {
-	if len(t.ParentIDs) == 0 {
-		return ""
-	}
-	return t.ParentIDs[0]
-}
-
 // loadTasks reads a node's rows. selectID names the row the list should land on, when there is one:
 // the create just queued, the target of a jump, or the task on screen while its create may land any moment.
 // It travels with the load, so an older load that is still in flight cannot use it up.
@@ -377,8 +368,12 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 		}
 		crumbs := map[string]string{}
 		for _, t := range tasks {
-			if f, err := st.Folders().Get(ctx, firstParent(t)); err == nil {
-				crumbs[t.ID] = f.Title
+			// The first of the task's folders the cache holds, the first one of all may be outside the followed scopes.
+			for _, id := range t.ParentIDs {
+				if f, err := st.Folders().Get(ctx, id); err == nil {
+					crumbs[t.ID] = f.Title
+					break
+				}
 			}
 		}
 		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
@@ -473,8 +468,8 @@ func (m Model) loadChanges() tea.Cmd {
 			return errMsg{err}
 		}
 		type known struct {
-			title, parent string
-			ok            bool
+			task store.Task
+			ok   bool
 		}
 		tasks := map[string]known{}
 		var rows []changeRow
@@ -486,12 +481,12 @@ func (m Model) loadChanges() tea.Cmd {
 				k, seen := tasks[r.TaskID]
 				if !seen {
 					if t, err := st.Tasks().Get(ctx, r.TaskID); err == nil {
-						k = known{title: t.Title, parent: firstParent(t), ok: true}
+						k = known{task: t, ok: true}
 					}
 					tasks[r.TaskID] = k
 				}
 				if k.ok {
-					cr.taskID, cr.title, cr.parentID = r.TaskID, k.title, k.parent
+					cr.task, cr.title = k.task, k.task.Title
 				} else if cr.title == "" {
 					cr.title = "(task " + r.TaskID + ")"
 				}

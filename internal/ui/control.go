@@ -62,15 +62,7 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		next, _ := m.answer(msg, text, nil)
 		return next, cmd
 	case OpSelect:
-		// The first folder of the task the sidebar has, a task in two folders may have only its second one followed.
-		parent := ""
-		for _, id := range msg.ParentIDs {
-			if m.sidebar.indexOf(id) >= 0 {
-				parent = id
-				break
-			}
-		}
-		next, cmd := m.jumpToTask(msg.TaskID, parent)
+		next, cmd := m.jumpToTask(msg.TaskID, msg.ParentIDs, m.mine(msg.ResponsibleIDs))
 		msg.send("selected", nil)
 		return next, cmd
 	case OpFolder:

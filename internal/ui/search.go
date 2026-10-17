@@ -84,7 +84,7 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 					return s, intent(searchPickMsg{task: s.results[s.cursor]})
 				}
 				t := s.results[s.cursor]
-				return s, intent(openTaskMsg{id: t.ID, parentID: firstParent(t)})
+				return s, intent(openTaskMsg{task: t})
 			}
 			return s, nil
 		}

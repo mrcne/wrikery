@@ -268,7 +268,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = paneList
 		}
 		m.syncPaneSizes()
-		return m, m.openedOnFocus(prev)
+		return m, m.afterFocus(prev)
 	case nodeSelectedMsg:
 		m.selectedNode = msg.node
 		return m, m.loadTasks(msg.node, m.sidebar.crumb(msg.node), "", false)
@@ -278,6 +278,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.nodeID != m.selectedNode.id {
 			return m, nil
 		}
+		// The pane follows the row under the cursor when the list moves to another node, when the load names a row
+		// to land on (a create), and when the selected task was among the rows before, so a task that left the folder
+		// or got its real id after a swap is not shown on.
+		// A task the rows did not hold is one a jump brought in from outside the folder on screen, and the reloads
+		// after a sync or an outbox change leave it in the pane, only a move to the list or the board replaces it (afterFocus).
+		follow := m.selectedTaskID == "" || msg.nodeID != m.list.nodeID || msg.lift || m.list.has(m.selectedTaskID)
 		if m.list.nodeID != msg.nodeID && msg.selectID == "" {
 			m.list.cursor = 0
 		}
@@ -291,7 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
 		// The list reloads behind the timesheet after every drain and every sync, its row must not replace the pane's task.
-		if m.paneBesideGrid() {
+		if m.paneBesideGrid() || !follow {
 			return m, nil
 		}
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
@@ -424,7 +430,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.search, cmd = m.search.Update(msg)
 		return m, cmd
 	case openTaskMsg:
-		return m.jumpToTask(msg.id, msg.parentID)
+		return m.jumpToTask(msg.task.ID, msg.task.ParentIDs, m.mine(msg.task.ResponsibleIDs))
 	case openBesideMsg:
 		// The intent travels through the queue, a key typed right after enter can have left the timesheet already.
 		if m.screen != screenTimesheet {
@@ -737,35 +743,65 @@ func (m *Model) flushPins() tea.Cmd {
 	return nil
 }
 
-// openedOnFocus marks the selected task opened when focus has just arrived at the detail pane, and does nothing otherwise.
-func (m Model) openedOnFocus(prev pane) tea.Cmd {
-	if m.focus != paneDetail || prev == paneDetail || m.selectedTaskID == "" {
+// afterFocus is the tail of a focus change, prev is the pane the keys came from.
+// Arriving at the detail pane marks the task opened.
+// Arriving at the list or the board puts the row under the cursor in the pane, the action keys read that row there:
+// a task a jump brought in from outside the rows gives way to it, or to nothing when the list is empty.
+func (m *Model) afterFocus(prev pane) tea.Cmd {
+	if m.focus == prev {
 		return nil
 	}
-	return m.markOpened(m.selectedTaskID)
+	switch m.focus {
+	case paneDetail:
+		if m.selectedTaskID != "" {
+			return m.markOpened(m.selectedTaskID)
+		}
+	case paneList, paneBoard:
+		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
+			return intent(taskSelectedMsg{id: cur.task.ID})
+		}
+		m.clearIfListEmpty()
+	}
+	return nil
 }
 
 // jumpToTask leaves the search overlay, the changes screen or the timesheet and shows the task on the main screen.
 // selectedTaskID is set here rather than waiting for the sidebar/list round trip:
-// taskLoadedMsg drops an answer for a task nobody is on yet, and openedOnFocus below has to mark the right task.
-// A task whose folder is outside the tree reaches the detail pane too, but only until the next list reload,
-// which selects the cursor row of the folder left behind.
-func (m Model) jumpToTask(id, parentID string) (tea.Model, tea.Cmd) {
+// taskLoadedMsg drops an answer for a task nobody is on yet, and afterFocus below has to mark the right task.
+// The list lands in the first of the task's folders the sidebar has, else in My tasks when the task is the user's own,
+// the one node that lists a task from outside the followed scopes.
+// A task in neither stays in the pane over the folder left behind, the reload rule in tasksLoadedMsg keeps it there.
+func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
 	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
 	m.search.blur()
 	// A pick from the search overlay leaves the timesheet too, the grid has no pane beside it when T comes back.
 	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
 	var cmds []tea.Cmd
-	if parentID != "" && m.sidebar.reveal(parentID) {
+	if m.landOn(parents, mine) {
 		n, _ := m.sidebar.current()
 		// selectedNode has to follow the jump, or a later reload keyed off it (an outbox write, a store change)
 		// reloads the node the jump left behind instead of the one now on screen.
 		m.selectedNode = n
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id, true), m.flushPins())
 	}
-	cmds = append(cmds, m.loadTask(id), m.openedOnFocus(prevFocus))
+	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus))
 	return m, tea.Batch(cmds...)
+}
+
+// landOn puts the sidebar on a node that lists the task, and tells whether there is one.
+func (m *Model) landOn(parents []string, mine bool) bool {
+	for _, id := range parents {
+		if m.sidebar.reveal(id) {
+			return true
+		}
+	}
+	return mine && m.sidebar.reveal(store.ScopeKindMe)
+}
+
+// mine tells whether the user is among the people on a task, given as the task carries them.
+func (m Model) mine(responsible []string) bool {
+	return m.ref.meID != "" && slices.Contains(responsible, m.ref.meID)
 }
 
 // reloadTask re-reads the task the detail pane is showing.
@@ -795,7 +831,8 @@ func (m Model) timesheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if !m.detail.loaded {
 				return m, nil
 			}
-			return m.jumpToTask(m.detail.task.ID, firstParent(m.detail.task))
+			t := m.detail.task
+			return m.jumpToTask(t.ID, t.ParentIDs, m.mine(t.ResponsibleIDs))
 		}
 		if cmd, ok := m.taskAction(msg); ok {
 			return m, cmd
@@ -1047,7 +1084,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.openDialog(d)
 		return m, cmd
 	}
-	opened := m.openedOnFocus(prevFocus)
+	opened := m.afterFocus(prevFocus)
 	// The sizes are computed after the child handled the key, not before,
 	// the scroll clamp in syncPaneSizes wants the rows as the key left them.
 	switch m.focus {

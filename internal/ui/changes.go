@@ -15,12 +15,11 @@ import (
 )
 
 type changeRow struct {
-	row      store.OutboxRow
-	taskID   string
-	parentID string // the task's first parent folder, empty if the task has none or is gone
-	title    string
-	summary  string // the field with its old and new value, one line
-	detail   string // the cursor's second line, the values in full, the error takes its place on a row the engine still retries
+	row     store.OutboxRow
+	task    store.Task // the task as the cache has it, zero when the cache does not hold it
+	title   string
+	summary string // the field with its old and new value, one line
+	detail  string // the cursor's second line, the values in full, the error takes its place on a row the engine still retries
 }
 
 type changesModel struct {
@@ -284,11 +283,11 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 	case key.Matches(msg, s.keys.Enter):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if r.taskID == "" {
+			if r.task.ID == "" {
 				// A discarded new task, or a task the pull sweep removed since, has no detail to open.
 				return s, intent(toastMsg{text: "the task is not in the cache"})
 			}
-			return s, intent(openTaskMsg{id: r.taskID, parentID: r.parentID})
+			return s, intent(openTaskMsg{task: r.task})
 		}
 	}
 	return s, nil

@@ -88,7 +88,7 @@ func controlHandler(send func(tea.Msg), counts func() (pending, failed int, err 
 		reply := make(chan ui.ControlReply, 1)
 		go send(ui.ControlMsg{
 			Op: req.Op, Importance: req.Importance, Person: req.Person, Statuses: req.Statuses,
-			TaskID: req.TaskID, ParentIDs: req.ParentIDs, FolderID: req.FolderID, Shape: req.Shape, Screen: req.Screen,
+			TaskID: req.TaskID, ParentIDs: req.ParentIDs, ResponsibleIDs: req.ResponsibleIDs, FolderID: req.FolderID, Shape: req.Shape, Screen: req.Screen,
 			Deadline: time.Now().Add(controlWait), Reply: reply,
 		})
 		select {

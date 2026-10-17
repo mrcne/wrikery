@@ -92,9 +92,9 @@ type searchResultsMsg struct {
 	tasks  []store.Task
 	crumbs map[string]string
 }
-type openTaskMsg struct{ id, parentID string } // intent: leave the search overlay or the changes screen for this task
-type openBesideMsg struct{ id string }         // intent: show the task in the detail pane beside the timesheet grid
-type searchPickMsg struct{ task store.Task }   // intent: pick mode, hand the task back to whoever asked for it
+type openTaskMsg struct{ task store.Task }   // intent: leave the search overlay or the changes screen for this task
+type openBesideMsg struct{ id string }       // intent: show the task in the detail pane beside the timesheet grid
+type searchPickMsg struct{ task store.Task } // intent: pick mode, hand the task back to whoever asked for it
 type runSearchMsg struct {
 	seq   int
 	query string
@@ -145,17 +145,18 @@ func intent(msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
 // Deadline is when the sender stopped waiting: a message held up behind an external editor is dropped past it,
 // the command was told the interface is busy and a filter that lands minutes later would surprise. Zero means no deadline.
 type ControlMsg struct {
-	Op         string
-	Importance []string
-	Person     string
-	Statuses   []string
-	TaskID     string
-	ParentIDs  []string // the folders of the task to select, the first one the sidebar has is opened
-	FolderID   string
-	Shape      string
-	Screen     string
-	Deadline   time.Time
-	Reply      chan<- ControlReply
+	Op             string
+	Importance     []string
+	Person         string
+	Statuses       []string
+	TaskID         string
+	ParentIDs      []string // the folders of the task to select, the first one the sidebar has is opened
+	ResponsibleIDs []string // the people on that task, the user's own task lands in My tasks when no folder is in the sidebar
+	FolderID       string
+	Shape          string
+	Screen         string
+	Deadline       time.Time
+	Reply          chan<- ControlReply
 }
 
 // ControlReply is the interface's answer: a line for the person, or the reason it did nothing.

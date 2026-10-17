@@ -28,19 +28,21 @@ const (
 )
 
 // Request is one operation with the fields it uses, the rest stay empty.
-// ParentIDs are the folders of a task to select, the interface opens the first one its sidebar has.
+// ParentIDs are the folders of a task to select, the interface opens the first one its sidebar has,
+// and ResponsibleIDs the people on it, the user's own task lands in My tasks when no folder is there.
 // Entities are the kinds a reload names, every kind when empty.
 type Request struct {
-	Op         string   `json:"op"`
-	Importance []string `json:"importance,omitempty"`
-	Person     string   `json:"person,omitempty"`
-	Statuses   []string `json:"statuses,omitempty"`
-	TaskID     string   `json:"task_id,omitempty"`
-	ParentIDs  []string `json:"parent_ids,omitempty"`
-	FolderID   string   `json:"folder_id,omitempty"`
-	Shape      string   `json:"shape,omitempty"`
-	Screen     string   `json:"screen,omitempty"`
-	Entities   []string `json:"entities,omitempty"`
+	Op             string   `json:"op"`
+	Importance     []string `json:"importance,omitempty"`
+	Person         string   `json:"person,omitempty"`
+	Statuses       []string `json:"statuses,omitempty"`
+	TaskID         string   `json:"task_id,omitempty"`
+	ParentIDs      []string `json:"parent_ids,omitempty"`
+	ResponsibleIDs []string `json:"responsible_ids,omitempty"`
+	FolderID       string   `json:"folder_id,omitempty"`
+	Shape          string   `json:"shape,omitempty"`
+	Screen         string   `json:"screen,omitempty"`
+	Entities       []string `json:"entities,omitempty"`
 }
 
 // Reply is what the interface says back: a line for the person on success, the reason on a refusal.

@@ -60,6 +60,7 @@ In the sidebar `/` filters the tree by name and shows the matches with the folde
 Space in the sidebar pins the space, project or folder under the cursor, and `P` shows only the pinned ones, with their parents and whatever is open under them.
 The pins and the toggle are kept across restarts.
 A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
+When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
 A jump to a completed task, from the search, the changes screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.

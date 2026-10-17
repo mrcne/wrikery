@@ -181,6 +181,18 @@ func TestControlSelectPicksAParentTheSidebarHas(t *testing.T) {
 	}
 }
 
+// The user's own task with no folder in the sidebar lands in My tasks, the way a pick from the search does.
+func TestControlSelectLandsAnOwnTaskInMyTasks(t *testing.T) {
+	m := controlRoot(t)
+	m, r := control(t, m, ControlMsg{Op: "select", TaskID: "T7", ParentIDs: []string{"NOPE"}, ResponsibleIDs: []string{"U1"}})
+	if r.Err != nil {
+		t.Fatalf("reply = %+v", r)
+	}
+	if n, _ := m.sidebar.current(); n.kind != nodeMe || m.selectedNode.kind != nodeMe {
+		t.Errorf("sidebar on %q, node %q, want My tasks", n.id, m.selectedNode.id)
+	}
+}
+
 func TestControlFilterKeepsThePaneBesideTheGrid(t *testing.T) {
 	m := controlRoot(t)
 	m.screen, m.timesheet.detailOpen, m.selectedTaskID = screenTimesheet, true, "T9"
