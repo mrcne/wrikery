@@ -6,8 +6,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/mrcne/wrikery/internal/lockfile"
 	"github.com/mrcne/wrikery/internal/store"
 )
+
+// ErrLocked is returned when another wrikery process held the sync lock until the deadline of the wait.
+var ErrLocked = lockfile.ErrLocked
 
 type Config struct {
 	PollInterval   time.Duration // pull cadence, default 60s
@@ -255,7 +259,7 @@ func (e *Engine) ensureMeScope(ctx context.Context) error {
 // drain runs one outbox pass under the sync lock, the pulls that follow in a cycle run without it.
 // start bounds the wait for the lock and whether another row is started, post is the context of a send that may have reached Wrike.
 func (e *Engine) drain(start, post context.Context) (bool, error) {
-	lock, err := acquire(start, e.cfg.LockFile)
+	lock, err := lockfile.Acquire(start, e.cfg.LockFile)
 	if err != nil {
 		if errors.Is(err, ErrLocked) || start.Err() != nil {
 			return false, err
@@ -266,9 +270,9 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 			e.lockWarned = true
 			e.log.Warn("sync lock unavailable, continuing without it", "error", err, "path", e.cfg.LockFile)
 		}
-		lock = &syncLock{}
+		lock = &lockfile.Lock{}
 	}
-	defer lock.release()
+	defer lock.Release()
 	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.
 	// Sending it again is the crash ambiguity the drain already accepts.
 	if _, err := e.st.Outbox().ResetInflight(start); err != nil {

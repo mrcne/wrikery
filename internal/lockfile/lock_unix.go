@@ -1,6 +1,7 @@
 //go:build unix
 
-package syncer
+// Package lockfile is the advisory file lock wrikery processes share, a running interface and a command.
+package lockfile
 
 import (
 	"context"
@@ -10,23 +11,23 @@ import (
 	"time"
 )
 
-// ErrLocked is returned when another wrikery process held the sync lock until the deadline of the wait.
-var ErrLocked = errors.New("sync: another wrikery is sending")
+// ErrLocked is returned when another wrikery process held the lock until the deadline of the wait.
+var ErrLocked = errors.New("lockfile: another wrikery process holds the lock")
 
-// syncLock is the advisory lock on the file next to the database.
-// It serializes the outbox drain and the in-flight reset across processes, a running TUI and a command.
+// Lock is an advisory lock on a file.
+// The sync engine holds it on the file next to the database to serialize the outbox drain and the in-flight reset across processes.
 // The row claim in the store is atomic on its own, the lock is there for two things it cannot cover:
 // a startup reset while another process is mid-send, which would send that row twice,
 // and two drainers sending two rows on the same task out of order.
 // flock is released by the kernel when the holder dies, so a crash cannot leave it taken.
-type syncLock struct{ f *os.File }
+type Lock struct{ f *os.File }
 
-// acquire tries the lock every 100ms until it has it or ctx ends.
+// Acquire tries the lock every 100ms until it has it or ctx ends.
 // A deadline gives ErrLocked, a cancellation gives the context error so a quit is not reported as a held lock.
 // An empty path means no lock, which demo mode and most tests use.
-func acquire(ctx context.Context, path string) (*syncLock, error) {
+func Acquire(ctx context.Context, path string) (*Lock, error) {
 	if path == "" {
-		return &syncLock{}, nil
+		return &Lock{}, nil
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -35,7 +36,7 @@ func acquire(ctx context.Context, path string) (*syncLock, error) {
 	for {
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			return &syncLock{f: f}, nil
+			return &Lock{f: f}, nil
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) {
 			_ = f.Close()
@@ -53,7 +54,8 @@ func acquire(ctx context.Context, path string) (*syncLock, error) {
 	}
 }
 
-func (l *syncLock) release() {
+// Release gives the lock up, a zero Lock releases nothing.
+func (l *Lock) Release() {
 	if l.f == nil {
 		return
 	}
