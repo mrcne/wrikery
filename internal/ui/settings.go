@@ -15,6 +15,7 @@ import (
 
 type openScopesMsg struct{}    // intent: open the box that picks the followed spaces and projects
 type toggleSidebarMsg struct{} // intent: hide the sidebar pane or show it again, what ctrl+b does
+type toggleMoveAskMsg struct{} // intent: ask again before H and L move a task, or stop asking
 
 type settingRow struct {
 	group, label, value string
@@ -32,6 +33,7 @@ type settingsModel struct {
 	keys          KeyMap
 	scopes        []store.Scope
 	sidebarHidden bool
+	moveConfirmed bool   // the saved yes to the question before the first H or L
 	signedIn      string // SignedInWithToken or SignedInWithBrowser, empty in the demo and before the first sign in
 	signedInApp   string // the client id of a browser session, from the session itself, the config may have lost its table since
 	cursor        int
@@ -44,6 +46,8 @@ func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsMod
 func (s *settingsModel) setScopes(scopes []store.Scope) { s.scopes = scopes }
 
 func (s *settingsModel) setSidebarHidden(hidden bool) { s.sidebarHidden = hidden }
+
+func (s *settingsModel) setMoveConfirmed(confirmed bool) { s.moveConfirmed = confirmed }
 
 func (s *settingsModel) setSignedIn(with, app string) { s.signedIn, s.signedInApp = with, app }
 
@@ -71,6 +75,10 @@ func (s settingsModel) rows() []settingRow {
 	if s.sidebarHidden {
 		sidebar = "hidden"
 	}
+	ask := "yes"
+	if s.moveConfirmed {
+		ask = "no"
+	}
 	var rows []settingRow
 	if s.signedIn != "" {
 		with := "a permanent token"
@@ -86,6 +94,7 @@ func (s settingsModel) rows() []settingRow {
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
 		{group: "Sync", label: "Wrike host", value: host, key: "host"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},
+		{group: "Interface", label: "Ask before H and L", value: ask, msg: toggleMoveAskMsg{}},
 		{group: "Interface", label: "Theme", value: theme, key: "ui.theme"},
 		{group: "Interface", label: "Accent", value: orText(ui.Accent, "default"), key: "ui.accent"},
 		{group: "Interface", label: "ASCII glyphs", value: fmt.Sprint(ui.ASCII), key: "ui.ascii"},

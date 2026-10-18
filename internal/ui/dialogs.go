@@ -75,22 +75,35 @@ func (d commentDialog) View(th Theme, width, height int) string {
 	return th.box("Comment on "+d.title, body, width, lipgloss.Height(body)+2, true)
 }
 
+// confirmDialog asks before a write that is hard to take back.
+// y is the only yes, as the hint says: enter is what a newcomer presses next after a key they did not mean.
+// Once answered the box ignores further keys, a second y before the close lands would queue the write twice.
 type confirmDialog struct {
-	prompt string
-	onYes  tea.Msg
+	prompt   string
+	onYes    tea.Msg
+	answered bool
 }
 
 func (d confirmDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+	if d.answered {
+		return d, nil
+	}
 	switch msg.String() {
-	case "y", "enter":
+	case "y":
+		d.answered = true
 		return d, tea.Batch(intent(d.onYes), intent(closeDialogMsg{}))
 	case "n":
+		d.answered = true
 		return d, intent(closeDialogMsg{})
 	}
 	return d, nil
 }
 
 func (d confirmDialog) View(th Theme, width, height int) string {
-	body := d.prompt + "\n\n" + lipgloss.NewStyle().Foreground(th.Muted).Render("y confirm   n or esc cancel")
-	return th.box("Confirm", body, min(width, 60), lipgloss.Height(body)+2, true)
+	w := min(width, 60)
+	// The box cuts a line at its inner width, so the prompt is wrapped to it first:
+	// a long status name or a narrow terminal must not lose the end of a sentence.
+	prompt := lipgloss.NewStyle().Width(w - 2).Render(d.prompt)
+	body := prompt + "\n\n" + lipgloss.NewStyle().Foreground(th.Muted).Render("y confirm   n or esc cancel")
+	return th.box("Confirm", body, w, lipgloss.Height(body)+2, true)
 }

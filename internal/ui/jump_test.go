@@ -10,17 +10,19 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// pump feeds the messages through Update and runs every command they produce until nothing is left,
-// the way the program loop does, so a test reads the model after the whole round trip.
+// pump feeds the messages through Update and runs every command they produce, the way the program loop does,
+// up to a queued write or a toast, so a test reads the model after the round trip.
+// Those two end it because the toast they show ticks for three seconds before it clears.
+// The reload a write starts (the list, the changes screen or the week) is dropped with the tick,
+// it is what the engine's OutboxChangedMsg does again, and a test sends that one itself.
 func pump(m Model, msgs ...tea.Msg) Model {
 	for len(msgs) > 0 {
 		var msg tea.Msg
 		msg, msgs = msgs[0], msgs[1:]
 		next, cmd := m.Update(msg)
 		m = next.(Model)
-		// A queued write ends the round trip: its toast ticks for three seconds,
-		// and the reload it starts is what the engine's OutboxChangedMsg does again, a test sends that one itself.
-		if _, ok := msg.(writeQueuedMsg); ok {
+		switch msg.(type) {
+		case writeQueuedMsg, toastMsg:
 			continue
 		}
 		msgs = append(msgs, collect(cmd)...)

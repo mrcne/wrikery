@@ -154,6 +154,7 @@ By assignee puts you first and unassigned tasks last, a task with several people
 Each group starts with a line that carries its name and count, `{` and `}` jump between groups.
 `H` and `L` move the selected task to the previous or next status of its workflow without opening the status box.
 The first press asks you to confirm the move, with the task and both statuses named, and once you say yes the keys move at once from then on.
+The settings screen shows that answer and can bring the question back.
 
 `f` opens the filter box, which narrows the list and the board to what is ticked there: importance levels, one person and statuses.
 Within a section any ticked row matches, across sections a task has to match them all, and a section with nothing ticked takes every task.

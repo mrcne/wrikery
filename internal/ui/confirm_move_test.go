@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -70,12 +71,97 @@ func TestFirstStatusMoveAsksOnce(t *testing.T) {
 		t.Errorf("toast = %q", m.status.toast)
 	}
 
+	// The engine's reload lands before the next key, the row says Blocked now, so H steps back to In review.
+	m = pump(m, OutboxChangedMsg{Pending: 1})
 	m = pump(m, keyRunes("H"))
 	if m.dialog != nil {
 		t.Errorf("H asked again after the yes to L, one flag covers both keys")
 	}
 	if n := pendingWrites(t, st); n != before+2 {
 		t.Errorf("H after the yes should move at once, pending %d -> %d", before, n)
+	}
+	if got := lastQueuedStatus(t, st); got != "IEAAST13" {
+		t.Errorf("H after the reload queued the status %s, want In review (IEAAST13)", got)
+	}
+}
+
+// lastQueuedStatus is the status id of the newest outbox row, the one the last key queued.
+func lastQueuedStatus(t *testing.T, st *store.Store) string {
+	t.Helper()
+	rows, err := st.Outbox().ListChanges(context.Background())
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("outbox rows: %v, %d rows", err, len(rows))
+	}
+	last := rows[0]
+	for _, r := range rows[1:] {
+		if r.ID > last.ID {
+			last = r
+		}
+	}
+	var p struct {
+		CustomStatusID string `json:"customStatusId"`
+	}
+	if err := json.Unmarshal(last.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p.CustomStatusID
+}
+
+// The box is read slowly and a pull can move the task meanwhile, the yes was to the move the box named.
+func TestYesAfterAPullRefusesAStaleMove(t *testing.T) {
+	m := moveModel(t, "IEAATASK12")
+	st := m.opts.Store
+	before := pendingWrites(t, st)
+	m = pump(m, keyRunes("L"))
+	row, _ := m.list.current()
+	moved := row.task
+	moved.CustomStatusID, moved.Status = "IEAAST15", "Completed" // a colleague finished it
+	if err := st.Tasks().Upsert(context.Background(), []store.Task{moved}); err != nil {
+		t.Fatal(err)
+	}
+	m = pump(m, keyRunes("y"))
+	if n := pendingWrites(t, st); n != before {
+		t.Errorf("the yes moved a task that was not where the box said, pending %d -> %d", before, n)
+	}
+	if !strings.Contains(m.status.toast, "Done") || !strings.Contains(m.status.toast, "again") {
+		t.Errorf("toast = %q, want the status the task has now and a word to press again", m.status.toast)
+	}
+	if v, _ := st.GetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed); v != "1" {
+		t.Errorf("the yes was given, meta %q", v)
+	}
+}
+
+// The settings screen shows the saved answer and flips it, the way back after a yes given by mistake.
+func TestSettingsBringTheQuestionBack(t *testing.T) {
+	m := moveModel(t, "IEAATASK12")
+	st := m.opts.Store
+	askRow := func() string {
+		t.Helper()
+		for _, r := range m.settings.rows() {
+			if r.label == "Ask before H and L" {
+				return r.value
+			}
+		}
+		t.Fatal("the settings have no row for the question")
+		return ""
+	}
+	if got := askRow(); got != "yes" {
+		t.Errorf("before the yes the row says %q", got)
+	}
+	m = pump(m, keyRunes("L"), keyRunes("y"))
+	if got := askRow(); got != "no" {
+		t.Errorf("after the yes the row says %q", got)
+	}
+	m = pump(m, toggleMoveAskMsg{})
+	if got := askRow(); got != "yes" {
+		t.Errorf("after the flip the row says %q", got)
+	}
+	if v, _ := st.GetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed); v != "0" {
+		t.Errorf("the flip was not saved, meta %q", v)
+	}
+	m = pump(m, keyRunes("L"))
+	if _, ok := m.dialog.(confirmDialog); !ok {
+		t.Errorf("after the flip L opened %T, want the box again", m.dialog)
 	}
 }
 

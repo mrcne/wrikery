@@ -24,6 +24,35 @@ func TestConfirmDialogEmitsOnYes(t *testing.T) {
 	}
 }
 
+// Enter is not an answer, a newcomer who meant another key presses it next, and a box answered once ignores a second press.
+func TestConfirmDialogAnswersToYOnly(t *testing.T) {
+	type payload struct{ n int }
+	d := dialog(confirmDialog{prompt: "Sure?", onYes: payload{7}})
+	if _, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Errorf("enter answered the box with %#v", collect(cmd))
+	}
+	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if msgs := collect(cmd); len(msgs) != 2 {
+		t.Fatalf("y -> %#v", msgs)
+	}
+	if _, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}); cmd != nil {
+		t.Errorf("a second y before the box closed sent %#v again", collect(cmd))
+	}
+}
+
+// A long status name or a narrow terminal must not cut the end of the prompt, the target status is the point of the box.
+func TestConfirmDialogWrapsItsPrompt(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	d := confirmDialog{prompt: "L moves \"Document rate limit test\" from Waiting for customer feedback to Ready for QA review."}
+	for _, width := range []int{60, 44} {
+		out := d.View(th, width, 40)
+		text := strings.Join(strings.Fields(strings.ReplaceAll(ansi.Strip(out), "|", " ")), " ")
+		if !strings.Contains(text, "to Ready for QA review.") {
+			t.Errorf("at width %d the prompt lost its end:\n%s", width, out)
+		}
+	}
+}
+
 // ctrl+d sends a comment as well as ctrl+s, the hint under the box has to say so.
 func TestCommentDialogHintNamesBothSendKeys(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})

@@ -140,11 +140,11 @@ func TestTheSidebarStaysHiddenAcrossRestarts(t *testing.T) {
 	m.width, m.height = 160, 40
 	var flag tea.Msg
 	for _, c := range m.Init()().(tea.BatchMsg) {
-		if msg, ok := c().(sidebarHiddenMsg); ok {
+		if msg, ok := c().(savedFlagsMsg); ok {
 			flag = msg
 		}
 	}
-	if flag != (sidebarHiddenMsg{hidden: true}) {
+	if flag != (savedFlagsMsg{sidebarHidden: true}) {
 		t.Fatalf("Init gave %#v for the sidebar, want the hidden flag", flag)
 	}
 	next, _ := m.Update(flag)
