@@ -115,13 +115,21 @@ func (m Model) loadHost() tea.Cmd {
 	}
 }
 
-// loadSidebar reads whether the sidebar pane was hidden when the app last ran.
-// It is its own command so the flag lands before the tree, which takes two store round trips, and the pane is not drawn and then taken away.
-func (m Model) loadSidebar() tea.Cmd {
+// loadFlags reads the choices kept in the meta table: whether the sidebar pane was hidden when the app last ran,
+// and whether the first one key status move was confirmed.
+// It is its own command so the sidebar flag lands before the tree, which takes two store round trips, and the pane is not drawn and then taken away.
+// A flag that cannot be read counts as unset, a missing row is the normal case and anything else goes to the log.
+func (m Model) loadFlags() tea.Cmd {
 	st := m.opts.Store
 	return func() tea.Msg {
-		hidden, _ := st.GetMeta(context.Background(), store.MetaKeySidebarHidden)
-		return sidebarHiddenMsg{hidden: hidden == "1"}
+		read := func(key string) bool {
+			v, err := st.GetMeta(context.Background(), key)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				slog.Error("ui", "error", err)
+			}
+			return v == "1"
+		}
+		return savedFlagsMsg{sidebarHidden: read(store.MetaKeySidebarHidden), moveConfirmed: read(store.MetaKeyStatusMoveConfirmed)}
 	}
 }
 

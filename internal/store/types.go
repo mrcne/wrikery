@@ -156,6 +156,9 @@ const MetaKeySidebarPinned = "sidebar_pinned_only"
 // MetaKeySidebarHidden is "1" while the sidebar pane is hidden, so the choice survives a restart.
 const MetaKeySidebarHidden = "sidebar_hidden"
 
+// MetaKeyStatusMoveConfirmed is "1" once the user said yes to the first one key status move, the keys move at once from then on.
+const MetaKeyStatusMoveConfirmed = "status_move_confirmed"
+
 // MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
 // The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
 const MetaKeyTimelogFrom = "timelog_window_from"

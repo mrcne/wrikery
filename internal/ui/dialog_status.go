@@ -12,6 +12,13 @@ import (
 
 type submitStatusMsg struct{ taskID, statusID, name, group string }
 
+// confirmedMoveMsg is the yes to the first one key status move: the task, the step and the status the box named.
+type confirmedMoveMsg struct {
+	taskID string
+	delta  int
+	from   string
+}
+
 type statusDialog struct {
 	taskID string
 	items  []store.CustomStatus

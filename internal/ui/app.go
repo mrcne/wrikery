@@ -103,18 +103,19 @@ type Model struct {
 	// The sidebar pane is out of the window and the focus cycle while hidden, the choice is kept in the store meta.
 	sidebarHidden bool
 
-	status    statusModel
-	firstRun  firstRunModel
-	ref       refData
-	sidebar   sidebarModel
-	list      taskListModel
-	board     boardModel
-	detail    taskDetailModel
-	search    searchModel
-	changes   changesModel
-	timesheet timesheetModel
-	settings  settingsModel
-	dialog    dialog
+	status        statusModel
+	firstRun      firstRunModel
+	ref           refData
+	sidebar       sidebarModel
+	list          taskListModel
+	board         boardModel
+	detail        taskDetailModel
+	search        searchModel
+	changes       changesModel
+	timesheet     timesheetModel
+	settings      settingsModel
+	dialog        dialog
+	moveConfirmed bool // the saved yes to the first H or L, read at start and set on the yes
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -183,7 +184,7 @@ func (m Model) layout() layout {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts(), m.loadSidebar())
+	return tea.Batch(m.loadRef(), m.loadScopes(), m.loadCounts(), m.loadFlags())
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -366,8 +367,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case toggleSidebarMsg:
 		cmd := m.toggleSidebar()
 		return m, cmd
-	case sidebarHiddenMsg:
-		if msg.hidden {
+	case savedFlagsMsg:
+		m.moveConfirmed = msg.moveConfirmed
+		m.settings.setMoveConfirmed(msg.moveConfirmed)
+		if msg.sidebarHidden {
 			m.setSidebarHidden(true)
 		}
 		return m, nil
@@ -464,7 +467,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
 	case openConfirmMsg:
-		m.openDialog(confirmDialog(msg))
+		m.openDialog(confirmDialog{prompt: msg.prompt, onYes: msg.onYes})
 		return m, nil
 	case changesLoadedMsg:
 		m.changes.set(msg.rows)
@@ -556,6 +559,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueComment(ctx, msg.taskID, meID, msg.text)
 			return err
 		}, "Comment queued")
+	case confirmedMoveMsg:
+		return m, tea.Batch(m.setMoveConfirmed(true), m.moveAfterYes(msg))
+	case toggleMoveAskMsg:
+		return m, m.setMoveConfirmed(!m.moveConfirmed)
 	case submitStatusMsg:
 		st := m.opts.Store
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -1331,7 +1338,51 @@ func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
 		}
 		return m.status.show("already at the first status", false)
 	}
-	return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
+	if m.moveConfirmed {
+		return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
+	}
+	// A newcomer presses keys to see what they do, so the first press that would write says what it does and asks, once.
+	k := m.keys.StatusNext
+	if delta < 0 {
+		k = m.keys.StatusPrev
+	}
+	prompt := fmt.Sprintf("%s moves \"%s\" from %s to %s.\n\n%s and %s send the change to Wrike without a box. This question comes only once.",
+		k.Help().Key, displayTitle(t.Title, m.theme.HidePrefixes), m.ref.statusOf(t).Name, cs.Name, m.keys.StatusPrev.Help().Key, m.keys.StatusNext.Help().Key)
+	m.openDialog(confirmDialog{prompt: prompt, onYes: confirmedMoveMsg{taskID: t.ID, delta: delta, from: t.CustomStatusID}})
+	return nil
+}
+
+// moveAfterYes steps the task again from the status the cache holds when the yes comes.
+// The box is one a newcomer reads slowly, a pull may have moved the task meanwhile, and the yes was to the move the box named.
+func (m Model) moveAfterYes(msg confirmedMoveMsg) tea.Cmd {
+	st, ref := m.opts.Store, m.ref
+	return func() tea.Msg {
+		t, err := st.Tasks().Get(context.Background(), msg.taskID)
+		if err != nil {
+			return toastMsg{text: "nothing queued, the task is gone", isErr: true}
+		}
+		cs, _, ok := stepStatus(t, ref, msg.delta)
+		if t.CustomStatusID != msg.from || !ok {
+			return toastMsg{text: "not moved, the task is " + ref.statusOf(t).Name + " now, press the key again", isErr: true}
+		}
+		return submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group}
+	}
+}
+
+// setMoveConfirmed keeps the answer to the question before the first one key status move,
+// the yes from the box or the flip from the settings screen. The write is small and local, as with the sidebar flag.
+func (m *Model) setMoveConfirmed(confirmed bool) tea.Cmd {
+	m.moveConfirmed = confirmed
+	m.settings.setMoveConfirmed(confirmed)
+	value := "0"
+	if confirmed {
+		value = "1"
+	}
+	if err := m.opts.Store.SetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed, value); err != nil {
+		slog.Error("ui", "error", err)
+		return m.status.show("could not save the answer, the question comes back at the next start: "+err.Error(), true)
+	}
+	return nil
 }
 
 // refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.

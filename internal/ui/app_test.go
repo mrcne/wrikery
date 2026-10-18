@@ -993,7 +993,8 @@ func TestChangesRoutesKeysToTheScreen(t *testing.T) {
 	}
 }
 
-func TestNextStatusKeyQueuesAStatusChange(t *testing.T) {
+// The first L asks before it queues, a fresh store has no saved yes.
+func TestNextStatusKeyAsksThenQueuesAStatusChange(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "-- Comments (")
@@ -1004,13 +1005,22 @@ func TestNextStatusKeyQueuesAStatusChange(t *testing.T) {
 	}
 	from := mark(t, tm)
 	press(tm, "L")
+	waitAfter(t, tm, from, "comes only once")
+	if n, _, _ := st.Outbox().Counts(context.Background()); n != before {
+		t.Fatalf("L queued a task update before the yes, pending went from %d to %d", before, n)
+	}
+	from = mark(t, tm)
+	press(tm, "y")
 	waitAfter(t, tm, from, "Status set to ")
 	after, _, err := st.Outbox().Counts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if after != before+1 {
-		t.Errorf("L should queue one task update, pending went from %d to %d", before, after)
+		t.Errorf("y should queue one task update, pending went from %d to %d", before, after)
+	}
+	if v, _ := st.GetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed); v != "1" {
+		t.Errorf("the yes was not saved, meta %q", v)
 	}
 }
 
@@ -1157,6 +1167,10 @@ func TestBoardSidePanesShowWhileFocused(t *testing.T) {
 
 func TestBoardMovesACardWithL(t *testing.T) {
 	st := seededStore(t)
+	// The yes saved by an earlier run skips the question, the key moves at once.
+	if err := st.SetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed, "1"); err != nil {
+		t.Fatal(err)
+	}
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "-- Comments (")
 	from := mark(t, tm)

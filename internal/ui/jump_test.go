@@ -10,14 +10,21 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// pump feeds the messages through Update and runs every command they produce until nothing is left,
-// the way the program loop does, so a test reads the model after the whole round trip.
+// pump feeds the messages through Update and runs every command they produce, the way the program loop does,
+// up to a queued write or a toast, so a test reads the model after the round trip.
+// Those two end it because the toast they show ticks for three seconds before it clears.
+// The reload a write starts (the list, the changes screen or the week) is dropped with the tick,
+// it is what the engine's OutboxChangedMsg does again, and a test sends that one itself.
 func pump(m Model, msgs ...tea.Msg) Model {
 	for len(msgs) > 0 {
 		var msg tea.Msg
 		msg, msgs = msgs[0], msgs[1:]
 		next, cmd := m.Update(msg)
 		m = next.(Model)
+		switch msg.(type) {
+		case writeQueuedMsg, toastMsg:
+			continue
+		}
 		msgs = append(msgs, collect(cmd)...)
 	}
 	return m
@@ -26,9 +33,9 @@ func pump(m Model, msgs ...tea.Msg) Model {
 // outsideFolder is a folder id the cache has no folder for, so the sidebar cannot show it.
 const outsideFolder = "IEAAELSE"
 
-// jumpModel is the root on the demo store with the API folder on screen, where a user is before a search.
-// The extra task is the one the search finds.
-func jumpModel(t *testing.T, extra store.Task) Model {
+// demoModel is the root on the demo store with the API folder on screen, the keys on the sidebar.
+// The extra tasks sit in the cache beside the demo's, as a task from an unfollowed space does, a search finds them.
+func demoModel(t *testing.T, extra ...store.Task) Model {
 	t.Helper()
 	opts := rootTestOptions(t)
 	ctx := context.Background()
@@ -36,7 +43,7 @@ func jumpModel(t *testing.T, extra store.Task) Model {
 	if err := demo.Seed(ctx, opts.Store, opts.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := opts.Store.Tasks().Upsert(ctx, []store.Task{extra}); err != nil {
+	if err := opts.Store.Tasks().Upsert(ctx, extra); err != nil {
 		t.Fatal(err)
 	}
 	m := New(opts)
@@ -72,7 +79,7 @@ func TestJumpOutsideTheTreeSurvivesTheReloads(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			task := outsideTask("KUAAAAB1", outsideFolder)
-			m := jumpModel(t, task)
+			m := demoModel(t, task)
 			m = pump(m, openTaskMsg{task: task})
 			if got, ok := m.selectedTask(); !ok || got.ID != task.ID {
 				t.Fatalf("after the jump the keys act on %q, want %q", got.ID, task.ID)
@@ -91,7 +98,7 @@ func TestJumpOutsideTheTreeSurvivesTheReloads(t *testing.T) {
 // A task in several folders lands in the first one the sidebar shows, not only in the first folder it has.
 func TestJumpLandsInALaterFolderOfTheTask(t *testing.T) {
 	task := outsideTask("KUAAAAB1", outsideFolder, "IEAAWEB1")
-	m := jumpModel(t, task)
+	m := demoModel(t, task)
 	m = pump(m, openTaskMsg{task: task})
 	if m.selectedNode.id != "IEAAWEB1" {
 		t.Errorf("the jump landed on node %q, want the Web folder", m.selectedNode.id)
@@ -104,7 +111,7 @@ func TestJumpLandsInALaterFolderOfTheTask(t *testing.T) {
 // The user's own task outside every shown folder lands in My tasks, the one node that lists it.
 func TestJumpToOwnTaskOutsideTheTreeLandsInMyTasks(t *testing.T) {
 	task := outsideTask(demo.MeID, outsideFolder)
-	m := jumpModel(t, task)
+	m := demoModel(t, task)
 	m = pump(m, openTaskMsg{task: task})
 	if m.selectedNode.kind != nodeMe {
 		t.Errorf("the jump landed on node %q, want My tasks", m.selectedNode.id)
@@ -127,7 +134,7 @@ func TestFocusOnTheListLeavesAHeldTask(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			task := outsideTask("KUAAAAB1", outsideFolder)
-			m := jumpModel(t, task)
+			m := demoModel(t, task)
 			m = pump(m, openTaskMsg{task: task})
 			m = pump(m, key)
 			if m.focus != paneList {
@@ -150,7 +157,7 @@ func TestFocusOnTheListLeavesAHeldTask(t *testing.T) {
 // The crumb under a search result names the first of the task's folders the cache holds.
 func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 	task := outsideTask("KUAAAAB1", outsideFolder, "IEAAWEB1")
-	m := jumpModel(t, task)
+	m := demoModel(t, task)
 	msgs := collect(m.runSearch(1, "signing"))
 	if len(msgs) != 1 {
 		t.Fatalf("got %d messages, want the results", len(msgs))
