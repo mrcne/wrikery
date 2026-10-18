@@ -164,7 +164,7 @@ func TestBoardViewDrawsHeaderLanesAndCards(t *testing.T) {
 }
 
 func TestMoveStatusRefusesABucketCard(t *testing.T) {
-	m := Model{keys: defaultKeyMap(), shape: shapeBoard}
+	m := Model{keys: defaultKeyMap(), shape: shapeBoard, moveConfirmed: true} // the first move's yes is saved, the step is under test here
 	m.list = testBoardList()
 	m.ref = m.list.ref
 	m.list.selectByID("b2")
@@ -311,7 +311,7 @@ func TestFilteringRefitsTheBoard(t *testing.T) {
 }
 
 func TestMoveStatusJudgesTheTaskItIsGiven(t *testing.T) {
-	m := Model{keys: defaultKeyMap(), shape: shapeBoard}
+	m := Model{keys: defaultKeyMap(), shape: shapeBoard, moveConfirmed: true} // the first move's yes is saved, the step is under test here
 	m.list = testBoardList()
 	m.ref = m.list.ref
 	byID := func(id string) store.Task {

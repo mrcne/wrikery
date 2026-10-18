@@ -11,6 +11,7 @@ import (
 )
 
 type submitStatusMsg struct{ taskID, statusID, name, group string }
+type confirmedMoveMsg struct{ move submitStatusMsg } // the yes to the first one key status move, the move follows it
 
 type statusDialog struct {
 	taskID string

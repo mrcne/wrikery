@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -103,18 +104,19 @@ type Model struct {
 	// The sidebar pane is out of the window and the focus cycle while hidden, the choice is kept in the store meta.
 	sidebarHidden bool
 
-	status    statusModel
-	firstRun  firstRunModel
-	ref       refData
-	sidebar   sidebarModel
-	list      taskListModel
-	board     boardModel
-	detail    taskDetailModel
-	search    searchModel
-	changes   changesModel
-	timesheet timesheetModel
-	settings  settingsModel
-	dialog    dialog
+	status        statusModel
+	firstRun      firstRunModel
+	ref           refData
+	sidebar       sidebarModel
+	list          taskListModel
+	board         boardModel
+	detail        taskDetailModel
+	search        searchModel
+	changes       changesModel
+	timesheet     timesheetModel
+	settings      settingsModel
+	dialog        dialog
+	moveConfirmed bool // the saved yes to the first H or L, read from the store at the first press of a run
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -556,6 +558,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueComment(ctx, msg.taskID, meID, msg.text)
 			return err
 		}, "Comment queued")
+	case confirmedMoveMsg:
+		m.moveConfirmed = true
+		if err := m.opts.Store.SetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed, "1"); err != nil {
+			// The move goes on, the question comes back at the next start.
+			slog.Error("ui", "error", err)
+		}
+		return m, intent(msg.move)
 	case submitStatusMsg:
 		st := m.opts.Store
 		return m, m.enqueue(func(ctx context.Context) error {
@@ -1331,7 +1340,29 @@ func (m *Model) moveStatus(t store.Task, delta int) tea.Cmd {
 		}
 		return m.status.show("already at the first status", false)
 	}
-	return intent(submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group})
+	move := submitStatusMsg{taskID: t.ID, statusID: cs.ID, name: cs.Name, group: cs.Group}
+	if m.moveWasConfirmed() {
+		return intent(move)
+	}
+	// The first press is often a try, and on the board L sits next to l, so it asks once and names what it would do.
+	k := m.keys.StatusNext
+	if delta < 0 {
+		k = m.keys.StatusPrev
+	}
+	prompt := fmt.Sprintf("%s moves \"%s\"\nfrom %s to %s.\n\n%s and %s send the change to Wrike without a box.\nThis question comes only once.",
+		k.Help().Key, ansi.Truncate(t.Title, 44, "..."), m.ref.statusOf(t).Name, cs.Name, m.keys.StatusPrev.Help().Key, m.keys.StatusNext.Help().Key)
+	m.openDialog(confirmDialog{prompt: prompt, onYes: confirmedMoveMsg{move: move}})
+	return nil
+}
+
+// moveWasConfirmed is the saved yes to the first one key status move, read from the store at the first press of a run.
+// A read that fails counts as no, the question then comes once more.
+func (m *Model) moveWasConfirmed() bool {
+	if !m.moveConfirmed {
+		v, _ := m.opts.Store.GetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed)
+		m.moveConfirmed = v == "1"
+	}
+	return m.moveConfirmed
 }
 
 // refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.
