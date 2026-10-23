@@ -365,6 +365,36 @@ func (m Model) loadNotes(taskID, current string) tea.Cmd {
 	}
 }
 
+// errReachUnavailable stands in for the hook the demo and the tests run without.
+var errReachUnavailable = errors.New("not available in the demo")
+
+// reach asks the engine for a task the cache lacks, through the hook, so the interface itself never talks to Wrike.
+func (m Model) reach(ref string, origin reachOrigin) tea.Cmd {
+	hook := m.opts.Hooks.Reach
+	return func() tea.Msg {
+		if hook == nil {
+			return reachedMsg{ref: ref, origin: origin, err: errReachUnavailable}
+		}
+		task, err := hook(context.Background(), ref)
+		return reachedMsg{ref: ref, origin: origin, task: task, err: err}
+	}
+}
+
+// reachErrorText words a failed reach for the search row and the toast.
+func reachErrorText(ref string, err error) string {
+	switch {
+	case errors.Is(err, ErrNoSuchTask):
+		if r, ok := store.ParseTaskRef(ref); ok && r.Kind == store.RefNumber {
+			return "no task with this link on Wrike, or no access"
+		}
+		return "no task with this id on Wrike, or no access"
+	case errors.Is(err, errReachUnavailable):
+		return err.Error()
+	default:
+		return "Wrike could not be reached"
+	}
+}
+
 // runSearch reads the crumb for each hit's first parent, the same folder title the list pane shows.
 func (m Model) runSearch(seq int, query string) tea.Cmd {
 	st := m.opts.Store
@@ -373,6 +403,25 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 		tasks, err := st.Tasks().Search(ctx, query, 30)
 		if err != nil {
 			return errMsg{err}
+		}
+		// A link, a number or an id names one task: first when the cache has it, else the reach row fetches it.
+		// The title hits stay either way, a number can be part of a title and a word can have the shape of an id.
+		ref := ""
+		if r, ok := store.ParseTaskRef(query); ok {
+			var hit store.Task
+			if r.Kind == store.RefNumber {
+				hit, err = st.Tasks().ByPermalinkID(ctx, r.Value)
+			} else {
+				hit, err = st.Tasks().Get(ctx, r.Value)
+			}
+			switch {
+			case err == nil:
+				tasks = append([]store.Task{hit}, slices.DeleteFunc(tasks, func(t store.Task) bool { return t.ID == hit.ID })...)
+			case errors.Is(err, store.ErrNotFound):
+				ref = strings.TrimSpace(query)
+			default:
+				return errMsg{err}
+			}
 		}
 		crumbs := map[string]string{}
 		for _, t := range tasks {
@@ -384,7 +433,7 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 				}
 			}
 		}
-		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
+		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs, ref: ref}
 	}
 }
 

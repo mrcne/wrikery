@@ -361,17 +361,6 @@ func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
 	if _, cmd = ts.Update(enter); cmd != nil {
 		t.Errorf("enter on the new task row sent %#v", cmd())
 	}
-	// An entry can belong to a task outside every followed scope, then there is no task to open and the key says so.
-	ts.set(weekLoadedMsg{
-		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
-		logs:      []store.Timelog{{ID: "b", TaskID: "T9", TrackedDate: "2026-08-31", Hours: 1}},
-		titles:    map[string]string{"T9": ""},
-	})
-	ts.cursorRow = 0
-	_, cmd = ts.Update(enter)
-	if msg, ok := cmd().(toastMsg); !ok || !msg.isErr {
-		t.Errorf("enter on a row without a cached task sent %#v, want an error toast", cmd())
-	}
 }
 
 // The row under the cursor carries the cursor mark in front of its title, so on a wide grid the highlighted cell
@@ -671,5 +660,33 @@ func TestTimesheetSetsTheTotalsApartWithRules(t *testing.T) {
 	}
 	if rule := lines[totals-1]; strings.Count(rule, "-") < 50 || !strings.Contains(rule, "-+-") {
 		t.Errorf("the line above the totals is not a rule with the crossing: %q", rule)
+	}
+}
+
+// A row whose task the cache lacks asks Wrike for it instead of refusing, the toast says so meanwhile.
+func TestTimesheetEnterOnAnUncachedRowAsksTheReach(t *testing.T) {
+	var ts timesheetModel
+	ts.keys, ts.height = defaultKeyMap(), 12
+	ts.set(weekLoadedMsg{
+		weekStart: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC),
+		logs:      []store.Timelog{{ID: "c", TaskID: "T9", TrackedDate: "2026-09-03", Hours: 1}},
+		titles:    map[string]string{"T9": ""},
+	})
+	_, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	var reach *reachMsg
+	var toast *toastMsg
+	for _, msg := range collect(cmd) {
+		switch m := msg.(type) {
+		case reachMsg:
+			reach = &m
+		case toastMsg:
+			toast = &m
+		}
+	}
+	if reach == nil || *reach != (reachMsg{ref: "T9", origin: reachFromTimesheet}) {
+		t.Errorf("enter sent no reach for T9: %#v", collect(cmd))
+	}
+	if toast == nil || toast.text != "fetching from Wrike..." || toast.isErr {
+		t.Errorf("toast = %#v, want the fetching note", toast)
 	}
 }

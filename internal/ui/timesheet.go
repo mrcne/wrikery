@@ -230,7 +230,9 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 	case key.Matches(msg, t.keys.Enter):
 		if r := t.cursorRow; r < len(t.rows) {
 			if !t.rows[r].cached {
-				return t, intent(toastMsg{text: "this task is outside the followed spaces and not synced", isErr: true})
+				// The sync brings such a task on its own, a row still without one asks Wrike for it now.
+				return t, tea.Batch(intent(toastMsg{text: "fetching from Wrike..."}),
+					intent(reachMsg{ref: t.rows[r].taskID, origin: reachFromTimesheet}))
 			}
 			return t, intent(openBesideMsg{id: t.rows[r].taskID})
 		}

@@ -170,3 +170,20 @@ func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 		t.Errorf("crumb = %q, want Web", res.crumbs[task.ID])
 	}
 }
+
+// A link, a number or an id typed into the search is tried in the cache first, and named as a reach when the cache lacks it.
+func TestRunSearchPutsACachedReferenceFirstAndNamesAnUncachedOne(t *testing.T) {
+	m := demoModel(t)
+	res := m.runSearch(1, "https://www.wrike.com/open.htm?id=1200000")().(searchResultsMsg)
+	if len(res.tasks) == 0 || res.tasks[0].Permalink != "https://www.wrike.com/open.htm?id=1200000" || res.ref != "" {
+		t.Errorf("a cached link gave %+v, ref %q, want the task first and no reach", res.tasks, res.ref)
+	}
+	res = m.runSearch(2, " MAAAAAEPXpuV ")().(searchResultsMsg)
+	if len(res.tasks) != 0 || res.ref != "MAAAAAEPXpuV" {
+		t.Errorf("an uncached id gave %+v, ref %q, want no hits and the trimmed reference", res.tasks, res.ref)
+	}
+	res = m.runSearch(3, "fix auth")().(searchResultsMsg)
+	if len(res.tasks) == 0 || res.ref != "" {
+		t.Errorf("a fragment gave %+v, ref %q, want hits and no reach", res.tasks, res.ref)
+	}
+}

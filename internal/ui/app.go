@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -31,7 +32,13 @@ type Hooks struct {
 	SignIn  func(secret string) (SignIn, error)
 	OpenURL func(url string) error
 	Copy    func(text string) error
+	// Reach fetches a task the followed scopes do not cover, by id or by the number from its link, into the cache.
+	// It answers ErrNoSuchTask when Wrike does not list the task for this user. Nil in the demo.
+	Reach func(ctx context.Context, ref string) (store.Task, error)
 }
+
+// ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
+var ErrNoSuchTask = errors.New("no such task on Wrike, or no access")
 
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
@@ -434,6 +441,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case openTaskMsg:
 		return m.jumpToTask(msg.task.ID, msg.task.ParentIDs, m.mine(msg.task.ResponsibleIDs))
+	case reachMsg:
+		return m, m.reach(msg.ref, msg.origin)
+	case reachedMsg:
+		return m.reached(msg)
 	case openBesideMsg:
 		// The intent travels through the queue, a key typed right after enter can have left the timesheet already.
 		if m.screen != screenTimesheet {
@@ -794,6 +805,29 @@ func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, te
 	}
 	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus))
 	return m, tea.Batch(cmds...)
+}
+
+// reached lands the answer to a reach where the ask came from, or drops it when the user has moved on.
+// A fetched task goes the way a search hit or a timesheet row goes, so the jump and the landing rules stay in one place.
+func (m Model) reached(msg reachedMsg) (tea.Model, tea.Cmd) {
+	if msg.origin == reachFromTimesheet {
+		if msg.err != nil {
+			return m, m.status.show(reachErrorText(msg.ref, msg.err), true)
+		}
+		// The week reads its titles again the way a store change makes it, the engine's own event is not guaranteed here.
+		return m, tea.Batch(intent(StoreChangedMsg{Entities: []string{"tasks"}}), intent(openBesideMsg{id: msg.task.ID}))
+	}
+	if m.overlay != overlaySearch || msg.ref != m.search.ref {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.search.reachFailed(msg.ref, reachErrorText(msg.ref, msg.err))
+		return m, nil
+	}
+	if msg.origin == reachFromPick {
+		return m, intent(searchPickMsg{task: msg.task})
+	}
+	return m, intent(openTaskMsg{task: msg.task})
 }
 
 // landOn puts the sidebar on a node that lists the task, and tells whether there is one.
