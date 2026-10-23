@@ -162,9 +162,9 @@ func runUISelect(ctx context.Context, env Env, args []string) int {
 	req := control.Request{Op: control.OpSelect, TaskID: positional[0]}
 	text := "selected " + positional[0]
 	if env.Store != nil {
-		t, err := resolveTask(ctx, env.Store, positional[0])
-		if err != nil {
-			return fail(env, err)
+		t, code := resolveOrReach(ctx, env, positional[0])
+		if code != exitOK {
+			return code
 		}
 		// Every folder goes along, the interface opens the first one its sidebar has,
 		// and the people on the task, so the user's own task can land in My tasks when no folder is there.

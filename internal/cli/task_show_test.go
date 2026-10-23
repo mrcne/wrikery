@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -252,5 +253,60 @@ func TestTaskShowJSONHasEmptyRelationLists(t *testing.T) {
 		if !strings.Contains(out.String(), key) {
 			t.Errorf("json lacks %s, a slice is never null:\n%s", key, out.String())
 		}
+	}
+}
+
+const outsideTaskJSON = `{"kind":"tasks","data":[{"id":"MAAAAAEPXpuV","title":"Outside the scopes","status":"Active","importance":"Normal",
+"permalink":"https://www.wrike.com/open.htm?id=9900000","createdDate":"2026-10-01T10:00:00Z","updatedDate":"2026-10-01T10:00:00Z"}]}`
+
+// outsideWrike answers the fetch of one task by id and nothing else, the way the live account does.
+func outsideWrike(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/tasks/MAAAAAEPXpuV" || r.URL.Query().Get("fields") != `["attachmentCount"]` {
+			t.Errorf("request = %s %s, want the task by id with the count field alone", r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(outsideTaskJSON))
+	})
+}
+
+func TestTaskShowFetchesAnUncachedTask(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, outsideWrike(t))
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Outside the scopes") {
+		t.Errorf("out:\n%s", out.String())
+	}
+	if ids, err := env.Store.Tasks().ReachedIDs(context.Background(), ""); err != nil || len(ids) != 1 || ids[0] != "MAAAAAEPXpuV" {
+		t.Errorf("ReachedIDs = %v, %v, want the fetched task stamped", ids, err)
+	}
+}
+
+func TestTaskShowOfAnUnknownIdSaysSo(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errorDescription":"Task not found or access denied","error":"resource_not_found"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXXXX"}); code != exitError {
+		t.Errorf("code = %d", code)
+	}
+	if !strings.Contains(errOut.String(), `no task "MAAAAAEPXXXX" on Wrike, or no access`) {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+}
+
+func TestTaskShowOfAnUncachedIdNeedsTheSignIn(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitError {
+		t.Errorf("code = %d", code)
+	}
+	if !strings.Contains(errOut.String(), "not signed in") {
+		t.Errorf("stderr:\n%s", errOut.String())
 	}
 }

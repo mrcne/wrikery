@@ -276,3 +276,19 @@ func TestWriteCommandsAndSyncNudgeTheInterface(t *testing.T) {
 		t.Errorf("after a sync the interface got %+v, want a second reload of every kind", *got)
 	}
 }
+
+func TestUISelectFetchesAnUncachedTask(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, outsideWrike(t))
+	env, got := uiStub(t, env, control.Reply{OK: true, Text: "selected"})
+	if code := Run(context.Background(), env, []string{"ui", "select", "MAAAAAEPXpuV"}); code != exitOK {
+		t.Fatalf("code = %d\n%s%s", code, out.String(), errOut.String())
+	}
+	if len(*got) != 1 || (*got)[0].TaskID != "MAAAAAEPXpuV" {
+		t.Errorf("request = %+v, want the fetched task", *got)
+	}
+	if out.String() != "selected Outside the scopes\n" {
+		t.Errorf("out = %q", out.String())
+	}
+}

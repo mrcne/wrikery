@@ -4,11 +4,53 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/syncer"
 )
+
+// errUncached says the argument names one task by id, number or link and the cache does not hold it,
+// so the command can fetch it from Wrike before it goes on. A title fragment never gets it.
+type errUncached struct{ arg string }
+
+func (e *errUncached) Error() string { return fmt.Sprintf("no task %q in the cache", e.arg) }
+
+// resolveOrReach resolves a task argument, and fetches a link, a number or an id the cache lacks from Wrike first.
+// This is the one read that talks to Wrike, so the sign in and the host are checked only once the cache misses,
+// and a cached task costs none of it. The code is exitOK or the failure already printed.
+func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) {
+	t, err := resolveTask(ctx, env.Store, arg)
+	var uncached *errUncached
+	if !errors.As(err, &uncached) {
+		if err != nil {
+			return store.Task{}, fail(env, err)
+		}
+		return t, exitOK
+	}
+	host, code := preflight(ctx, env)
+	if code != exitOK {
+		return store.Task{}, code
+	}
+	eng := syncer.New(env.Client(host), env.Store,
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
+	// The write deadline bounds the fetch too, a Wrike that does not answer must not hold a read for the client's whole retry budget.
+	if env.Deadline > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, env.Deadline)
+		defer cancel()
+	}
+	t, err = eng.Reach(ctx, arg)
+	switch {
+	case errors.Is(err, syncer.ErrNoSuchTask):
+		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access", arg))
+	case err != nil:
+		return store.Task{}, fail(env, err)
+	}
+	return t, exitOK
+}
 
 // candidateLimit caps the rows an ambiguous fragment lists back, the next attempt uses an id anyway.
 const candidateLimit = 20
@@ -34,14 +76,14 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 		}
 		t, err := st.Tasks().ByPermalinkID(ctx, number)
 		if errors.Is(err, store.ErrNotFound) {
-			return store.Task{}, fmt.Errorf("no task with the link %q in the cache, follow its space or run wrikery sync", arg)
+			return store.Task{}, &errUncached{arg: arg}
 		}
 		return t, err
 	} else if isDigits(arg) {
 		// A number is never a title fragment, "12" would otherwise pick the one task titled "Release 1.12" when task 12 is not cached.
 		t, err := st.Tasks().ByPermalinkID(ctx, arg)
 		if errors.Is(err, store.ErrNotFound) {
-			return store.Task{}, fmt.Errorf("no task with the number %q in the cache, follow its space or run wrikery sync, a title that is a number needs more of it or the id", arg)
+			return store.Task{}, &errUncached{arg: arg}
 		}
 		return t, err
 	}
@@ -51,6 +93,10 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	}
 	switch len(hits) {
 	case 0:
+		// An argument shaped like an id is tried as a fragment first, a word can have that shape, and fetched only when no title has it.
+		if _, ok := store.ParseTaskRef(arg); ok {
+			return store.Task{}, &errUncached{arg: arg}
+		}
 		return store.Task{}, fmt.Errorf("no task matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
 		return hits[0], nil

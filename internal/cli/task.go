@@ -94,9 +94,9 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 1 {
 		return usageError(env, fs, showUsage, "task show takes one task, an id or a part of its title")
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	comments, err := env.Store.Comments().ListForTask(ctx, t.ID)
 	if err != nil {
@@ -144,9 +144,9 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 2 {
 		return usageError(env, fs, statusUsage, "task status takes a task and a status name")
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	ref, err := loadRef(ctx, env.Store)
 	if err != nil {
