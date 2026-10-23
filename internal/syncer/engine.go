@@ -69,8 +69,10 @@ type Engine struct {
 	state         SyncState
 	meID          string
 	lastReference time.Time
-	failures      int
-	lockWarned    bool
+	// unreached holds the referenced ids Wrike did not answer, skipped until the next manual cycle, see reachReferenced.
+	unreached  map[string]bool
+	failures   int
+	lockWarned bool
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -78,14 +80,15 @@ func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
 		log = slog.Default()
 	}
 	return &Engine{
-		client:  c,
-		st:      st,
-		cfg:     cfg.withDefaults(),
-		log:     log,
-		events:  make(chan Event, 16),
-		refresh: make(chan struct{}, 1),
-		wake:    make(chan struct{}, 1),
-		state:   StateIdle,
+		client:    c,
+		st:        st,
+		cfg:       cfg.withDefaults(),
+		log:       log,
+		events:    make(chan Event, 16),
+		unreached: map[string]bool{},
+		refresh:   make(chan struct{}, 1),
+		wake:      make(chan struct{}, 1),
+		state:     StateIdle,
 	}
 }
 
@@ -360,6 +363,31 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 	if len(touched) > 0 {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
+	}
+
+	// The tasks behind the time entries and the relations, then a re-read of the reached tasks no scope poll covers:
+	// all of them on a manual cycle, only the recently opened ones on a poll.
+	if manual {
+		clear(e.unreached)
+	}
+	reached, err := reachReferenced(ctx, e.client, e.st, e.unreached, e.log, time.Now())
+	if err != nil {
+		return err
+	}
+	openedSince := ""
+	if !manual {
+		openedSince = rfc3339(time.Now().Add(-e.cfg.ThreadWindow))
+	}
+	stamped, err := e.st.Tasks().ReachedIDs(ctx, openedSince)
+	if err != nil {
+		return err
+	}
+	reread, err := rereadReached(ctx, e.client, e.st, stamped)
+	if err != nil {
+		return err
+	}
+	if reached || reread {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
 	}
 
 	// Last, so the opened task is served by its thread refresh before a first pull's catch-up of edges runs its batch.

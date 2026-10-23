@@ -68,6 +68,10 @@ type TaskParams struct {
 	// Responsibles maps to the responsibles parameter, an assignees filter matching any of the given contact ids.
 	// The reference sends it as a JSON array.
 	Responsibles []string
+	// Permalink maps to the permalink parameter, "Task permalink, exact match" in the reference.
+	// It takes the whole open.htm link, and the host in it does not matter, the token names the account
+	// (checked on the live account on 2026-10-22 with the app-eu and the www hosts).
+	Permalink string
 }
 
 // TasksPage is one page of a Tasks query, with the token to fetch the next one.
@@ -100,6 +104,9 @@ func (c *Client) Tasks(ctx context.Context, p TaskParams) (TasksPage, error) {
 	}
 	if len(p.Responsibles) > 0 {
 		q.Set("responsibles", jsonArray(p.Responsibles))
+	}
+	if p.Permalink != "" {
+		q.Set("permalink", p.Permalink)
 	}
 	if p.PageSize > 0 {
 		q.Set("pageSize", strconv.Itoa(p.PageSize))

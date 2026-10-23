@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 type TaskRepo interface {
@@ -14,7 +15,9 @@ type TaskRepo interface {
 	ApplyPage(ctx context.Context, scopeID string, tasks []Task, cursor string) error
 	Get(ctx context.Context, id string) (Task, error)
 	Delete(ctx context.Context, ids ...string) error
+	// PruneExcept deletes every task outside keep, except local creates and tasks reached in the last ReachKeepDays.
 	PruneExcept(ctx context.Context, keep []string) (int64, error)
+	// MarkOpened records the open and renews the reach stamp of a reached task, a pulled task gets none.
 	MarkOpened(ctx context.Context, id, openedAt string) error
 	RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error)
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
@@ -26,12 +29,23 @@ type TaskRepo interface {
 	ByIDs(ctx context.Context, ids []string) ([]Task, error)
 	FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error)
 	ByPermalinkID(ctx context.Context, numeric string) (Task, error)
+	// UpsertReached writes tasks fetched from outside the followed scopes and stamps them with at, one transaction.
+	UpsertReached(ctx context.Context, tasks []Task, at string) error
+	// ReachedIDs lists the stamped tasks, only those opened since openedSince when it is not empty.
+	ReachedIDs(ctx context.Context, openedSince string) ([]string, error)
+	// MissingReferencedIDs lists up to limit ids the cache lacks that a time entry names, or a relation of a task without a stamp,
+	// so a reach of them is one hop from what the user follows and never crawls a foreign plan.
+	MissingReferencedIDs(ctx context.Context, limit int) ([]string, error)
 }
 
-func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader} }
+// ReachKeepDays is how long a reached task stays in the cache after the last reach or open.
+const ReachKeepDays = 30
+
+func (s *Store) Tasks() TaskRepo { return taskRepo{w: s.writer, r: s.reader, now: s.Now} }
 
 type taskRepo struct {
 	w, r *sql.DB
+	now  func() time.Time
 }
 
 // A Backlog task has a dates block with a type and no dates at all, see https://developers.wrike.com/api/v4/tasks/.
@@ -127,6 +141,15 @@ func (t taskRepo) ApplyPage(ctx context.Context, scopeID string, tasks []Task, c
 	defer func() { _ = tx.Rollback() }()
 	if err := upsertTasksTx(ctx, tx, tasks); err != nil {
 		return err
+	}
+	// A task a followed scope lists is a normal task from then on, the reach stamp would only keep re-reading it.
+	// The drain's upsert of a write's answer comes without a scope and leaves the stamp alone.
+	if scopeID != "" {
+		for _, t := range tasks {
+			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET reached_at = NULL WHERE id = ?`, t.ID); err != nil {
+				return err
+			}
+		}
 	}
 	if cursor != "" {
 		res, err := tx.ExecContext(ctx, `
@@ -248,8 +271,11 @@ func (t taskRepo) PruneExcept(ctx context.Context, keep []string) (int64, error)
 		}
 	}
 	// A local task is a create still in the outbox, Wrike has never listed it and the sweep must not take it for a deleted one.
+	// A reached task sits in no scope, so no keep list ever names it, the stamp is what keeps it for ReachKeepDays.
+	since := t.now().UTC().AddDate(0, 0, -ReachKeepDays).Format(time.RFC3339)
 	res, err := tx.ExecContext(ctx,
-		`DELETE FROM tasks WHERE id NOT IN (SELECT id FROM keep_ids) AND id NOT LIKE ?`, LocalIDPrefix+"%")
+		`DELETE FROM tasks WHERE id NOT IN (SELECT id FROM keep_ids) AND id NOT LIKE ? AND COALESCE(reached_at, '') < ?`,
+		LocalIDPrefix+"%", since)
 	if err != nil {
 		return 0, err
 	}
@@ -265,7 +291,8 @@ func (t taskRepo) PruneExcept(ctx context.Context, keep []string) (int64, error)
 
 func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 	res, err := t.w.ExecContext(ctx,
-		`UPDATE tasks SET last_opened_at = ? WHERE id = ?`, openedAt, id)
+		`UPDATE tasks SET last_opened_at = ?, reached_at = CASE WHEN reached_at IS NULL THEN NULL ELSE ? END WHERE id = ?`,
+		openedAt, openedAt, id)
 	if err != nil {
 		return err
 	}
@@ -277,6 +304,41 @@ func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (t taskRepo) UpsertReached(ctx context.Context, tasks []Task, at string) error {
+	tx, err := t.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := upsertTasksTx(ctx, tx, tasks); err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET reached_at = ? WHERE id = ?`, at, task.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (t taskRepo) ReachedIDs(ctx context.Context, openedSince string) ([]string, error) {
+	return t.stringColumn(ctx, `
+		SELECT id FROM tasks WHERE reached_at IS NOT NULL AND (? = '' OR COALESCE(last_opened_at, '') >= ?)
+		ORDER BY id`, openedSince, openedSince)
+}
+
+func (t taskRepo) MissingReferencedIDs(ctx context.Context, limit int) ([]string, error) {
+	// An edge or a super link counts only from a task without a stamp, the relations of a reached task are not followed.
+	return t.stringColumn(ctx, `
+		SELECT ref FROM (
+			SELECT task_id AS ref FROM timelogs
+			UNION SELECT d.predecessor_id FROM dependencies d JOIN tasks t ON t.id = d.successor_id AND t.reached_at IS NULL
+			UNION SELECT d.successor_id FROM dependencies d JOIN tasks t ON t.id = d.predecessor_id AND t.reached_at IS NULL
+			UNION SELECT s.super_id FROM task_supertasks s JOIN tasks t ON t.id = s.task_id AND t.reached_at IS NULL
+		) WHERE ref NOT IN (SELECT id FROM tasks) AND ref NOT LIKE ?
+		ORDER BY ref LIMIT ?`, LocalIDPrefix+"%", limit)
 }
 
 func (t taskRepo) RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error) {

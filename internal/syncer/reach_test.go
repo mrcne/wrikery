@@ -1,0 +1,202 @@
+package syncer
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/pkg/wrike"
+)
+
+func outsideTask(id, title string) wrike.Task {
+	return wrike.Task{ID: id, Title: title, Status: "Active", Permalink: "https://www.wrike.com/open.htm?id=4552825749",
+		CreatedDate: time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC), UpdatedDate: time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)}
+}
+
+func stampedTask(t *testing.T, st *store.Store, id, title string) {
+	t.Helper()
+	err := st.Tasks().UpsertReached(context.Background(), []store.Task{{
+		ID: id, Title: title, Status: "Active",
+		CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z",
+	}}, "2026-10-22T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReachFetchesAnIdWithTheCountFieldOnlyAndStampsIt(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	var gotFields []string
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		gotFields = fields
+		return []wrike.Task{outsideTask("MAAAAAEPXpuV", "Outside")}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	task, err := e.Reach(ctx, "MAAAAAEPXpuV")
+	if err != nil || task.ID != "MAAAAAEPXpuV" || task.Title != "Outside" {
+		t.Fatalf("Reach = %+v, %v", task, err)
+	}
+	if log := fc.callLog(); !reflect.DeepEqual(log, []string{"TasksByIDs MAAAAAEPXpuV"}) {
+		t.Errorf("calls = %v", log)
+	}
+	if !reflect.DeepEqual(gotFields, []string{"attachmentCount"}) {
+		t.Errorf("fields = %v, want the count alone, the by id call refuses the search's fields", gotFields)
+	}
+	if ids, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || !reflect.DeepEqual(ids, []string{"MAAAAAEPXpuV"}) {
+		t.Errorf("ReachedIDs = %v, %v", ids, err)
+	}
+	select {
+	case ev := <-e.Events():
+		if ev.Kind != EventStoreChanged || !reflect.DeepEqual(ev.Entities, []EntityKind{KindTasks}) {
+			t.Errorf("event = %+v, want a tasks store change", ev)
+		}
+	default:
+		t.Error("no event after the reach")
+	}
+}
+
+func TestReachResolvesALinkAndANumberThroughThePermalinkFilter(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		if p.Permalink != "https://www.wrike.com/open.htm?id=4552825749" || p.FolderID != "" || p.SpaceID != "" || !reflect.DeepEqual(p.Fields, pullFields) {
+			t.Errorf("params = %+v, want the www link, the plain endpoint and the pull fields", p)
+		}
+		return wrike.TasksPage{Tasks: []wrike.Task{outsideTask("MAAAAAEPXpuV", "Outside")}}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	for _, ref := range []string{"https://app-eu.wrike.com/open.htm?id=4552825749", "4552825749"} {
+		task, err := e.Reach(ctx, ref)
+		if err != nil || task.ID != "MAAAAAEPXpuV" {
+			t.Errorf("Reach(%q) = %+v, %v", ref, task, err)
+		}
+	}
+	if n := strings.Count(strings.Join(fc.callLog(), "\n"), "Tasks "); n != 2 {
+		t.Errorf("calls = %v, want two permalink searches", fc.callLog())
+	}
+}
+
+func TestReachReportsNoSuchTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	answers := map[string]error{
+		"MAAAAAEPXXXX": &wrike.APIError{StatusCode: http.StatusNotFound, Code: "resource_not_found"},
+		"MAAAAAEPYYYY": &wrike.APIError{StatusCode: http.StatusBadRequest, Code: "invalid_request"},
+		"MAAAAAEPZZZZ": nil,
+	}
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return nil, answers[ids[0]]
+	}}
+	e := New(fc, st, Config{}, nil)
+	for id := range answers {
+		if _, err := e.Reach(ctx, id); !errors.Is(err, ErrNoSuchTask) {
+			t.Errorf("Reach(%s) = %v, want ErrNoSuchTask", id, err)
+		}
+	}
+	if _, err := e.Reach(ctx, "architecture"); !errors.Is(err, ErrNoSuchTask) || len(fc.callLog()) != 3 {
+		t.Errorf("a word gave %v after %v, want ErrNoSuchTask with no request", err, fc.callLog())
+	}
+	fc.tasksByIDs = func(ids, fields []string) ([]wrike.Task, error) {
+		return nil, &wrike.APIError{StatusCode: http.StatusServiceUnavailable}
+	}
+	if _, err := e.Reach(ctx, "MAAAAAEPXpuV"); err == nil || errors.Is(err, ErrNoSuchTask) {
+		t.Errorf("a 503 gave %v, want another error", err)
+	}
+}
+
+func TestReachReferencedFetchesOneHopAndSkipsTheUnanswered(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Timelogs().Upsert(ctx, []store.Timelog{{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: "2026-10-20", Hours: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	seedTaskWithDependency(t, st, "T1", "D1")
+	if err := st.Dependencies().ReplaceForTask(ctx, "T1", []store.Dependency{{ID: "D1", PredecessorID: "T1", SuccessorID: "T8"}}); err != nil {
+		t.Fatal(err)
+	}
+	stampedTask(t, st, "T2", "reached")
+	if err := st.Dependencies().ReplaceForTask(ctx, "T2", []store.Dependency{{ID: "D2", PredecessorID: "T6", SuccessorID: "T2"}}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T8", "the other end")}, nil
+	}}
+	skip := map[string]bool{}
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	changed, err := reachReferenced(ctx, fc, st, skip, slog.Default(), now)
+	if err != nil || !changed {
+		t.Fatalf("reachReferenced = %v, %v, want a change", changed, err)
+	}
+	if ids, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || !reflect.DeepEqual(ids, []string{"T2", "T8"}) {
+		t.Errorf("ReachedIDs = %v, %v, want T2 and T8, never T6 behind the reached T2", ids, err)
+	}
+	if changed, err := reachReferenced(ctx, fc, st, skip, slog.Default(), now); err != nil || changed {
+		t.Errorf("second pass = %v, %v, want nothing, T9 is skipped", changed, err)
+	}
+	if log := fc.callLog(); !reflect.DeepEqual(log, []string{"TasksByIDs T8,T9"}) {
+		t.Errorf("calls = %v, want one batch", log)
+	}
+	delete(skip, "T9")
+	if _, err := reachReferenced(ctx, fc, st, skip, slog.Default(), now); err != nil {
+		t.Fatal(err)
+	}
+	if log := fc.callLog(); len(log) != 2 || log[1] != "TasksByIDs T9" {
+		t.Errorf("calls = %v, want T9 asked again once forgotten", log)
+	}
+}
+
+func TestCycleRereadsStampedTasksAndDropsTheMissing(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	stampedTask(t, st, "T5", "old title")
+	stampedTask(t, st, "T6", "gone on Wrike")
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T5", "new title")}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	if _, err := e.Once(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if task, err := st.Tasks().Get(ctx, "T5"); err != nil || task.Title != "new title" {
+		t.Errorf("T5 = %+v, %v, want the re-read title", task, err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T6"); err == nil {
+		t.Error("T6 survived a re-read that did not answer it")
+	}
+}
+
+func TestPollRereadsOnlyTheOpenedStampedTasks(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	stampedTask(t, st, "T5", "opened")
+	stampedTask(t, st, "T6", "never opened")
+	if err := st.Tasks().MarkOpened(ctx, "T5", time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T5", "opened")}, nil
+	}}
+	e := New(fc, st, Config{}, nil)
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	var byIDs []string
+	for _, c := range fc.callLog() {
+		if strings.HasPrefix(c, "TasksByIDs ") {
+			byIDs = append(byIDs, c)
+		}
+	}
+	if !reflect.DeepEqual(byIDs, []string{"TasksByIDs T5"}) {
+		t.Errorf("by id calls = %v, want T5 alone", byIDs)
+	}
+	if _, err := st.Tasks().Get(ctx, "T6"); err != nil {
+		t.Errorf("T6 was dropped by a poll that never asked for it: %v", err)
+	}
+}
