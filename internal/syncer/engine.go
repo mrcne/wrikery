@@ -370,7 +370,9 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if manual {
 		clear(e.unreached)
 	}
-	reached, err := reachReferenced(ctx, e.client, e.st, e.unreached, e.log, time.Now())
+	// The time entries count inside the window the pull keeps current, the rows outside it outlive their tasks.
+	timelogFrom, _ := store.TimelogWindow(time.Now())
+	reached, err := reachReferenced(ctx, e.client, e.st, meID, timelogFrom, e.unreached, e.log, time.Now())
 	if err != nil {
 		return err
 	}

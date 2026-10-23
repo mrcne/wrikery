@@ -82,7 +82,8 @@ Above it are the status, the assignees, the dates, the importance when it is not
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
-A related task that lives in a space you do not follow is fetched on its own at the next sync, and until then, or when Wrike does not share it with you, the line says so instead of a title.
+A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
+The related tasks of a task that was itself fetched this way are not fetched in turn, their lines stay as they are.
 Attachments are counted only, their names and the files stay in the web application, `o` opens the task there.
 Single key actions on the selected task:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.

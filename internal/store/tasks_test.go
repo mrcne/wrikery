@@ -633,14 +633,14 @@ func TestApplyPageClearsTheStampAndUpsertKeepsIt(t *testing.T) {
 	if got, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || len(got) != 0 {
 		t.Errorf("after a scope pull ReachedIDs = %v, %v, want none", got, err)
 	}
-	if err := st.Tasks().UpsertReached(ctx, []Task{makeTask("T1", "one")}, "2026-10-22T10:00:00Z"); err != nil {
+	if err := st.Tasks().UpsertReached(ctx, []Task{makeTask("T2", "two")}, "2026-10-22T10:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "one again")}); err != nil {
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T2", "two again")}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || !reflect.DeepEqual(got, []string{"T1"}) {
-		t.Errorf("after a plain upsert ReachedIDs = %v, %v, want T1", got, err)
+	if got, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || !reflect.DeepEqual(got, []string{"T2"}) {
+		t.Errorf("after a plain upsert ReachedIDs = %v, %v, want T2", got, err)
 	}
 }
 
@@ -694,6 +694,8 @@ func TestMissingReferencedIDsIsOneHopFromUnstampedTasks(t *testing.T) {
 	if err := st.Timelogs().Upsert(ctx, []Timelog{
 		{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: "2026-10-20", Hours: 1},
 		{ID: "L2", TaskID: "local:4", UserID: "U1", TrackedDate: "2026-10-20", Hours: 1},
+		{ID: "L3", TaskID: "T10", UserID: "U2", TrackedDate: "2026-10-20", Hours: 1},
+		{ID: "L4", TaskID: "T11", UserID: "U1", TrackedDate: "2020-01-01", Hours: 1},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -714,10 +716,48 @@ func TestMissingReferencedIDsIsOneHopFromUnstampedTasks(t *testing.T) {
 	if err := st.Dependencies().ReplaceForTask(ctx, "T2", []Dependency{edge("D2", "T6", "T2")}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := st.Tasks().MissingReferencedIDs(ctx, 10); err != nil || !reflect.DeepEqual(got, []string{"T7", "T8", "T9"}) {
+	// Another person's entry and an own entry older than the synced window name nothing, those rows outlive their tasks.
+	if got, err := st.Tasks().MissingReferencedIDs(ctx, "U1", "2026-08-24", 10); err != nil || !reflect.DeepEqual(got, []string{"T7", "T8", "T9"}) {
 		t.Errorf("MissingReferencedIDs = %v, %v, want T7 T8 T9", got, err)
 	}
-	if got, err := st.Tasks().MissingReferencedIDs(ctx, 2); err != nil || len(got) != 2 {
+	if got, err := st.Tasks().MissingReferencedIDs(ctx, "U1", "2026-08-24", 2); err != nil || len(got) != 2 {
 		t.Errorf("MissingReferencedIDs(limit 2) = %v, %v", got, err)
+	}
+}
+
+// A reach decides "not cached" before the request, and a scope pull can land in between.
+// The stamp then goes to the rows the reach created, a task a scope lists stays a plain task.
+func TestUpsertReachedLeavesAnExistingRowUnstamped(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "pulled meanwhile")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().UpsertReached(ctx, []Task{makeTask("T1", "pulled, read again"), makeTask("T2", "new")}, "2026-10-22T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Tasks().ReachedIDs(ctx, ""); err != nil || !reflect.DeepEqual(got, []string{"T2"}) {
+		t.Errorf("ReachedIDs = %v, %v, want T2 alone", got, err)
+	}
+	if task, err := st.Tasks().Get(ctx, "T1"); err != nil || task.Title != "pulled, read again" {
+		t.Errorf("T1 = %+v, %v, want the fresh title", task, err)
+	}
+}
+
+func TestByRefLooksUpAnIdOrANumber(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "linked")
+	task.Permalink = "https://www.wrike.com/open.htm?id=4552825749"
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []TaskRef{{Kind: RefID, Value: "T1"}, {Kind: RefNumber, Value: "4552825749"}} {
+		if got, err := st.Tasks().ByRef(ctx, ref); err != nil || got.ID != "T1" {
+			t.Errorf("ByRef(%+v) = %+v, %v", ref, got, err)
+		}
+	}
+	if _, err := st.Tasks().ByRef(ctx, TaskRef{Kind: RefNumber, Value: "1"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("an unknown number gave %v, want ErrNotFound", err)
 	}
 }

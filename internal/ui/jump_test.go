@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -185,5 +186,53 @@ func TestRunSearchPutsACachedReferenceFirstAndNamesAnUncachedOne(t *testing.T) {
 	res = m.runSearch(3, "fix auth")().(searchResultsMsg)
 	if len(res.tasks) == 0 || res.ref != "" {
 		t.Errorf("a fragment gave %+v, ref %q, want hits and no reach", res.tasks, res.ref)
+	}
+}
+
+// An answer lands only on the ask it belongs to: the same text in a later search, or in pick mode, is another ask.
+func TestReachedAnswerIsMatchedToTheAsk(t *testing.T) {
+	m := demoModel(t)
+	m = pump(m, tea.KeyMsg{Type: tea.KeyCtrlF})
+	m.search, _ = m.search.Update(searchResultsMsg{seq: m.search.seq, ref: "MAAAAAEPXpuV"})
+	m.search, _ = m.search.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	stale := reachedMsg{text: "MAAAAAEPXpuV", seq: m.search.seq - 1, origin: reachFromSearch, err: ErrNoSuchTask}
+	next, _ := m.Update(stale)
+	m = next.(Model)
+	if m.search.failed != "" || !m.search.fetching {
+		t.Errorf("a stale answer landed: failed %q, fetching %v", m.search.failed, m.search.fetching)
+	}
+	fresh := stale
+	fresh.seq = m.search.seq
+	next, _ = m.Update(fresh)
+	m = next.(Model)
+	if m.search.failed != "no task with this id on Wrike, or no access" || m.search.fetching {
+		t.Errorf("the answer did not land: failed %q, fetching %v", m.search.failed, m.search.fetching)
+	}
+}
+
+// The timesheet answer opens the task beside the grid and reads the week again, the one reload the row needs.
+func TestReachedFromTheTimesheetOpensBesideAndReloadsTheWeek(t *testing.T) {
+	m := demoModel(t)
+	m.screen = screenTimesheet
+	m.timesheet.fetching = "T9"
+	next, cmd := m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, task: store.Task{ID: "T9"}})
+	m = next.(Model)
+	var beside, week bool
+	for _, msg := range collect(cmd) {
+		switch msg := msg.(type) {
+		case openBesideMsg:
+			beside = msg.id == "T9"
+		case weekLoadedMsg:
+			week = true
+		}
+	}
+	if !beside || !week || m.timesheet.fetching != "" {
+		t.Errorf("beside %v, week %v, fetching %q", beside, week, m.timesheet.fetching)
+	}
+	m.timesheet.fetching = "T9"
+	next, _ = m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, err: ErrNoSuchTask})
+	m = next.(Model)
+	if !strings.Contains(m.status.toast, "no task with this id") || m.timesheet.fetching != "" {
+		t.Errorf("toast %q, fetching %q", m.status.toast, m.timesheet.fetching)
 	}
 }

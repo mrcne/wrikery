@@ -13,14 +13,19 @@ import (
 )
 
 // errUncached says the argument names one task by id, number or link and the cache does not hold it,
-// so the command can fetch it from Wrike before it goes on. A title fragment never gets it.
-type errUncached struct{ arg string }
+// so the command can fetch it from Wrike before it goes on.
+// A title fragment never gets it.
+type errUncached struct {
+	arg string
+	ref store.TaskRef
+}
 
 func (e *errUncached) Error() string { return fmt.Sprintf("no task %q in the cache", e.arg) }
 
 // resolveOrReach resolves a task argument, and fetches a link, a number or an id the cache lacks from Wrike first.
 // This is the one read that talks to Wrike, so the sign in and the host are checked only once the cache misses,
-// and a cached task costs none of it. The code is exitOK or the failure already printed.
+// and a cached task costs none of it.
+// The code is exitOK or the failure already printed.
 func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) {
 	t, err := resolveTask(ctx, env.Store, arg)
 	var uncached *errUncached
@@ -42,7 +47,7 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 		ctx, cancel = context.WithTimeout(ctx, env.Deadline)
 		defer cancel()
 	}
-	t, err = eng.Reach(ctx, arg)
+	t, err = eng.Reach(ctx, uncached.ref)
 	switch {
 	case errors.Is(err, syncer.ErrNoSuchTask):
 		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access", arg))
@@ -70,20 +75,15 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	if !errors.Is(err, store.ErrNotFound) {
 		return store.Task{}, err
 	}
-	if number, isLink := linkNumber(arg); isLink {
-		if number == "" {
-			return store.Task{}, fmt.Errorf("%q is not a Wrike task link", arg)
-		}
-		t, err := st.Tasks().ByPermalinkID(ctx, number)
-		if errors.Is(err, store.ErrNotFound) {
-			return store.Task{}, &errUncached{arg: arg}
-		}
-		return t, err
-	} else if isDigits(arg) {
+	ref, isRef := store.ParseTaskRef(arg)
+	if !isRef && strings.Contains(arg, "open.htm?id=") {
+		return store.Task{}, fmt.Errorf("%q is not a Wrike task link", arg)
+	}
+	if isRef && ref.Kind == store.RefNumber {
 		// A number is never a title fragment, "12" would otherwise pick the one task titled "Release 1.12" when task 12 is not cached.
-		t, err := st.Tasks().ByPermalinkID(ctx, arg)
+		t, err := st.Tasks().ByRef(ctx, ref)
 		if errors.Is(err, store.ErrNotFound) {
-			return store.Task{}, &errUncached{arg: arg}
+			return store.Task{}, &errUncached{arg: arg, ref: ref}
 		}
 		return t, err
 	}
@@ -94,8 +94,8 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 	switch len(hits) {
 	case 0:
 		// An argument shaped like an id is tried as a fragment first, a word can have that shape, and fetched only when no title has it.
-		if _, ok := store.ParseTaskRef(arg); ok {
-			return store.Task{}, &errUncached{arg: arg}
+		if isRef {
+			return store.Task{}, &errUncached{arg: arg, ref: ref}
 		}
 		return store.Task{}, fmt.Errorf("no task matching %q in the cache, follow its space or run wrikery sync", arg)
 	case 1:
@@ -113,20 +113,6 @@ func resolveTask(ctx context.Context, st *store.Store, arg string) (store.Task, 
 		lines = append(lines, h.ID+"  "+h.Title)
 	}
 	return store.Task{}, ambiguous(arg, "tasks", lines)
-}
-
-// linkNumber reports whether arg is a Wrike link and gives the digits after id=, empty when there are none.
-// The host is ignored, a link from app-eu.wrike.com is the same task as the cached www.wrike.com one.
-func linkNumber(arg string) (number string, isLink bool) {
-	_, rest, found := strings.Cut(arg, "open.htm?id=")
-	if !found {
-		return "", false
-	}
-	end := 0
-	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
-		end++
-	}
-	return rest[:end], true
 }
 
 // exactTitle gives the index of the one title equal to arg, or -1 when there is none or more than one.
@@ -155,18 +141,6 @@ func onlyMatch(titles []string, accept func(string) bool) int {
 		found = i
 	}
 	return found
-}
-
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func resolveFolder(ctx context.Context, st *store.Store, arg string) (store.Folder, error) {

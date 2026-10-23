@@ -216,27 +216,6 @@ func TestResolveFolderRefusesAnEmptyArgument(t *testing.T) {
 	}
 }
 
-func TestLinkNumber(t *testing.T) {
-	for _, tc := range []struct {
-		arg    string
-		number string
-		isLink bool
-	}{
-		{"https://app-eu.wrike.com/open.htm?id=4552825748", "4552825748", true},
-		{"https://www.wrike.com/open.htm?id=1&foo=bar", "1", true},
-		{"https://www.wrike.com/open.htm?id=15#comments", "15", true},
-		{"open.htm?id=", "", true},
-		{"https://www.wrike.com/open.htm?id=abc", "", true},
-		{"4552825748", "", false},
-		{"licence file", "", false},
-	} {
-		number, isLink := linkNumber(tc.arg)
-		if number != tc.number || isLink != tc.isLink {
-			t.Errorf("linkNumber(%q) = %q, %v, want %q, %v", tc.arg, number, isLink, tc.number, tc.isLink)
-		}
-	}
-}
-
 func TestResolveTaskTakesABrowserNumberOrLink(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)

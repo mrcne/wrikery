@@ -113,9 +113,11 @@ The first day of the window is written to the meta table, and the timesheet mark
 A task outside the followed scopes is fetched on its own: by id with the task read that takes several ids, or by the number from its link through the permalink filter of the task search, which takes the whole link and ignores the host in it.
 The read by id answers the description, the people, the folders and the relations without being asked and refuses those names in its fields parameter, so it is sent with the attachment count alone (checked on the live account on 2026-10-22).
 A task the user cannot see is simply missing from the answer, and a single unknown id answers 404.
+A task in the Recycle Bin is still answered, with the scope RbTask, and counts as no answer: a fetch of it says there is no such task, and a re-read that gets it drops the cached task.
 Such a task carries a stamp in the tasks table with the time it was fetched, renewed when the user opens it.
 The sweep keeps a stamped task for thirty days after that, a scope pull that lists the task clears the stamp, and the upsert of a write's answer leaves it alone.
-Every cycle fetches, in one request, the tasks the cache lacks that a time entry names or that a relation of a task without a stamp names, one hop from what the user follows, and it remembers the ids Wrike did not answer until the next manual cycle.
+Every cycle fetches, in one request, the tasks the cache lacks that one of the user's own time entries inside the synced window names, or that a relation of a task without a stamp names, one hop from what the user follows, and it remembers the ids Wrike did not answer until the next manual cycle.
+The window matters because time entry rows outlive their tasks, the rows of other people a thread refresh stored and the user's own rows older than the window would otherwise bring an unfollowed task back for good.
 No scope poll covers a fetched task, so a poll reads the stamped tasks opened in the thread window again and a manual cycle reads all of them, and a task missing from that answer is deleted.
 The interface asks for such a fetch through a hook, the way it asks for a token check, and a command fetches a task argument the cache lacks before it goes on.
 A fetch runs without the sync lock, it writes task rows in one transaction and touches no cursor.

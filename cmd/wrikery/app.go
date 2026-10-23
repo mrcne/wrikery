@@ -126,14 +126,19 @@ func (a *app) hooks() ui.Hooks {
 		VerifyToken: a.verifyToken,
 		OpenURL:     openURL,
 		Copy:        copyText,
-		Reach: func(ctx context.Context, ref string) (store.Task, error) {
+		Reach: func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
 			e := a.current()
 			if e == nil {
-				return store.Task{}, errors.New("not signed in")
+				return store.Task{}, ui.ErrSignInNeeded
 			}
 			t, err := e.Reach(ctx, ref)
-			if errors.Is(err, syncer.ErrNoSuchTask) {
+			var apiErr *wrike.APIError
+			switch {
+			case errors.Is(err, syncer.ErrNoSuchTask):
 				return t, ui.ErrNoSuchTask
+			case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+				// The engine shows the sign in screen after its own next cycle, the row points there now.
+				return t, ui.ErrSignInNeeded
 			}
 			return t, err
 		},

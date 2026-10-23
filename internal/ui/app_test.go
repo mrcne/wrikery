@@ -1567,7 +1567,7 @@ func TestLogTimeBoxOffersTheEarlierNotesOfTheTask(t *testing.T) {
 func reachingOptions(t *testing.T, st *store.Store) ui.Options {
 	t.Helper()
 	opts := testOptions(st)
-	opts.Hooks.Reach = func(ctx context.Context, ref string) (store.Task, error) {
+	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
 		task := store.Task{ID: "MAAAAAEPXpuV", Title: "Outside the scopes", Status: "Active",
 			Permalink: "https://www.wrike.com/open.htm?id=9900000", CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}
 		if err := st.Tasks().UpsertReached(ctx, []store.Task{task}, "2026-10-22T10:00:00Z"); err != nil {
@@ -1599,7 +1599,9 @@ func TestQuickSearchFetchesAnUncachedTaskFromWrike(t *testing.T) {
 func TestQuickSearchReachRowSaysNoSuchTask(t *testing.T) {
 	st := seededStore(t)
 	opts := testOptions(st)
-	opts.Hooks.Reach = func(ctx context.Context, ref string) (store.Task, error) { return store.Task{}, ui.ErrNoSuchTask }
+	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+		return store.Task{}, ui.ErrNoSuchTask
+	}
 	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")

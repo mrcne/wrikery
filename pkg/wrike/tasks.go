@@ -32,6 +32,9 @@ type Task struct {
 	Dates           *TaskDates `json:"dates"`
 	CreatedDate     time.Time  `json:"createdDate"`
 	UpdatedDate     time.Time  `json:"updatedDate"`
+	// Scope is WsTask for a task in the account and RbTask for one in the Recycle Bin, the TreeScope values of the reference.
+	// A read by id still answers a deleted task, with RbTask, while the searches leave it out (seen on the live account on 2026-10-08).
+	Scope string `json:"scope"`
 }
 
 // TaskDates keeps start and due as the API's zone-less strings.

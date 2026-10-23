@@ -33,9 +33,11 @@ type TaskRepo interface {
 	UpsertReached(ctx context.Context, tasks []Task, at string) error
 	// ReachedIDs lists the stamped tasks, only those opened since openedSince when it is not empty.
 	ReachedIDs(ctx context.Context, openedSince string) ([]string, error)
-	// MissingReferencedIDs lists up to limit ids the cache lacks that a time entry names, or a relation of a task without a stamp,
-	// so a reach of them is one hop from what the user follows and never crawls a foreign plan.
-	MissingReferencedIDs(ctx context.Context, limit int) ([]string, error)
+	// MissingReferencedIDs lists up to limit ids the cache lacks that an entry of userID tracked since the given day names,
+	// or a relation of a task without a stamp, so a reach of them is one hop from what the user follows and never crawls a foreign plan.
+	MissingReferencedIDs(ctx context.Context, userID, since string, limit int) ([]string, error)
+	// ByRef reads the task a reference names, by id or by the number from its link.
+	ByRef(ctx context.Context, ref TaskRef) (Task, error)
 }
 
 // ReachKeepDays is how long a reached task stays in the cache after the last reach or open.
@@ -57,7 +59,8 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
+// clearStamp drops the reach stamp of a row that is already there, what a scope pull does, see ApplyPage.
+func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, clearStamp bool) error {
 	for _, t := range tasks {
 		var dType, dStart, dDue any
 		var dDur any
@@ -77,10 +80,11 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task) error {
 				permalink = excluded.permalink, dates_type = excluded.dates_type,
 				dates_duration = excluded.dates_duration, dates_start = excluded.dates_start,
 				dates_due = excluded.dates_due, created_date = excluded.created_date,
-				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count`,
+				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count,
+				reached_at = CASE WHEN ? THEN NULL ELSE reached_at END`,
 			t.ID, t.Title, t.Description, StripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
-			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount); err != nil {
+			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, clearStamp); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -139,17 +143,10 @@ func (t taskRepo) ApplyPage(ctx context.Context, scopeID string, tasks []Task, c
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := upsertTasksTx(ctx, tx, tasks); err != nil {
-		return err
-	}
 	// A task a followed scope lists is a normal task from then on, the reach stamp would only keep re-reading it.
 	// The drain's upsert of a write's answer comes without a scope and leaves the stamp alone.
-	if scopeID != "" {
-		for _, t := range tasks {
-			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET reached_at = NULL WHERE id = ?`, t.ID); err != nil {
-				return err
-			}
-		}
+	if err := upsertTasksTx(ctx, tx, tasks, scopeID != ""); err != nil {
+		return err
 	}
 	if cursor != "" {
 		res, err := tx.ExecContext(ctx, `
@@ -306,21 +303,44 @@ func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 	return nil
 }
 
+// UpsertReached stamps only the rows it creates.
+// The callers decide that a task is not cached before the request, and a scope pull can land in between,
+// so a row that is already there is a task a scope lists, or a reached one with a stamp of its own, and keeps what it has.
 func (t taskRepo) UpsertReached(ctx context.Context, tasks []Task, at string) error {
 	tx, err := t.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := upsertTasksTx(ctx, tx, tasks); err != nil {
+	existing := map[string]bool{}
+	for _, task := range tasks {
+		var id string
+		switch err := tx.QueryRowContext(ctx, `SELECT id FROM tasks WHERE id = ?`, task.ID).Scan(&id); {
+		case err == nil:
+			existing[id] = true
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+	}
+	if err := upsertTasksTx(ctx, tx, tasks, false); err != nil {
 		return err
 	}
 	for _, task := range tasks {
+		if existing[task.ID] {
+			continue
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET reached_at = ? WHERE id = ?`, at, task.ID); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+func (t taskRepo) ByRef(ctx context.Context, ref TaskRef) (Task, error) {
+	if ref.Kind == RefNumber {
+		return t.ByPermalinkID(ctx, ref.Value)
+	}
+	return t.Get(ctx, ref.Value)
 }
 
 func (t taskRepo) ReachedIDs(ctx context.Context, openedSince string) ([]string, error) {
@@ -329,16 +349,18 @@ func (t taskRepo) ReachedIDs(ctx context.Context, openedSince string) ([]string,
 		ORDER BY id`, openedSince, openedSince)
 }
 
-func (t taskRepo) MissingReferencedIDs(ctx context.Context, limit int) ([]string, error) {
+func (t taskRepo) MissingReferencedIDs(ctx context.Context, userID, since string, limit int) ([]string, error) {
 	// An edge or a super link counts only from a task without a stamp, the relations of a reached task are not followed.
+	// A time entry counts only inside the window the pull keeps current: the rows of other people a thread refresh stored,
+	// and the user's own rows older than the window, outlive their tasks and would bring an unfollowed task back for good.
 	return t.stringColumn(ctx, `
 		SELECT ref FROM (
-			SELECT task_id AS ref FROM timelogs
+			SELECT task_id AS ref FROM timelogs WHERE user_id = ? AND tracked_date >= ?
 			UNION SELECT d.predecessor_id FROM dependencies d JOIN tasks t ON t.id = d.successor_id AND t.reached_at IS NULL
 			UNION SELECT d.successor_id FROM dependencies d JOIN tasks t ON t.id = d.predecessor_id AND t.reached_at IS NULL
 			UNION SELECT s.super_id FROM task_supertasks s JOIN tasks t ON t.id = s.task_id AND t.reached_at IS NULL
 		) WHERE ref NOT IN (SELECT id FROM tasks) AND ref NOT LIKE ?
-		ORDER BY ref LIMIT ?`, LocalIDPrefix+"%", limit)
+		ORDER BY ref LIMIT ?`, userID, since, LocalIDPrefix+"%", limit)
 }
 
 func (t taskRepo) RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error) {

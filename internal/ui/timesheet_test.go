@@ -672,7 +672,7 @@ func TestTimesheetEnterOnAnUncachedRowAsksTheReach(t *testing.T) {
 		logs:      []store.Timelog{{ID: "c", TaskID: "T9", TrackedDate: "2026-09-03", Hours: 1}},
 		titles:    map[string]string{"T9": ""},
 	})
-	_, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	ts, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	var reach *reachMsg
 	var toast *toastMsg
 	for _, msg := range collect(cmd) {
@@ -683,10 +683,14 @@ func TestTimesheetEnterOnAnUncachedRowAsksTheReach(t *testing.T) {
 			toast = &m
 		}
 	}
-	if reach == nil || *reach != (reachMsg{ref: "T9", origin: reachFromTimesheet}) {
+	if reach == nil || *reach != (reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet}) {
 		t.Errorf("enter sent no reach for T9: %#v", collect(cmd))
 	}
 	if toast == nil || toast.text != "fetching from Wrike..." || toast.isErr {
 		t.Errorf("toast = %#v, want the fetching note", toast)
+	}
+	// A second enter while the fetch runs sends nothing more, the week reload ends the wait.
+	if _, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Errorf("a second enter sent %#v", collect(cmd))
 	}
 }

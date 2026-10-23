@@ -12,9 +12,13 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// ErrNoSuchTask is the answer to a reach for a task Wrike does not list for this user, which reads the same from outside
-// whether the task does not exist or the user has no access to it.
+// ErrNoSuchTask is the answer to a reach for a task Wrike does not list for this user.
+// A task that does not exist, one the user has no access to and one in the Recycle Bin read the same from outside.
 var ErrNoSuchTask = errors.New("sync: no such task on Wrike, or no access")
+
+// scopeRecycleBin is the TreeScope of a deleted task (https://developers.wrike.com/api/v4/tasks/).
+// A read by id still answers such a task, the searches leave it out, so the reach treats it as no answer.
+const scopeRecycleBin = "RbTask"
 
 // The by id call answers the description, the people, the folders, the super tasks and the dependency ids without being asked
 // and refuses those names in fields with 400 invalid_parameter, only the attachment count has to be asked for
@@ -30,27 +34,27 @@ func permalinkFor(number string) string { return "https://www.wrike.com/open.htm
 
 // Reach fetches one task the followed scopes do not cover, by id or by the number from its link, and caches it with the reach stamp.
 // It runs without the sync lock: it writes task rows in one transaction and touches no cursor, so it can run while a cycle does.
-// A 404, a 400 for a malformed id, and an answer without the task all mean ErrNoSuchTask.
-func (e *Engine) Reach(ctx context.Context, ref string) (store.Task, error) {
-	r, ok := store.ParseTaskRef(ref)
-	if !ok {
-		return store.Task{}, ErrNoSuchTask
-	}
+// A 404, a 400 for a malformed id, an answer without the task and a task in the Recycle Bin all mean ErrNoSuchTask.
+// A 400 about the request itself, a field the call refuses for example, is not about the task and travels up as it is.
+func (e *Engine) Reach(ctx context.Context, ref store.TaskRef) (store.Task, error) {
 	var found []wrike.Task
 	var err error
-	if r.Kind == store.RefNumber {
+	if ref.Kind == store.RefNumber {
+		// A subtask without a folder of its own is listed only with subTasks, as in the scope pull, and a pasted link is often one.
 		var page wrike.TasksPage
-		page, err = e.client.Tasks(ctx, wrike.TaskParams{Permalink: permalinkFor(r.Value), Fields: pullFields})
+		page, err = e.client.Tasks(ctx, wrike.TaskParams{Permalink: permalinkFor(ref.Value), SubTasks: true, Fields: pullFields})
 		found = page.Tasks
 	} else {
-		found, err = e.client.TasksByIDs(ctx, []string{r.Value}, reachFields)
+		found, err = e.client.TasksByIDs(ctx, []string{ref.Value}, reachFields)
 	}
 	switch {
-	case isNotFound(err) || isBadRequest(err):
+	case isNotFound(err) || isMalformedID(err):
 		return store.Task{}, ErrNoSuchTask
 	case err != nil:
 		return store.Task{}, err
-	case len(found) == 0:
+	}
+	found = live(found)
+	if len(found) == 0 {
 		return store.Task{}, ErrNoSuchTask
 	}
 	if err := e.st.Tasks().UpsertReached(ctx, tasksFromWrike(found[:1]), rfc3339(time.Now())); err != nil {
@@ -60,16 +64,24 @@ func (e *Engine) Reach(ctx context.Context, ref string) (store.Task, error) {
 	return e.st.Tasks().Get(ctx, found[0].ID)
 }
 
-func isBadRequest(err error) bool {
+// isMalformedID is the 400 for an id Wrike cannot parse, "Invalid Task ID" with the code invalid_request
+// (seen on the live account on 2026-10-22), as opposed to a 400 about a parameter of the request.
+func isMalformedID(err error) bool {
 	var apiErr *wrike.APIError
-	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "invalid_request"
+}
+
+// live drops the tasks an answer carries from the Recycle Bin, the reach treats them as not answered.
+func live(tasks []wrike.Task) []wrike.Task {
+	return slices.DeleteFunc(tasks, func(t wrike.Task) bool { return t.Scope == scopeRecycleBin })
 }
 
 // reachReferenced fetches the tasks a time entry or a relation of a followed task names and the cache lacks, one request a cycle.
 // An id Wrike does not answer, or a batch it rejects for good, joins skip and is not asked again until the caller forgets it,
 // so a related task the user cannot see costs one request and not one per minute.
-func reachReferenced(ctx context.Context, c Client, st *store.Store, skip map[string]bool, log *slog.Logger, now time.Time) (bool, error) {
-	missing, err := st.Tasks().MissingReferencedIDs(ctx, reachBatch)
+// The query reads past the skipped ids, so a batch of them never hides the ids sorted behind it.
+func reachReferenced(ctx context.Context, c Client, st *store.Store, meID, since string, skip map[string]bool, log *slog.Logger, now time.Time) (bool, error) {
+	missing, err := st.Tasks().MissingReferencedIDs(ctx, meID, since, reachBatch+len(skip))
 	if err != nil {
 		return false, err
 	}
@@ -77,6 +89,7 @@ func reachReferenced(ctx context.Context, c Client, st *store.Store, skip map[st
 	if len(ids) == 0 {
 		return false, nil
 	}
+	ids = ids[:min(len(ids), reachBatch)]
 	found, err := c.TasksByIDs(ctx, ids, reachFields)
 	switch {
 	case isNotFound(err):
@@ -88,6 +101,7 @@ func reachReferenced(ctx context.Context, c Client, st *store.Store, skip map[st
 	case err != nil:
 		return false, err
 	}
+	found = live(found)
 	answered := map[string]bool{}
 	for _, t := range found {
 		answered[t.ID] = true
@@ -120,6 +134,8 @@ func rereadReached(ctx context.Context, c Client, st *store.Store, ids []string,
 		case err != nil:
 			return changed, err
 		}
+		// A task moved to the Recycle Bin is answered with that scope, the re-read drops it like one that is gone.
+		found = live(found)
 		answered := map[string]bool{}
 		for _, t := range found {
 			answered[t.ID] = true

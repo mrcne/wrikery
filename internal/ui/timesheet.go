@@ -37,6 +37,7 @@ type timesheetModel struct {
 	states      map[string]store.OutboxState
 	cursorRow   int // len(rows) is the empty row for adding on a new task
 	cursorDay   int
+	fetching    string // the task a reach runs for, enter on its row waits for the answer or for the week to load again
 	offset      int    // first task row drawn, scrolls the rows to keep cursorRow in the visible window
 	height      int    // set by the root from the computed layout, View cannot remember it on its own
 	focusTask   string // task picked for a new entry, the next reload puts the cursor on its row
@@ -64,6 +65,7 @@ type pickEntryMsg struct {
 }
 
 func (t *timesheetModel) set(msg weekLoadedMsg) {
+	t.fetching = ""
 	prevTask := ""
 	if t.cursorRow < len(t.rows) {
 		prevTask = t.rows[t.cursorRow].taskID
@@ -231,8 +233,14 @@ func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
 		if r := t.cursorRow; r < len(t.rows) {
 			if !t.rows[r].cached {
 				// The sync brings such a task on its own, a row still without one asks Wrike for it now.
+				// The id came from Wrike, so it goes as an id and not through the guess made for typed text.
+				id := t.rows[r].taskID
+				if t.fetching == id {
+					return t, nil
+				}
+				t.fetching = id
 				return t, tea.Batch(intent(toastMsg{text: "fetching from Wrike..."}),
-					intent(reachMsg{ref: t.rows[r].taskID, origin: reachFromTimesheet}))
+					intent(reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: id}, text: id, origin: reachFromTimesheet}))
 			}
 			return t, intent(openBesideMsg{id: t.rows[r].taskID})
 		}

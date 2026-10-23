@@ -369,26 +369,28 @@ func (m Model) loadNotes(taskID, current string) tea.Cmd {
 var errReachUnavailable = errors.New("not available in the demo")
 
 // reach asks the engine for a task the cache lacks, through the hook, so the interface itself never talks to Wrike.
-func (m Model) reach(ref string, origin reachOrigin) tea.Cmd {
+func (m Model) reach(ask reachMsg) tea.Cmd {
 	hook := m.opts.Hooks.Reach
 	return func() tea.Msg {
+		answer := reachedMsg{ref: ask.ref, text: ask.text, seq: ask.seq, origin: ask.origin}
 		if hook == nil {
-			return reachedMsg{ref: ref, origin: origin, err: errReachUnavailable}
+			answer.err = errReachUnavailable
+			return answer
 		}
-		task, err := hook(context.Background(), ref)
-		return reachedMsg{ref: ref, origin: origin, task: task, err: err}
+		answer.task, answer.err = hook(context.Background(), ask.ref)
+		return answer
 	}
 }
 
 // reachErrorText words a failed reach for the search row and the toast.
-func reachErrorText(ref string, err error) string {
+func reachErrorText(ref store.TaskRef, err error) string {
 	switch {
 	case errors.Is(err, ErrNoSuchTask):
-		if r, ok := store.ParseTaskRef(ref); ok && r.Kind == store.RefNumber {
+		if ref.Kind == store.RefNumber {
 			return "no task with this link on Wrike, or no access"
 		}
 		return "no task with this id on Wrike, or no access"
-	case errors.Is(err, errReachUnavailable):
+	case errors.Is(err, errReachUnavailable), errors.Is(err, ErrSignInNeeded):
 		return err.Error()
 	default:
 		return "Wrike could not be reached"

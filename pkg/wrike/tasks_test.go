@@ -379,3 +379,13 @@ func TestTasksOmitsSubTasksWhenNotAsked(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTasksByIDsDecodesTheScope(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[{"id":"IEAAAATSK9","title":"Deleted","scope":"RbTask"}]}`))
+	}))
+	tasks, err := c.TasksByIDs(context.Background(), []string{"IEAAAATSK9"}, nil)
+	if err != nil || len(tasks) != 1 || tasks[0].Scope != "RbTask" {
+		t.Errorf("tasks = %+v, %v, want the scope decoded", tasks, err)
+	}
+}

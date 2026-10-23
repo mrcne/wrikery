@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -98,8 +101,9 @@ func TestSearchShowsTheReachRowAndAsksOnEnter(t *testing.T) {
 	}
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
-	if len(msgs) != 1 || msgs[0] != (reachMsg{ref: "MAAAAAEPXpuV", origin: reachFromSearch}) {
-		t.Fatalf("enter on the row sent %#v, want a reachMsg from the search", msgs)
+	want := reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "MAAAAAEPXpuV"}, text: "MAAAAAEPXpuV", seq: 1, origin: reachFromSearch}
+	if len(msgs) != 1 || msgs[0] != want {
+		t.Fatalf("enter on the row sent %#v, want %#v", msgs, want)
 	}
 	s.fetching = true
 	if v := s.View(th, testWorkflows(), 60, 12); !contains(v, "fetching from Wrike...") {
@@ -132,7 +136,7 @@ func TestSearchKeepsTheTitleHitsAboveTheReachRow(t *testing.T) {
 		t.Fatalf("cursor = %d, want the third row, the reach row, and no further", s.cursor)
 	}
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if msgs := collect(cmd); len(msgs) != 1 || msgs[0] != (reachMsg{ref: "ReleaseNotes", origin: reachFromSearch}) {
+	if msgs := collect(cmd); len(msgs) != 1 || msgs[0].(reachMsg).ref != (store.TaskRef{Kind: store.RefID, Value: "ReleaseNotes"}) {
 		t.Errorf("enter on the last row sent %#v", msgs)
 	}
 	s.cursor = 0
@@ -147,18 +151,47 @@ func TestSearchPickModeReachesWithThePickOrigin(t *testing.T) {
 	s.pickMode, s.seq = true, 1
 	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "4552825749"})
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if msgs := collect(cmd); len(msgs) != 1 || msgs[0] != (reachMsg{ref: "4552825749", origin: reachFromPick}) {
+	want := reachMsg{ref: store.TaskRef{Kind: store.RefNumber, Value: "4552825749"}, text: "4552825749", seq: 1, origin: reachFromPick}
+	if msgs := collect(cmd); len(msgs) != 1 || msgs[0] != want {
 		t.Errorf("enter in pick mode sent %#v", msgs)
 	}
 }
 
-func contains(view, want string) bool { return len(view) > 0 && indexOf(view, want) >= 0 }
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
+// With more hits than the box shows, the reach row stays on screen under the count of the hidden ones,
+// and the cursor reaches it right after the last visible hit.
+func TestSearchKeepsTheReachRowVisibleBehindManyHits(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	s := newSearch(defaultKeyMap())
+	s.seq, s.visible = 1, 4
+	var hits []store.Task
+	for i := range 10 {
+		hits = append(hits, store.Task{ID: fmt.Sprintf("IEAATASK%02d", i), Title: fmt.Sprintf("Release %d", i)})
+	}
+	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "2026", tasks: hits})
+	v := ansi.Strip(s.View(th, testWorkflows(), 60, 4))
+	lines := strings.Split(v, "\n")
+	var more, row int
+	for i, l := range lines {
+		if strings.Contains(l, "... 7 more") {
+			more = i
+		}
+		if strings.Contains(l, "open from Wrike: 2026") {
+			row = i
 		}
 	}
-	return -1
+	if more == 0 || row != more+1 || strings.Contains(v, "Release 3") {
+		t.Errorf("want three hits, the count of the hidden ones and the reach row on the next line:\n%s", v)
+	}
+	down := tea.KeyMsg{Type: tea.KeyCtrlN}
+	for range 5 {
+		s, _ = s.Update(down)
+	}
+	if s.cursor != 3 {
+		t.Fatalf("cursor = %d, want the reach row right after the third hit", s.cursor)
+	}
+	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); len(collect(cmd)) != 1 {
+		t.Error("enter on the reach row sent nothing")
+	}
 }
+
+func contains(view, want string) bool { return strings.Contains(view, want) }

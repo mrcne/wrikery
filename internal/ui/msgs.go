@@ -104,11 +104,15 @@ const (
 )
 
 type reachMsg struct { // intent: fetch a task the cache lacks from Wrike
-	ref    string
+	ref    store.TaskRef
+	text   string // what the row shows, the typed text or the id, the answer is matched to it
+	seq    int    // the search seq at the ask, an answer to an older ask is dropped
 	origin reachOrigin
 }
 type reachedMsg struct { // the answer to a reachMsg, task or err
-	ref    string
+	ref    store.TaskRef
+	text   string
+	seq    int
 	origin reachOrigin
 	task   store.Task
 	err    error

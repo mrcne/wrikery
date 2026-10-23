@@ -447,7 +447,7 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 		Importance: cmp.Or(p.Importance, "Normal"), ResponsibleIDs: p.Responsibles, ParentIDs: []string{folderID},
 		CreatedDate: now, UpdatedDate: now,
 	}
-	if err := upsertTasksTx(ctx, tx, []Task{local}); err != nil {
+	if err := upsertTasksTx(ctx, tx, []Task{local}, false); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -772,7 +772,7 @@ func (o outboxRepo) CompleteTask(ctx context.Context, id int64, real Task) error
 	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
-	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
+	if err := upsertTasksTx(ctx, tx, []Task{real}, false); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -791,7 +791,7 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 	if err := o.finishTx(ctx, tx, id, StateSent); err != nil {
 		return err
 	}
-	if err := upsertTasksTx(ctx, tx, []Task{real}); err != nil {
+	if err := upsertTasksTx(ctx, tx, []Task{real}, false); err != nil {
 		return err
 	}
 	localID := LocalID(id)

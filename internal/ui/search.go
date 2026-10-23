@@ -24,6 +24,7 @@ type searchModel struct {
 	ref      string
 	fetching bool
 	failed   string
+	visible  int // rows the box can show, set by the root, the reach row stays inside them
 }
 
 func newSearch(keys KeyMap) searchModel {
@@ -85,20 +86,24 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 			}
 			return s, nil
 		case msg.Type == tea.KeyEnter:
+			if s.ref != "" && s.cursor == s.hitsShown() {
+				ref, ok := store.ParseTaskRef(s.ref)
+				if s.fetching || !ok {
+					return s, nil
+				}
+				s.fetching, s.failed = true, ""
+				origin := reachFromSearch
+				if s.pickMode {
+					origin = reachFromPick
+				}
+				return s, intent(reachMsg{ref: ref, text: s.ref, seq: s.seq, origin: origin})
+			}
 			if s.cursor < len(s.results) {
 				if s.pickMode {
 					return s, intent(searchPickMsg{task: s.results[s.cursor]})
 				}
 				t := s.results[s.cursor]
 				return s, intent(openTaskMsg{task: t})
-			}
-			if s.ref != "" && s.cursor == len(s.results) && !s.fetching {
-				s.fetching, s.failed = true, ""
-				origin := reachFromSearch
-				if s.pickMode {
-					origin = reachFromPick
-				}
-				return s, intent(reachMsg{ref: s.ref, origin: origin})
 			}
 			return s, nil
 		}
@@ -110,10 +115,19 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	return s, nil
 }
 
-// rowCount is the hits plus the reach row when the query is a reference the cache lacks.
+// hitsShown is how many hits the cursor walks: all of them, or one fewer than the box shows when the reach row needs the last line,
+// so the row is reached right after the last visible hit and never sits behind hidden ones.
+func (s searchModel) hitsShown() int {
+	if s.ref == "" || s.visible <= 0 {
+		return len(s.results)
+	}
+	return min(len(s.results), max(s.visible-1, 1))
+}
+
+// rowCount is the hits the cursor walks plus the reach row when the query is a reference the cache lacks.
 func (s searchModel) rowCount() int {
 	if s.ref != "" {
-		return len(s.results) + 1
+		return s.hitsShown() + 1
 	}
 	return len(s.results)
 }
@@ -143,9 +157,16 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 			b.WriteString(muted.Render("no matches"))
 		}
 	}
+	shown := maxRows
+	if s.ref != "" {
+		shown = max(maxRows-1, 1)
+	}
 	for i, t := range s.results {
-		if i >= maxRows {
-			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-maxRows)))
+		if i >= shown {
+			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-shown)))
+			if s.ref != "" {
+				b.WriteString("\n")
+			}
 			break
 		}
 		cs := ref.statusOf(t)
@@ -162,7 +183,7 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 		case s.failed != "":
 			label = s.failed
 		}
-		b.WriteString(rowLine(th, muted.Render(label), width-2, s.cursor == len(s.results), true) + "\n")
+		b.WriteString(rowLine(th, muted.Render(label), width-2, s.cursor == s.hitsShown(), true) + "\n")
 	}
 	title := "Search"
 	if s.pickMode {
