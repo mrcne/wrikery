@@ -91,6 +91,31 @@ type searchResultsMsg struct {
 	seq    int
 	tasks  []store.Task
 	crumbs map[string]string
+	ref    string // the query as a task reference the cache lacks, drawn as the row that fetches it from Wrike, else empty
+}
+
+// reachOrigin says who asked for a task from outside the followed scopes, so the answer lands where the ask came from.
+type reachOrigin int
+
+const (
+	reachFromSearch    reachOrigin = iota // the quick search, the task opens on the main screen
+	reachFromPick                         // the search in pick mode, the task goes to the time entry box
+	reachFromTimesheet                    // enter on a timesheet row, the task opens beside the grid
+)
+
+type reachMsg struct { // intent: fetch a task the cache lacks from Wrike
+	ref    store.TaskRef
+	text   string // what the row shows, the typed text or the id, the answer is matched to it
+	seq    int    // the search seq at the ask, an answer to an older ask is dropped
+	origin reachOrigin
+}
+type reachedMsg struct { // the answer to a reachMsg, task or err
+	ref    store.TaskRef
+	text   string
+	seq    int
+	origin reachOrigin
+	task   store.Task
+	err    error
 }
 type openTaskMsg struct{ task store.Task }   // intent: leave the search overlay or the changes screen for this task
 type openBesideMsg struct{ id string }       // intent: show the task in the detail pane beside the timesheet grid

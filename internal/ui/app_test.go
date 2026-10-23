@@ -1563,3 +1563,72 @@ func TestLogTimeBoxOffersTheEarlierNotesOfTheTask(t *testing.T) {
 	press(tm, "esc")
 	finalView(t, tm)
 }
+
+func reachingOptions(t *testing.T, st *store.Store) ui.Options {
+	t.Helper()
+	opts := testOptions(st)
+	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+		task := store.Task{ID: "MAAAAAEPXpuV", Title: "Outside the scopes", Status: "Active",
+			Permalink: "https://www.wrike.com/open.htm?id=9900000", CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}
+		if err := st.Tasks().UpsertReached(ctx, []store.Task{task}, "2026-10-22T10:00:00Z"); err != nil {
+			return store.Task{}, err
+		}
+		return st.Tasks().Get(ctx, task.ID)
+	}
+	return opts
+}
+
+func TestQuickSearchFetchesAnUncachedTaskFromWrike(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(reachingOptions(t, st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "MAAAAAEPXpuV")
+	waitAfter(t, tm, from, "open from Wrike: MAAAAAEPXpuV")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "Outside the scopes")
+	view := finalView(t, tm)
+	if !strings.Contains(view, "#9900000") || strings.Contains(view, "Search") {
+		t.Errorf("enter on the reach row should close the search and show the fetched task:\n%s", view)
+	}
+}
+
+func TestQuickSearchReachRowSaysNoSuchTask(t *testing.T) {
+	st := seededStore(t)
+	opts := testOptions(st)
+	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+		return store.Task{}, ui.ErrNoSuchTask
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "MAAAAAEPXpuV")
+	waitAfter(t, tm, from, "open from Wrike: MAAAAAEPXpuV")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "no task with this id on Wrike, or no access")
+	// The box is still up with the reason in it, esc is what closes it, and the main screen takes q again.
+	press(tm, "esc")
+	if view := finalView(t, tm); strings.Contains(view, "Search") || strings.Contains(view, "no access") {
+		t.Errorf("esc should close the search after a failed reach:\n%s", view)
+	}
+}
+
+func TestQuickSearchReachRowInTheDemo(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "#1200033")
+	press(tm, "ctrl+f")
+	waitFor(t, tm, "Search")
+	from := mark(t, tm)
+	press(tm, "https://www.wrike.com/open.htm?id=4552825749")
+	waitAfter(t, tm, from, "open from Wrike: https://www.wrike.com/open.htm?id=4552825749")
+	from = mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "not available in the demo")
+}

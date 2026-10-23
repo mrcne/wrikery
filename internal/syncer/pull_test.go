@@ -159,6 +159,30 @@ func TestSweepPrunesVanishedTasks(t *testing.T) {
 	}
 }
 
+func TestSweepKeepsAStampedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	sc := mustScope(t, st, "F1", store.ScopeKindProject)
+	seedTask(t, st, "T1", "keep")
+	seedTask(t, st, "T2", "gone remotely")
+	if err := st.Tasks().UpsertReached(ctx, []store.Task{{ID: "T3", Title: "reached", Status: "Active",
+		CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z"}}, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
+	}}
+	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T3"); err != nil {
+		t.Errorf("T3 with a fresh stamp was pruned: %v", err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
+		t.Error("T2 survived the sweep")
+	}
+}
+
 func TestSweepReusesInitialPull(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

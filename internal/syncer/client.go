@@ -16,6 +16,7 @@ type Client interface {
 	SpaceWorkflows(ctx context.Context, spaceID string) ([]wrike.Workflow, error)
 	FolderTree(ctx context.Context) ([]wrike.Folder, error)
 	Tasks(ctx context.Context, p wrike.TaskParams) (wrike.TasksPage, error)
+	TasksByIDs(ctx context.Context, ids []string, fields []string) ([]wrike.Task, error)
 	TaskComments(ctx context.Context, taskID string) ([]wrike.Comment, error)
 	TaskTimelogs(ctx context.Context, taskID string) ([]wrike.Timelog, error)
 	TaskDependencies(ctx context.Context, taskID string) ([]wrike.Dependency, error)

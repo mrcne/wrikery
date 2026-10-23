@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -215,27 +216,6 @@ func TestResolveFolderRefusesAnEmptyArgument(t *testing.T) {
 	}
 }
 
-func TestLinkNumber(t *testing.T) {
-	for _, tc := range []struct {
-		arg    string
-		number string
-		isLink bool
-	}{
-		{"https://app-eu.wrike.com/open.htm?id=4552825748", "4552825748", true},
-		{"https://www.wrike.com/open.htm?id=1&foo=bar", "1", true},
-		{"https://www.wrike.com/open.htm?id=15#comments", "15", true},
-		{"open.htm?id=", "", true},
-		{"https://www.wrike.com/open.htm?id=abc", "", true},
-		{"4552825748", "", false},
-		{"licence file", "", false},
-	} {
-		number, isLink := linkNumber(tc.arg)
-		if number != tc.number || isLink != tc.isLink {
-			t.Errorf("linkNumber(%q) = %q, %v, want %q, %v", tc.arg, number, isLink, tc.number, tc.isLink)
-		}
-	}
-}
-
 func TestResolveTaskTakesABrowserNumberOrLink(t *testing.T) {
 	env, _, _ := testEnv(t)
 	seedBoard(t, env.Store)
@@ -264,7 +244,7 @@ func TestResolveTaskTreatsABareNumberAsANumberOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := resolveTask(ctx, env.Store, "99")
-	if err == nil || !strings.Contains(err.Error(), `no task with the number "99" in the cache`) {
+	if err == nil || !strings.Contains(err.Error(), `no task "99" in the cache`) {
 		t.Errorf("error = %v", err)
 	}
 	if got, err := resolveTask(ctx, env.Store, "TASK13"); err != nil || got.Title != "2026" {
@@ -286,11 +266,12 @@ func TestTaskStatusWithAnUnknownNumberQueuesNothing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// The number is not in the cache, so the command asks Wrike for it, and the closed server answers nothing.
 	env = withNetwork(t, env, nil)
 	if code := Run(context.Background(), env, []string{"task", "status", "99", "Completed"}); code != exitError {
 		t.Errorf("code = %d, stderr %q", code, errOut.String())
 	}
-	if !strings.Contains(errOut.String(), `no task with the number "99"`) {
+	if strings.Contains(errOut.String(), "in the cache") || errOut.String() == "" {
 		t.Errorf("stderr:\n%s", errOut.String())
 	}
 	if pending, failed, err := env.Store.Outbox().Counts(context.Background()); err != nil || pending != 0 || failed != 0 {
@@ -360,7 +341,7 @@ func TestResolveTaskRefusesALinkItCannotUse(t *testing.T) {
 	seedBoard(t, env.Store)
 	ctx := context.Background()
 	_, err := resolveTask(ctx, env.Store, "https://www.wrike.com/open.htm?id=99")
-	if err == nil || !strings.Contains(err.Error(), `no task with the link "https://www.wrike.com/open.htm?id=99" in the cache`) {
+	if err == nil || !strings.Contains(err.Error(), `no task "https://www.wrike.com/open.htm?id=99" in the cache`) {
 		t.Errorf("unknown link error = %v", err)
 	}
 	_, err = resolveTask(ctx, env.Store, "https://www.wrike.com/open.htm?id=x")
@@ -418,5 +399,27 @@ func TestResolveTaskPrefersTheTitleTypedLetterForLetterOverItsFoldedTwin(t *test
 		if err != nil || got.ID != want {
 			t.Errorf("resolve %q = %+v, %v, want %s", arg, got, err, want)
 		}
+	}
+}
+
+func TestResolveTaskReportsAnUncachedReference(t *testing.T) {
+	env, _, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	for _, arg := range []string{"MAAAAAEPXpuV", "99", "https://www.wrike.com/open.htm?id=99"} {
+		_, err := resolveTask(ctx, env.Store, arg)
+		var uncached *errUncached
+		if !errors.As(err, &uncached) {
+			t.Errorf("resolveTask(%q) = %v, want an errUncached for the command to fetch", arg, err)
+		}
+	}
+	_, err := resolveTask(ctx, env.Store, "99")
+	if err == nil || err.Error() != `no task "99" in the cache` {
+		t.Errorf("error = %v", err)
+	}
+	_, err = resolveTask(ctx, env.Store, "nosuchword")
+	var uncached *errUncached
+	if errors.As(err, &uncached) || err == nil || !strings.Contains(err.Error(), "no task matching") {
+		t.Errorf("a fragment gave %v, want the cache message and no fetch", err)
 	}
 }

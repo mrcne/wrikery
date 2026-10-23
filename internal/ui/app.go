@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -31,7 +32,17 @@ type Hooks struct {
 	SignIn  func(secret string) (SignIn, error)
 	OpenURL func(url string) error
 	Copy    func(text string) error
+	// Reach fetches a task the followed scopes do not cover, by id or by the number from its link, into the cache.
+	// It answers ErrNoSuchTask when Wrike does not list the task for this user and ErrSignInNeeded when no session can ask.
+	// Nil in the demo.
+	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
 }
+
+// ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
+var ErrNoSuchTask = errors.New("no such task on Wrike, or no access")
+
+// ErrSignInNeeded is what Hooks.Reach returns when there is no session, or Wrike rejected the one there is.
+var ErrSignInNeeded = errors.New("sign in needed")
 
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
@@ -191,6 +202,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.search.visible = searchMaxRows(m.height)
 		m.syncPaneSizes()
 		if d, ok := m.dialog.(timelogDialog); ok {
 			d.setWidth(m.dialogWidth())
@@ -434,6 +446,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case openTaskMsg:
 		return m.jumpToTask(msg.task.ID, msg.task.ParentIDs, m.mine(msg.task.ResponsibleIDs))
+	case reachMsg:
+		return m, m.reach(msg)
+	case reachedMsg:
+		return m.reached(msg)
 	case openBesideMsg:
 		// The intent travels through the queue, a key typed right after enter can have left the timesheet already.
 		if m.screen != screenTimesheet {
@@ -794,6 +810,39 @@ func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, te
 	}
 	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus))
 	return m, tea.Batch(cmds...)
+}
+
+// reached lands the answer to a reach where the ask came from, or drops it when the user has moved on.
+// A fetched task goes the way a search hit or a timesheet row goes, so the jump and the landing rules stay in one place.
+func (m Model) reached(msg reachedMsg) (tea.Model, tea.Cmd) {
+	if msg.origin == reachFromTimesheet {
+		m.timesheet.fetching = ""
+		if msg.err != nil {
+			return m, m.status.show(reachErrorText(msg.ref, msg.err), true)
+		}
+		// The week reads its titles again, the one reload the row needs.
+		// The task opens beside the grid only while the cursor still sits on its row,
+		// an answer that lands after the user moved on must not push out what they read now.
+		cmds := []tea.Cmd{m.loadWeek(m.timesheet.weekStart)}
+		if ts := m.timesheet; ts.cursorRow < len(ts.rows) && ts.rows[ts.cursorRow].taskID == msg.task.ID {
+			cmds = append(cmds, intent(openBesideMsg{id: msg.task.ID}))
+		} else {
+			cmds = append(cmds, intent(toastMsg{text: "fetched from Wrike: " + msg.task.Title}))
+		}
+		return m, tea.Batch(cmds...)
+	}
+	// The ask is the search seq at enter and the text on the row: the same text typed again, or in pick mode, is another ask.
+	if m.overlay != overlaySearch || msg.seq != m.search.seq || msg.text != m.search.ref {
+		return m, nil
+	}
+	if msg.err != nil {
+		m.search.reachFailed(msg.text, reachErrorText(msg.ref, msg.err))
+		return m, nil
+	}
+	if msg.origin == reachFromPick {
+		return m, intent(searchPickMsg{task: msg.task})
+	}
+	return m, intent(openTaskMsg{task: msg.task})
 }
 
 // landOn puts the sidebar on a node that lists the task, and tells whether there is one.
@@ -1490,7 +1539,7 @@ func (m Model) View() string {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	if m.overlay == overlaySearch {
-		out = centered(out, m.search.View(m.theme, m.ref, m.dialogWidth(), searchMaxRows(m.height)), m.width, m.height)
+		out = centered(out, m.search.View(m.theme, m.ref, m.dialogWidth()), m.width, m.height)
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
 		out = centered(out, m.dialog.View(m.theme, m.dialogWidth(), m.height), m.width, m.height)

@@ -161,3 +161,21 @@ func TestForgetForTaskDropsOnlyItsOwnRows(t *testing.T) {
 		t.Error("forgetting the rows must keep the task")
 	}
 }
+
+// The relations of a reached task are not followed and its edges are read once it is opened, so the catch-up leaves it out.
+func TestTasksMissingEdgesLeavesOutReachedTasks(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	pulled, reached := makeTask("T1", "pulled"), makeTask("T2", "reached")
+	pulled.DependencyIDs, reached.DependencyIDs = []string{"X"}, []string{"Y"}
+	if err := st.Tasks().Upsert(ctx, []Task{pulled}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().UpsertReached(ctx, []Task{reached}, "2026-10-22T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	missing, err := st.Dependencies().TasksMissingEdges(ctx, 10)
+	if err != nil || len(missing) != 1 || len(missing["T1"]) != 1 || missing["T1"][0] != "X" {
+		t.Errorf("missing = %v, %v, want the pulled task alone", missing, err)
+	}
+}

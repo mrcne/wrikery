@@ -35,6 +35,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - browse the spaces, projects and folders you follow, and change that set from the settings screen
 - task list and task detail: description, status, assignee, dates, comments, subtasks, dependencies and the number of attachments
 - instant full text search over everything cached
+- open any task by its link or id, followed or not
 - a timesheet view of your own logged time
 - a board over workflow statuses, plain or with a lane per person or per folder
 - narrow the list and the board to importance levels, a person and statuses, in any combination

@@ -365,6 +365,44 @@ func (m Model) loadNotes(taskID, current string) tea.Cmd {
 	}
 }
 
+// errReachUnavailable stands in for the hook the demo and the tests run without.
+var errReachUnavailable = errors.New("not available in the demo")
+
+// reachTimeout bounds one fetch the way the command deadline bounds a write:
+// a Wrike that does not answer must not hold the search row or the timesheet for the client's whole retry budget.
+const reachTimeout = 15 * time.Second
+
+// reach asks the engine for a task the cache lacks, through the hook, so the interface itself never talks to Wrike.
+func (m Model) reach(ask reachMsg) tea.Cmd {
+	hook := m.opts.Hooks.Reach
+	return func() tea.Msg {
+		answer := reachedMsg{ref: ask.ref, text: ask.text, seq: ask.seq, origin: ask.origin}
+		if hook == nil {
+			answer.err = errReachUnavailable
+			return answer
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), reachTimeout)
+		defer cancel()
+		answer.task, answer.err = hook(ctx, ask.ref)
+		return answer
+	}
+}
+
+// reachErrorText words a failed reach for the search row and the toast.
+func reachErrorText(ref store.TaskRef, err error) string {
+	switch {
+	case errors.Is(err, ErrNoSuchTask):
+		if ref.Kind == store.RefNumber {
+			return "no task with this link on Wrike, or no access"
+		}
+		return "no task with this id on Wrike, or no access"
+	case errors.Is(err, errReachUnavailable), errors.Is(err, ErrSignInNeeded):
+		return err.Error()
+	default:
+		return "Wrike could not be reached"
+	}
+}
+
 // runSearch reads the crumb for each hit's first parent, the same folder title the list pane shows.
 func (m Model) runSearch(seq int, query string) tea.Cmd {
 	st := m.opts.Store
@@ -373,6 +411,20 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 		tasks, err := st.Tasks().Search(ctx, query, 30)
 		if err != nil {
 			return errMsg{err}
+		}
+		// A link, a number or an id names one task: first when the cache has it, else the reach row fetches it.
+		// The title hits stay either way, a number can be part of a title and a word can have the shape of an id.
+		ref := ""
+		if r, ok := store.ParseTaskRef(query); ok {
+			hit, err := st.Tasks().ByRef(ctx, r)
+			switch {
+			case err == nil:
+				tasks = append([]store.Task{hit}, slices.DeleteFunc(tasks, func(t store.Task) bool { return t.ID == hit.ID })...)
+			case errors.Is(err, store.ErrNotFound):
+				ref = strings.TrimSpace(query)
+			default:
+				return errMsg{err}
+			}
 		}
 		crumbs := map[string]string{}
 		for _, t := range tasks {
@@ -384,7 +436,7 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 				}
 			}
 		}
-		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs}
+		return searchResultsMsg{seq: seq, tasks: tasks, crumbs: crumbs, ref: ref}
 	}
 }
 

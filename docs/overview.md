@@ -69,6 +69,9 @@ A jump to a completed task, from the search, the changes screen or the timesheet
 
 ctrl+f opens a quick search over everything cached, backed by the full text index.
 Type a few letters and the best matches show up at once, ranked. Enter jumps to the task.
+A link to a task, the number from that link or a task id finds the task even when it is not cached: the box shows a last row that fetches it from Wrike, and enter on that row opens the task once it arrives.
+The title hits stay above the row, a number can be part of a title.
+A task the followed spaces do not cover lands the way a jump does, in My tasks when it is yours and over the list that was on screen otherwise, and it stays cached for thirty days after you last opened it.
 
 ### Task detail
 
@@ -79,7 +82,8 @@ Above it are the status, the assignees, the dates, the importance when it is not
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
-A related task that lives in a space you do not follow is not in the cache, and the line says so instead of a title.
+A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
+The related tasks of a task that was itself fetched this way are not fetched in turn, their lines stay as they are.
 Attachments are counted only, their names and the files stay in the web application, `o` opens the task there.
 Single key actions on the selected task:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
@@ -206,7 +210,7 @@ The last row, `+ new task`, is for logging time on a task that has no row yet.
 `h` and `l` move between days, `j` and `k` move between rows.
 The row under the cursor carries the cursor mark in front of its title, so on a wide grid a cell can be traced back to its task.
 Next to the mark each row shows the status glyph of its task, the one the list draws.
-A task outside the followed spaces is not in the cache, its row shows the task id instead of a title and no glyph.
+A task outside the followed spaces is fetched on its own at the next sync, a row still without it shows the task id instead of a title and no glyph, and enter on that row asks Wrike for the task right away.
 `[` and `]` go one week back and forward, `.` jumps back to the current week.
 `n` logs time on the row's task for the selected day.
 On the `+ new task` row it opens the quick search first to pick the task, then the time entry box.
@@ -278,7 +282,7 @@ The `[oauth]` table names an API app for the browser sign in: `client_id`, `redi
 The commands are `sync`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
-A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
+A read prints the cache and waits for the network only to fetch a task argument the cache lacks, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
@@ -287,6 +291,7 @@ A task or a folder on the command line is an id or a part of its title that matc
 When one of the matches has exactly the given title, ignoring case, that one is taken, and ignoring accents as well when none has it letter for letter.
 A task can also be given as the number from its link in the browser or as the whole link, in quotes, both are looked up in the cached permalinks.
 A bare number is only ever that number, it is never tried as a part of a title.
+A link, a number or an id the cache does not hold is fetched from Wrike before the command goes on, reads and writes alike, which needs the sign in a write needs.
 A command's flags may come before or after its arguments, so `wrikery task status MAAAAAEPXpuT "In Progress" --json` and `wrikery task status --json MAAAAAEPXpuT "In Progress"` are the same.
 A title with a word that starts with a dash goes after `--`, as in `wrikery task create --folder F -- --json is not a flag`, everything after `--` is title.
 Output is text for a person and `--json` for a script.

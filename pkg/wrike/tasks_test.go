@@ -94,7 +94,7 @@ func TestTasksSearchAccountWideOmitsEmptyParams(t *testing.T) {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		q := r.URL.Query()
-		for _, key := range []string{"descendants", "updatedDate", "fields", "pageSize", "nextPageToken"} {
+		for _, key := range []string{"descendants", "updatedDate", "fields", "pageSize", "nextPageToken", "permalink"} {
 			if q.Has(key) {
 				t.Errorf("query must omit %s, got %q", key, q.Get(key))
 			}
@@ -219,6 +219,22 @@ func TestTasksSendsResponsibles(t *testing.T) {
 	}
 	if got.Get("responsibles") != `["KUAAAAA1","KUAAAAA2"]` {
 		t.Errorf("responsibles = %q, want the JSON array", got.Get("responsibles"))
+	}
+}
+
+func TestTasksSendsThePermalinkFilter(t *testing.T) {
+	var got url.Values
+	var path string
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, got = r.URL.Path, r.URL.Query()
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[]}`))
+	}))
+	link := "https://www.wrike.com/open.htm?id=4552825749"
+	if _, err := c.Tasks(context.Background(), TaskParams{Permalink: link}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/tasks" || got.Get("permalink") != link {
+		t.Errorf("path = %q, permalink = %q, want /tasks with the link", path, got.Get("permalink"))
 	}
 }
 
@@ -361,5 +377,15 @@ func TestTasksOmitsSubTasksWhenNotAsked(t *testing.T) {
 	}))
 	if _, err := c.Tasks(context.Background(), TaskParams{FolderID: "IEAAAAFD2"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTasksByIDsDecodesTheScope(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[{"id":"IEAAAATSK9","title":"Deleted","scope":"RbTask"}]}`))
+	}))
+	tasks, err := c.TasksByIDs(context.Background(), []string{"IEAAAATSK9"}, nil)
+	if err != nil || len(tasks) != 1 || tasks[0].Scope != "RbTask" {
+		t.Errorf("tasks = %+v, %v, want the scope decoded", tasks, err)
 	}
 }

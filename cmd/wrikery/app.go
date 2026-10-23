@@ -126,6 +126,22 @@ func (a *app) hooks() ui.Hooks {
 		VerifyToken: a.verifyToken,
 		OpenURL:     openURL,
 		Copy:        copyText,
+		Reach: func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+			e := a.current()
+			if e == nil {
+				return store.Task{}, ui.ErrSignInNeeded
+			}
+			t, err := e.Reach(ctx, ref)
+			var apiErr *wrike.APIError
+			switch {
+			case errors.Is(err, syncer.ErrNoSuchTask):
+				return t, ui.ErrNoSuchTask
+			case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+				// The engine shows the sign in screen after its own next cycle, the row points there now.
+				return t, ui.ErrSignInNeeded
+			}
+			return t, err
+		},
 	}
 	// Without an app in the config the browser sign in has nothing to open, so the screen does not offer it.
 	if a.cfg.OAuth.ClientID != "" {

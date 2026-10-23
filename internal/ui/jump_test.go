@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -168,5 +169,111 @@ func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 	}
 	if res.crumbs[task.ID] != "Web" {
 		t.Errorf("crumb = %q, want Web", res.crumbs[task.ID])
+	}
+}
+
+// A link, a number or an id typed into the search is tried in the cache first, and named as a reach when the cache lacks it.
+func TestRunSearchPutsACachedReferenceFirstAndNamesAnUncachedOne(t *testing.T) {
+	m := demoModel(t)
+	res := m.runSearch(1, "https://www.wrike.com/open.htm?id=1200000")().(searchResultsMsg)
+	if len(res.tasks) == 0 || res.tasks[0].Permalink != "https://www.wrike.com/open.htm?id=1200000" || res.ref != "" {
+		t.Errorf("a cached link gave %+v, ref %q, want the task first and no reach", res.tasks, res.ref)
+	}
+	res = m.runSearch(2, " MAAAAAEPXpuV ")().(searchResultsMsg)
+	if len(res.tasks) != 0 || res.ref != "MAAAAAEPXpuV" {
+		t.Errorf("an uncached id gave %+v, ref %q, want no hits and the trimmed reference", res.tasks, res.ref)
+	}
+	res = m.runSearch(3, "fix auth")().(searchResultsMsg)
+	if len(res.tasks) == 0 || res.ref != "" {
+		t.Errorf("a fragment gave %+v, ref %q, want hits and no reach", res.tasks, res.ref)
+	}
+}
+
+// An answer lands only on the ask it belongs to: the same text in a later search, or in pick mode, is another ask.
+func TestReachedAnswerIsMatchedToTheAsk(t *testing.T) {
+	m := demoModel(t)
+	m = pump(m, tea.KeyMsg{Type: tea.KeyCtrlF})
+	m.search, _ = m.search.Update(searchResultsMsg{seq: m.search.seq, ref: "MAAAAAEPXpuV"})
+	m.search, _ = m.search.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	stale := reachedMsg{text: "MAAAAAEPXpuV", seq: m.search.seq - 1, origin: reachFromSearch, err: ErrNoSuchTask}
+	next, _ := m.Update(stale)
+	m = next.(Model)
+	if m.search.failed != "" || !m.search.fetching {
+		t.Errorf("a stale answer landed: failed %q, fetching %v", m.search.failed, m.search.fetching)
+	}
+	fresh := stale
+	fresh.seq = m.search.seq
+	next, _ = m.Update(fresh)
+	m = next.(Model)
+	if m.search.failed != "no task with this id on Wrike, or no access" || m.search.fetching {
+		t.Errorf("the answer did not land: failed %q, fetching %v", m.search.failed, m.search.fetching)
+	}
+}
+
+// The timesheet answer opens the task beside the grid and reads the week again, the one reload the row needs.
+func TestReachedFromTheTimesheetOpensBesideAndReloadsTheWeek(t *testing.T) {
+	m := demoModel(t)
+	m.screen = screenTimesheet
+	m.timesheet.rows = []tsRow{{taskID: "T9"}}
+	m.timesheet.fetching = "T9"
+	next, cmd := m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, task: store.Task{ID: "T9"}})
+	m = next.(Model)
+	var beside, week bool
+	for _, msg := range collect(cmd) {
+		switch msg := msg.(type) {
+		case openBesideMsg:
+			beside = msg.id == "T9"
+		case weekLoadedMsg:
+			week = true
+		}
+	}
+	if !beside || !week || m.timesheet.fetching != "" {
+		t.Errorf("beside %v, week %v, fetching %q", beside, week, m.timesheet.fetching)
+	}
+	m.timesheet.fetching = "T9"
+	next, _ = m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, err: ErrNoSuchTask})
+	m = next.(Model)
+	if !strings.Contains(m.status.toast, "no task with this id") || m.timesheet.fetching != "" {
+		t.Errorf("toast %q, fetching %q", m.status.toast, m.timesheet.fetching)
+	}
+}
+
+// An answer that lands after the cursor left the row reloads the week for its title and says so,
+// the pane stays with the task the user is reading.
+func TestReachedFromTheTimesheetIsDroppedWhenTheCursorMoved(t *testing.T) {
+	m := demoModel(t)
+	m.screen = screenTimesheet
+	m.timesheet.rows = []tsRow{{taskID: "T9"}, {taskID: "T5", cached: true}}
+	m.timesheet.cursorRow = 1
+	m.timesheet.fetching = "T9"
+	next, cmd := m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, task: store.Task{ID: "T9", Title: "Fetched late"}})
+	m = next.(Model)
+	var beside, week bool
+	toast := ""
+	for _, msg := range collect(cmd) {
+		switch msg := msg.(type) {
+		case openBesideMsg:
+			beside = true
+		case weekLoadedMsg:
+			week = true
+		case toastMsg:
+			toast = msg.text
+		}
+	}
+	if beside || !week || !strings.Contains(toast, "Fetched late") || m.timesheet.fetching != "" {
+		t.Errorf("beside %v, week %v, toast %q, fetching %q", beside, week, toast, m.timesheet.fetching)
+	}
+}
+
+// A Wrike that does not answer must not hold the search row or the timesheet for the client's whole retry budget.
+func TestReachBoundsTheHookWithADeadline(t *testing.T) {
+	m := demoModel(t)
+	bounded := false
+	m.opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+		_, bounded = ctx.Deadline()
+		return store.Task{ID: ref.Value}, nil
+	}
+	if msg := m.reach(reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}})(); !bounded {
+		t.Errorf("the hook ran without a deadline, answer %#v", msg)
 	}
 }

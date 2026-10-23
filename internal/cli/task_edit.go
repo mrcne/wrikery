@@ -63,9 +63,9 @@ func runTaskEdit(ctx context.Context, env Env, args []string) int {
 			return usageError(env, fs, editUsage, "the description is empty")
 		}
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	ref, err := loadRef(ctx, env.Store)
 	if err != nil {
@@ -120,9 +120,9 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	ref, err := loadRef(ctx, env.Store)
 	if err != nil {
@@ -214,9 +214,9 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	if len(positional) < 2 {
 		return usageError(env, fs, assignUsage, name+" takes a task and at least one person")
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	ref, err := loadRef(ctx, env.Store)
 	if err != nil {
@@ -303,9 +303,9 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 	if len(to)+len(from) == 0 {
 		return usageError(env, fs, moveUsage, "task move needs --to or --from")
 	}
-	t, err := resolveTask(ctx, env.Store, positional[0])
-	if err != nil {
-		return fail(env, err)
+	t, code := resolveOrReach(ctx, env, positional[0])
+	if code != exitOK {
+		return code
 	}
 	ref, err := loadRef(ctx, env.Store)
 	if err != nil {

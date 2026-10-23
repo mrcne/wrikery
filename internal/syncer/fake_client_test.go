@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/mrcne/wrikery/pkg/wrike"
@@ -19,6 +20,7 @@ type fakeClient struct {
 	spaceWorkflows   func(spaceID string) ([]wrike.Workflow, error)
 	folderTree       func() ([]wrike.Folder, error)
 	tasks            func(p wrike.TaskParams) (wrike.TasksPage, error)
+	tasksByIDs       func(ids, fields []string) ([]wrike.Task, error)
 	taskComments     func(taskID string) ([]wrike.Comment, error)
 	taskTimelogs     func(taskID string) ([]wrike.Timelog, error)
 	taskDependencies func(taskID string) ([]wrike.Dependency, error)
@@ -178,4 +180,12 @@ func (f *fakeClient) DeleteTimelog(ctx context.Context, timelogID string) error 
 		return nil
 	}
 	return f.deleteTimelog(timelogID)
+}
+
+func (f *fakeClient) TasksByIDs(ctx context.Context, ids []string, fields []string) ([]wrike.Task, error) {
+	f.record("TasksByIDs " + strings.Join(ids, ","))
+	if f.tasksByIDs == nil {
+		return nil, nil
+	}
+	return f.tasksByIDs(ids, fields)
 }
