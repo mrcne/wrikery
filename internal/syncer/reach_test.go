@@ -319,3 +319,31 @@ func TestReachReferencedMakesProgressPastASkippedBatch(t *testing.T) {
 		t.Errorf("calls = %v, want the one id behind the skipped batch", log)
 	}
 }
+
+// A manual cycle lists the stamped tasks before it reaches for the referenced ones, so what it just fetched is not read a second time.
+func TestManualCycleReadsAJustReachedTaskOnce(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	today := time.Now().UTC().Format("2006-01-02")
+	fc := &fakeClient{
+		timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+			return wrike.TimelogsPage{Timelogs: []wrike.Timelog{{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: today, Hours: 1}}}, nil
+		},
+		tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+			return []wrike.Task{outsideTask("T9", "behind a time entry")}, nil
+		},
+	}
+	e := New(fc, st, Config{}, nil)
+	if _, err := e.Once(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	var byIDs []string
+	for _, c := range fc.callLog() {
+		if strings.HasPrefix(c, "TasksByIDs ") {
+			byIDs = append(byIDs, c)
+		}
+	}
+	if !reflect.DeepEqual(byIDs, []string{"TasksByIDs T9"}) {
+		t.Errorf("by id calls = %v, want T9 once", byIDs)
+	}
+}

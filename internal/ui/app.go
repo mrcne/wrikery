@@ -33,7 +33,8 @@ type Hooks struct {
 	OpenURL func(url string) error
 	Copy    func(text string) error
 	// Reach fetches a task the followed scopes do not cover, by id or by the number from its link, into the cache.
-	// It answers ErrNoSuchTask when Wrike does not list the task for this user and ErrSignInNeeded when no session can ask. Nil in the demo.
+	// It answers ErrNoSuchTask when Wrike does not list the task for this user and ErrSignInNeeded when no session can ask.
+	// Nil in the demo.
 	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
 }
 
@@ -819,8 +820,16 @@ func (m Model) reached(msg reachedMsg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			return m, m.status.show(reachErrorText(msg.ref, msg.err), true)
 		}
-		// The week reads its titles again, the one reload the row needs, and the task opens beside the grid.
-		return m, tea.Batch(m.loadWeek(m.timesheet.weekStart), intent(openBesideMsg{id: msg.task.ID}))
+		// The week reads its titles again, the one reload the row needs.
+		// The task opens beside the grid only while the cursor still sits on its row,
+		// an answer that lands after the user moved on must not push out what they read now.
+		cmds := []tea.Cmd{m.loadWeek(m.timesheet.weekStart)}
+		if ts := m.timesheet; ts.cursorRow < len(ts.rows) && ts.rows[ts.cursorRow].taskID == msg.task.ID {
+			cmds = append(cmds, intent(openBesideMsg{id: msg.task.ID}))
+		} else {
+			cmds = append(cmds, intent(toastMsg{text: "fetched from Wrike: " + msg.task.Title}))
+		}
+		return m, tea.Batch(cmds...)
 	}
 	// The ask is the search seq at enter and the text on the row: the same text typed again, or in pick mode, is another ask.
 	if m.overlay != overlaySearch || msg.seq != m.search.seq || msg.text != m.search.ref {
@@ -1530,7 +1539,7 @@ func (m Model) View() string {
 		out = centered(out, helpView(m.theme, m.help, m.helpGroups(), m.width, "wrikery "+m.opts.Version), m.width, m.height)
 	}
 	if m.overlay == overlaySearch {
-		out = centered(out, m.search.View(m.theme, m.ref, m.dialogWidth(), searchMaxRows(m.height)), m.width, m.height)
+		out = centered(out, m.search.View(m.theme, m.ref, m.dialogWidth()), m.width, m.height)
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
 		out = centered(out, m.dialog.View(m.theme, m.dialogWidth(), m.height), m.width, m.height)

@@ -71,7 +71,7 @@ ctrl+f opens a quick search over everything cached, backed by the full text inde
 Type a few letters and the best matches show up at once, ranked. Enter jumps to the task.
 A link to a task, the number from that link or a task id finds the task even when it is not cached: the box shows a last row that fetches it from Wrike, and enter on that row opens the task once it arrives.
 The title hits stay above the row, a number can be part of a title.
-A task the followed spaces do not cover shows in the detail pane with the list left as it was, and it stays cached for thirty days after you last opened it.
+A task the followed spaces do not cover lands the way a jump does, in My tasks when it is yours and over the list that was on screen otherwise, and it stays cached for thirty days after you last opened it.
 
 ### Task detail
 

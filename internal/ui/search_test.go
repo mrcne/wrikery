@@ -84,7 +84,8 @@ func TestSearchViewFitsAShortTerminal(t *testing.T) {
 		s.results = append(s.results, store.Task{ID: "IEAATASK00", Title: "Fix auth retry loop"})
 	}
 	const height = 14
-	out := s.View(th, refData{statuses: map[string]store.CustomStatus{}}, 80, searchMaxRows(height))
+	s.visible = searchMaxRows(height)
+	out := s.View(th, refData{statuses: map[string]store.CustomStatus{}}, 80)
 	if h := lipgloss.Height(out); h > height {
 		t.Errorf("search overlay is %d rows tall, does not fit a %d row terminal:\n%s", h, height, out)
 	}
@@ -96,7 +97,7 @@ func TestSearchShowsTheReachRowAndAsksOnEnter(t *testing.T) {
 	s := newSearch(defaultKeyMap())
 	s.seq = 1
 	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "MAAAAAEPXpuV"})
-	if v := s.View(th, testWorkflows(), 60, 12); !contains(v, "open from Wrike: MAAAAAEPXpuV") || contains(v, "no matches") {
+	if v := s.View(th, testWorkflows(), 60); !strings.Contains(v, "open from Wrike: MAAAAAEPXpuV") || strings.Contains(v, "no matches") {
 		t.Errorf("view without hits:\n%s", v)
 	}
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -106,19 +107,19 @@ func TestSearchShowsTheReachRowAndAsksOnEnter(t *testing.T) {
 		t.Fatalf("enter on the row sent %#v, want %#v", msgs, want)
 	}
 	s.fetching = true
-	if v := s.View(th, testWorkflows(), 60, 12); !contains(v, "fetching from Wrike...") {
+	if v := s.View(th, testWorkflows(), 60); !strings.Contains(v, "fetching from Wrike...") {
 		t.Errorf("view while fetching:\n%s", v)
 	}
 	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
 		t.Error("a second enter while fetching sent something")
 	}
 	s.reachFailed("MAAAAAEPXpuV", "no task with this id on Wrike, or no access")
-	if v := s.View(th, testWorkflows(), 60, 12); !contains(v, "no task with this id on Wrike, or no access") || s.fetching {
+	if v := s.View(th, testWorkflows(), 60); !strings.Contains(v, "no task with this id on Wrike, or no access") || s.fetching {
 		t.Errorf("view after the failure:\n%s", v)
 	}
 	s.seq = 2
 	s, _ = s.Update(searchResultsMsg{seq: 2})
-	if v := s.View(th, testWorkflows(), 60, 12); contains(v, "open from Wrike") || contains(v, "no access") {
+	if v := s.View(th, testWorkflows(), 60); strings.Contains(v, "open from Wrike") || strings.Contains(v, "no access") {
 		t.Errorf("the row survived a new query:\n%s", v)
 	}
 }
@@ -168,7 +169,7 @@ func TestSearchKeepsTheReachRowVisibleBehindManyHits(t *testing.T) {
 		hits = append(hits, store.Task{ID: fmt.Sprintf("IEAATASK%02d", i), Title: fmt.Sprintf("Release %d", i)})
 	}
 	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "2026", tasks: hits})
-	v := ansi.Strip(s.View(th, testWorkflows(), 60, 4))
+	v := ansi.Strip(s.View(th, testWorkflows(), 60))
 	lines := strings.Split(v, "\n")
 	var more, row int
 	for i, l := range lines {
@@ -193,5 +194,3 @@ func TestSearchKeepsTheReachRowVisibleBehindManyHits(t *testing.T) {
 		t.Error("enter on the reach row sent nothing")
 	}
 }
-
-func contains(view, want string) bool { return strings.Contains(view, want) }

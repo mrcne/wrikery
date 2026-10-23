@@ -135,9 +135,11 @@ func (d dependencyRepo) ListForTask(ctx context.Context, taskID string) ([]Depen
 	return out, rows.Err()
 }
 
+// A reached task is left out: its relations are not followed, and the thread refresh reads its edges once it is opened.
 func (d dependencyRepo) TasksMissingEdges(ctx context.Context, limit int) (map[string][]string, error) {
 	rows, err := d.r.QueryContext(ctx, `
 		SELECT td.task_id, td.dependency_id FROM task_dependencies td
+		JOIN tasks t ON t.id = td.task_id AND t.reached_at IS NULL
 		LEFT JOIN dependencies dp ON dp.id = td.dependency_id
 		WHERE dp.id IS NULL
 		ORDER BY td.task_id, td.dependency_id`)

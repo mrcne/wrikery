@@ -10,6 +10,7 @@ import (
 
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/syncer"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 // errUncached says the argument names one task by id, number or link and the cache does not hold it,
@@ -48,9 +49,20 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 		defer cancel()
 	}
 	t, err = eng.Reach(ctx, uncached.ref)
+	// A rejected session and a Wrike that does not answer get the words a write prints, a script reads one message for both.
+	var apiErr *wrike.APIError
 	switch {
+	case errors.Is(err, syncer.ErrNoSuchTask) && uncached.ref.Kind == store.RefNumber:
+		// A number is never tried as a title, so a task titled with one is still named by more of its title.
+		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access, a title that is a number needs more of it", arg))
 	case errors.Is(err, syncer.ErrNoSuchTask):
 		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access", arg))
+	case errors.Is(err, context.DeadlineExceeded):
+		_, _ = fmt.Fprintln(env.Stderr, "wrikery: Wrike did not answer in time")
+		return store.Task{}, exitError
+	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+		_, _ = fmt.Fprintln(env.Stderr, "wrikery: sign in rejected, run wrikery to sign in again")
+		return store.Task{}, exitError
 	case err != nil:
 		return store.Task{}, fail(env, err)
 	}

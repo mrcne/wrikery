@@ -214,6 +214,7 @@ func TestReachedAnswerIsMatchedToTheAsk(t *testing.T) {
 func TestReachedFromTheTimesheetOpensBesideAndReloadsTheWeek(t *testing.T) {
 	m := demoModel(t)
 	m.screen = screenTimesheet
+	m.timesheet.rows = []tsRow{{taskID: "T9"}}
 	m.timesheet.fetching = "T9"
 	next, cmd := m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, task: store.Task{ID: "T9"}})
 	m = next.(Model)
@@ -234,5 +235,45 @@ func TestReachedFromTheTimesheetOpensBesideAndReloadsTheWeek(t *testing.T) {
 	m = next.(Model)
 	if !strings.Contains(m.status.toast, "no task with this id") || m.timesheet.fetching != "" {
 		t.Errorf("toast %q, fetching %q", m.status.toast, m.timesheet.fetching)
+	}
+}
+
+// An answer that lands after the cursor left the row reloads the week for its title and says so,
+// the pane stays with the task the user is reading.
+func TestReachedFromTheTimesheetIsDroppedWhenTheCursorMoved(t *testing.T) {
+	m := demoModel(t)
+	m.screen = screenTimesheet
+	m.timesheet.rows = []tsRow{{taskID: "T9"}, {taskID: "T5", cached: true}}
+	m.timesheet.cursorRow = 1
+	m.timesheet.fetching = "T9"
+	next, cmd := m.reached(reachedMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9", origin: reachFromTimesheet, task: store.Task{ID: "T9", Title: "Fetched late"}})
+	m = next.(Model)
+	var beside, week bool
+	toast := ""
+	for _, msg := range collect(cmd) {
+		switch msg := msg.(type) {
+		case openBesideMsg:
+			beside = true
+		case weekLoadedMsg:
+			week = true
+		case toastMsg:
+			toast = msg.text
+		}
+	}
+	if beside || !week || !strings.Contains(toast, "Fetched late") || m.timesheet.fetching != "" {
+		t.Errorf("beside %v, week %v, toast %q, fetching %q", beside, week, toast, m.timesheet.fetching)
+	}
+}
+
+// A Wrike that does not answer must not hold the search row or the timesheet for the client's whole retry budget.
+func TestReachBoundsTheHookWithADeadline(t *testing.T) {
+	m := demoModel(t)
+	bounded := false
+	m.opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+		_, bounded = ctx.Deadline()
+		return store.Task{ID: ref.Value}, nil
+	}
+	if msg := m.reach(reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}})(); !bounded {
+		t.Errorf("the hook ran without a deadline, answer %#v", msg)
 	}
 }

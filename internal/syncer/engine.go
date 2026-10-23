@@ -56,6 +56,8 @@ func (c Config) withDefaults() Config {
 // Engine keeps the store and the API in step from one goroutine.
 // The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
 // Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
+// Reach is the one exception: it runs on the caller's goroutine while Run runs,
+// so it may touch only client, st, log and events, which New sets and nothing changes after.
 type Engine struct {
 	client Client
 	st     *store.Store
@@ -370,17 +372,18 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if manual {
 		clear(e.unreached)
 	}
-	// The time entries count inside the window the pull keeps current, the rows outside it outlive their tasks.
-	timelogFrom, _ := store.TimelogWindow(time.Now())
-	reached, err := reachReferenced(ctx, e.client, e.st, meID, timelogFrom, e.unreached, e.log, time.Now())
-	if err != nil {
-		return err
-	}
+	// The stamped tasks are listed before the reach, so a task the reach brings in is not read a second time in the same cycle.
 	openedSince := ""
 	if !manual {
 		openedSince = rfc3339(time.Now().Add(-e.cfg.ThreadWindow))
 	}
 	stamped, err := e.st.Tasks().ReachedIDs(ctx, openedSince)
+	if err != nil {
+		return err
+	}
+	// The time entries count inside the window the pull keeps current, the rows outside it outlive their tasks.
+	timelogFrom, _ := store.TimelogWindow(time.Now())
+	reached, err := reachReferenced(ctx, e.client, e.st, meID, timelogFrom, e.unreached, e.log, time.Now())
 	if err != nil {
 		return err
 	}

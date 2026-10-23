@@ -59,8 +59,9 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
-// clearStamp drops the reach stamp of a row that is already there, what a scope pull does, see ApplyPage.
-func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, clearStamp bool) error {
+// reachedAt stamps the rows the statement creates and leaves the rows already there alone, see UpsertReached.
+// clearStamp drops the stamp of a row that is already there, what a scope pull does, see ApplyPage.
+func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, reachedAt string, clearStamp bool) error {
 	for _, t := range tasks {
 		var dType, dStart, dDue any
 		var dDur any
@@ -71,8 +72,8 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, clearStamp boo
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, description, description_plain, status,
 				custom_status_id, importance, permalink, dates_type, dates_duration,
-				dates_start, dates_due, created_date, updated_date, attachment_count)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				dates_start, dates_due, created_date, updated_date, attachment_count, reached_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))
 			ON CONFLICT(id) DO UPDATE SET
 				title = excluded.title, description = excluded.description,
 				description_plain = excluded.description_plain, status = excluded.status,
@@ -84,7 +85,7 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, clearStamp boo
 				reached_at = CASE WHEN ? THEN NULL ELSE reached_at END`,
 			t.ID, t.Title, t.Description, StripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
-			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, clearStamp); err != nil {
+			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, reachedAt, clearStamp); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -145,7 +146,7 @@ func (t taskRepo) ApplyPage(ctx context.Context, scopeID string, tasks []Task, c
 	defer func() { _ = tx.Rollback() }()
 	// A task a followed scope lists is a normal task from then on, the reach stamp would only keep re-reading it.
 	// The drain's upsert of a write's answer comes without a scope and leaves the stamp alone.
-	if err := upsertTasksTx(ctx, tx, tasks, scopeID != ""); err != nil {
+	if err := upsertTasksTx(ctx, tx, tasks, "", scopeID != ""); err != nil {
 		return err
 	}
 	if cursor != "" {
@@ -312,26 +313,8 @@ func (t taskRepo) UpsertReached(ctx context.Context, tasks []Task, at string) er
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	existing := map[string]bool{}
-	for _, task := range tasks {
-		var id string
-		switch err := tx.QueryRowContext(ctx, `SELECT id FROM tasks WHERE id = ?`, task.ID).Scan(&id); {
-		case err == nil:
-			existing[id] = true
-		case !errors.Is(err, sql.ErrNoRows):
-			return err
-		}
-	}
-	if err := upsertTasksTx(ctx, tx, tasks, false); err != nil {
+	if err := upsertTasksTx(ctx, tx, tasks, at, false); err != nil {
 		return err
-	}
-	for _, task := range tasks {
-		if existing[task.ID] {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET reached_at = ? WHERE id = ?`, at, task.ID); err != nil {
-			return err
-		}
 	}
 	return tx.Commit()
 }

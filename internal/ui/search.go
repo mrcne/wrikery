@@ -115,13 +115,25 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 	return s, nil
 }
 
-// hitsShown is how many hits the cursor walks: all of them, or one fewer than the box shows when the reach row needs the last line,
+// hitsDrawn is how many hits the box draws: the visible rows, one fewer when the reach row needs the last line,
+// and all of them before the first size message.
+func (s searchModel) hitsDrawn() int {
+	switch {
+	case s.visible <= 0:
+		return len(s.results)
+	case s.ref != "":
+		return min(len(s.results), max(s.visible-1, 1))
+	}
+	return min(len(s.results), s.visible)
+}
+
+// hitsShown is how many hits the cursor walks: all of them, or only the drawn ones when the reach row needs the last line,
 // so the row is reached right after the last visible hit and never sits behind hidden ones.
 func (s searchModel) hitsShown() int {
-	if s.ref == "" || s.visible <= 0 {
+	if s.ref == "" {
 		return len(s.results)
 	}
-	return min(len(s.results), max(s.visible-1, 1))
+	return s.hitsDrawn()
 }
 
 // rowCount is the hits the cursor walks plus the reach row when the query is a reference the cache lacks.
@@ -146,7 +158,7 @@ func searchMaxRows(height int) int {
 	return min(12, max(3, height-8))
 }
 
-func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
+func (s searchModel) View(th Theme, ref refData, width int) string {
 	var b strings.Builder
 	b.WriteString(s.input.View() + "\n\n")
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
@@ -157,10 +169,7 @@ func (s searchModel) View(th Theme, ref refData, width, maxRows int) string {
 			b.WriteString(muted.Render("no matches"))
 		}
 	}
-	shown := maxRows
-	if s.ref != "" {
-		shown = max(maxRows-1, 1)
-	}
+	shown := s.hitsDrawn()
 	for i, t := range s.results {
 		if i >= shown {
 			b.WriteString(muted.Render(fmt.Sprintf("... %d more", len(s.results)-shown)))

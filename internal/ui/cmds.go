@@ -368,6 +368,10 @@ func (m Model) loadNotes(taskID, current string) tea.Cmd {
 // errReachUnavailable stands in for the hook the demo and the tests run without.
 var errReachUnavailable = errors.New("not available in the demo")
 
+// reachTimeout bounds one fetch the way the command deadline bounds a write:
+// a Wrike that does not answer must not hold the search row or the timesheet for the client's whole retry budget.
+const reachTimeout = 15 * time.Second
+
 // reach asks the engine for a task the cache lacks, through the hook, so the interface itself never talks to Wrike.
 func (m Model) reach(ask reachMsg) tea.Cmd {
 	hook := m.opts.Hooks.Reach
@@ -377,7 +381,9 @@ func (m Model) reach(ask reachMsg) tea.Cmd {
 			answer.err = errReachUnavailable
 			return answer
 		}
-		answer.task, answer.err = hook(context.Background(), ask.ref)
+		ctx, cancel := context.WithTimeout(context.Background(), reachTimeout)
+		defer cancel()
+		answer.task, answer.err = hook(ctx, ask.ref)
 		return answer
 	}
 }
@@ -410,12 +416,7 @@ func (m Model) runSearch(seq int, query string) tea.Cmd {
 		// The title hits stay either way, a number can be part of a title and a word can have the shape of an id.
 		ref := ""
 		if r, ok := store.ParseTaskRef(query); ok {
-			var hit store.Task
-			if r.Kind == store.RefNumber {
-				hit, err = st.Tasks().ByPermalinkID(ctx, r.Value)
-			} else {
-				hit, err = st.Tasks().Get(ctx, r.Value)
-			}
+			hit, err := st.Tasks().ByRef(ctx, r)
 			switch {
 			case err == nil:
 				tasks = append([]store.Task{hit}, slices.DeleteFunc(tasks, func(t store.Task) bool { return t.ID == hit.ID })...)

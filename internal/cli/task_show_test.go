@@ -310,3 +310,48 @@ func TestTaskShowOfAnUncachedIdNeedsTheSignIn(t *testing.T) {
 		t.Errorf("stderr:\n%s", errOut.String())
 	}
 }
+
+func TestTaskShowOfAnUncachedIdWithARejectedTokenSaysSignIn(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"errorDescription":"Token is invalid","error":"not_authorized"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitError {
+		t.Errorf("code = %d", code)
+	}
+	if !strings.Contains(errOut.String(), "sign in rejected, run wrikery to sign in again") || strings.Contains(errOut.String(), "/tasks/") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+}
+
+func TestTaskShowOfAnUncachedIdSaysWhenWrikeDoesNotAnswer(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitError {
+		t.Errorf("code = %d", code)
+	}
+	if !strings.Contains(errOut.String(), "Wrike did not answer in time") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+}
+
+// A task titled with a number is still found by more of its title, the message keeps saying so.
+func TestTaskShowOfAnUnknownNumberKeepsTheTitleHint(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errorDescription":"Task not found or access denied","error":"resource_not_found"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "2026"}); code != exitError {
+		t.Errorf("code = %d", code)
+	}
+	if !strings.Contains(errOut.String(), `no task "2026" on Wrike, or no access, a title that is a number needs more of it`) {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+}

@@ -26,6 +26,7 @@ const scopeRecycleBin = "RbTask"
 var reachFields = []string{"attachmentCount"}
 
 // reachBatch is the documented limit of GET /tasks/{ids}, so one request covers a cycle's referenced tasks.
+// The request line is 13 KB at that size, and the live account answered one on 2026-10-22, so the length does not cut it lower.
 const reachBatch = 1000
 
 // permalinkFor builds the link the permalink filter takes from the number in it.
