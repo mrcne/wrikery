@@ -93,6 +93,7 @@ A task with a write still queued shows `(sending)` next to its title, and one wh
 `c` opens a small text box, ctrl+s or ctrl+d sends the comment and closes the box, esc cancels.
 `C` hands the terminal to `$VISUAL` or `$EDITOR` on a temporary file instead, for a longer comment.
 Saving and quitting the editor sends the file as the comment, an empty file sends nothing.
+An editor that opens the file in a window of its own and returns at once, as the `code` and `cursor` commands do, gets a box instead: write and save there, then enter in wrikery sends the file and esc drops it.
 
 `s` lists the statuses of the task's workflow, grouped the way Wrike groups them.
 Moving the cursor and pressing enter applies the highlighted status.

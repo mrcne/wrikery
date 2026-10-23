@@ -164,6 +164,7 @@ The UI cuts the stored HTML into top level blocks, a block element or a run of t
 On save, a block whose markdown is still in the file keeps the bytes it came with, only the blocks the user changed are translated back, and markup that markdown cannot express stays in the file as HTML tags.
 A description given to a command goes through the same split and merge, and a create converts it whole.
 So an untouched paragraph never changes on the server, whatever it holds.
+The editor runs with the terminal handed over and its exit ends the edit, except when it exits inside two seconds with the file untouched: that is a command that passed the file to a window of its own, as code and cursor do, so the file stays and a box takes the edit from it on enter.
 
 After a network error the engine waits before the next attempt, and the wait grows with every failure.
 A 429 response, meaning the rate limit was hit, is treated the same way.

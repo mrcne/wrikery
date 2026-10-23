@@ -544,11 +544,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The temp file is a small OS side effect local to this handler,
 		// the text itself still goes through a submit message so it reaches the outbox by the same path as a dialog.
 		// A file that cannot be read is treated as empty, there is nothing better to send.
-		text, _ := os.ReadFile(msg.path)
-		_ = os.Remove(msg.path)
 		if msg.err != nil {
+			_ = os.Remove(msg.path)
 			return m, m.status.show("editor failed: "+msg.err.Error(), true)
 		}
+		text, _ := os.ReadFile(msg.path)
+		if msg.untouched(text) && (msg.fromPopup || msg.elapsed < editorWindowReturn) {
+			// An editor that came back at once without writing has opened the file in a window of its own,
+			// so the file stays for the window and the popup sends it later.
+			m.openDialog(editorWindowDialog{taskID: msg.taskID, path: msg.path, edit: msg.edit, saveFirst: msg.fromPopup})
+			return m, nil
+		}
+		if msg.fromPopup {
+			m.overlay, m.dialog = overlayNone, nil
+		}
+		_ = os.Remove(msg.path)
 		if msg.edit != nil {
 			return m, m.finishDescriptionEdit(msg.taskID, msg.edit, string(text))
 		}
@@ -971,6 +981,19 @@ func (m Model) dialogWidth() int {
 	return min(m.width-4, 80)
 }
 
+// dropEditorFile gives up the edit an editor popup holds: the file goes, the toast is the one an unchanged file gets.
+func (m *Model) dropEditorFile() tea.Cmd {
+	d, ok := m.dialog.(editorWindowDialog)
+	if !ok {
+		return nil
+	}
+	_ = os.Remove(d.path)
+	if d.edit != nil {
+		return m.status.show("description unchanged", false)
+	}
+	return m.status.show("empty comment, nothing sent", false)
+}
+
 // openDialog opens a dialog and switches the overlay to it.
 // The pointer receiver mutates the caller's m in place, and the caller returns that same m afterward,
 // so a caller must not also read m in the same statement, the order between the two is unspecified.
@@ -981,12 +1004,16 @@ func (m *Model) openDialog(d dialog) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
+		if d, ok := m.dialog.(editorWindowDialog); ok {
+			_ = os.Remove(d.path)
+		}
 		return m, tea.Quit
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
 		if msg.Type == tea.KeyEsc {
+			cmd := m.dropEditorFile()
 			m.overlay, m.dialog = overlayNone, nil
-			return m, nil
+			return m, cmd
 		}
 		var cmd tea.Cmd
 		m.dialog, cmd = m.dialog.Update(msg)
