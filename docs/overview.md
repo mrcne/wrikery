@@ -281,7 +281,7 @@ The `[oauth]` table names an API app for the browser sign in: `client_id`, `redi
 The commands are `sync`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and `wrikery help` prints them with their flags.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
-A read never waits for the network and prints the cache, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
+A read prints the cache and waits for the network only to fetch a task argument the cache lacks, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.

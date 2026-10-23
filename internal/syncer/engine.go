@@ -382,7 +382,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if err != nil {
 		return err
 	}
-	reread, err := rereadReached(ctx, e.client, e.st, stamped)
+	reread, err := rereadReached(ctx, e.client, e.st, stamped, e.log)
 	if err != nil {
 		return err
 	}

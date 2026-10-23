@@ -78,12 +78,15 @@ func reachReferenced(ctx context.Context, c Client, st *store.Store, skip map[st
 		return false, nil
 	}
 	found, err := c.TasksByIDs(ctx, ids, reachFields)
-	if err != nil && classify(err) != failPermanent {
-		return false, err
-	}
-	if err != nil {
+	switch {
+	case isNotFound(err):
+		// The ordinary answer when the one id asked for is a task the user cannot see, nothing to log.
+		found = nil
+	case err != nil && classify(err) == failPermanent:
 		log.Warn("reach rejected", "tasks", len(ids), "error", err)
 		found = nil
+	case err != nil:
+		return false, err
 	}
 	answered := map[string]bool{}
 	for _, t := range found {
@@ -102,14 +105,19 @@ func reachReferenced(ctx context.Context, c Client, st *store.Store, skip map[st
 
 // rereadReached refreshes reached tasks, which no scope poll covers, and drops the ones Wrike no longer answers.
 // The plain upsert keeps the stamp as it is: a re-read is neither a reach nor an open, so it must not extend the thirty days.
-func rereadReached(ctx context.Context, c Client, st *store.Store, ids []string) (bool, error) {
+// A chunk Wrike rejects for good is skipped with a log line: the stamped set does not change on its own,
+// so a failed cycle here would repeat every minute and stop the rest of the cycle with it.
+func rereadReached(ctx context.Context, c Client, st *store.Store, ids []string, log *slog.Logger) (bool, error) {
 	changed := false
 	for chunk := range slices.Chunk(ids, reachBatch) {
 		found, err := c.TasksByIDs(ctx, chunk, reachFields)
-		if isNotFound(err) {
-			found, err = nil, nil
-		}
-		if err != nil {
+		switch {
+		case isNotFound(err):
+			found = nil
+		case err != nil && classify(err) == failPermanent:
+			log.Warn("reread rejected", "tasks", len(chunk), "error", err)
+			continue
+		case err != nil:
 			return changed, err
 		}
 		answered := map[string]bool{}

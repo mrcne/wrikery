@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -198,5 +199,56 @@ func TestPollRereadsOnlyTheOpenedStampedTasks(t *testing.T) {
 	}
 	if _, err := st.Tasks().Get(ctx, "T6"); err != nil {
 		t.Errorf("T6 was dropped by a poll that never asked for it: %v", err)
+	}
+}
+
+// A 404 is the ordinary answer for one id the user cannot see, it fills the skip set and earns no warning.
+// Any other rejection for good is logged, and the cycle goes on either way.
+func TestReachReferencedTakesA404AsNoAnswerWithoutAWarning(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Timelogs().Upsert(ctx, []store.Timelog{{ID: "L1", TaskID: "T9", UserID: "U1", TrackedDate: "2026-10-20", Hours: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	answer := &wrike.APIError{StatusCode: http.StatusNotFound, Code: "resource_not_found"}
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) { return nil, answer }}
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	skip := map[string]bool{}
+	if changed, err := reachReferenced(ctx, fc, st, skip, log, time.Now()); err != nil || changed {
+		t.Fatalf("reachReferenced = %v, %v", changed, err)
+	}
+	if !skip["T9"] || strings.Contains(buf.String(), "reach rejected") {
+		t.Errorf("after a 404 skip = %v, log = %q, want T9 skipped and no warning", skip, buf.String())
+	}
+	answer = &wrike.APIError{StatusCode: http.StatusForbidden, Code: "access_forbidden"}
+	delete(skip, "T9")
+	if _, err := reachReferenced(ctx, fc, st, skip, log, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if !skip["T9"] || !strings.Contains(buf.String(), "reach rejected") {
+		t.Errorf("after a 403 skip = %v, log = %q, want T9 skipped and a warning", skip, buf.String())
+	}
+}
+
+// The stamped set does not change by itself, so a re-read Wrike rejects for good must not fail every cycle from then on.
+func TestCycleSurvivesAPermanentErrorOnTheReread(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	stampedTask(t, st, "T5", "stays")
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return nil, &wrike.APIError{StatusCode: http.StatusBadRequest, Code: "invalid_request"}
+	}}
+	var buf bytes.Buffer
+	e := New(fc, st, Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	state, err := e.Once(ctx, true)
+	if err != nil || state != StateIdle {
+		t.Fatalf("Once = %q, %v, want idle and no error", state, err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T5"); err != nil {
+		t.Errorf("T5 was dropped by a rejected re-read: %v", err)
+	}
+	if !strings.Contains(buf.String(), "reread rejected") {
+		t.Errorf("log = %q, want the rejection noted", buf.String())
 	}
 }
