@@ -39,12 +39,13 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if env.Offline {
 		return usageError(env, fs, syncUsage, "sync talks to Wrike, which offline mode forbids, run wrikery --offline=false sync")
 	}
-	host, code := preflight(ctx, env)
+	// An account read Wrike did not answer is left to the engine, its first cycle compares before it sends or pulls.
+	host, code, _ := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, CheckHome: env.TokenFromEnv}, slog.Default())
 	state, cycleErr := eng.Once(ctx, *full)
 	// The pull changed the cache, a running interface shows it now and not at its own next poll.
 	if env.Socket != "" {

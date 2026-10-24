@@ -8,6 +8,8 @@ const (
 	StateOffline      SyncState = "offline"
 	StateFailed       SyncState = "failed"
 	StateAuthRequired SyncState = "auth_required"
+	// StateAnotherAccount stops the engine until the user decides about a credential of another account, see AnotherAccountError.
+	StateAnotherAccount SyncState = "another_account"
 )
 
 type EntityKind string

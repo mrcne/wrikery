@@ -215,7 +215,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 			return usageError(env, fs, createUsage, "the description is empty")
 		}
 	}
-	host, code := preflight(ctx, env)
+	host, code, unchecked := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -231,7 +231,7 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, task, readOK, err := deliver(ctx, env, host, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
+	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
 	if err != nil {
 		return fail(env, err)
 	}

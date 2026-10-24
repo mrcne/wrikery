@@ -31,23 +31,83 @@ func (o outcome) String() string {
 // preflight checks the sign in and resolves the host before anything is queued,
 // so a failure here never hides a row behind an error exit.
 // It is the only place that reads the credentials, the commands that only read the cache never touch the keychain.
-func preflight(ctx context.Context, env Env) (host string, code int) {
+// unchecked is the reason the account could not be compared with the cache's, Wrike did not answer:
+// a write is then queued and not sent, the next command or the interface's first cycle compares before anything goes out.
+func preflight(ctx context.Context, env Env) (host string, code int, unchecked error) {
 	if env.Offline {
 		// Nothing is sent, so nothing needs the credentials or the host.
-		return "", exitOK
+		return "", exitOK, nil
 	}
 	ok, err := env.SignedIn()
 	if err != nil {
-		return "", fail(env, err)
+		return "", fail(env, err), nil
 	}
 	if !ok {
-		return "", fail(env, errors.New("not signed in, run wrikery once to sign in"))
+		return "", fail(env, errors.New("not signed in, run wrikery once to sign in")), nil
 	}
 	host, err = env.Host(ctx)
 	if err != nil {
-		return "", fail(env, fmt.Errorf("could not reach Wrike: %w", err))
+		return "", fail(env, fmt.Errorf("could not reach Wrike: %w", err)), nil
 	}
-	return host, exitOK
+	code, unchecked = checkHome(ctx, env, host)
+	if code != exitOK {
+		return "", code, nil
+	}
+	return host, exitOK, unchecked
+}
+
+// checkHome refuses a command whose credential belongs to another account, data center or person than the cache,
+// before anything is queued or fetched: only the interface asks the user, a command has nobody to ask.
+// A cache with a record was checked by the sign in that stored its credential, so only a cache from before the record
+// and a WRIKERY_TOKEN, which no sign in saw, read the account.
+// A rejected token goes on, its own send reports it blocked as it always did, and a rejected token sends nothing anywhere.
+func checkHome(ctx context.Context, env Env, host string) (code int, unchecked error) {
+	// A local read, a Ctrl-C before it must leave the decision to the network part, which reports an interrupt.
+	record, err := env.Store.Home(context.WithoutCancel(ctx))
+	if err != nil {
+		return fail(env, err), nil
+	}
+	if record.AccountID != "" && !env.TokenFromEnv {
+		return exitOK, nil
+	}
+	// The write deadline bounds the read, a Wrike that does not answer must not hold a command for the client's whole retry budget.
+	if env.Deadline > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, env.Deadline)
+		defer cancel()
+	}
+	met, m, err := syncer.MeetHome(ctx, env.Client(host), env.Store, host)
+	var apiErr *wrike.APIError
+	switch {
+	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+		return exitOK, nil
+	case err != nil:
+		return exitOK, err
+	case m != store.MeetAsk:
+		return exitOK, nil
+	}
+	_, _ = fmt.Fprintf(env.Stderr, "wrikery: this sign in is for %s on %s, the cache belongs to %s on %s, open wrikery to decide\n",
+		accountName(met), met.Host, accountName(record), record.Host)
+	return exitError, nil
+}
+
+// uncheckedReason words an account read Wrike did not answer the way a send that did not go out is worded.
+func uncheckedReason(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Wrike did not answer in time"
+	}
+	return err.Error()
+}
+
+// accountName names an account for a message: its name, its id, or "another account" for a cache from before the record.
+func accountName(h store.Home) string {
+	switch {
+	case h.AccountName != "":
+		return h.AccountName
+	case h.AccountID != "":
+		return h.AccountID
+	}
+	return "another account"
 }
 
 // send runs one drain pass for the row just queued and reads its fate back from the outbox.
@@ -56,7 +116,7 @@ func preflight(ctx context.Context, env Env) (host string, code int) {
 // The drain error is the reason behind a queued outcome or the sign of a rejected token, otherwise the row's state is the truth.
 func send(ctx context.Context, env Env, host string, rowID int64) (outcome, string, error) {
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host}, slog.Default())
 	drainErr := eng.Drain(ctx, env.Deadline)
 	// Ctrl-C cancels ctx while the drain runs, the engine puts its row back on purpose.
 	// A read on the cancelled ctx would fail at once, so the outcome is read on one that cannot be cancelled.
@@ -245,11 +305,15 @@ func reportFate(env Env, out outcome, id string, asJSON bool) int {
 
 // deliver sends the row just queued and reads the task back, the middle every write command shares.
 // After it the write is decided, so the caller reports on a context a Ctrl-C cannot cut.
-func deliver(ctx context.Context, env Env, host string, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
-	if env.Offline {
+func deliver(ctx context.Context, env Env, host string, unchecked error, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
+	switch {
+	case env.Offline:
 		// The row waits in the queue until the interface goes online or a command runs without the mode.
 		out, reason = queued, "offline mode"
-	} else {
+	case unchecked != nil:
+		// The account was not compared, so nothing of the queue goes out from here.
+		out, reason = queued, uncheckedReason(unchecked)
+	default:
 		out, reason, err = send(ctx, env, host, rowID)
 		if err != nil {
 			return out, reason, t, false, err
@@ -292,7 +356,7 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 		return reportUnchanged(ctx, env, t, ref, asJSON, line(ctx, t))
 	}
 	before := line(ctx, t)
-	host, code := preflight(ctx, env)
+	host, code, unchecked := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -300,7 +364,7 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, after, readOK, err := deliver(ctx, env, host, rowID, t, ref, asJSON)
+	out, reason, after, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, ref, asJSON)
 	if err != nil {
 		return fail(env, err)
 	}

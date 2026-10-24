@@ -39,12 +39,15 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 	if env.Offline {
 		return store.Task{}, fail(env, fmt.Errorf("no task %q in the cache, offline mode", arg))
 	}
-	host, code := preflight(ctx, env)
+	host, code, unchecked := preflight(ctx, env)
+	if unchecked != nil {
+		return store.Task{}, fail(env, fmt.Errorf("could not reach Wrike: %w", unchecked))
+	}
 	if code != exitOK {
 		return store.Task{}, code
 	}
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host}, slog.Default())
 	// The write deadline bounds the fetch too, a Wrike that does not answer must not hold a read for the client's whole retry budget.
 	if env.Deadline > 0 {
 		var cancel context.CancelFunc

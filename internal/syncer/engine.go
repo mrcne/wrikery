@@ -23,6 +23,8 @@ type Config struct {
 	ReconnectBase  time.Duration // engine wait after a failed cycle, default 1s
 	ReconnectCeil  time.Duration // cap for that wait, default 2m
 	LockFile       string        // the cross-process sync lock next to the database, empty means none
+	Host           string        // the host the client talks to, the account check names it
+	CheckHome      bool          // read the account before the first cycle even when the cache has a record, the credential came from WRIKERY_TOKEN
 }
 
 func (c Config) withDefaults() Config {
@@ -72,9 +74,10 @@ type Engine struct {
 	meID          string
 	lastReference time.Time
 	// unreached holds the referenced ids Wrike did not answer, skipped until the next manual cycle, see reachReferenced.
-	unreached  map[string]bool
-	failures   int
-	lockWarned bool
+	unreached   map[string]bool
+	failures    int
+	lockWarned  bool
+	homeChecked bool // the credential's account was compared with the cache's record, once per engine
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -157,7 +160,10 @@ func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 // stateAfter is the state a cycle outcome puts the engine in.
 // A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
 func stateAfter(err error) SyncState {
+	var another *AnotherAccountError
 	switch {
+	case errors.As(err, &another):
+		return StateAnotherAccount
 	case err == nil:
 		return StateIdle
 	case classify(err) == failAuth:
@@ -210,7 +216,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		case err == nil:
 			e.failures = 0
 			wait = e.cfg.PollInterval
-		case state == StateAuthRequired:
+		case state == StateAuthRequired || state == StateAnotherAccount:
 			e.failures = 0
 		default:
 			e.failures++
@@ -218,8 +224,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			wait = backoff(e.failures-1, e.cfg.ReconnectBase, e.cfg.ReconnectCeil)
 		}
 		e.setState(state)
-		if e.state == StateAuthRequired {
-			// Only a new token can help, so only a manual refresh or the end of the program wakes the engine.
+		if e.state == StateAuthRequired || e.state == StateAnotherAccount {
+			// Only a new token or the user's answer can help, so only a manual refresh or the end of the program wakes the engine.
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -277,6 +283,23 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 	if _, err := e.st.Outbox().ResetInflight(start); err != nil {
 		return false, err
 	}
+	// After a move every drainer runs the queue check first, the interface, a command and sync alike, see checkQueue.
+	pending, err := e.st.SwitchPending(start)
+	if err != nil {
+		return false, err
+	}
+	if pending {
+		home, err := e.st.Home(start)
+		if err != nil {
+			return false, err
+		}
+		if err := checkQueue(start, e.client, e.st, home); err != nil {
+			return false, err
+		}
+		if err := e.st.ClearSwitch(start); err != nil {
+			return false, err
+		}
+	}
 	return drainOutbox(start, post, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
 }
 
@@ -320,6 +343,9 @@ func ResetInflight(ctx context.Context, st *store.Store, lockFile string, budget
 
 func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	e.setState(StateSyncing)
+	if err := e.meetHome(ctx); err != nil {
+		return err
+	}
 
 	changed, err := e.drain(ctx, post)
 	if changed {
@@ -448,6 +474,33 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emitOutboxCounts(ctx)
 		e.WakeOutbox()
 	}
+	return nil
+}
+
+// meetHome compares the credential's account with the cache's record before the first cycle sends or pulls anything.
+// A cache with a record was checked by the sign in that stored its credential, so it reads nothing,
+// except under CheckHome, a credential from the environment that no sign in saw.
+// A question keeps homeChecked false, so the cycle after the user's answer compares again.
+func (e *Engine) meetHome(ctx context.Context) error {
+	if e.homeChecked {
+		return nil
+	}
+	record, err := e.st.Home(ctx)
+	if err != nil {
+		return err
+	}
+	if record.AccountID != "" && !e.cfg.CheckHome {
+		e.homeChecked = true
+		return nil
+	}
+	met, m, err := MeetHome(ctx, e.client, e.st, e.cfg.Host)
+	if err != nil {
+		return err
+	}
+	if m == store.MeetAsk {
+		return &AnotherAccountError{Met: met}
+	}
+	e.homeChecked = true
 	return nil
 }
 

@@ -128,7 +128,7 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	host, code := preflight(ctx, env)
+	host, code, unchecked := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
@@ -136,7 +136,7 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, task, readOK, err := deliver(ctx, env, host, rowID, t, &ref, *asJSON)
+	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, &ref, *asJSON)
 	if err != nil {
 		return fail(env, err)
 	}

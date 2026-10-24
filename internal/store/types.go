@@ -150,6 +150,18 @@ const MetaKeyMe = "me_contact_id"
 // MetaKeyHost is the host the token probe found, written by cmd/wrikery, empty means not probed yet.
 const MetaKeyHost = "api_host"
 
+// MetaKeyAccountID and MetaKeyAccountName name the Wrike account the cache was built from, see Home.
+const (
+	MetaKeyAccountID   = "account_id"
+	MetaKeyAccountName = "account_name"
+)
+
+// MetaKeyHomeHost is the host the cache's credential was verified on, whatever the config says, see Home.
+const MetaKeyHomeHost = "home_host"
+
+// MetaKeySwitchPending is "1" from a move to another account or data center until a drain pass checked the queue against it.
+const MetaKeySwitchPending = "switch_pending"
+
 // MetaKeySidebarPinned is "1" while the sidebar shows only the pinned nodes, so the choice survives a restart.
 const MetaKeySidebarPinned = "sidebar_pinned_only"
 
