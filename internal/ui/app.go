@@ -541,22 +541,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case editorDoneMsg:
-		// The temp file is a small OS side effect local to this handler,
+		// The temp file is a small OS side effect of the editor path,
 		// the text itself still goes through a submit message so it reaches the outbox by the same path as a dialog.
 		// A file that cannot be read is treated as empty, there is nothing better to send.
-		text, _ := os.ReadFile(msg.path)
-		_ = os.Remove(msg.path)
 		if msg.err != nil {
+			_ = os.Remove(msg.path)
 			return m, m.status.show("editor failed: "+msg.err.Error(), true)
 		}
-		if msg.edit != nil {
-			return m, m.finishDescriptionEdit(msg.taskID, msg.edit, string(text))
+		text, _ := os.ReadFile(msg.path)
+		if untouched(msg.edit, text) && msg.elapsed < editorWindowReturn {
+			// An editor that came back at once without writing has opened the file in a window of its own,
+			// so the file stays for the window and the box sends it later.
+			m.openDialog(editorWindowDialog{taskID: msg.taskID, path: msg.path, edit: msg.edit})
+			return m, nil
 		}
-		trimmed := strings.TrimSpace(string(text))
-		if trimmed == "" {
-			return m, m.status.show("empty comment, nothing sent", false)
-		}
-		return m, intent(submitCommentMsg{taskID: msg.taskID, text: trimmed})
+		_ = os.Remove(msg.path)
+		return m, m.finishEditorFile(msg.taskID, msg.edit, text)
 	case descriptionReadyMsg:
 		cmd, err := openEditor(msg.task.ID, &descriptionEdit{html: msg.task.Description, text: EditorText(msg.task.Description)})
 		if err != nil {
@@ -981,12 +981,19 @@ func (m *Model) openDialog(d dialog) {
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
+		if d, ok := m.dialog.(editorWindowDialog); ok {
+			_ = os.Remove(d.path)
+		}
 		return m, tea.Quit
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
 		if msg.Type == tea.KeyEsc {
+			cmd := m.dropEditorFile()
 			m.overlay, m.dialog = overlayNone, nil
-			return m, nil
+			return m, cmd
+		}
+		if d, ok := m.dialog.(editorWindowDialog); ok && msg.Type == tea.KeyEnter {
+			return m, m.sendEditorBox(d)
 		}
 		var cmd tea.Cmd
 		m.dialog, cmd = m.dialog.Update(msg)

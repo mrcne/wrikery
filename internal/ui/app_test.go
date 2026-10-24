@@ -1234,7 +1234,21 @@ func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
 	waitFor(t, tm, "-- Comments (")
 	from := mark(t, tm)
 	press(tm, "E")
-	waitAfter(t, tm, from, "set $EDITOR to write in an editor")
+	waitAfter(t, tm, from, "set $EDITOR (or $VISUAL) to write in an editor")
+}
+
+// true takes the file and exits at once, the way the code and cursor commands do when they hand a file to a window.
+func TestDescriptionKeyWithAWindowEditorAsksBeforeDropping(t *testing.T) {
+	t.Setenv("VISUAL", "true")
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, "E")
+	waitAfter(t, tm, from, "returned at once")
+	from = mark(t, tm)
+	press(tm, "esc")
+	waitAfter(t, tm, from, "description edit dropped")
 }
 
 // The demo opens on My tasks, so the box starts without a folder and the create assigns the task to the user.
