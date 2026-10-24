@@ -117,7 +117,7 @@ func main() {
 		os.Exit(code)
 	}
 	if fs.NArg() > 0 {
-		os.Exit(runCommand(fs.Args(), fs, o.config, o.noColor, o.demo, o.version, o.logout, offlineArg(fs, &o.offline)))
+		os.Exit(runCommand(fs.Args(), fs, o))
 	}
 	if o.version {
 		fmt.Println(versionLine(buildVersion(), buildCommit(), runtime.Version()))
@@ -263,22 +263,23 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 }
 
 // runCommand prepares what a command needs, the first half of run without the program, and hands over to internal/cli.
-// global is the root flag set, the help page lists it.
-func runCommand(args []string, global *flag.FlagSet, configPath string, noColor, demo, showVersion, logout bool, offlineFlag *bool) int {
-	if demo {
+// global is the root flag set, parsed, the help page lists it and o holds its values.
+func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
+	offlineFlag := offlineArg(global, &o.offline)
+	if o.demo {
 		if args[0] != "ui" {
 			fmt.Fprintln(os.Stderr, "wrikery: --demo runs the interface on sample data, it cannot run a command, only ui drives a demo")
 			return 2
 		}
 		// The demo's cache is a throwaway in the running process's temp dir, so a ui command talks to its socket and resolves nothing.
-		paths, _, err := setup(configPath)
+		paths, _, err := setup(o.config)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 			return 1
 		}
 		return cli.Run(context.Background(), cli.Env{Socket: demoSocketPath(paths), GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
-	if showVersion || logout {
+	if o.version || o.logout {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
@@ -286,10 +287,10 @@ func runCommand(args []string, global *flag.FlagSet, configPath string, noColor,
 		// Help prints from the command table alone, so it must not create the data directory, open the store or read the token.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
-	if noColor {
+	if o.noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
-	paths, cfg, err := setup(configPath)
+	paths, cfg, err := setup(o.config)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		return 1

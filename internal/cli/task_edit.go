@@ -114,12 +114,12 @@ var cmdTaskComment = Command{
 	Short:    "add a comment as you",
 	Notes: `Adds a comment to a task as you. The words after the task make the text, quotes are optional.
 Put -- before a text with a word that starts with a dash, everything after it is text.`,
-	Flags: func() *flag.FlagSet { return new(jsonOpts).flagSet("task comment") },
+	Flags: func() *flag.FlagSet { return jsonFlagSet("task comment", new(bool)) },
 }
 
 func runTaskComment(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("task comment")
+	var asJSON bool
+	fs := jsonFlagSet("task comment", &asJSON)
 	positional, code, done := parse(env, fs, cmdTaskComment.usage(), args)
 	if done {
 		return code
@@ -152,17 +152,17 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, &ref, o.json)
+	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, &ref, asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	if o.json && readOK {
+	if asJSON && readOK {
 		return reportComment(ctx, env, out, reason, rowID, task, &ref, text)
 	}
-	if o.json || !readOK {
-		return reportWrite(ctx, env, out, reason, o.json, readOK, task, &ref, "comment on "+task.Title)
+	if asJSON || !readOK {
+		return reportWrite(ctx, env, out, reason, asJSON, readOK, task, &ref, "comment on "+task.Title)
 	}
 	if out == queued {
 		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
@@ -217,14 +217,14 @@ var (
 		Synopsis: []string{"task assign T P..."},
 		Short:    "put people on a task",
 		Notes:    assignNotes,
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("task assign") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("task assign", new(bool)) },
 	}
 	cmdTaskUnassign = Command{
 		Name:     "task unassign",
 		Synopsis: []string{"task unassign T P..."},
 		Short:    "take people off a task",
 		Notes:    assignNotes,
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("task unassign") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("task unassign", new(bool)) },
 	}
 )
 
@@ -234,8 +234,8 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	if remove {
 		cmd = cmdTaskUnassign
 	}
-	var o jsonOpts
-	fs := o.flagSet(cmd.Name)
+	var asJSON bool
+	fs := jsonFlagSet(cmd.Name, &asJSON)
 	positional, code, done := parse(env, fs, cmd.usage(), args)
 	if done {
 		return code
@@ -285,7 +285,7 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	} else {
 		p.AddResponsibles = keep
 	}
-	return finishUpdate(ctx, env, t, &ref, p, o.json, line, "")
+	return finishUpdate(ctx, env, t, &ref, p, asJSON, line, "")
 }
 
 func peopleLine(ids []string, ref *refData) string {

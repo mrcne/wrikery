@@ -97,12 +97,12 @@ var cmdTaskShow = Command{
 	Synopsis: []string{"task show T"},
 	Short:    "print one task with its description and comments",
 	Notes:    "Prints one task: the header fields, the description and the comments the cache holds.",
-	Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("task show") },
+	Flags:    func() *flag.FlagSet { return jsonFlagSet("task show", new(bool)) },
 }
 
 func runTaskShow(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("task show")
+	var asJSON bool
+	fs := jsonFlagSet("task show", &asJSON)
 	positional, code, done := parse(env, fs, cmdTaskShow.usage(), args)
 	if done {
 		return code
@@ -126,7 +126,7 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	if o.json {
+	if asJSON {
 		d := taskDetailJSON{
 			taskJSON:            taskRow(ctx, env, t, &ref),
 			DescriptionText:     t.DescriptionPlain,
@@ -150,12 +150,12 @@ var cmdTaskStatus = Command{
 	Synopsis: []string{"task status T STATUS"},
 	Short:    "move a task to a status of its workflow",
 	Notes:    "Moves a task to a status of its own workflow, by name, case does not matter.",
-	Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("task status") },
+	Flags:    func() *flag.FlagSet { return jsonFlagSet("task status", new(bool)) },
 }
 
 func runTaskStatus(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("task status")
+	var asJSON bool
+	fs := jsonFlagSet("task status", &asJSON)
 	positional, code, done := parse(env, fs, cmdTaskStatus.usage(), args)
 	if done {
 		return code
@@ -176,7 +176,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 		return fail(env, err)
 	}
 	line := func(_ context.Context, x store.Task) string { return "[" + ref.statusName(x) + "]" }
-	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, o.json, line, "")
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, asJSON, line, "")
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.

@@ -64,14 +64,18 @@ func TestVersionLine(t *testing.T) {
 }
 
 func TestRunCommandRefusesDemoMode(t *testing.T) {
-	if code := runCommand([]string{"help"}, nil, "", true, true, false, false, nil); code != 2 {
+	fs, o := rootFlags()
+	o.demo, o.noColor = true, true
+	if code := runCommand([]string{"help"}, fs, o); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }
 
 func TestRunCommandRefusesVersionAndLogout(t *testing.T) {
 	for name, c := range map[string][2]bool{"version": {true, false}, "logout": {false, true}} {
-		if code := runCommand([]string{"help"}, nil, "", true, false, c[0], c[1], nil); code != 2 {
+		fs, o := rootFlags()
+		o.noColor, o.version, o.logout = true, c[0], c[1]
+		if code := runCommand([]string{"help"}, fs, o); code != 2 {
 			t.Errorf("--%s: code = %d, want 2", name, code)
 		}
 	}
@@ -95,9 +99,10 @@ func isolate(t *testing.T) string {
 
 func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 	dir := isolate(t)
-	fs, _ := rootFlags()
+	fs, o := rootFlags()
+	o.noColor = true
 	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"help", "task", "status"}} {
-		if code := runCommand(args, fs, "", true, false, false, false, nil); code != 0 {
+		if code := runCommand(args, fs, o); code != 0 {
 			t.Errorf("%v: code = %d, want 0", args, code)
 		}
 	}
@@ -109,7 +114,9 @@ func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 
 func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 	isolate(t)
-	if code := runCommand([]string{"task"}, nil, "", true, false, false, false, nil); code != 2 {
+	fs, o := rootFlags()
+	o.noColor = true
+	if code := runCommand([]string{"task"}, fs, o); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }

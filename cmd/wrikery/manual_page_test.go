@@ -167,7 +167,7 @@ func manualPage(global *flag.FlagSet) string {
 	for _, c := range cli.Commands() {
 		// The group's own heading and notes come before its first command.
 		for _, g := range cli.Groups() {
-			if !headed[g.Name] && strings.HasPrefix(c.Name, g.Name+" ") {
+			if !headed[g.Name] && g.Has(c) {
 				line(".SS The %s commands", g.Name)
 				text(g.Notes)
 				headed[g.Name] = true

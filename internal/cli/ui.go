@@ -26,7 +26,7 @@ A person is me, unassigned, a contact id or a part of a name, a status is a name
 		Short:    "show a task in the running interface",
 		Notes: `Shows a task in the interface that is running, the way a jump from the search does.
 T is an id, a part of its title, the number or the link from the browser.`,
-		Flags: func() *flag.FlagSet { return new(jsonOpts).flagSet("ui select") },
+		Flags: func() *flag.FlagSet { return jsonFlagSet("ui select", new(bool)) },
 	}
 	cmdUIFolder = Command{
 		Name:     "ui folder",
@@ -34,35 +34,35 @@ T is an id, a part of its title, the number or the link from the browser.`,
 		Short:    "open a space, project or folder there, me for My tasks",
 		Notes: `Opens a space, project or folder in the interface that is running, as from the sidebar.
 F is an id or a part of its title, me is My tasks.`,
-		Flags: func() *flag.FlagSet { return new(jsonOpts).flagSet("ui folder") },
+		Flags: func() *flag.FlagSet { return jsonFlagSet("ui folder", new(bool)) },
 	}
 	cmdUIList = Command{
 		Name:     "ui list",
 		Synopsis: []string{"ui list"},
 		Short:    "the list shape of the running interface",
 		Notes:    "Switches the interface that is running to the list.",
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("ui list") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui list", new(bool)) },
 	}
 	cmdUIBoard = Command{
 		Name:     "ui board",
 		Synopsis: []string{"ui board"},
 		Short:    "the board shape of the running interface",
 		Notes:    "Switches the interface that is running to the board over workflow statuses.",
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("ui board") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui board", new(bool)) },
 	}
 	cmdUIOpen = Command{
 		Name:     "ui open",
 		Synopsis: []string{"ui open tasks|timesheet|changes|settings"},
 		Short:    "one of its screens",
 		Notes:    "Opens one screen of the interface that is running: tasks, timesheet, changes or settings.",
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("ui open") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui open", new(bool)) },
 	}
 	cmdUIRefresh = Command{
 		Name:     "ui refresh",
 		Synopsis: []string{"ui refresh"},
 		Short:    "a sync cycle now, what R does",
 		Notes:    "Runs a sync cycle in the interface that is running, what R does there.",
-		Flags:    func() *flag.FlagSet { return new(jsonOpts).flagSet("ui refresh") },
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui refresh", new(bool)) },
 	}
 )
 
@@ -206,8 +206,8 @@ func knownStatus(workflows []store.Workflow, name string) bool {
 }
 
 func runUISelect(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("ui select")
+	var asJSON bool
+	fs := jsonFlagSet("ui select", &asJSON)
 	positional, code, done := parse(env, fs, cmdUISelect.usage(), args)
 	if done {
 		return code
@@ -227,12 +227,12 @@ func runUISelect(ctx context.Context, env Env, args []string) int {
 		req.TaskID, req.ParentIDs, req.ResponsibleIDs = t.ID, t.ParentIDs, t.ResponsibleIDs
 		text = "selected " + t.Title
 	}
-	return uiCall(ctx, env, req, o.json, text)
+	return uiCall(ctx, env, req, asJSON, text)
 }
 
 func runUIFolder(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("ui folder")
+	var asJSON bool
+	fs := jsonFlagSet("ui folder", &asJSON)
 	positional, code, done := parse(env, fs, cmdUIFolder.usage(), args)
 	if done {
 		return code
@@ -251,12 +251,12 @@ func runUIFolder(ctx context.Context, env Env, args []string) int {
 		}
 		req.FolderID = fo.ID
 	}
-	return uiCall(ctx, env, req, o.json, "")
+	return uiCall(ctx, env, req, asJSON, "")
 }
 
 func runUIOpen(ctx context.Context, env Env, args []string) int {
-	var o jsonOpts
-	fs := o.flagSet("ui open")
+	var asJSON bool
+	fs := jsonFlagSet("ui open", &asJSON)
 	positional, code, done := parse(env, fs, cmdUIOpen.usage(), args)
 	if done {
 		return code
@@ -269,13 +269,13 @@ func runUIOpen(ctx context.Context, env Env, args []string) int {
 	default:
 		return usageError(env, fs, cmdUIOpen.usage(), fmt.Sprintf("no screen %q, tasks, timesheet, changes or settings", positional[0]))
 	}
-	return uiCall(ctx, env, control.Request{Op: control.OpScreen, Screen: positional[0]}, o.json, "")
+	return uiCall(ctx, env, control.Request{Op: control.OpScreen, Screen: positional[0]}, asJSON, "")
 }
 
 // runUIPlain serves the commands with no argument of their own, list, board and refresh.
 func runUIPlain(ctx context.Context, env Env, args []string, req control.Request, cmd Command) int {
-	var o jsonOpts
-	fs := o.flagSet(cmd.Name)
+	var asJSON bool
+	fs := jsonFlagSet(cmd.Name, &asJSON)
 	positional, code, done := parse(env, fs, cmd.usage(), args)
 	if done {
 		return code
@@ -283,7 +283,7 @@ func runUIPlain(ctx context.Context, env Env, args []string, req control.Request
 	if len(positional) > 0 {
 		return usageError(env, fs, cmd.usage(), cmd.Name+" takes no arguments")
 	}
-	return uiCall(ctx, env, req, o.json, "")
+	return uiCall(ctx, env, req, asJSON, "")
 }
 
 // uiCall sends the request and prints the interface's line, or text when the command has a better one.

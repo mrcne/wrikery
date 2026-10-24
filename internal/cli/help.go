@@ -42,6 +42,11 @@ func Groups() []Group {
 	return []Group{groupTask, groupUI}
 }
 
+// Has says whether c is one of the group's commands, task list is in task.
+func (g Group) Has(c Command) bool {
+	return strings.HasPrefix(c.Name, g.Name+" ")
+}
+
 // usage is the text the command's --help prints before its flags.
 func (c Command) usage() string {
 	return usageText(c.Synopsis, c.Notes)
@@ -51,7 +56,7 @@ func (c Command) usage() string {
 func groupUsage(g Group) string {
 	var synopsis []string
 	for _, c := range Commands() {
-		if strings.HasPrefix(c.Name, g.Name+" ") {
+		if g.Has(c) {
 			synopsis = append(synopsis, c.Synopsis...)
 		}
 	}
@@ -100,13 +105,6 @@ func jsonFlagSet(name string, json *bool) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.BoolVar(json, "json", false, "print JSON")
 	return fs
-}
-
-// jsonOpts is the flag set of the commands that take --json alone.
-type jsonOpts struct{ json bool }
-
-func (o *jsonOpts) flagSet(name string) *flag.FlagSet {
-	return jsonFlagSet(name, &o.json)
 }
 
 const helpHead = `usage: wrikery [flags]
@@ -158,8 +156,10 @@ func HelpPage(global *flag.FlagSet) string {
 // The flag goes right after the command's name, before any -- the line carries, and a task or ui command has a second word.
 func helpArgs(words []string) []string {
 	n := 1
-	if (words[0] == groupTask.Name || words[0] == groupUI.Name) && len(words) > 1 {
-		n = 2
+	for _, g := range Groups() {
+		if words[0] == g.Name && len(words) > 1 {
+			n = 2
+		}
 	}
 	out := append([]string{}, words[:n]...)
 	out = append(out, "--help")

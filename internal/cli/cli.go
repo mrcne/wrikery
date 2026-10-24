@@ -55,8 +55,7 @@ func Run(ctx context.Context, env Env, args []string) int {
 		_, _ = fmt.Fprint(env.Stderr, HelpPage(env.GlobalFlags))
 		return exitUsage
 	}
-	switch args[0] {
-	case "help", "-h", "--help":
+	if isHelpWord(args[0]) {
 		// help help is the page as well, it must not run help on itself, and help --json or help -x is the page too,
 		// a word that starts with a dash names no command.
 		if len(args) == 1 || isHelpWord(args[1]) || strings.HasPrefix(args[1], "-") {
@@ -64,6 +63,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 			return exitOK
 		}
 		return Run(ctx, env, helpArgs(args[1:]))
+	}
+	switch args[0] {
 	case "sync":
 		return runSync(ctx, env, args[1:])
 	case "task":
