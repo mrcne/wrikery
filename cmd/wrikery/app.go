@@ -44,6 +44,8 @@ type app struct {
 	tokens auth.Tokens
 	prog   *tea.Program
 	lock   string
+	// session is the sign in read at start, an offline start goes online with it.
+	session auth.Session
 	// hc and loginTokenURL are set by the tests, which route every host to a fake server. Nil and empty otherwise.
 	hc            *http.Client
 	loginTokenURL string
@@ -124,6 +126,7 @@ func (a *app) hooks() ui.Hooks {
 			}
 		},
 		VerifyToken: a.verifyToken,
+		GoOnline:    a.goOnline,
 		OpenURL:     openURL,
 		Copy:        copyText,
 		Reach: func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
@@ -148,6 +151,26 @@ func (a *app) hooks() ui.Hooks {
 		h.SignIn = a.signIn
 	}
 	return h
+}
+
+// startOffline is the one step of a drain an offline start still runs: no drain sends anything,
+// so the rows a process that died mid-send left in flight come back to the queue here,
+// or the changes screen would show them as being sent and refuse a retry or a discard.
+func (a *app) startOffline() {
+	if err := syncer.ResetInflight(context.Background(), a.st, a.lock, 2*time.Second, slog.Default()); err != nil {
+		slog.Warn("could not put back the writes left in flight", "error", err)
+	}
+}
+
+// goOnline ends offline mode the way a start without it begins: the host first, then the engine on the stored session.
+// The interface calls it on a command goroutine, a host nobody stored yet costs the probe's five seconds there and not at the start.
+func (a *app) goOnline() {
+	host, err := resolveHost(context.Background(), a.cfg, a.st, a.session)
+	if err != nil {
+		slog.Warn("could not detect the Wrike data center", "error", err)
+		host = wrike.DefaultHost
+	}
+	a.startEngine(auth.NewSource(a.tokens, a.session, nil, userAgent()), host)
 }
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,

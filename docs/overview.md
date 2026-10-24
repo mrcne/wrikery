@@ -50,6 +50,7 @@ The visible panes always include the one in focus, so moving focus can slide the
 The choice is kept across restarts, like the pinned view, and the settings screen shows it.
 A status bar at the bottom shows the sync state, an offline indicator and the number of pending or failed writes.
 When Wrike rejects a request the bar says the sync is failing instead of offline, since the network is fine and the log has the reason.
+Started with `--offline`, the bar says offline mode instead, nothing is pulled or sent, and `R` goes online, see Offline mode below.
 
 ### Keys
 
@@ -62,7 +63,7 @@ The pins and the toggle are kept across restarts.
 A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
-`z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll.
+`z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll, or goes online after a confirm when the app was started offline.
 A jump to a completed task, from the search, the changes screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
 ### Search
@@ -194,7 +195,10 @@ A code in parentheses at the start of a title, `(MX)`, is drawn muted and a shor
 A status move reads `status  In Progress -> Done`, a date change `dates  Backlog -> due 15 Oct`, an assignee change `assignee  + Ada Nowak  - Bartek Lis`, a comment or a new task shows its first words, a time entry its hours and day.
 The row under the cursor shows the values in full on a second line, a long title or the first line of the old and the new description.
 The writes still queued or failed sit at the top, marked `queued`, `sending`, `retrying` or `failed` with the error Wrike returned on the second line, so one that fails the same way every time can be discarded instead of holding the later writes on its task.
+A task edit whose field someone changed on Wrike since it was queued is held there as failed, the second line names the field with its value on Wrike, and the old value on the row is now Wrike's, so the row reads what sending it would do.
 `r` retries the highlighted queued row, a retrying one at once, `x` asks for confirmation and then discards it, and a discarded row stays in the list marked so.
+On a held edit `r` sends it anyway and `x` drops it.
+In offline mode `r` does nothing, there is nothing to send with yet, `x` discards as always, and a write a send failed on in an earlier session reads `queued`.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
 A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
@@ -261,6 +265,17 @@ The choice can be changed later from the settings screen.
 The goal is less than a minute from install to a working app.
 `wrikery --logout` signs out, whichever way the sign in happened, and the next start asks again.
 
+### Offline mode
+
+`wrikery --offline` starts without syncing, for when you do not want to talk to Wrike yet.
+Nothing is pulled and nothing is sent: the interface browses and searches the cache, a change is applied to it at once and waits in the queue, and a task the cache does not hold cannot be fetched.
+The status bar says offline mode, and the detail of a task with a change waiting shows `(queued)` next to its title instead of `(sending)`.
+The changes screen, `!`, is where the queue is reviewed, and a write you would rather not send can be discarded there with `x`.
+`R` asks first, with the number of writes that go out, and the yes starts the sync the way a start without the flag does: the queue first, oldest first, then the pulls.
+There is no way back to offline mode in the same session, start the app again with the flag.
+`offline = true` in the config file makes every start offline, the interface and the commands alike, and `--offline=false` runs one start online anyway.
+The first start needs Wrike for the sign in, so it refuses the flag.
+
 ### Demo mode
 
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.
@@ -270,6 +285,7 @@ The goal is less than a minute from install to a working app.
 The config file lives at `~/.config/wrikery/config.toml`.
 `--config PATH` reads another file instead.
 `--no-color` gives plain output without colors, and so does `NO_COLOR` in the environment.
+`--offline` starts without syncing and `offline = true` does it on every start, see Offline mode.
 `log_level` sets how much the app logs: debug, info, warn or error.
 `poll_interval` sets how often the sync engine checks Wrike for changes.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, and `ascii` to replace drawing glyphs with plain characters on a terminal that cannot show them.
@@ -287,7 +303,9 @@ A write a command made shows on the changes screen with a `cli` tag.
 A read prints the cache and waits for the network only to fetch a task argument the cache lacks, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.
+A task edit someone changed on Wrike since it was queued is not sent, the command says which field changed and exits with 1, and the changes screen offers to send it anyway.
 A queued write goes out with the next sync, from the interface or from `wrikery sync`.
+In offline mode, `wrikery --offline` or `offline = true` in the config, a write is queued and not sent, the command says so and exits with 3, a task the cache does not hold is not fetched, and `sync` is refused.
 `wrikery sync` sends the queue, refreshes the reference data and pulls the changes, and `wrikery sync --full` also checks every followed scope for tasks deleted on Wrike, which is slower.
 A task or a folder on the command line is an id or a part of its title that matches exactly one cached row, the match ignores case and accents as the search does, several matches are refused with the candidates listed.
 When one of the matches has exactly the given title, ignoring case, that one is taken, and ignoring accents as well when none has it letter for letter.

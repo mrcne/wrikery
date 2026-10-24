@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -539,6 +540,152 @@ func TestEnqueueOnAGhostTaskKeepsNoBefore(t *testing.T) {
 	}
 }
 
+// The task a create made has a local row whose status is a guess and whose description is this client's own HTML,
+// so an edit queued on it before the create lands remembers nothing, the drain then has nothing to hold it against.
+func TestEnqueueOnALocalTaskKeepsNoBefore(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	createID, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "New one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, LocalID(createID), TaskUpdatePayload{CustomStatusID: "CS2", Status: "Completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if len(row.Before) != 0 || row.TaskID != LocalID(createID) || row.TaskTitle != "New one" {
+		t.Errorf("row = before %q task %q title %q, want no before, the local id and the title", row.Before, row.TaskID, row.TaskTitle)
+	}
+}
+
+// queueStatusEdits caches T1 in New with the title "a" and queues three edits on it:
+// status In Progress, then Completed with the title "b", then On Hold, each remembering the cache the one before left.
+func queueStatusEdits(t *testing.T, st *Store) (first, second, third int64) {
+	t.Helper()
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.CustomStatusID = "ST_NEW"
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]int64, 3)
+	for i, p := range []TaskUpdatePayload{
+		{CustomStatusID: "ST_PROG", Status: "Active"},
+		{CustomStatusID: "ST_DONE", Status: "Completed", Title: "b"},
+		{CustomStatusID: "ST_HOLD", Status: "Deferred"},
+	} {
+		id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	return ids[0], ids[1], ids[2]
+}
+
+// A dropped edit never reached Wrike, so the next edit of the same field must remember what the dropped one replaced,
+// or the check before the send would hold it against a value Wrike never had.
+func TestDiscardAndFailPassTheBeforeOnToTheNextEdit(t *testing.T) {
+	for name, drop := range map[string]func(OutboxRepo, int64) error{
+		"discard": func(o OutboxRepo, id int64) error { return o.Discard(context.Background(), id) },
+		"fail": func(o OutboxRepo, id int64) error {
+			return o.Fail(context.Background(), id, "wrike: invalid_parameter (http 400)")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := newTestStore(t)
+			first, second, third := queueStatusEdits(t, st)
+			if err := drop(st.Outbox(), first); err != nil {
+				t.Fatal(err)
+			}
+			got := decodeTaskPayload(t, readRow(t, st, second).Before)
+			if got.CustomStatusID != "ST_NEW" || got.Status != "Active" || got.Title != "a" {
+				t.Errorf("second before = %+v, want the status the dropped edit replaced and its own title", got)
+			}
+			if got := decodeTaskPayload(t, readRow(t, st, third).Before); got.CustomStatusID != "ST_DONE" {
+				t.Errorf("third before = %+v, want the second edit's status, only the next edit of a field takes it", got)
+			}
+		})
+	}
+}
+
+// A held edit remembers Wrike's newer value, passing that on would let the next edit overwrite it without a hold.
+func TestDiscardOfAHeldEditPassesNothingOn(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, second, _ := queueStatusEdits(t, st)
+	if err := st.Outbox().Hold(ctx, first, HeldPrefix+`status "Completed" now, was "New"`, []byte(`{"customStatusId":"ST_DONE","status":"Completed"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeTaskPayload(t, readRow(t, st, second).Before); got.CustomStatusID != "ST_PROG" {
+		t.Errorf("second before = %+v, want it untouched", got)
+	}
+}
+
+func TestHoldFailsTheRowAndRewritesTheBefore(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "task")
+	task.CustomStatusID = "ST_NEW"
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const text = "changed on Wrike since you set it: status"
+	if err := st.Outbox().Hold(ctx, id, text, []byte(`{"customStatusId":"ST_DONE"}`)); err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if row.State != StateFailed || row.LastError != text || row.Attempts != 1 || string(row.Before) != `{"customStatusId":"ST_DONE"}` {
+		t.Errorf("row = state %s error %q attempts %d before %s, want failed with the text, one attempt and the new before",
+			row.State, row.LastError, row.Attempts, row.Before)
+	}
+	// A retried row that is held again is still in the queue.
+	if err := st.Outbox().Hold(ctx, id, text, []byte(`{"customStatusId":"ST_DONE"}`)); err != nil {
+		t.Errorf("a second hold of a failed row: %v", err)
+	}
+	if err := st.Outbox().Discard(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Hold(ctx, id, text, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("hold of a discarded row = %v, want ErrNotFound", err)
+	}
+}
+
+func TestDeferKeepsTheRowDueAndCountsNoAttempt(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "task")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Defer(ctx, id, "dial tcp: connection refused"); err != nil {
+		t.Fatal(err)
+	}
+	row := readRow(t, st, id)
+	if row.State != StatePending || row.Attempts != 0 || row.LastError != "dial tcp: connection refused" || row.NextAttemptAt != "" {
+		t.Errorf("row = state %s attempts %d error %q next %q, want pending, no attempt, the text and no wait",
+			row.State, row.Attempts, row.LastError, row.NextAttemptAt)
+	}
+	due, err := st.Outbox().NextDue(ctx, st.Now().UTC().Format(time.RFC3339))
+	if err != nil || due.ID != id {
+		t.Errorf("next due = %d, %v, want the deferred row at once", due.ID, err)
+	}
+}
+
 func TestEnqueueTaskCreateNamesItsLocalTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -673,5 +820,32 @@ func TestEnqueueTaskCreateCarriesTheDescriptionAndTheImportance(t *testing.T) {
 	}
 	if p.Description != "<p>Why <b>now</b></p>" || p.Importance != "High" {
 		t.Errorf("payload = %+v, want both fields for the drain", p)
+	}
+}
+
+// A row whose payload does not decode is the one the drain fails so it cannot block the queue,
+// and x on the changes screen must still drop it: the hand-on of its old values skips what it cannot read.
+func TestFailAndDiscardTakeAnEditThatDoesNotDecode(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, second, third := queueStatusEdits(t, st)
+	if _, err := st.writer.ExecContext(ctx, `UPDATE outbox SET payload = 'not json' WHERE id IN (?, ?)`, first, third); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, first, "sync: corrupt outbox row"); err != nil {
+		t.Fatalf("fail of a corrupt row = %v", err)
+	}
+	if row := readRow(t, st, first); row.State != StateFailed {
+		t.Errorf("corrupt row = %s, want failed", row.State)
+	}
+	// The second edit's own hand-on meets the corrupt third edit after it.
+	if err := st.Outbox().Discard(ctx, second); err != nil {
+		t.Fatalf("discard before a corrupt later edit = %v", err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatalf("discard of the corrupt row = %v", err)
 	}
 }

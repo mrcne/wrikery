@@ -3,9 +3,11 @@ package syncer
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,7 +52,8 @@ func TestDrainSendsInOrderAndCompletes(t *testing.T) {
 	}
 
 	log := fc.callLog()
-	if len(log) != 2 || log[0] != "CreateComment T1" || log[1] != "UpdateTask T1" {
+	// The edit reads its task first, the check against a change made on Wrike meanwhile.
+	if len(log) != 3 || log[0] != "CreateComment T1" || log[1] != "TasksByIDs T1" || log[2] != "UpdateTask T1" {
 		t.Fatalf("calls = %v, want comment first by outbox order", log)
 	}
 	pending, failed, err := st.Outbox().Counts(ctx)
@@ -115,8 +118,9 @@ func TestDrainTransientStopsAndReschedules(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A 500 may be this payload's own fault, so the row waits longer each time, unlike a Wrike that does not answer.
 	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
-		return wrike.Comment{}, &wrike.APIError{StatusCode: 429, Code: "rate_limit_exceeded"}
+		return wrike.Comment{}, &wrike.APIError{StatusCode: 500, Code: "server_error"}
 	}}
 
 	changed, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute)
@@ -131,11 +135,328 @@ func TestDrainTransientStopsAndReschedules(t *testing.T) {
 	}
 	pending, failed, cerr := st.Outbox().Counts(ctx)
 	if cerr != nil || pending != 2 || failed != 0 {
-		t.Fatalf("counts = %d, %d, %v, a 429 must never fail a row", pending, failed, cerr)
+		t.Fatalf("counts = %d, %d, %v, a 500 must never fail a row", pending, failed, cerr)
 	}
 	row, rerr := st.Outbox().NextDue(ctx, "2027-01-01T00:00:00Z")
 	if rerr != nil || row.ID != firstID || row.Attempts != 1 || row.NextAttemptAt == "" {
 		t.Fatalf("row = %+v, %v, want attempts 1 and a future next attempt", row, rerr)
+	}
+}
+
+func TestDrainDefersARowWhenWrikeIsUnavailable(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+	firstID, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "two"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
+		return wrike.Comment{}, &wrike.APIError{StatusCode: 503}
+	}}
+	if _, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute); err == nil {
+		t.Fatal("want the error back so the cycle fails and the engine waits")
+	}
+	if got := fc.callLog(); len(got) != 1 {
+		t.Fatalf("calls = %v, the drain must stop at the first failure", got)
+	}
+	row, err := st.Outbox().Get(ctx, firstID)
+	if err != nil || row.State != store.StatePending || row.Attempts != 0 || row.LastError == "" || row.NextAttemptAt != "" {
+		t.Fatalf("row = %+v, %v, want pending with the error, no attempt and no wait of its own", row, err)
+	}
+	due, err := st.Outbox().NextDue(ctx, rfc3339(time.Now()))
+	if err != nil || due.ID != firstID {
+		t.Errorf("next due = %d, %v, want the oldest row again at once", due.ID, err)
+	}
+}
+
+// seedEditable caches TASK1 with a status, a title, an importance, dates and a description, and the workflow that names its statuses.
+func seedEditable(t *testing.T, st *store.Store, description string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := st.Workflows().ReplaceAll(ctx, []store.Workflow{{ID: "WF1", Name: "Default Workflow", Standard: true,
+		CustomStatuses: []store.CustomStatus{
+			{ID: "ST_NEW", Name: "New", Group: "Active"},
+			{ID: "ST_PROG", Name: "In Progress", Group: "Active"},
+			{ID: "ST_DONE", Name: "Completed", Group: "Completed"},
+		}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "TASK1", Title: "Offline mode", Status: "Active", CustomStatusID: "ST_NEW",
+		Importance: "Normal", Description: description, Dates: &store.TaskDates{Type: "Backlog"},
+		CreatedDate: "2026-10-01T10:00:00Z", UpdatedDate: "2026-10-01T10:00:00Z"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// onWrike is TASK1 as the read by id answers it, the cached values unless changed.
+func onWrike(change func(*wrike.Task)) func(ids, fields []string) ([]wrike.Task, error) {
+	return func(ids, fields []string) ([]wrike.Task, error) {
+		task := wrike.Task{ID: "TASK1", Title: "Offline mode", Status: "Active", CustomStatusID: "ST_NEW", Importance: "Normal",
+			Dates: &wrike.TaskDates{Type: "Backlog"}}
+		if change != nil {
+			change(&task)
+		}
+		return []wrike.Task{task}, nil
+	}
+}
+
+func TestDrainHoldsATaskEditWhoseFieldChangedOnWrike(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) { task.CustomStatusID, task.Status = "ST_DONE", "Completed" })}
+	changed, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute)
+	if err != nil || !changed {
+		t.Fatalf("drain = %v, %v, want a held row to count as a change and the pass to go on", changed, err)
+	}
+	for _, call := range fc.callLog() {
+		if call == "UpdateTask TASK1" {
+			t.Fatal("the edit was sent over a newer status on Wrike")
+		}
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.State != store.StateFailed || row.LastError != `changed on Wrike since you set it: status "Completed" now, was "New"` {
+		t.Errorf("row = %s %q, want failed with the reason", row.State, row.LastError)
+	}
+	var before store.TaskUpdatePayload
+	if err := json.Unmarshal(row.Before, &before); err != nil || before.CustomStatusID != "ST_DONE" || before.Status != "Completed" {
+		t.Errorf("before = %s, %v, want what Wrike holds now", row.Before, err)
+	}
+	if !store.IsHeld(row.LastError) {
+		t.Error("store.IsHeld does not know the text")
+	}
+}
+
+func TestDrainSendsATaskEditWhoseFieldsMatchWrike(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active",
+		Title: "Offline mode, sent safely", Importance: "High", Dates: &store.TaskDates{Type: "Planned", Start: "2026-10-23", Due: "2026-10-24"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(nil)}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 2 || got[0] != "TasksByIDs TASK1" || got[1] != "UpdateTask TASK1" {
+		t.Errorf("calls = %v, want the read and then the edit", got)
+	}
+	wantSent(t, st, id)
+}
+
+// A send that reached Wrike but lost its answer, a quit or a timeout mid-send, comes back with its own values on Wrike,
+// and so does a change someone else made the same way. Neither is a conflict.
+func TestDrainSendsAnEditWhoseValuesWrikeAlreadyHolds(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "<p>Old words</p>")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active",
+		Title: "Offline mode, sent safely", Description: "<p>New words</p>", Dates: &store.TaskDates{Type: "Planned", Start: "2026-10-23", Due: "2026-10-24"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) {
+		task.CustomStatusID, task.Title, task.Description = "ST_PROG", "Offline mode, sent safely", "<br />New words<br />"
+		task.Dates = &wrike.TaskDates{Type: "Planned", Duration: 960, Start: "2026-10-23T09:00:00", Due: "2026-10-24T17:00:00"}
+	})}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wantSent(t, st, id)
+}
+
+// One read serves every edit of a task in a pass, kept current with the answer of each send:
+// the second title edit remembers the first one's title, which only the first send's answer has.
+func TestDrainReadsATaskOncePerPass(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	first, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Offline mode, first"})
+	second, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Offline mode, second"})
+	fc := &fakeClient{
+		tasksByIDs: onWrike(nil),
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			return wrike.Task{ID: taskID, Title: u.Title, Status: "Active", CustomStatusID: "ST_NEW", Importance: "Normal",
+				Dates: &wrike.TaskDates{Type: "Backlog"}}, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	for _, call := range fc.callLog() {
+		if call == "TasksByIDs TASK1" {
+			reads++
+		}
+	}
+	if reads != 1 {
+		t.Errorf("task read %d times in one pass, want once: %v", reads, fc.callLog())
+	}
+	wantSent(t, st, first)
+	wantSent(t, st, second)
+}
+
+// A joined emoji, a zero width joiner between two parts, stays as it is in the held text, an escape would print as letters.
+func TestDrainHeldTextKeepsATitleAsItIs(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) { task.Title = "Ship\u200d it" })}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil || !strings.Contains(row.LastError, "title \"Ship\u200d it\" now") || strings.Contains(row.LastError, `\u200d`) {
+		t.Errorf("held text = %q, %v, want the title as Wrike holds it", row.LastError, err)
+	}
+}
+
+// Two description edits of one task in one pass: the second remembers the first one's markdown HTML,
+// Wrike's answer to the first send writes = in a link as &#61; and paragraphs as line breaks, and nothing is held.
+func TestDrainSendsTwoDescriptionEditsOfOneTaskInOnePass(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, `<p>See https://x/?a=1</p>`)
+	first, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: `<p>See https://x/?a=1 once</p>`})
+	second, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: `<p>See https://x/?a=1 twice</p>`})
+	fc := &fakeClient{
+		tasksByIDs: onWrike(func(task *wrike.Task) { task.Description = `<p>See https://x/?a=1</p>` }),
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			stored := strings.NewReplacer("=", "&#61;", "<p>", "<br />", "</p>", "<br />").Replace(u.Description)
+			return wrike.Task{ID: taskID, Title: "Offline mode", Status: "Active", CustomStatusID: "ST_NEW", Importance: "Normal",
+				Description: stored, Dates: &wrike.TaskDates{Type: "Backlog"}}, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wantSent(t, st, first)
+	wantSent(t, st, second)
+}
+
+func TestDrainSkipsTheReadForAFolderChange(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{AddParents: []string{"F2"}}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(nil)}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 1 || got[0] != "UpdateTask TASK1" {
+		t.Errorf("calls = %v, a folder change cannot conflict and needs no read", got)
+	}
+}
+
+func TestDrainSkipsTheReadForAnAssigneeChange(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{AddResponsibles: []string{"U2"}}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(nil)}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 1 || got[0] != "UpdateTask TASK1" {
+		t.Errorf("calls = %v, an add or a remove cannot conflict and needs no read", got)
+	}
+}
+
+// Wrike writes = in a URL as &#61; in its answer and turns paragraphs into line breaks a minute later,
+// so the description is compared as text and those two never hold an edit.
+func TestDrainComparesTheDescriptionAsText(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, `<p>See https://x/?a=1 and <a href="https://x/?a=1">x</a></p><p>Second</p>`)
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: "<p>New words</p>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) {
+		task.Description = `<br />See https://x/?a&#61;1 and <a href="https://x/?a&#61;1">x</a><br />Second<br />`
+	})}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wantSent(t, st, id)
+}
+
+func TestDrainHoldsADescriptionWhoseTextChanged(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "<p>Old words</p>")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: "<p>New words</p>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) { task.Description = "<p>Words someone else wrote</p>" })}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil || row.State != store.StateFailed || row.LastError != "changed on Wrike since you set it: description" {
+		t.Errorf("row = %+v, %v, want held over the description", row, err)
+	}
+}
+
+func TestDrainSendsAnEditWithoutABeforeUnchecked(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "GHOST", store.TaskUpdatePayload{Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 1 || got[0] != "UpdateTask GHOST" {
+		t.Errorf("calls = %v, an edit that remembers nothing has nothing to compare", got)
+	}
+	wantSent(t, st, id)
+}
+
+func TestDrainFailsTheRowWhenTheReadIs404(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Importance: "High"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return nil, &wrike.APIError{StatusCode: 404, Code: "resource_not_found", Description: "Task not found or access denied"}
+	}}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 1 {
+		t.Errorf("calls = %v, want the read alone", got)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil || row.State != store.StateFailed || !strings.Contains(row.LastError, "Task not found") {
+		t.Errorf("row = %+v, %v, want failed with the read's error", row, err)
 	}
 }
 
@@ -434,7 +755,7 @@ func TestDrainKeepsTheOrderOnATaskAcrossPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	down := &fakeClient{updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
-		return wrike.Task{}, &wrike.APIError{StatusCode: 503}
+		return wrike.Task{}, &wrike.APIError{StatusCode: 500}
 	}}
 	if _, err := drainOutbox(ctx, ctx, down, st, time.Hour, time.Hour); err == nil {
 		t.Fatal("want the transient error back")

@@ -45,7 +45,7 @@ func TestDetailShowsMetadataCommentsAndMarkers(t *testing.T) {
 		states:   map[string]store.OutboxState{"T1": store.StateFailed},
 		crumb:    "Platform / API",
 	})
-	d.layout(th, ref, now, 60, 30, "dark")
+	d.layout(th, ref, now, 60, 30, "dark", false)
 	out := d.View()
 	for _, want := range []string{"Fix auth retry", "(failed, ! to review)", "#1200001", "Platform / API", "In progress", "Ada Nowak, Bartek Lis", "8 Sep -> 12 Sep", "Body text", "Comments (2)", "Ada Nowak (sending)", "Reproduced", "Time (1)", "1h 30m"} {
 		if !strings.Contains(out, want) {
@@ -64,7 +64,7 @@ func TestDetailMarksAQueuedTask(t *testing.T) {
 		task:   store.Task{ID: "T1", Title: "Fix auth retry", UpdatedDate: "2026-09-03T10:00:00Z"},
 		states: map[string]store.OutboxState{"T1": store.StatePending},
 	})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 60, 30, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 60, 30, "dark", false)
 	if out := d.View(); !strings.Contains(out, "Fix auth retry (sending)") {
 		t.Errorf("a queued task should say so on the title:\n%s", out)
 	}
@@ -103,7 +103,7 @@ func TestDetailKeepsItsLinesWholeWithAJoinedEmoji(t *testing.T) {
 		crumb:    "Platform / " + family + " Family",
 	})
 	ref := refData{contacts: map[string]store.Contact{"U2": {ID: "U2", FirstName: family, LastName: "Smith"}}}
-	d.layout(th, ref, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 30, 30, "dark")
+	d.layout(th, ref, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 30, 30, "dark", false)
 	out := th.box("T", d.View(), 32, 32, true)
 	text := boxText(out)
 	for _, want := range []string{"kids ab END1 second line", "to the lake and swim", "Family", "ok END3"} {
@@ -140,7 +140,7 @@ func TestDetailShowsTheRelations(t *testing.T) {
 		},
 		states: map[string]store.OutboxState{},
 	})
-	d.layout(th, ref, now, 70, 40, "dark")
+	d.layout(th, ref, now, 70, 40, "dark", false)
 	out := d.View()
 	for _, want := range []string{
 		"Subtask of   o Plan the release",
@@ -166,7 +166,7 @@ func TestDetailLeavesTheRelationRowsOutWhenEmpty(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	d := taskDetailModel{keys: defaultKeyMap()}
 	d.set(taskLoadedMsg{task: store.Task{ID: "T1", Title: "Alone", Status: "Active", UpdatedDate: "2026-09-03T10:00:00Z"}, states: map[string]store.OutboxState{}})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 70, 40, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 70, 40, "dark", false)
 	out := d.View()
 	for _, absent := range []string{"Subtask of", "Attachments", "-- Subtasks", "-- Dependencies"} {
 		if strings.Contains(out, absent) {
@@ -193,13 +193,13 @@ func TestDetailMovesTheRelationToASecondLineWhenItDoesNotFit(t *testing.T) {
 		deps:    []store.Dependency{{ID: "X", PredecessorID: "T2", SuccessorID: "T1", RelationType: "FinishToStart", LagMinutes: 960}},
 		states:  map[string]store.OutboxState{},
 	})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark", false)
 	out := d.View()
 	// The viewport pads every line to the width, so the two lines are checked on their own.
 	if !strings.Contains(out, "predecessor  o Rotate the signing keys") || !strings.Contains(out, "\n             finish to start, lag 2 days") {
 		t.Errorf("a relation that does not fit the line goes under the title, indented to the label column:\n%s", out)
 	}
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 80, 30, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 80, 30, "dark", false)
 	if !strings.Contains(d.View(), "predecessor  o Rotate the signing keys  finish to start, lag 2 days") {
 		t.Errorf("a relation that fits stays on the line:\n%s", d.View())
 	}
@@ -216,7 +216,7 @@ func TestDetailCutsALongRelatedTitleToThePane(t *testing.T) {
 		deps:     []store.Dependency{{ID: "X", PredecessorID: "T2", SuccessorID: "T1", RelationType: "FinishToStart"}},
 		states:   map[string]store.OutboxState{},
 	})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark", false)
 	for _, line := range strings.Split(d.View(), "\n") {
 		if w := ansi.StringWidth(line); w > 40 {
 			t.Errorf("line wider than the pane (%d): %q", w, line)
@@ -236,7 +236,7 @@ func TestDetailWrapsALongTimeEntryNote(t *testing.T) {
 		logs: []store.Timelog{{ID: "L1", UserID: "U1", TrackedDate: "2026-09-02", Hours: 1.5,
 			Comment: "Pairing on the retry loop, " + strings.Repeat("checked the backoff, ", 4) + "the end"}},
 	})
-	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark")
+	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark", false)
 	out := d.View()
 	if !strings.Contains(out, "the end") {
 		t.Errorf("the end of a long note is cut at the pane edge:\n%s", out)

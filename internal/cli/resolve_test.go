@@ -11,6 +11,9 @@ import (
 
 // seedBoard puts a small board in the store: a space with two projects, four tasks, a workflow and two people.
 // The me id is U1. Task ids are chosen so none is a substring of a title.
+// boardTaskIDs are the tasks seedBoard caches.
+var boardTaskIDs = []string{"TASK1", "TASK2", "TASK3", "TASK4"}
+
 func seedBoard(t *testing.T, st *store.Store) {
 	t.Helper()
 	ctx := context.Background()

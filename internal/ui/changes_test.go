@@ -88,7 +88,7 @@ func TestStateText(t *testing.T) {
 		{store.OutboxRow{State: store.StateDiscarded, DoneAt: "2026-10-01T10:00:00Z"}, "discarded 1 Oct"},
 	}
 	for _, c := range cases {
-		if got := stateText(c.row, now); got != c.want {
+		if got := stateText(c.row, now, false); got != c.want {
 			t.Errorf("stateText(%s) = %q, want %q", c.row.State, got, c.want)
 		}
 	}
@@ -103,12 +103,12 @@ func TestChangesViewShowsTheErrorOrTheValuesUnderTheCursor(t *testing.T) {
 		{row: store.OutboxRow{State: store.StateFailed, LastError: "wrike: 404 Task not found", CreatedAt: "2026-10-15T11:00:00Z"}, title: "Failed one", summary: "status  -> Done", detail: "status  -> Done"},
 		{row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z", Source: store.SourceCLI}, title: "Sent one", summary: "title  Short -> A much longer title t...", detail: "title  Short -> A much longer title than fits here"},
 	})
-	out := m.View(th, now, 100, 6)
+	out := m.View(th, now, 100, 6, false)
 	if !strings.Contains(out, "404 Task not found") || !strings.Contains(out, "Sent one") || !strings.Contains(out, "2 h ago  cli") {
 		t.Errorf("view with the cursor on the failed row:\n%s", out)
 	}
 	m.move(1)
-	out = m.View(th, now, 100, 6)
+	out = m.View(th, now, 100, 6, false)
 	if !strings.Contains(out, "A much longer title than fits here") || strings.Contains(out, "404 Task not found") {
 		t.Errorf("view with the cursor on the sent row:\n%s", out)
 	}

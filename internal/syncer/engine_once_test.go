@@ -121,8 +121,9 @@ func TestDrainSendsThePendingRowsAndStops(t *testing.T) {
 	if pending != 0 || failed != 0 {
 		t.Errorf("counts after drain = %d pending, %d failed", pending, failed)
 	}
-	if calls := fc.callLog(); len(calls) != 1 || calls[0] != "UpdateTask T1" {
-		t.Errorf("calls = %v, want one UpdateTask and no pull", calls)
+	// The read of T1 is the check before the edit, not a pull.
+	if calls := fc.callLog(); len(calls) != 2 || calls[0] != "TasksByIDs T1" || calls[1] != "UpdateTask T1" {
+		t.Errorf("calls = %v, want the check, one UpdateTask and no pull", calls)
 	}
 }
 
@@ -180,8 +181,9 @@ func TestDrainCutsAStartedUpdateAtTheBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.State != store.StatePending || row.Attempts != 1 || row.NextAttemptAt == "" {
-		t.Errorf("row = %+v, want pending with one attempt and a next time, not stranded in flight", row)
+	// A cut request got no answer, which is not the row's fault, so it stays due with the reason and no attempt counted.
+	if row.State != store.StatePending || row.Attempts != 0 || row.LastError == "" {
+		t.Errorf("row = %+v, want pending with the reason, not stranded in flight", row)
 	}
 }
 

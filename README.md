@@ -47,6 +47,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, with JSON output
 - commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
+- start offline on purpose with `--offline`, look over the queue, then go online with `R`, and a queued edit of a field someone changed on Wrike meanwhile waits for you instead of overwriting it
 
 ## Keys
 
@@ -67,6 +68,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `n` | new task |
 | `t` | log time |
 | `T` | timesheet |
+| `R` | refresh from Wrike, or go online when started with `--offline` |
 | `,` | settings, with the followed spaces and projects |
 | `?` | every key for the current screen |
 | `q` | quit |

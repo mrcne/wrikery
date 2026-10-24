@@ -22,15 +22,15 @@ const scopeRecycleBin = "RbTask"
 
 // The by id call answers the description, the people, the folders, the super tasks and the dependency ids without being asked
 // and refuses those names in fields with 400 invalid_parameter, only the attachment count has to be asked for
-// (checked on the live account on 2026-10-22, the reference does not say).
+// (checked on the live account, the reference does not say).
 var reachFields = []string{"attachmentCount"}
 
 // reachBatch is the documented limit of GET /tasks/{ids}, so one request covers a cycle's referenced tasks.
-// The request line is 13 KB at that size, and the live account answered one on 2026-10-22, so the length does not cut it lower.
+// The request line is 13 KB at that size, and the live account answered one, so the length does not cut it lower.
 const reachBatch = 1000
 
 // permalinkFor builds the link the permalink filter takes from the number in it.
-// The host does not matter to the filter, the token names the account (checked on the live account on 2026-10-22).
+// The host does not matter to the filter, the token names the account (checked on the live account).
 func permalinkFor(number string) string { return "https://www.wrike.com/open.htm?id=" + number }
 
 // Reach fetches one task the followed scopes do not cover, by id or by the number from its link, and caches it with the reach stamp.
@@ -66,7 +66,7 @@ func (e *Engine) Reach(ctx context.Context, ref store.TaskRef) (store.Task, erro
 }
 
 // isMalformedID is the 400 for an id Wrike cannot parse, "Invalid Task ID" with the code invalid_request
-// (seen on the live account on 2026-10-22), as opposed to a 400 about a parameter of the request.
+// (seen on the live account), as opposed to a 400 about a parameter of the request.
 func isMalformedID(err error) bool {
 	var apiErr *wrike.APIError
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadRequest && apiErr.Code == "invalid_request"

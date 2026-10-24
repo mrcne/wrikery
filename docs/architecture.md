@@ -111,7 +111,7 @@ The store rows in that range are replaced as a whole, so a deleted or moved entr
 The first day of the window is written to the meta table, and the timesheet marks a week before it as not synced rather than showing it empty.
 
 A task outside the followed scopes is fetched on its own: by id with the task read that takes several ids, or by the number from its link through the permalink filter of the task search, which takes the whole link and ignores the host in it.
-The read by id answers the description, the people, the folders and the relations without being asked and refuses those names in its fields parameter, so it is sent with the attachment count alone (checked on the live account on 2026-10-22).
+The read by id answers the description, the people, the folders and the relations without being asked and refuses those names in its fields parameter, so it is sent with the attachment count alone (checked on the live account).
 A task the user cannot see is simply missing from the answer, and a single unknown id answers 404.
 A task in the Recycle Bin is still answered, with the scope RbTask, and counts as no answer: a fetch of it says there is no such task, and a re-read that gets it drops the cached task.
 Such a task carries a stamp in the tasks table with the time it was fetched, renewed when the user opens it.
@@ -148,6 +148,13 @@ Writes queued on that task name the local id and are not sent until the create h
 The completion then swaps the local row for the server's and points the comments, time entries and queued writes at the real id, in one transaction.
 The deletion sweep and the thread refresh never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for its comments and get a 404.
 
+Offline mode, the `--offline` flag or the `offline` key of the config file, starts no engine and lets no command drain.
+The interface takes no host and asks for no fetch, and a command queues its write without reading the credentials.
+Nothing renews the session either, a renewal only ever rides on a request.
+The one step of a drain pass an offline start still runs is the reset of the rows a dead process left in flight, under the sync lock with a wait of two seconds, so the changes screen can retry or discard them.
+Going online from the interface starts the engine the way a start without the flag does, its first cycle is a manual one and sends the queue first.
+The mode belongs to the process: a command without it, `wrikery sync` in another terminal for example, sends the shared queue as always.
+
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.
 The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.
@@ -166,9 +173,12 @@ A description given to a command goes through the same split and merge, and a cr
 So an untouched paragraph never changes on the server, whatever it holds.
 The editor runs with the terminal handed over and its exit ends the edit, except when it exits inside two seconds with the file untouched: that is a command that passed the file to a window of its own, as code and cursor do, so the file stays and a box takes the edit from it on enter.
 
-After a network error the engine waits before the next attempt, and the wait grows with every failure.
-A 429 response, meaning the rate limit was hit, is treated the same way.
-This is what the Wrike documentation asks for, retries with growing waits.
+When Wrike does not answer, a network error, a 429 left after the client's own retries, or a 502, 503 or 504 from the edge in front of the API, the write is not at fault.
+The row goes back to the queue with no attempt counted and no wait of its own, the pass stops there, and the engine waits before the next cycle, longer after every failure.
+The cycle still runs its pulls: when they go through, Wrike answers and the failure is the write's own, a payload it times out on for example, so the row gets the wait a 500 earns and the rest of the queue goes on.
+When Wrike answers again the queue goes out in order, the oldest write first.
+A 500 and an answer that does not decode can be the fault of that one payload, so such a row waits on its own, twice as long after every attempt up to five minutes, and the writes after it on the same entity wait with it.
+Retries with growing waits are what the Wrike documentation asks for.
 It puts the limit at around 400 requests per minute (https://developers.wrike.com/faq/ ).
 
 ## Conflicts
@@ -180,22 +190,33 @@ The client exposes both flags, so the UI can refuse the change up front instead 
 
 Task edits send only the fields the user changed.
 Two people editing different fields of the same task both keep their change.
-If they edit the same field, the last write wins, which is also what the web application does in practice.
-A description edit is that case with a longer window, since the whole field is sent when the editor closes.
+Before a task edit is sent, the engine reads the task from Wrike and compares the fields the edit sets with the values its row remembered at the enqueue: the title, the status, the importance, the dates by their type and their days, and the description.
+A drain pass reads each task once and keeps the read current with the answer of every send, so a queue of edits on one task costs one read.
+When one differs, somebody changed it on Wrike since the edit was queued, and the edit is held.
+The row moves to the failed state with the fields named in its error, and the values it remembered are replaced with what Wrike holds now, so the changes screen shows what sending it anyway would do.
+A retry sends it anyway: the check runs again and passes unless the field moved once more.
+A field Wrike already holds at the edit's own value is no conflict, that is a send whose answer was lost, a quit or a timeout mid-send, or the same change made by someone else.
+A discarded or rejected edit hands the values it replaced to the next queued edit of the same field, which read its old values from the cache the dropped edit had changed.
+A held edit hands nothing on, it remembers Wrike's newer value, and the next edit is held against that value as well.
+The description is compared as text, with the tags dropped and the entities decoded.
+Wrike writes `=` inside a link as `&#61;` in its answer and turns paragraphs into line breaks about a minute after a write, so a byte comparison would hold the second of two edits of one description over markup nobody changed.
+A change of markup alone is not seen, and the last write wins there.
+An edit of the people or the folders only adds and removes, it cannot replace somebody's change and goes out without the read.
+An edit queued on a task whose create has not landed remembers nothing and goes out unchecked, the local row's status is a guess and its description this client's own HTML.
 
 A create sent again because the answer was lost or not understood, a network error, a server error or a response that does not decode, can land twice when the first attempt had reached Wrike.
 The second copy shows up with the next pull and is deleted in the web application, the same ambiguity a comment or a time entry has.
 
 Some writes fail for good: the task was deleted on the server, a permission was revoked, or the API rejects the write.
 Those rows move to the failed state.
-The changes screen lists them, together with the rows still retrying after a failure, and offers a retry or a discard.
+The changes screen lists them, together with the held edits and the rows still retrying after a failure, and offers a retry or a discard.
 The engine cannot tell a failure that passes from one the write earns on every attempt, a garbled answer or a server error for that one payload, and such a row holds the later writes on its entity, so the view is where it is seen and discarded.
 The status bar always shows the pending and failed counts, so nothing fails without the user seeing it.
 
 ## Error handling
 
 The network is treated as unreliable by default.
-A request that fails on the network or on Wrike's side puts the app in offline mode, which shows in the status bar.
+A request that fails on the network or on Wrike's side shows the app as offline in the status bar.
 A request Wrike rejects with a client error shows as a failing sync instead, the log line carries the request and the reason.
 Reads keep coming from the cache and writes keep going to the queue.
 The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).

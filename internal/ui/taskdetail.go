@@ -54,7 +54,8 @@ func (d taskDetailModel) title() string {
 // layout rebuilds the viewport content. The root calls it from Update, View only reads what it left behind.
 // The description render is cached on task id, updated date and width, so a resize or a focus change costs nothing.
 // The description itself is compared as well, since a queued edit changes it before the updated date moves.
-func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string) {
+// offline is the root's mode, it sends nothing, so a queued write reads queued and not sending.
+func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string, offline bool) {
 	d.vp.Width, d.vp.Height = width, height
 	if !d.loaded || width <= 0 {
 		d.vp.SetContent(lipgloss.NewStyle().Foreground(th.Muted).Render("Select a task."))
@@ -75,6 +76,9 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	sending := lipgloss.NewStyle().Foreground(th.Warn).Render("(sending)")
+	if offline {
+		sending = lipgloss.NewStyle().Foreground(th.Muted).Render("(queued)")
+	}
 	label := func(s string) string { return muted.Render(fmt.Sprintf("%-*s", labelWidth, s)) }
 
 	var b strings.Builder

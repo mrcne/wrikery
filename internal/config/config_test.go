@@ -34,6 +34,21 @@ func TestLoadReadsValues(t *testing.T) {
 	}
 }
 
+func TestLoadReadsOffline(t *testing.T) {
+	cfg, err := config.Load(filepath.Join(t.TempDir(), "config.toml"))
+	if err != nil || cfg.Offline {
+		t.Fatalf("defaults = %v, %v, want online", cfg.Offline, err)
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("offline = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil || !cfg.Offline {
+		t.Errorf("offline = %v, %v, want true from the file", cfg.Offline, err)
+	}
+}
+
 func TestLoadRejectsUnknownLogLevel(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(`log_level = "loud"`), 0o600); err != nil {

@@ -25,7 +25,7 @@ type Task struct {
 	ParentIDs      []string `json:"parentIds"`
 	// SuperTaskIDs, DependencyIDs and AttachmentCount are optional fields of a task query.
 	// A task fetched by id carries the two lists without being asked and the count only when asked,
-	// an update answer carries all three (seen on the live account on 2026-10-08, the reference does not say).
+	// an update answer carries all three (seen on the live account, the reference does not say).
 	SuperTaskIDs    []string   `json:"superTaskIds"`
 	DependencyIDs   []string   `json:"dependencyIds"`
 	AttachmentCount int        `json:"attachmentCount"`
@@ -33,7 +33,7 @@ type Task struct {
 	CreatedDate     time.Time  `json:"createdDate"`
 	UpdatedDate     time.Time  `json:"updatedDate"`
 	// Scope is WsTask for a task in the account and RbTask for one in the Recycle Bin, the TreeScope values of the reference.
-	// A read by id still answers a deleted task, with RbTask, while the searches leave it out (seen on the live account on 2026-10-08).
+	// A read by id still answers a deleted task, with RbTask, while the searches leave it out (seen on the live account).
 	Scope string `json:"scope"`
 }
 
@@ -73,7 +73,7 @@ type TaskParams struct {
 	Responsibles []string
 	// Permalink maps to the permalink parameter, "Task permalink, exact match" in the reference.
 	// It takes the whole open.htm link, and the host in it does not matter, the token names the account
-	// (checked on the live account on 2026-10-22 with the app-eu and the www hosts).
+	// (checked on the live account with the app-eu and the www hosts).
 	Permalink string
 }
 

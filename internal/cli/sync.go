@@ -36,6 +36,9 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if len(positional) > 0 {
 		return usageError(env, fs, syncUsage, "sync takes no arguments")
 	}
+	if env.Offline {
+		return usageError(env, fs, syncUsage, "sync talks to Wrike, which offline mode forbids, run wrikery --offline=false sync")
+	}
 	host, code := preflight(ctx, env)
 	if code != exitOK {
 		return code

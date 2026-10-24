@@ -36,6 +36,13 @@ const (
 	StateDiscarded OutboxState = "discarded"
 )
 
+// HeldPrefix starts the error of a task edit the engine held because someone changed one of its fields on Wrike since it was queued.
+// A held row remembers Wrike's newer values, see Hold, which is why a discard passes nothing on from it.
+const HeldPrefix = "changed on Wrike since you set it: "
+
+// IsHeld tells the error of a held edit from a rejection, the command line and the hand-on of a dropped edit read it.
+func IsHeld(text string) bool { return strings.HasPrefix(text, HeldPrefix) }
+
 // HistoryDays is how long a sent or discarded row stays in the outbox.
 const HistoryDays = 30
 
@@ -145,6 +152,12 @@ type OutboxRepo interface {
 	CompleteTimelog(ctx context.Context, id int64, real Timelog) error
 	Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error
 	Fail(ctx context.Context, id int64, errText string) error
+	// Hold fails a task edit that someone changed on Wrike since it was queued, and puts what Wrike holds now into its before,
+	// so the changes screen shows what sending it anyway would do.
+	Hold(ctx context.Context, id int64, errText string, before []byte) error
+	// Defer puts a row back to pending after Wrike could not be reached, no attempt counted and no wait of its own,
+	// the engine's reconnect wait paces the next try.
+	Defer(ctx context.Context, id int64, errText string) error
 	// Retry makes a failed row pending and a pending row due at once, with a clean attempt count.
 	Retry(ctx context.Context, id int64) error
 	Discard(ctx context.Context, id int64) error
@@ -205,6 +218,12 @@ func taskTitleTx(ctx context.Context, tx *sql.Tx, taskID string) (string, error)
 // The enqueue is the last moment the cache still has them, its own update overwrites them next.
 // ok is false for a task the cache does not have, the write is still valid and goes out with nothing remembered.
 func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePayload) (before TaskUpdatePayload, title string, ok bool, err error) {
+	if IsLocalID(taskID) {
+		// The local row's status is a guess and its description this client's own HTML, Wrike normalizes both,
+		// so there is nothing true to remember, and the drain would hold the edit against values Wrike never had.
+		title, err = taskTitleTx(ctx, tx, taskID)
+		return TaskUpdatePayload{}, title, false, err
+	}
 	var description, statusID, group, importance string
 	var dType, dStart, dDue sql.NullString
 	var dDur sql.NullInt64
@@ -456,7 +475,7 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 // statusForNewTask is the status a task created in folderID starts in on Wrike: the first visible Active status
 // of the default task workflow of the folder's space, the one the Space object names in defaultTaskWorkflowId.
 // On the live account that was the standard workflow even in a space that owns a workflow of its own,
-// checked on 2026-10-01 and 2026-10-04, so the workflow the view shows is no guide.
+// so the workflow the view shows is no guide.
 // A folder under no cached space, or a space whose default the cache lacks, falls back to the standard workflow.
 // A folder shared by two spaces takes the first space by id.
 func statusForNewTask(ctx context.Context, tx *sql.Tx, folderID string) (string, error) {
@@ -904,9 +923,126 @@ func (o outboxRepo) Reschedule(ctx context.Context, id int64, errText, nextAttem
 }
 
 func (o outboxRepo) Fail(ctx context.Context, id int64, errText string) error {
-	return o.expectOne(ctx, `
+	tx, err := o.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE outbox SET state = 'failed', attempts = attempts + 1,
 			last_error = ?, next_attempt_at = NULL
+		WHERE id = ? AND state IN `+queueStates, errText, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		if err == nil {
+			err = ErrNotFound
+		}
+		return err
+	}
+	if err := passBeforeOnTx(ctx, tx, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+type queuedEdit struct {
+	id              int64
+	payload, before string
+}
+
+// laterTaskEditsTx reads the task edits queued on entity after the row id, oldest first.
+// The rows are read and closed before the caller writes, the transaction has the one connection.
+func laterTaskEditsTx(ctx context.Context, tx *sql.Tx, entity string, id int64) ([]queuedEdit, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, payload, before FROM outbox
+		WHERE entity_id = ? AND id > ? AND kind = ? AND state IN `+queueStates+` ORDER BY id`, entity, id, string(KindTaskUpdate))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []queuedEdit
+	for rows.Next() {
+		var e queuedEdit
+		if err := rows.Scan(&e.id, &e.payload, &e.before); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// passBeforeOnTx hands the values a dropped task edit replaced to the next queued edit of each field it set.
+// That edit read its before from the cache the dropped one had changed, a value Wrike never had,
+// and the check before the send would hold it against that value.
+// A held edit passes nothing on: it remembers Wrike's newer value, see Hold, and the next edit must still be held against it.
+func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	var kind, entity, payload, before, lastError string
+	if err := tx.QueryRowContext(ctx, `SELECT kind, entity_id, payload, before, last_error FROM outbox WHERE id = ?`, id).
+		Scan(&kind, &entity, &payload, &before, &lastError); err != nil {
+		return err
+	}
+	if OutboxKind(kind) != KindTaskUpdate || before == "" || IsHeld(lastError) {
+		return nil
+	}
+	// A row that does not decode is the corrupt one the drain fails so it cannot block the queue, it hands nothing on.
+	var p, b TaskUpdatePayload
+	if json.Unmarshal([]byte(payload), &p) != nil || json.Unmarshal([]byte(before), &b) != nil {
+		return nil
+	}
+	later, err := laterTaskEditsTx(ctx, tx, entity, id)
+	if err != nil {
+		return err
+	}
+	// Each field goes to the first later edit that sets it, the edits after that one remember that one's value.
+	title, description, status, importance, dates := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil
+	for _, e := range later {
+		// A later edit that does not decode is skipped, the drain fails it on its own when its turn comes.
+		var lp, lb TaskUpdatePayload
+		if json.Unmarshal([]byte(e.payload), &lp) != nil {
+			continue
+		}
+		if e.before != "" && json.Unmarshal([]byte(e.before), &lb) != nil {
+			continue
+		}
+		changed := false
+		take := func(pending *bool, sets bool, apply func()) {
+			if *pending && sets {
+				*pending = false
+				apply()
+				changed = true
+			}
+		}
+		take(&title, lp.Title != "", func() { lb.Title = b.Title })
+		take(&description, lp.Description != "", func() { lb.Description = b.Description })
+		take(&status, lp.CustomStatusID != "", func() { lb.CustomStatusID, lb.Status = b.CustomStatusID, b.Status })
+		take(&importance, lp.Importance != "", func() { lb.Importance = b.Importance })
+		take(&dates, lp.Dates != nil, func() { lb.Dates = b.Dates })
+		// An edit that remembered nothing, its task was not cached, is sent unchecked and stays so.
+		if !changed || e.before == "" {
+			continue
+		}
+		raw, err := json.Marshal(lb)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE outbox SET before = ? WHERE id = ?`, string(raw), e.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (o outboxRepo) Hold(ctx context.Context, id int64, errText string, before []byte) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'failed', attempts = attempts + 1,
+			last_error = ?, next_attempt_at = NULL, before = ?
+		WHERE id = ? AND state IN `+queueStates, errText, string(before), id)
+}
+
+func (o outboxRepo) Defer(ctx context.Context, id int64, errText string) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'pending', last_error = ?
 		WHERE id = ? AND state IN `+queueStates, errText, id)
 }
 
@@ -935,6 +1071,9 @@ func (o outboxRepo) Discard(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	if err != nil {
+		return err
+	}
+	if err := passBeforeOnTx(ctx, tx, id); err != nil {
 		return err
 	}
 	localID := LocalID(id)

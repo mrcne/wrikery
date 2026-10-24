@@ -77,7 +77,7 @@ func scopeParams(sc store.Scope, meID string) wrike.TaskParams {
 	// so without it such a subtask would never be cached, or be pruned at the next sweep.
 	// The searches answer live tasks only, so a deleted task leaves the cache through the sweep and needs no guard here:
 	// a task in the Recycle Bin was absent from the space, folder and responsible searches while GET /tasks/{id}
-	// still answered it with scope RbTask, checked on the live account on 2026-10-08, the reference does not say.
+	// still answered it with scope RbTask, checked on the live account, the reference does not say.
 	p := wrike.TaskParams{PageSize: 1000, SubTasks: true}
 	switch sc.Kind {
 	case store.ScopeKindMe:
@@ -265,7 +265,7 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, id string) er
 }
 
 // refreshDependencies replaces the task's dependency list with what Wrike holds now and returns it.
-// Adding or removing a dependency moves neither task's updatedDate (checked on the live account on 2026-10-08),
+// Adding or removing a dependency moves neither task's updatedDate (checked on the live account),
 // so the poll never brings such a change and only this read, part of the thread refresh of an opened task, notices it.
 func refreshDependencies(ctx context.Context, c Client, st *store.Store, id string) ([]store.Dependency, error) {
 	deps, err := c.TaskDependencies(ctx, id)

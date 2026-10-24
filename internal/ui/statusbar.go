@@ -11,7 +11,7 @@ import (
 )
 
 type statusModel struct {
-	state      string // idle, syncing, offline, failed, auth_required
+	state      string // idle, syncing, offline, failed, auth_required, offline_mode when started offline on purpose
 	lastSynced time.Time
 	since      time.Time // when the current offline or failed stretch began
 	pending    int
@@ -58,6 +58,9 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Accent).Render(th.Glyphs.Syncing + " syncing"))
 	case "offline":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(th.Glyphs.Offline + " offline since " + s.since.Format("15:04")))
+	case "offline_mode":
+		// Chosen, not a lost network, so it is muted and carries no time it began.
+		left.WriteString(muted.Render(th.Glyphs.Offline + " offline mode"))
 	case "failed":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sync failing since " + s.since.Format("15:04")))
 	case "auth_required":

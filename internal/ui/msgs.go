@@ -117,6 +117,7 @@ type reachedMsg struct { // the answer to a reachMsg, task or err
 	task   store.Task
 	err    error
 }
+type goOnlineMsg struct{}                    // intent: end offline mode and start the sync engine
 type openTaskMsg struct{ task store.Task }   // intent: leave the search overlay or the changes screen for this task
 type openBesideMsg struct{ id string }       // intent: show the task in the detail pane beside the timesheet grid
 type searchPickMsg struct{ task store.Task } // intent: pick mode, hand the task back to whoever asked for it

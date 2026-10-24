@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -60,14 +62,14 @@ func TestVersionLine(t *testing.T) {
 }
 
 func TestRunCommandRefusesDemoMode(t *testing.T) {
-	if code := runCommand([]string{"help"}, "", true, true, false, false); code != 2 {
+	if code := runCommand([]string{"help"}, "", true, true, false, false, nil); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }
 
 func TestRunCommandRefusesVersionAndLogout(t *testing.T) {
 	for name, c := range map[string][2]bool{"version": {true, false}, "logout": {false, true}} {
-		if code := runCommand([]string{"help"}, "", true, false, c[0], c[1]); code != 2 {
+		if code := runCommand([]string{"help"}, "", true, false, c[0], c[1], nil); code != 2 {
 			t.Errorf("--%s: code = %d, want 2", name, code)
 		}
 	}
@@ -92,7 +94,7 @@ func isolate(t *testing.T) string {
 func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 	dir := isolate(t)
 	for _, arg := range []string{"help", "-h", "--help"} {
-		if code := runCommand([]string{arg}, "", true, false, false, false); code != 0 {
+		if code := runCommand([]string{arg}, "", true, false, false, false, nil); code != 0 {
 			t.Errorf("%s: code = %d, want 0", arg, code)
 		}
 	}
@@ -104,7 +106,7 @@ func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 
 func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 	isolate(t)
-	if code := runCommand([]string{"task"}, "", true, false, false, false); code != 2 {
+	if code := runCommand([]string{"task"}, "", true, false, false, false, nil); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }
@@ -125,5 +127,61 @@ func TestResolveThemeGivesDarkInAPipeAndKeepsAnExplicitTheme(t *testing.T) {
 				t.Errorf("theme %q, terminal %v resolved to %q", theme, terminal, got.Theme)
 			}
 		}
+	}
+}
+
+// The flag on the command line wins over the config key in both directions, the key alone decides when the flag is absent.
+func TestOfflineModeFlagWinsOverTheConfigKey(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		key  bool
+		flag *bool
+		want bool
+	}{
+		{false, nil, false},
+		{true, nil, true},
+		{false, &yes, true},
+		{true, &no, false},
+	}
+	for _, c := range cases {
+		if got := offlineMode(config.Config{Offline: c.key}, c.flag); got != c.want {
+			t.Errorf("key %v, flag %v: offline = %v, want %v", c.key, c.flag, got, c.want)
+		}
+	}
+}
+
+func TestOfflineArgSeesAnExplicitFalse(t *testing.T) {
+	parse := func(args ...string) *bool {
+		fs := flag.NewFlagSet("wrikery", flag.ContinueOnError)
+		offline := fs.Bool("offline", false, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		return offlineArg(fs, offline)
+	}
+	if got := parse("--offline=false"); got == nil || *got {
+		t.Errorf("--offline=false = %v, want an explicit false", got)
+	}
+	if got := parse("--offline"); got == nil || !*got {
+		t.Errorf("--offline = %v, want true", got)
+	}
+	if got := parse(); got != nil {
+		t.Errorf("no flag = %v, want nil, the config decides", *got)
+	}
+}
+
+// The first start needs Wrike, and the way out has to work whether the mode came from the flag or from the file.
+func TestOfflineFirstRunNamesAWayOutThatWorks(t *testing.T) {
+	dir := isolate(t)
+	cfgDir := filepath.Join(dir, "config", "wrikery")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("offline = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := run(false, false, "", true, nil)
+	if err == nil || !strings.Contains(err.Error(), "--offline=false") {
+		t.Errorf("run = %v, want the refusal naming --offline=false", err)
 	}
 }
