@@ -119,7 +119,8 @@ Without a command it opens the interface. With one it runs that operation and ex
 Commands:
 `
 
-const helpNotes = `A task or folder is an id or a part of its title that matches exactly one cached row.
+// CommandNotes is the paragraph on arguments every command shares, printed on the help page and in the manual.
+const CommandNotes = `A task or folder is an id or a part of its title that matches exactly one cached row.
 A task may also be the number or the link from the browser, a bare number is always the number from the link, the link in quotes, like "https://app-eu.wrike.com/open.htm?id=4552825748".
 A person is me, a contact id or a part of a name that matches exactly one contact.
 A description is markdown, the text the E editor in the interface writes.
@@ -144,7 +145,7 @@ func HelpPage(global *flag.FlagSet) string {
 		}
 		_, _ = fmt.Fprintf(&b, "%-44s%s\n", row, c.Short)
 	}
-	b.WriteString("\n" + helpNotes)
+	b.WriteString("\n" + CommandNotes)
 	if global != nil {
 		b.WriteString("\nFlags:\n")
 		printFlags(&b, global)

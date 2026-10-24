@@ -15,6 +15,7 @@ golangci-lint is not part of the module, install the pinned version once with `g
 One topic per pull request.
 A commit subject starts with a type, `feat`, `fix`, `chore`, `docs`, `refactor`, `test` or `build`, followed by an imperative sentence, for example `fix: reject an empty comment`.
 Tests assert behavior, the UI tests run against a seeded temporary store, and golden files are updated with `go test ./internal/ui -update`.
+The manual page `man/wrikery.1` is generated from the code the same way, `go test ./cmd/wrikery -update` rewrites it.
 A choice of technology or of a way of working goes through a decision record in [docs/adr/](docs/adr/), one file per decision, the existing records show the shape.
 [docs/overview.md](docs/overview.md) describes what the app does and [docs/architecture.md](docs/architecture.md) how, keep both current when behavior changes.
 Comments explain why rather than what, and text in the repository stays plain ASCII.

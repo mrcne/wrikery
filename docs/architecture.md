@@ -261,6 +261,7 @@ Each module is tested on its own, along the boundaries above:
 - `internal/store` against a real SQLite database in a temporary file, migrations included
 - `internal/syncer` against a fake client and a real store in a temporary file
 - `internal/ui` flows with teatest
+- `man/wrikery.1` is generated from the command table, the root flags and the key map by a test in `cmd/wrikery`, and `go test ./cmd/wrikery -update` rewrites it when a command, a flag or a key changes
 
 The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.
 One more test drives the real client against a local fixture server end to end.

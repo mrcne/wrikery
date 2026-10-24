@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -34,5 +35,40 @@ func TestDefaultKeyMapMatchesTheKeysItAdvertises(t *testing.T) {
 		if !key.Matches(tc.msg, tc.want) {
 			t.Errorf("%s: %v did not match", tc.name, tc.msg)
 		}
+	}
+}
+
+func TestKeyGroupsFollowTheOverlay(t *testing.T) {
+	groups := KeyGroups()
+	want := []string{"Everywhere", "The list", "The task", "The board", "The timesheet", "The changes screen", "The settings screen"}
+	if len(groups) != len(want) {
+		t.Fatalf("%d groups, want %d", len(groups), len(want))
+	}
+	has := func(g KeyGroup, key string) bool {
+		for _, b := range g.Keys {
+			if b.Help().Key == key {
+				return true
+			}
+		}
+		return false
+	}
+	for i, g := range groups {
+		if g.Title != want[i] {
+			t.Errorf("group %d is %q, want %q", i, g.Title, want[i])
+		}
+		if len(g.Keys) == 0 {
+			t.Errorf("%s has no keys", g.Title)
+		}
+		for _, b := range g.Keys {
+			if h := b.Help(); strings.TrimSpace(h.Key) == "" || strings.TrimSpace(h.Desc) == "" {
+				t.Errorf("%s has a binding without help text: %+v", g.Title, h)
+			}
+		}
+	}
+	if !has(groups[0], "?") || !has(groups[0], "q") {
+		t.Errorf("Everywhere lacks ? or q: %+v", groups[0])
+	}
+	if !has(groups[5], "r") || !has(groups[5], "x") {
+		t.Errorf("the changes screen lacks r or x: %+v", groups[5])
 	}
 }
