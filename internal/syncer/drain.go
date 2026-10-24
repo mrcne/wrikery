@@ -27,6 +27,8 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 	// The row must still be put back to pending with its backoff, or it stays in flight and nothing sends it again.
 	bookkeeping := context.WithoutCancel(start)
 	changed := false
+	// The tasks the check before an edit read in this pass, kept current with the answer of each send, one read per task.
+	onWrike := map[string]store.Task{}
 	for {
 		row, err := st.Outbox().NextDue(start, rfc3339(time.Now()))
 		if errors.Is(err, store.ErrNotFound) {
@@ -42,7 +44,7 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 			}
 			return changed, err
 		}
-		sendErr := sendRow(start, post, c, st, row)
+		sendErr := sendRow(start, post, c, st, row, onWrike)
 		if sendErr == nil {
 			changed = true
 			continue
@@ -85,7 +87,7 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 	}
 }
 
-func sendRow(start, post context.Context, c Client, st *store.Store, row store.OutboxRow) error {
+func sendRow(start, post context.Context, c Client, st *store.Store, row store.OutboxRow, onWrike map[string]store.Task) error {
 	// A create may have reached Wrike when its context ends, and the client does not retry a POST after a network or server error, so it runs on post.
 	// Cancelling an update or a delete is harmless, they can be sent again, and the retry backoff must not outlive the budget.
 	// Each create gets its own ceiling from the moment it is sent.
@@ -138,7 +140,7 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 				Start: p.Dates.Start, Due: p.Dates.Due}
 		}
 		// The check reads the task first and holds the edit when somebody changed one of its fields on Wrike since it was queued.
-		conflict, err := conflictOf(ctx, c, st, row, p)
+		conflict, err := conflictOf(ctx, c, st, row, p, onWrike)
 		if err != nil {
 			return err
 		}
@@ -149,6 +151,7 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 		if err != nil {
 			return err
 		}
+		onWrike[row.EntityID] = taskFromWrike(task)
 		return st.Outbox().CompleteTask(done, row.ID, taskFromWrike(task))
 
 	case store.KindCommentCreate:

@@ -233,8 +233,8 @@ func TestDrainHoldsATaskEditWhoseFieldChangedOnWrike(t *testing.T) {
 	if err := json.Unmarshal(row.Before, &before); err != nil || before.CustomStatusID != "ST_DONE" || before.Status != "Completed" {
 		t.Errorf("before = %s, %v, want what Wrike holds now", row.Before, err)
 	}
-	if !IsConflict(row.LastError) {
-		t.Error("IsConflict does not know the text")
+	if !store.IsHeld(row.LastError) {
+		t.Error("store.IsHeld does not know the text")
 	}
 }
 
@@ -276,6 +276,37 @@ func TestDrainSendsAnEditWhoseValuesWrikeAlreadyHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantSent(t, st, id)
+}
+
+// One read serves every edit of a task in a pass, kept current with the answer of each send:
+// the second title edit remembers the first one's title, which only the first send's answer has.
+func TestDrainReadsATaskOncePerPass(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	first, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Offline mode, first"})
+	second, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Offline mode, second"})
+	fc := &fakeClient{
+		tasksByIDs: onWrike(nil),
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			return wrike.Task{ID: taskID, Title: u.Title, Status: "Active", CustomStatusID: "ST_NEW", Importance: "Normal",
+				Dates: &wrike.TaskDates{Type: "Backlog"}}, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	for _, call := range fc.callLog() {
+		if call == "TasksByIDs TASK1" {
+			reads++
+		}
+	}
+	if reads != 1 {
+		t.Errorf("task read %d times in one pass, want once: %v", reads, fc.callLog())
+	}
+	wantSent(t, st, first)
+	wantSent(t, st, second)
 }
 
 func TestDrainSkipsTheReadForAnAssigneeChange(t *testing.T) {

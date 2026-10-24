@@ -10,13 +10,6 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// ConflictPrefix starts the error text of a task edit held because someone changed one of its fields on Wrike since it was queued.
-// The command line reads it off the row to tell a held write from one Wrike rejected.
-const ConflictPrefix = store.HeldPrefix
-
-// IsConflict tells the error text of a held edit from any other.
-func IsConflict(text string) bool { return strings.HasPrefix(text, ConflictPrefix) }
-
 // Conflict is the answer of the check before a task edit: the fields Wrike holds other values for than the edit replaced,
 // worded for the changes screen, and the row's before with Wrike's values in their place.
 type Conflict struct {
@@ -24,13 +17,15 @@ type Conflict struct {
 	Before []byte
 }
 
-func (c *Conflict) Error() string { return ConflictPrefix + strings.Join(c.Fields, ", ") }
+// Error starts with store.HeldPrefix, the command line and the store tell a held edit by it.
+func (c *Conflict) Error() string { return store.HeldPrefix + strings.Join(c.Fields, ", ") }
 
 // conflictOf reads the task from Wrike and compares the fields the edit sets with the values its row remembered at the enqueue.
 // A row that remembers nothing, a task the cache did not hold or one whose create had not landed, has nothing to compare,
 // and so has an edit of the people or the folders alone: an add or a remove cannot replace somebody else's change.
 // The read's own error comes back as it is, the drain treats it like the send's.
-func conflictOf(ctx context.Context, c Client, st *store.Store, row store.OutboxRow, p store.TaskUpdatePayload) (*Conflict, error) {
+// onWrike holds the tasks this drain pass read or sent already, so a queue of edits on one task reads it once.
+func conflictOf(ctx context.Context, c Client, st *store.Store, row store.OutboxRow, p store.TaskUpdatePayload, onWrike map[string]store.Task) (*Conflict, error) {
 	if len(row.Before) == 0 || (p.Title == "" && p.Description == "" && p.CustomStatusID == "" && p.Importance == "" && p.Dates == nil) {
 		return nil, nil
 	}
@@ -38,14 +33,17 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 	if err := json.Unmarshal(row.Before, &before); err != nil {
 		return nil, fmt.Errorf("%w %d: before: %w", errCorruptRow, row.ID, err)
 	}
-	answer, err := c.TasksByIDs(ctx, []string{row.EntityID}, nil)
-	if err != nil {
-		return nil, err
-	}
-	var now store.Task
-	for _, t := range answer {
-		if t.ID == row.EntityID {
-			now = taskFromWrike(t)
+	now, read := onWrike[row.EntityID]
+	if !read {
+		answer, err := c.TasksByIDs(ctx, []string{row.EntityID}, nil)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range answer {
+			if t.ID == row.EntityID {
+				now = taskFromWrike(t)
+				onWrike[row.EntityID] = now
+			}
 		}
 	}
 	if now.ID == "" {
@@ -81,9 +79,12 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 	// Wrike writes = in a URL as &#61; in its answer and turns paragraphs into line breaks about a minute after a write,
 	// so two edits of one description in a row would hold the second over markup nobody changed.
 	// The text is what a person changes, a change of markup alone stays last write wins.
-	if text := descriptionText(now.Description); p.Description != "" && descriptionText(before.Description) != text && descriptionText(p.Description) != text {
-		fields = append(fields, "description")
-		before.Description = now.Description
+	if p.Description != "" {
+		// A long description is reduced only for an edit that sets one.
+		if text := descriptionText(now.Description); descriptionText(before.Description) != text && descriptionText(p.Description) != text {
+			fields = append(fields, "description")
+			before.Description = now.Description
+		}
 	}
 	if len(fields) == 0 {
 		return nil, nil

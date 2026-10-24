@@ -822,3 +822,30 @@ func TestEnqueueTaskCreateCarriesTheDescriptionAndTheImportance(t *testing.T) {
 		t.Errorf("payload = %+v, want both fields for the drain", p)
 	}
 }
+
+// A row whose payload does not decode is the one the drain fails so it cannot block the queue,
+// and x on the changes screen must still drop it: the hand-on of its old values skips what it cannot read.
+func TestFailAndDiscardTakeAnEditThatDoesNotDecode(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, second, third := queueStatusEdits(t, st)
+	if _, err := st.writer.ExecContext(ctx, `UPDATE outbox SET payload = 'not json' WHERE id IN (?, ?)`, first, third); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Fail(ctx, first, "sync: corrupt outbox row"); err != nil {
+		t.Fatalf("fail of a corrupt row = %v", err)
+	}
+	if row := readRow(t, st, first); row.State != StateFailed {
+		t.Errorf("corrupt row = %s, want failed", row.State)
+	}
+	// The second edit's own hand-on meets the corrupt third edit after it.
+	if err := st.Outbox().Discard(ctx, second); err != nil {
+		t.Fatalf("discard before a corrupt later edit = %v", err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatalf("discard of the corrupt row = %v", err)
+	}
+}

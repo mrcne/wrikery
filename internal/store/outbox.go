@@ -40,6 +40,9 @@ const (
 // A held row remembers Wrike's newer values, see Hold, which is why a discard passes nothing on from it.
 const HeldPrefix = "changed on Wrike since you set it: "
 
+// IsHeld tells the error of a held edit from a rejection, the command line and the hand-on of a dropped edit read it.
+func IsHeld(text string) bool { return strings.HasPrefix(text, HeldPrefix) }
+
 // HistoryDays is how long a sent or discarded row stays in the outbox.
 const HistoryDays = 30
 
@@ -979,15 +982,13 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		Scan(&kind, &entity, &payload, &before, &lastError); err != nil {
 		return err
 	}
-	if OutboxKind(kind) != KindTaskUpdate || before == "" || strings.HasPrefix(lastError, HeldPrefix) {
+	if OutboxKind(kind) != KindTaskUpdate || before == "" || IsHeld(lastError) {
 		return nil
 	}
+	// A row that does not decode is the corrupt one the drain fails so it cannot block the queue, it hands nothing on.
 	var p, b TaskUpdatePayload
-	if err := json.Unmarshal([]byte(payload), &p); err != nil {
-		return err
-	}
-	if err := json.Unmarshal([]byte(before), &b); err != nil {
-		return err
+	if json.Unmarshal([]byte(payload), &p) != nil || json.Unmarshal([]byte(before), &b) != nil {
+		return nil
 	}
 	later, err := laterTaskEditsTx(ctx, tx, entity, id)
 	if err != nil {
@@ -996,14 +997,13 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	// Each field goes to the first later edit that sets it, the edits after that one remember that one's value.
 	title, description, status, importance, dates := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil
 	for _, e := range later {
+		// A later edit that does not decode is skipped, the drain fails it on its own when its turn comes.
 		var lp, lb TaskUpdatePayload
-		if err := json.Unmarshal([]byte(e.payload), &lp); err != nil {
-			return err
+		if json.Unmarshal([]byte(e.payload), &lp) != nil {
+			continue
 		}
-		if e.before != "" {
-			if err := json.Unmarshal([]byte(e.before), &lb); err != nil {
-				return err
-			}
+		if e.before != "" && json.Unmarshal([]byte(e.before), &lb) != nil {
+			continue
 		}
 		changed := false
 		take := func(pending *bool, sets bool, apply func()) {

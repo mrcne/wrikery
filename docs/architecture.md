@@ -190,6 +190,7 @@ The client exposes both flags, so the UI can refuse the change up front instead 
 Task edits send only the fields the user changed.
 Two people editing different fields of the same task both keep their change.
 Before a task edit is sent, the engine reads the task from Wrike and compares the fields the edit sets with the values its row remembered at the enqueue: the title, the status, the importance, the dates by their type and their days, and the description.
+A drain pass reads each task once and keeps the read current with the answer of every send, so a queue of edits on one task costs one read.
 When one differs, somebody changed it on Wrike since the edit was queued, and the edit is held.
 The row moves to the failed state with the fields named in its error, and the values it remembered are replaced with what Wrike holds now, so the changes screen shows what sending it anyway would do.
 A retry sends it anyway: the check runs again and passes unless the field moved once more.

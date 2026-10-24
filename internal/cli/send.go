@@ -70,8 +70,8 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	case store.StateSent:
 		return sent, "", nil
 	case store.StateFailed:
-		if syncer.IsConflict(row.LastError) {
-			return held, strings.TrimPrefix(row.LastError, syncer.ConflictPrefix), nil
+		if store.IsHeld(row.LastError) {
+			return held, strings.TrimPrefix(row.LastError, store.HeldPrefix), nil
 		}
 		return rejected, row.LastError, nil
 	case store.StateDiscarded:
