@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -71,6 +72,27 @@ func usageText(synopsis []string, notes string) string {
 		b.WriteString("\n" + notes + "\n")
 	}
 	return b.String()
+}
+
+// printFlags lists the flags of fs with two dashes and the value's placeholder, --folder F, which flag.PrintDefaults cannot print.
+// The placeholder is the backquoted word of the usage text, the way flag.UnquoteUsage reads it, a bool flag has none.
+// One line per flag, so the texts have to stay short enough to go unwrapped.
+func printFlags(w io.Writer, fs *flag.FlagSet) {
+	type row struct{ head, text string }
+	var rows []row
+	width := 0
+	fs.VisitAll(func(f *flag.Flag) {
+		placeholder, text := flag.UnquoteUsage(f)
+		head := "--" + f.Name
+		if placeholder != "" {
+			head += " " + placeholder
+		}
+		rows = append(rows, row{head, text})
+		width = max(width, len(head))
+	})
+	for _, r := range rows {
+		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", width, r.head, r.text)
+	}
 }
 
 // jsonFlagSet is the start of every command's flag set, --json is the one flag they all take.

@@ -28,7 +28,7 @@ type listOpts struct {
 
 func (o *listOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("task list", &o.json)
-	fs.StringVar(&o.folder, "folder", "", "a folder, project or space, by id or by a part of its title")
+	fs.StringVar(&o.folder, "folder", "", "`F`, a folder, project or space, by id or by a part of its title")
 	fs.BoolVar(&o.me, "me", false, "your own tasks, the default")
 	fs.BoolVar(&o.all, "all", false, "include completed and cancelled tasks")
 	return fs
@@ -211,9 +211,9 @@ type createOpts struct {
 
 func (o *createOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("task create", &o.json)
-	fs.StringVar(&o.folder, "folder", "", "the folder, project or space, by id or by a part of its title")
-	fs.StringVar(&o.importance, "importance", "", "High, Normal or Low, Normal when left out")
-	fs.StringVar(&o.description, "description", "", "a markdown file with the description, - reads it from stdin")
+	fs.StringVar(&o.folder, "folder", "", "the folder, project or space `F` for the task, by id or by a part of its title")
+	fs.StringVar(&o.importance, "importance", "", "`L` is High, Normal or Low, Normal when left out")
+	fs.StringVar(&o.description, "description", "", "a markdown `FILE` with the description, - reads it from stdin")
 	return fs
 }
 

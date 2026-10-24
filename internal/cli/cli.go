@@ -170,14 +170,6 @@ func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
 	printFlags(w, fs)
 }
 
-// printFlags lists the flags of fs under a usage text.
-func printFlags(w io.Writer, fs *flag.FlagSet) {
-	old := fs.Output()
-	fs.SetOutput(w)
-	fs.PrintDefaults()
-	fs.SetOutput(old)
-}
-
 func usageError(env Env, fs *flag.FlagSet, usage, msg string) int {
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: %s\n", msg)
 	printUsage(env.Stderr, fs, usage)

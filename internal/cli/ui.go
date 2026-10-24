@@ -74,9 +74,9 @@ type filterOpts struct {
 
 func (o *filterOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("ui filter", &o.json)
-	fs.Var(&o.levels, "importance", "High, Normal or Low, may repeat")
-	fs.StringVar(&o.person, "person", "", "me, unassigned, a contact id or a part of a name")
-	fs.Var(&o.statuses, "status", "a status name, may repeat")
+	fs.Var(&o.levels, "importance", "`L` is High, Normal or Low, may repeat")
+	fs.StringVar(&o.person, "person", "", "`P` is me, unassigned, a contact id or a part of a name")
+	fs.Var(&o.statuses, "status", "a status name `S`, may repeat")
 	fs.BoolVar(&o.clear, "clear", false, "clear the filter, what F does")
 	return fs
 }

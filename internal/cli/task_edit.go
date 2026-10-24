@@ -29,9 +29,9 @@ type editOpts struct {
 
 func (o *editOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("task edit", &o.json)
-	fs.StringVar(&o.title, "title", "", "the new title")
-	fs.StringVar(&o.importance, "importance", "", "High, Normal or Low")
-	fs.StringVar(&o.description, "description", "", "a markdown file with the description, - reads it from stdin")
+	fs.StringVar(&o.title, "title", "", "the new `TITLE`")
+	fs.StringVar(&o.importance, "importance", "", "`L` is High, Normal or Low")
+	fs.StringVar(&o.description, "description", "", "a markdown `FILE` with the description, - reads it from stdin")
 	return fs
 }
 
@@ -316,8 +316,8 @@ type moveOpts struct {
 
 func (o *moveOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("task move", &o.json)
-	fs.Var(&o.to, "to", "a folder to put the task in, may repeat")
-	fs.Var(&o.from, "from", "a folder to take the task out of, may repeat")
+	fs.Var(&o.to, "to", "a folder `F` to put the task in, may repeat")
+	fs.Var(&o.from, "from", "a folder `F` to take the task out of, may repeat")
 	return fs
 }
 

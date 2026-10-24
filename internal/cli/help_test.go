@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"flag"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -114,6 +115,42 @@ func TestHelpOfACommandIsItsHelpFlag(t *testing.T) {
 		code, out, errOut := runHelp(t, "help", word)
 		if code != exitOK || errOut != "" || out != HelpPage(nil) {
 			t.Errorf("help %s: code %d, stderr %q, stdout:\n%s", word, code, errOut, out)
+		}
+	}
+}
+
+func TestFlagListsPrintTwoDashesAndPlaceholders(t *testing.T) {
+	singleDash := regexp.MustCompile(`(^|\s)-[A-Za-z]`)
+	invented := regexp.MustCompile(`--[a-z-]+ (string|value|int)\b`)
+	pages := map[string]string{}
+	for _, c := range Commands() {
+		_, out, _ := runHelp(t, append(strings.Fields(c.Name), "--help")...)
+		pages[c.Name] = out
+	}
+	fs := flag.NewFlagSet("wrikery", flag.ContinueOnError)
+	fs.String("config", "", "read the config file at `PATH` instead of the default")
+	fs.Bool("demo", false, "run on built in sample data")
+	pages["page"] = HelpPage(fs)
+	for name, text := range pages {
+		for _, line := range strings.Split(text, "\n") {
+			if singleDash.MatchString(line) || invented.MatchString(line) {
+				t.Errorf("%s has a flag line the standard printer wrote: %q", name, line)
+			}
+		}
+	}
+	wants := map[string][]string{
+		"task list":   {"--folder F"},
+		"task create": {"--importance L", "--description FILE"},
+		"task edit":   {"--title TITLE"},
+		"task move":   {"--to F", "--from F"},
+		"ui filter":   {"--person P", "--status S"},
+		"page":        {"--config PATH", "--demo"},
+	}
+	for name, list := range wants {
+		for _, want := range list {
+			if !strings.Contains(pages[name], want) {
+				t.Errorf("%s lacks %q:\n%s", name, want, pages[name])
+			}
 		}
 	}
 }
