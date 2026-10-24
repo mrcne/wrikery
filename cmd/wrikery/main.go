@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -72,43 +73,56 @@ func versionLine(version, commit, goVersion string) string {
 	return fmt.Sprintf("wrikery %s (%s) %s", version, commit, goVersion)
 }
 
-const usage = `usage: wrikery [flags]
-       wrikery [flags] <command> [arguments]
+// rootOpts holds the global flags. offline is read through offlineArg, the line may not have named it.
+type rootOpts struct {
+	version, demo, logout, noColor, offline bool
+	config                                  string
+}
 
-An unofficial terminal client for Wrike.
-Without a command it opens the interface. With one it runs that operation and exits,
-see "wrikery help" for the commands.
+// rootFlags defines the global flags on a fresh set, the one the help page and the manual list.
+// The set prints nothing on its own, parseRoot prints the page or the error, so its Usage is a no-op and its output is discarded.
+func rootFlags() (*flag.FlagSet, *rootOpts) {
+	o := &rootOpts{}
+	fs := flag.NewFlagSet("wrikery", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
+	fs.BoolVar(&o.version, "version", false, "print the version and exit")
+	fs.BoolVar(&o.demo, "demo", false, "run on built in sample data, no token and no network")
+	fs.BoolVar(&o.logout, "logout", false, "sign out, remove the stored token or session, and exit")
+	fs.StringVar(&o.config, "config", "", "read the config file at `PATH` instead of the default")
+	fs.BoolVar(&o.noColor, "no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
+	fs.BoolVar(&o.offline, "offline", false, "start without syncing, nothing is pulled or sent, R in the interface goes online, wins over offline in the config")
+	return fs, o
+}
 
-Flags:
-`
+// parseRoot parses the command line.
+// done means the run is over: the help page went to stdout (0), or a flag was wrong and the error and the page went to stderr (2).
+func parseRoot(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (code int, done bool) {
+	switch err := fs.Parse(args); {
+	case errors.Is(err, flag.ErrHelp):
+		_, _ = fmt.Fprint(stdout, cli.HelpPage(fs))
+		return 0, true
+	case err != nil:
+		_, _ = fmt.Fprintln(stderr, "wrikery: "+err.Error())
+		_, _ = fmt.Fprint(stderr, cli.HelpPage(fs))
+		return 2, true
+	}
+	return 0, false
+}
 
 func main() {
-	fs := flag.NewFlagSet("wrikery", flag.ContinueOnError)
-	fs.Usage = func() {
-		_, _ = fmt.Fprint(fs.Output(), usage)
-		fs.PrintDefaults()
-	}
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	demoMode := fs.Bool("demo", false, "run on built in sample data, no token and no network")
-	logout := fs.Bool("logout", false, "sign out, remove the stored token or session, and exit")
-	configPath := fs.String("config", "", "read this config file instead of the default")
-	noColor := fs.Bool("no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
-	offline := fs.Bool("offline", false, "start without syncing, nothing is pulled or sent, R in the interface goes online, wins over offline in the config")
-
-	switch err := fs.Parse(os.Args[1:]); {
-	case errors.Is(err, flag.ErrHelp):
-		return
-	case err != nil:
-		os.Exit(2)
+	fs, o := rootFlags()
+	if code, done := parseRoot(fs, os.Args[1:], os.Stdout, os.Stderr); done {
+		os.Exit(code)
 	}
 	if fs.NArg() > 0 {
-		os.Exit(runCommand(fs.Args(), *configPath, *noColor, *demoMode, *showVersion, *logout, offlineArg(fs, offline)))
+		os.Exit(runCommand(fs.Args(), fs, o.config, o.noColor, o.demo, o.version, o.logout, offlineArg(fs, &o.offline)))
 	}
-	if *showVersion {
+	if o.version {
 		fmt.Println(versionLine(buildVersion(), buildCommit(), runtime.Version()))
 		return
 	}
-	if err := run(*demoMode, *logout, *configPath, *noColor, offlineArg(fs, offline)); err != nil {
+	if err := run(o.demo, o.logout, o.config, o.noColor, offlineArg(fs, &o.offline)); err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		os.Exit(1)
 	}
@@ -248,7 +262,8 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 }
 
 // runCommand prepares what a command needs, the first half of run without the program, and hands over to internal/cli.
-func runCommand(args []string, configPath string, noColor, demo, showVersion, logout bool, offlineFlag *bool) int {
+// global is the root flag set, the help page lists it.
+func runCommand(args []string, global *flag.FlagSet, configPath string, noColor, demo, showVersion, logout bool, offlineFlag *bool) int {
 	if demo {
 		if args[0] != "ui" {
 			fmt.Fprintln(os.Stderr, "wrikery: --demo runs the interface on sample data, it cannot run a command, only ui drives a demo")
@@ -260,15 +275,15 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 			return 1
 		}
-		return cli.Run(context.Background(), cli.Env{Socket: demoSocketPath(paths), Stdout: os.Stdout, Stderr: os.Stderr}, args)
+		return cli.Run(context.Background(), cli.Env{Socket: demoSocketPath(paths), GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	if showVersion || logout {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		// Help prints a constant, so it must not create the data directory, open the store or read the token.
-		return cli.Run(context.Background(), cli.Env{Stdout: os.Stdout, Stderr: os.Stderr}, args)
+		// Help prints from the command table alone, so it must not create the data directory, open the store or read the token.
+		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -330,6 +345,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Stdin:        os.Stdin,
 		Stdout:       os.Stdout,
 		Stderr:       os.Stderr,
+		GlobalFlags:  global,
 	}, args)
 }
 
