@@ -197,8 +197,9 @@ func TestTaskStatusIsCutAtTheDeadlineAndQueued(t *testing.T) {
 		t.Fatalf("code = %d\n%s", code, out.String())
 	}
 	row, err := env.Store.Outbox().Get(context.Background(), 1)
-	if err != nil || row.State != store.StatePending || row.Attempts != 1 {
-		t.Errorf("row = %+v, %v, want pending with one attempt", row, err)
+	// A request cut at the deadline got no answer, which is not the row's fault, so no attempt is counted.
+	if err != nil || row.State != store.StatePending || row.Attempts != 0 || row.LastError == "" {
+		t.Errorf("row = %+v, %v, want pending with the reason and no attempt", row, err)
 	}
 }
 
@@ -272,7 +273,7 @@ func TestTaskStatusTakesABrowserLink(t *testing.T) {
 	}
 }
 
-// The first change backs off after a 503.
+// The first change fails on a 503 and is put into a backoff by hand, the wait a 500 earns a row on its own.
 // The second one on the same task must not overtake it, and the command has to say what it waits for,
 // the drain itself never touched the older row.
 func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.T) {
@@ -295,8 +296,7 @@ func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.
 	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitQueued {
 		t.Fatalf("first: code = %d, stderr %q", code, errOut.String())
 	}
-	// Wrike is back, but the first change is still backing off from its failure.
-	// Its next attempt is pinned far ahead, or a slow runner could pass the two seconds the drain gave it and send both.
+	// Wrike is back, and the first change waits far ahead, the backoff the second command must respect.
 	down.Store(false)
 	all, err := env.Store.Outbox().ListChanges(context.Background())
 	if err != nil {
@@ -309,7 +309,7 @@ func TestTaskStatusWaitsBehindABackedOffWriteOnTheSameTaskAndSaysWhy(t *testing.
 		}
 	}
 	if len(rows) != 1 {
-		t.Fatalf("retrying rows = %+v, want the first change in backoff", rows)
+		t.Fatalf("retrying rows = %+v, want the first change", rows)
 	}
 	if err := env.Store.Outbox().Reschedule(context.Background(), rows[0].ID, rows[0].LastError, "2999-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)

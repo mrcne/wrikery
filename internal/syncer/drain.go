@@ -47,6 +47,15 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 			changed = true
 			continue
 		}
+		// A held edit holds nothing after it, like a write Wrike rejected, it waits on the changes screen for a person.
+		var conflict *Conflict
+		if errors.As(sendErr, &conflict) {
+			if err := st.Outbox().Hold(bookkeeping, row.ID, conflict.Error(), conflict.Before); err != nil {
+				return changed, err
+			}
+			changed = true
+			continue
+		}
 		switch classify(sendErr) {
 		case failPermanent:
 			if err := st.Outbox().Fail(bookkeeping, row.ID, sendErr.Error()); err != nil {
@@ -58,6 +67,12 @@ func drainOutbox(start, post context.Context, c Client, st *store.Store, backoff
 			// Nothing is wrong with the row, only the token. It goes back to pending untouched so it is due
 			// the moment a new token arrives. The drain stops at the first failure, so it is the only inflight row.
 			if _, err := st.Outbox().ResetInflight(bookkeeping); err != nil {
+				return changed, err
+			}
+			return changed, &SendError{Row: row, Err: sendErr}
+		case failUnavailable:
+			// Wrike did not answer, which is no fault of the row: it stays first in line, and the engine's reconnect wait paces the next pass.
+			if err := st.Outbox().Defer(bookkeeping, row.ID, sendErr.Error()); err != nil {
 				return changed, err
 			}
 			return changed, &SendError{Row: row, Err: sendErr}
@@ -121,6 +136,14 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 		if p.Dates != nil {
 			u.Dates = &wrike.TaskDates{Type: p.Dates.Type, Duration: p.Dates.Duration,
 				Start: p.Dates.Start, Due: p.Dates.Due}
+		}
+		// The check reads the task first and holds the edit when somebody changed one of its fields on Wrike since it was queued.
+		conflict, err := conflictOf(ctx, c, st, row, p)
+		if err != nil {
+			return err
+		}
+		if conflict != nil {
+			return conflict
 		}
 		task, err := c.UpdateTask(ctx, row.EntityID, u)
 		if err != nil {

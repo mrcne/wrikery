@@ -3,6 +3,7 @@ package syncer
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrcne/wrikery/internal/lockfile"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
@@ -162,6 +164,85 @@ func TestEngineGoesOfflineAndRecovers(t *testing.T) {
 
 	waitFor(t, e, "offline", isState(StateOffline))
 	waitFor(t, e, "recovery to idle", isState(StateIdle))
+}
+
+// After an outage the oldest write must go first, not at the end of a backoff the newer writes overtake.
+func TestEngineSendsTheQueueInOrderAfterAnOutage(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"T1", "T2", "T3"} {
+		seedTask(t, st, id, id)
+		if _, err := st.Outbox().EnqueueComment(ctx, id, "U1", "queued"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls atomic.Int32
+	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
+		if calls.Add(1) == 1 {
+			return wrike.Comment{}, &wrike.APIError{StatusCode: 503}
+		}
+		return wrike.Comment{ID: "C" + taskID, TaskID: taskID, Text: text}, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: time.Hour, BackoffBase: 2 * time.Second,
+		ReconnectBase: time.Millisecond, ReconnectCeil: 5 * time.Millisecond})
+	waitFor(t, e, "recovery to idle", isState(StateIdle))
+	var sent []string
+	for _, call := range fc.callLog() {
+		if strings.HasPrefix(call, "CreateComment ") {
+			sent = append(sent, strings.TrimPrefix(call, "CreateComment "))
+		}
+	}
+	if strings.Join(sent, " ") != "T1 T1 T2 T3" {
+		t.Errorf("comments sent in the order %v, want T1 again before the newer ones", sent)
+	}
+}
+
+// An offline start sends nothing, but a row a dead process left in flight must still come back to the queue,
+// or the changes screen shows it as being sent and refuses to retry or discard it.
+func TestResetInflightPutsTheRowsBackUnderTheLock(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a")
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "stranded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inflight := func() {
+		t.Helper()
+		if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func() store.OutboxState {
+		t.Helper()
+		row, err := st.Outbox().Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row.State
+	}
+	lockPath := filepath.Join(t.TempDir(), "sync.lock")
+	log := slog.New(slog.DiscardHandler)
+
+	inflight()
+	if err := ResetInflight(ctx, st, lockPath, 2*time.Second, log); err != nil || state() != store.StatePending {
+		t.Fatalf("reset = %v, row %s, want it pending again", err, state())
+	}
+
+	// Another process holds the lock and may be sending the row right now, so it is left alone.
+	held, err := lockfile.Acquire(ctx, lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+	inflight()
+	start := time.Now()
+	if err := ResetInflight(ctx, st, lockPath, 200*time.Millisecond, log); err != nil || state() != store.StateInflight {
+		t.Errorf("reset under a held lock = %v, row %s, want nil and the row left in flight", err, state())
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Errorf("the reset waited %s, past its budget", time.Since(start))
+	}
 }
 
 func TestEngine401PausesUntilRefresh(t *testing.T) {

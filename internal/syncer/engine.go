@@ -267,18 +267,9 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 	// The row claim in the store is atomic on its own, the lock is there for two things it cannot cover:
 	// a startup reset while another process is mid-send, which would send that row twice,
 	// and two drainers sending two rows on the same task out of order.
-	lock, err := lockfile.Acquire(start, e.cfg.LockFile)
+	lock, err := takeLock(start, e.cfg.LockFile, e.log, &e.lockWarned)
 	if err != nil {
-		if errors.Is(err, ErrLocked) || start.Err() != nil {
-			return false, err
-		}
-		// The file system cannot take the lock: a file owned by another user, or flock unsupported on a network mount.
-		// Without it the engine is back to the behavior before the lock existed, which beats a sync that never runs.
-		if !e.lockWarned {
-			e.lockWarned = true
-			e.log.Warn("sync lock unavailable, continuing without it", "error", err, "path", e.cfg.LockFile)
-		}
-		lock = &lockfile.Lock{}
+		return false, err
 	}
 	defer lock.Release()
 	// Under the lock no other process is sending, so an inflight row is the leftover of a process that died mid-send.
@@ -287,6 +278,44 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 		return false, err
 	}
 	return drainOutbox(start, post, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
+}
+
+// takeLock waits for the sync lock until ctx ends, ErrLocked when another process held it all that time.
+// When the file system cannot take the lock, a file owned by another user or flock unsupported on a network mount,
+// it goes on without one and warns once: that is the behavior before the lock existed, which beats a sync that never runs.
+func takeLock(ctx context.Context, path string, log *slog.Logger, warned *bool) (*lockfile.Lock, error) {
+	lock, err := lockfile.Acquire(ctx, path)
+	if err == nil {
+		return lock, nil
+	}
+	if errors.Is(err, ErrLocked) || ctx.Err() != nil {
+		return nil, err
+	}
+	if !*warned {
+		*warned = true
+		log.Warn("sync lock unavailable, continuing without it", "error", err, "path", path)
+	}
+	return &lockfile.Lock{}, nil
+}
+
+// ResetInflight puts back to pending the rows a process that died mid-send left in flight, the first step of every drain pass,
+// for a start that runs no drain, offline mode, so the changes screen can retry or discard them.
+// It waits for the sync lock up to budget. A lock another process holds leaves the rows alone, that process may be sending one.
+func ResetInflight(ctx context.Context, st *store.Store, lockFile string, budget time.Duration, log *slog.Logger) error {
+	lctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	warned := false
+	lock, err := takeLock(lctx, lockFile, log, &warned)
+	if errors.Is(err, ErrLocked) {
+		log.Info("sync lock held by another process, its rows in flight stay so", "path", lockFile)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+	_, err = st.Outbox().ResetInflight(ctx)
+	return err
 }
 
 func (e *Engine) cycle(ctx, post context.Context, manual bool) error {

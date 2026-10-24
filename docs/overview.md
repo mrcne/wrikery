@@ -194,7 +194,9 @@ A code in parentheses at the start of a title, `(MX)`, is drawn muted and a shor
 A status move reads `status  In Progress -> Done`, a date change `dates  Backlog -> due 15 Oct`, an assignee change `assignee  + Ada Nowak  - Bartek Lis`, a comment or a new task shows its first words, a time entry its hours and day.
 The row under the cursor shows the values in full on a second line, a long title or the first line of the old and the new description.
 The writes still queued or failed sit at the top, marked `queued`, `sending`, `retrying` or `failed` with the error Wrike returned on the second line, so one that fails the same way every time can be discarded instead of holding the later writes on its task.
+A task edit whose field someone changed on Wrike since it was queued is held there as failed, the second line names the field with its value on Wrike, and the old value on the row is now Wrike's, so the row reads what sending it would do.
 `r` retries the highlighted queued row, a retrying one at once, `x` asks for confirmation and then discards it, and a discarded row stays in the list marked so.
+On a held edit `r` sends it anyway and `x` drops it.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
 A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.

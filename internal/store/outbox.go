@@ -145,6 +145,12 @@ type OutboxRepo interface {
 	CompleteTimelog(ctx context.Context, id int64, real Timelog) error
 	Reschedule(ctx context.Context, id int64, errText, nextAttemptAt string) error
 	Fail(ctx context.Context, id int64, errText string) error
+	// Hold fails a task edit that someone changed on Wrike since it was queued, and puts what Wrike holds now into its before,
+	// so the changes screen shows what sending it anyway would do.
+	Hold(ctx context.Context, id int64, errText string, before []byte) error
+	// Defer puts a row back to pending after Wrike could not be reached, no attempt counted and no wait of its own,
+	// the engine's reconnect wait paces the next try.
+	Defer(ctx context.Context, id int64, errText string) error
 	// Retry makes a failed row pending and a pending row due at once, with a clean attempt count.
 	Retry(ctx context.Context, id int64) error
 	Discard(ctx context.Context, id int64) error
@@ -205,6 +211,12 @@ func taskTitleTx(ctx context.Context, tx *sql.Tx, taskID string) (string, error)
 // The enqueue is the last moment the cache still has them, its own update overwrites them next.
 // ok is false for a task the cache does not have, the write is still valid and goes out with nothing remembered.
 func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePayload) (before TaskUpdatePayload, title string, ok bool, err error) {
+	if IsLocalID(taskID) {
+		// The local row's status is a guess and its description this client's own HTML, Wrike normalizes both,
+		// so there is nothing true to remember, and the drain would hold the edit against values Wrike never had.
+		title, err = taskTitleTx(ctx, tx, taskID)
+		return TaskUpdatePayload{}, title, false, err
+	}
 	var description, statusID, group, importance string
 	var dType, dStart, dDue sql.NullString
 	var dDur sql.NullInt64
@@ -456,7 +468,7 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 // statusForNewTask is the status a task created in folderID starts in on Wrike: the first visible Active status
 // of the default task workflow of the folder's space, the one the Space object names in defaultTaskWorkflowId.
 // On the live account that was the standard workflow even in a space that owns a workflow of its own,
-// checked on 2026-10-01 and 2026-10-04, so the workflow the view shows is no guide.
+// so the workflow the view shows is no guide.
 // A folder under no cached space, or a space whose default the cache lacks, falls back to the standard workflow.
 // A folder shared by two spaces takes the first space by id.
 func statusForNewTask(ctx context.Context, tx *sql.Tx, folderID string) (string, error) {
@@ -907,6 +919,19 @@ func (o outboxRepo) Fail(ctx context.Context, id int64, errText string) error {
 	return o.expectOne(ctx, `
 		UPDATE outbox SET state = 'failed', attempts = attempts + 1,
 			last_error = ?, next_attempt_at = NULL
+		WHERE id = ? AND state IN `+queueStates, errText, id)
+}
+
+func (o outboxRepo) Hold(ctx context.Context, id int64, errText string, before []byte) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'failed', attempts = attempts + 1,
+			last_error = ?, next_attempt_at = NULL, before = ?
+		WHERE id = ? AND state IN `+queueStates, errText, string(before), id)
+}
+
+func (o outboxRepo) Defer(ctx context.Context, id int64, errText string) error {
+	return o.expectOne(ctx, `
+		UPDATE outbox SET state = 'pending', last_error = ?
 		WHERE id = ? AND state IN `+queueStates, errText, id)
 }
 

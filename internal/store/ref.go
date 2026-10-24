@@ -22,7 +22,7 @@ type TaskRef struct {
 // A link holds open.htm?id= followed by digits, the host before it does not matter, and a link without digits is not a reference.
 // A bare number is the number from such a link, never a part of a title.
 // An id is twelve or sixteen characters from A-Z, a-z, 0-9, - and _ with a digit or an upper case letter after the first one,
-// the shapes of the task, folder and status ids seen on the live account on 2026-10-22, and a plain word of that length is not one.
+// the shapes of the task, folder and status ids seen on the live account, and a plain word of that length is not one.
 // Anything else is a title fragment and stays in the cache.
 func ParseTaskRef(s string) (TaskRef, bool) {
 	s = strings.TrimSpace(s)

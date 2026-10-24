@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,8 +21,13 @@ const taskAnswer = `{"kind":"tasks","data":[{"id":"%s","title":"%s","status":"%s
 "permalink":"https://www.wrike.com/open.htm?id=9"}]}`
 
 // withNetwork gives env a token, a host and a client that talks to handler. A nil handler is a closed port.
+// The board's tasks are on that Wrike as the cache holds them now: a read of one by id, the check before an edit,
+// answers its values from before the command's write, the rest goes to handler.
 func withNetwork(t *testing.T, env Env, handler http.Handler) Env {
 	t.Helper()
+	if handler != nil {
+		handler = unchangedOnWrike(t, env.Store, handler)
+	}
 	srv := httptest.NewServer(handler)
 	if handler == nil {
 		srv.Close()
@@ -314,4 +320,39 @@ func TestSendReportsARowDiscardedMeanwhile(t *testing.T) {
 	if !strings.Contains(errOut.String(), "discarded") {
 		t.Errorf("stderr = %q, want it to say the change was discarded", errOut.String())
 	}
+}
+
+// unchangedOnWrike answers GET /tasks/{id} for a task of the board with the values the cache holds when it is called.
+func unchangedOnWrike(t *testing.T, st *store.Store, next http.Handler) http.Handler {
+	t.Helper()
+	answers := map[string][]byte{}
+	for _, id := range boardTaskIDs {
+		// Get and not ByIDs, the list read leaves the description out.
+		task, err := st.Tasks().Get(context.Background(), id)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		wt := map[string]any{"id": task.ID, "title": task.Title, "status": task.Status, "customStatusId": task.CustomStatusID,
+			"importance": task.Importance, "description": task.Description, "permalink": task.Permalink,
+			"parentIds": task.ParentIDs, "responsibleIds": task.ResponsibleIDs,
+			"createdDate": task.CreatedDate, "updatedDate": task.UpdatedDate}
+		if task.Dates != nil {
+			wt["dates"] = map[string]any{"type": task.Dates.Type, "duration": task.Dates.Duration, "start": task.Dates.Start, "due": task.Dates.Due}
+		}
+		raw, err := json.Marshal(map[string]any{"kind": "tasks", "data": []any{wt}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		answers["/tasks/"+task.ID] = raw
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if raw, ok := answers[r.URL.Path]; ok && r.Method == http.MethodGet {
+			_, _ = w.Write(raw)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
