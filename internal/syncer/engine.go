@@ -327,8 +327,13 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emit(Event{Kind: EventStoreChanged,
 			Entities: []EntityKind{KindTasks, KindComments, KindTimelogs}})
 	}
+	// A write Wrike did not answer stays first in line, which keeps the order after an outage.
+	// The pulls then tell an outage from a write whose own request Wrike never answers: see the end of the cycle.
+	var unanswered *SendError
 	if err != nil {
-		return err
+		if !errors.As(err, &unanswered) || classify(unanswered.Err) != failUnavailable {
+			return err
+		}
 	}
 
 	meID, err := e.ensureMe(ctx)
@@ -431,6 +436,17 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 	if changedDeps {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindDependencies}})
+	}
+	if unanswered != nil {
+		// The pulls went through, so Wrike answers and the failure is the write's own, a payload it times out on for example.
+		// It gets its own wait, the one a 500 earns, so the rest of the queue goes on instead of the whole sync stopping at it.
+		row := unanswered.Row
+		next := rfc3339(time.Now().Add(backoff(row.Attempts, e.cfg.BackoffBase, e.cfg.BackoffCeil)))
+		if err := e.st.Outbox().Reschedule(ctx, row.ID, unanswered.Err.Error(), next); err != nil {
+			return err
+		}
+		e.emitOutboxCounts(ctx)
+		e.WakeOutbox()
 	}
 	return nil
 }

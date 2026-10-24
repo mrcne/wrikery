@@ -309,6 +309,64 @@ func TestDrainReadsATaskOncePerPass(t *testing.T) {
 	wantSent(t, st, second)
 }
 
+// A joined emoji, a zero width joiner between two parts, stays as it is in the held text, an escape would print as letters.
+func TestDrainHeldTextKeepsATitleAsItIs(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Title: "Mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) { task.Title = "Ship\u200d it" })}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.Outbox().Get(ctx, id)
+	if err != nil || !strings.Contains(row.LastError, "title \"Ship\u200d it\" now") || strings.Contains(row.LastError, `\u200d`) {
+		t.Errorf("held text = %q, %v, want the title as Wrike holds it", row.LastError, err)
+	}
+}
+
+// Two description edits of one task in one pass: the second remembers the first one's markdown HTML,
+// Wrike's answer to the first send writes = in a link as &#61; and paragraphs as line breaks, and nothing is held.
+func TestDrainSendsTwoDescriptionEditsOfOneTaskInOnePass(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, `<p>See https://x/?a=1</p>`)
+	first, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: `<p>See https://x/?a=1 once</p>`})
+	second, _ := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{Description: `<p>See https://x/?a=1 twice</p>`})
+	fc := &fakeClient{
+		tasksByIDs: onWrike(func(task *wrike.Task) { task.Description = `<p>See https://x/?a=1</p>` }),
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			stored := strings.NewReplacer("=", "&#61;", "<p>", "<br />", "</p>", "<br />").Replace(u.Description)
+			return wrike.Task{ID: taskID, Title: "Offline mode", Status: "Active", CustomStatusID: "ST_NEW", Importance: "Normal",
+				Description: stored, Dates: &wrike.TaskDates{Type: "Backlog"}}, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wantSent(t, st, first)
+	wantSent(t, st, second)
+}
+
+func TestDrainSkipsTheReadForAFolderChange(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "")
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{AddParents: []string{"F2"}}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(nil)}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if got := fc.callLog(); len(got) != 1 || got[0] != "UpdateTask TASK1" {
+		t.Errorf("calls = %v, a folder change cannot conflict and needs no read", got)
+	}
+}
+
 func TestDrainSkipsTheReadForAnAssigneeChange(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

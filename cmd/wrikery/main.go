@@ -23,7 +23,6 @@ import (
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
-	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/internal/ui"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
@@ -230,11 +229,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		defer func() { _ = l.Close() }()
 	}
 	if offline {
-		// No drain runs, so the rows a process that died mid-send left in flight come back to the queue here,
-		// or the changes screen would show them as being sent and refuse a retry or a discard.
-		if err := syncer.ResetInflight(context.Background(), st, a.lock, 2*time.Second, slog.Default()); err != nil {
-			slog.Warn("could not put back the writes left in flight", "error", err)
-		}
+		a.startOffline()
 	} else if !firstRun {
 		host, err := resolveHost(context.Background(), cfg, st, session)
 		if err != nil {

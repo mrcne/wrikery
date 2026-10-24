@@ -1,6 +1,6 @@
 # 003: Local first architecture with an outbox
 
-Status: Accepted
+Status: Accepted, the rule for edits to the same field amended on 2026-10-24
 
 ## Context
 
@@ -35,7 +35,9 @@ Writes are queued in the outbox and sent in order, with growing waits after fail
 
 The app sends only the fields the user changed.
 Edits to different fields of the same task therefore merge without trouble.
-Edits to the same field resolve as last write wins.
+Before an edit of a field is sent, the engine reads the task and compares the field with the value the edit replaced.
+When someone changed it on Wrike meanwhile, the edit is held, and the user sends it anyway or drops it.
+Otherwise the last write wins.
 Some writes fail for good: the task was deleted, a permission was revoked, the API rejected them.
 Those show up in a sync issues view with retry or discard.
 

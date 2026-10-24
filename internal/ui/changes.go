@@ -52,12 +52,13 @@ func refusal(r store.OutboxRow, verb string) string {
 }
 
 // stateText is the muted text after a row: where a queued write stands, or when a finished one went out.
-func stateText(r store.OutboxRow, now time.Time) string {
+// In offline mode nothing retries, a write a send failed on in an earlier session reads queued.
+func stateText(r store.OutboxRow, now time.Time, offline bool) string {
 	switch r.State {
 	case store.StateInflight:
 		return "sending"
 	case store.StatePending:
-		if r.LastError != "" {
+		if r.LastError != "" && !offline {
 			return "retrying " + relTime(r.CreatedAt, now)
 		}
 		return "queued"
@@ -293,7 +294,7 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 	return s, nil
 }
 
-func (s changesModel) View(th Theme, now time.Time, width, height int) string {
+func (s changesModel) View(th Theme, now time.Time, width, height int, offline bool) string {
 	if len(s.rows) == 0 {
 		return lipgloss.NewStyle().Foreground(th.Muted).Render(fmt.Sprintf("No changes in the last %d days.", store.HistoryDays))
 	}
@@ -305,7 +306,7 @@ func (s changesModel) View(th Theme, now time.Time, width, height int) string {
 	var b strings.Builder
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
-		when := stateText(r.row, now)
+		when := stateText(r.row, now, offline)
 		if r.row.Source == store.SourceCLI {
 			when += "  cli"
 		}

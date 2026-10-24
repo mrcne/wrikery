@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -81,12 +82,13 @@ func TestReachErrorTextForOfflineMode(t *testing.T) {
 
 func TestSettingsShowsStartOffline(t *testing.T) {
 	s := testSettings()
-	if row := settingRowNamed(s, "Start offline"); row.value != "no" || row.key != "offline" {
-		t.Errorf("row = %+v, want no with the key offline", row)
+	// The rows show what the file holds, a boolean there is true or false.
+	if row := settingRowNamed(s, "Start offline"); row.value != "false" || row.key != "offline" {
+		t.Errorf("row = %+v, want false with the key offline", row)
 	}
 	s.cfg.Offline = true
-	if row := settingRowNamed(s, "Start offline"); row.value != "yes" {
-		t.Errorf("row = %+v, want yes from the file", row)
+	if row := settingRowNamed(s, "Start offline"); row.value != "true" {
+		t.Errorf("row = %+v, want true from the file", row)
 	}
 }
 
@@ -108,5 +110,17 @@ func TestOfflineModeKeepsQueuedAfterTheDetailIsBuiltAgain(t *testing.T) {
 	m.syncPaneSizes()
 	if view := ansi.Strip(m.detail.View()); !strings.Contains(view, "Ship it (queued)") {
 		t.Errorf("detail after a rebuild:\n%s", view)
+	}
+}
+
+// Nothing retries in offline mode, a write a send failed on in an earlier session reads queued.
+func TestAFailedTryReadsQueuedInOfflineMode(t *testing.T) {
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	row := store.OutboxRow{State: store.StatePending, LastError: "context canceled", CreatedAt: "2026-10-23T10:00:00Z"}
+	if got := stateText(row, now, true); got != "queued" {
+		t.Errorf("offline = %q, want queued", got)
+	}
+	if got := stateText(row, now, false); !strings.HasPrefix(got, "retrying") {
+		t.Errorf("online = %q, want retrying", got)
 	}
 }

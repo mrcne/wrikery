@@ -175,6 +175,7 @@ The editor runs with the terminal handed over and its exit ends the edit, except
 
 When Wrike does not answer, a network error, a 429 left after the client's own retries, or a 502, 503 or 504 from the edge in front of the API, the write is not at fault.
 The row goes back to the queue with no attempt counted and no wait of its own, the pass stops there, and the engine waits before the next cycle, longer after every failure.
+The cycle still runs its pulls: when they go through, Wrike answers and the failure is the write's own, a payload it times out on for example, so the row gets the wait a 500 earns and the rest of the queue goes on.
 When Wrike answers again the queue goes out in order, the oldest write first.
 A 500 and an answer that does not decode can be the fault of that one payload, so such a row waits on its own, twice as long after every attempt up to five minutes, and the writes after it on the same entity wait with it.
 Retries with growing waits are what the Wrike documentation asks for.
@@ -198,7 +199,7 @@ A field Wrike already holds at the edit's own value is no conflict, that is a se
 A discarded or rejected edit hands the values it replaced to the next queued edit of the same field, which read its old values from the cache the dropped edit had changed.
 A held edit hands nothing on, it remembers Wrike's newer value, and the next edit is held against that value as well.
 The description is compared as text, with the tags dropped and the entities decoded.
-Wrike writes `=` inside a link as `&#61;` in its answer and turns paragraphs into line breaks about a minute after a write (seen on the live account), so a byte comparison would hold the second of two edits of one description over markup nobody changed.
+Wrike writes `=` inside a link as `&#61;` in its answer and turns paragraphs into line breaks about a minute after a write, so a byte comparison would hold the second of two edits of one description over markup nobody changed.
 A change of markup alone is not seen, and the last write wins there.
 An edit of the people or the folders only adds and removes, it cannot replace somebody's change and goes out without the read.
 An edit queued on a task whose create has not landed remembers nothing and goes out unchecked, the local row's status is a guess and its description this client's own HTML.

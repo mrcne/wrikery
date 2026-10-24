@@ -198,7 +198,7 @@ The writes still queued or failed sit at the top, marked `queued`, `sending`, `r
 A task edit whose field someone changed on Wrike since it was queued is held there as failed, the second line names the field with its value on Wrike, and the old value on the row is now Wrike's, so the row reads what sending it would do.
 `r` retries the highlighted queued row, a retrying one at once, `x` asks for confirmation and then discards it, and a discarded row stays in the list marked so.
 On a held edit `r` sends it anyway and `x` drops it.
-In offline mode `r` does nothing, there is nothing to send with yet, and `x` discards as always.
+In offline mode `r` does nothing, there is nothing to send with yet, `x` discards as always, and a write a send failed on in an earlier session reads `queued`.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
 A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.

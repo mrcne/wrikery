@@ -153,6 +153,15 @@ func (a *app) hooks() ui.Hooks {
 	return h
 }
 
+// startOffline is the one step of a drain an offline start still runs: no drain sends anything,
+// so the rows a process that died mid-send left in flight come back to the queue here,
+// or the changes screen would show them as being sent and refuse a retry or a discard.
+func (a *app) startOffline() {
+	if err := syncer.ResetInflight(context.Background(), a.st, a.lock, 2*time.Second, slog.Default()); err != nil {
+		slog.Warn("could not put back the writes left in flight", "error", err)
+	}
+}
+
 // goOnline ends offline mode the way a start without it begins: the host first, then the engine on the stored session.
 // The interface calls it on a command goroutine, a host nobody stored yet costs the probe's five seconds there and not at the start.
 func (a *app) goOnline() {

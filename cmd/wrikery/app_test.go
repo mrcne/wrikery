@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -106,5 +107,30 @@ func TestGoOnlineStartsTheEngine(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the engine never asked Wrike")
+	}
+}
+
+// An offline start sends nothing, but the rows a process that died mid-send left in flight come back to the queue.
+func TestOfflineStartPutsTheRowsInFlightBack(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "offline.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "a", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "stranded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, lock: filepath.Join(t.TempDir(), "sync.lock")}
+	a.startOffline()
+	if row, err := st.Outbox().Get(ctx, id); err != nil || row.State != store.StatePending {
+		t.Errorf("row = %+v, %v, want it back in the queue", row, err)
 	}
 }

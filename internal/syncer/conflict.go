@@ -58,11 +58,12 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 		if err != nil {
 			return nil, err
 		}
-		fields = append(fields, fmt.Sprintf("status %q now, was %q", nameOr(names, now.CustomStatusID), nameOr(names, before.CustomStatusID)))
+		// Plain quotes, %q would write the parts of a joined emoji with an escape between them.
+		fields = append(fields, fmt.Sprintf(`status "%s" now, was "%s"`, nameOr(names, now.CustomStatusID), nameOr(names, before.CustomStatusID)))
 		before.CustomStatusID, before.Status = now.CustomStatusID, now.Status
 	}
 	if p.Title != "" && before.Title != now.Title && p.Title != now.Title {
-		fields = append(fields, fmt.Sprintf("title %q now, was %q", now.Title, before.Title))
+		fields = append(fields, fmt.Sprintf(`title "%s" now, was "%s"`, now.Title, before.Title))
 		before.Title = now.Title
 	}
 	if p.Importance != "" && before.Importance != now.Importance && p.Importance != now.Importance {

@@ -1637,7 +1637,7 @@ func (m Model) detailRect(lay layout) (rect, bool) {
 
 // viewChanges fills the whole body with one box, there is no sidebar or detail pane to share it with.
 func (m Model) viewChanges(height int) string {
-	body := m.changes.View(m.theme, m.opts.Now(), m.width-2, height-2)
+	body := m.changes.View(m.theme, m.opts.Now(), m.width-2, height-2, m.opts.Offline)
 	return m.theme.box(fmt.Sprintf("Changes, last %d days", store.HistoryDays), body, m.width, height, true)
 }
 
