@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/mrcne/wrikery/internal/control"
 	"github.com/mrcne/wrikery/internal/store"
@@ -20,16 +21,21 @@ const (
 	rejected                 // Wrike refused the write, the row is failed and listed on the changes screen
 	blocked                  // the token was rejected, the row is pending but only a new sign in in the interface sends it
 	discarded                // the row was discarded in the interface while the command waited, nothing goes out
+	held                     // someone changed a field of the edit on Wrike since it was queued, the row is failed until a person sends it anyway or drops it
 )
 
 func (o outcome) String() string {
-	return [...]string{"queued", "sent", "rejected", "blocked", "discarded"}[o]
+	return [...]string{"queued", "sent", "rejected", "blocked", "discarded", "held"}[o]
 }
 
 // preflight checks the sign in and resolves the host before anything is queued,
 // so a failure here never hides a row behind an error exit.
 // It is the only place that reads the credentials, the commands that only read the cache never touch the keychain.
 func preflight(ctx context.Context, env Env) (host string, code int) {
+	if env.Offline {
+		// Nothing is sent, so nothing needs the credentials or the host.
+		return "", exitOK
+	}
 	ok, err := env.SignedIn()
 	if err != nil {
 		return "", fail(env, err)
@@ -64,6 +70,9 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 	case store.StateSent:
 		return sent, "", nil
 	case store.StateFailed:
+		if syncer.IsConflict(row.LastError) {
+			return held, strings.TrimPrefix(row.LastError, syncer.ConflictPrefix), nil
+		}
 		return rejected, row.LastError, nil
 	case store.StateDiscarded:
 		return discarded, "", nil
@@ -182,6 +191,8 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 		return reportBlocked(env)
 	case rejected:
 		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed on the changes screen in wrikery", reason))
+	case held:
+		return fail(env, fmt.Errorf("not sent, the task changed on Wrike since you set it: %s, r on the changes screen in wrikery sends it anyway", reason))
 	case discarded:
 		return fail(env, errors.New("the change was discarded in wrikery before it was sent"))
 	case queued:
@@ -235,9 +246,14 @@ func reportFate(env Env, out outcome, id string, asJSON bool) int {
 // deliver sends the row just queued and reads the task back, the middle every write command shares.
 // After it the write is decided, so the caller reports on a context a Ctrl-C cannot cut.
 func deliver(ctx context.Context, env Env, host string, rowID int64, t store.Task, ref *refData, asJSON bool) (out outcome, reason string, after store.Task, readOK bool, err error) {
-	out, reason, err = send(ctx, env, host, rowID)
-	if err != nil {
-		return out, reason, t, false, err
+	if env.Offline {
+		// The row waits in the queue until the interface goes online or a command runs without the mode.
+		out, reason = queued, "offline mode"
+	} else {
+		out, reason, err = send(ctx, env, host, rowID)
+		if err != nil {
+			return out, reason, t, false, err
+		}
 	}
 	after = t
 	if out == sent || out == queued {

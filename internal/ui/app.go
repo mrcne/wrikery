@@ -36,6 +36,8 @@ type Hooks struct {
 	// It answers ErrNoSuchTask when Wrike does not list the task for this user and ErrSignInNeeded when no session can ask.
 	// Nil in the demo.
 	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
+	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
+	GoOnline func()
 }
 
 // ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
@@ -43,6 +45,9 @@ var ErrNoSuchTask = errors.New("no such task on Wrike, or no access")
 
 // ErrSignInNeeded is what Hooks.Reach returns when there is no session, or Wrike rejected the one there is.
 var ErrSignInNeeded = errors.New("sign in needed")
+
+// ErrOffline answers what needs Wrike while the interface runs in offline mode, a fetch or a retry.
+var ErrOffline = errors.New("offline mode, R goes online")
 
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
@@ -74,6 +79,8 @@ type Options struct {
 	ConfigFile   string
 	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
 	Demo         bool
+	// Offline starts the interface in offline mode: no engine runs until R and a yes go online through Hooks.GoOnline.
+	Offline      bool
 	FirstRun     bool
 	SignedInWith string // SignedInWithToken or SignedInWithBrowser, empty on a first run and in the demo
 	SignedInApp  string // the client id of a stored browser session, for the settings screen
@@ -156,6 +163,11 @@ func New(o Options) Model {
 	if o.Demo {
 		m.status.state = "idle"
 		m.status.lastSynced = o.Now()
+	}
+	if o.Offline {
+		m.status.state = "offline_mode"
+		m.keys.Refresh.SetHelp("R", "go online")
+		m.detail.offline = true
 	}
 	if o.FirstRun {
 		m.screen = screenFirstRun
@@ -485,6 +497,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openConfirmMsg:
 		m.openDialog(confirmDialog{prompt: msg.prompt, onYes: msg.onYes})
 		return m, nil
+	case goOnlineMsg:
+		return m.goOnline()
 	case changesLoadedMsg:
 		m.changes.set(msg.rows)
 		return m, nil
@@ -525,6 +539,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openDialog(newEntryPicker(msg.logs, msg.forDelete))
 		return m, nil
 	case retryWriteMsg:
+		if m.opts.Offline {
+			return m, intent(toastMsg{text: ErrOffline.Error()})
+		}
 		st := m.opts.Store
 		return m, m.enqueueWriteOp(func(ctx context.Context) error { return st.Outbox().Retry(ctx, msg.id) }, "Retrying")
 	case discardWriteMsg:
@@ -1442,12 +1459,39 @@ func (m *Model) setMoveConfirmed(confirmed bool) tea.Cmd {
 }
 
 // refresh asks the sync engine for a cycle right away, the demo and the tests run without an engine.
+// In offline mode there is no engine yet, R asks whether to go online and names what goes out first.
 func (m Model) refresh() (Model, tea.Cmd) {
+	if m.opts.Offline {
+		prompt := "Go online? Nothing is queued, the pull starts at once."
+		switch n := m.status.pending; {
+		case n == 1:
+			prompt = "Go online? 1 queued write goes out first, oldest first."
+		case n > 1:
+			prompt = fmt.Sprintf("Go online? %d queued writes go out first, oldest first.", n)
+		}
+		m.openDialog(confirmDialog{prompt: prompt, onYes: goOnlineMsg{}})
+		return m, nil
+	}
 	if m.opts.Hooks.Refresh == nil {
 		return m, m.status.show("refresh is not available", true)
 	}
 	m.opts.Hooks.Refresh()
 	return m, m.status.show("refreshing", false)
+}
+
+// goOnline ends offline mode for the rest of the session, the hook starts the engine on a command goroutine.
+// The bar reads syncing until the engine's own states take over.
+func (m Model) goOnline() (tea.Model, tea.Cmd) {
+	hook := m.opts.Hooks.GoOnline
+	if hook == nil {
+		return m, m.status.show("going online is not available", true)
+	}
+	m.opts.Offline = false
+	m.detail.offline = false
+	m.keys.Refresh.SetHelp("R", "refresh")
+	m.status.state = "syncing"
+	m.syncPaneSizes()
+	return m, tea.Batch(m.status.show("going online", false), func() tea.Msg { hook(); return nil })
 }
 
 // selectedTask is the task the open/copy bindings act on:
@@ -1667,6 +1711,12 @@ func (m Model) paneBody(p pane, r rect) string {
 
 // Only the keys that already do something, the overlay lists the whole map.
 func (m Model) hintBindings() []key.Binding {
+	if m.opts.Offline && m.screen != screenFirstRun {
+		// The way out of offline mode leads the bar on every screen, it is the one key nothing else names.
+		online := m
+		online.opts.Offline = false
+		return append([]key.Binding{m.keys.Refresh}, online.hintBindings()...)
+	}
 	if m.screen == screenChanges {
 		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
 	}

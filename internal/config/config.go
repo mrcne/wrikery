@@ -19,6 +19,8 @@ type Config struct {
 	// Host is the Wrike API host to use, empty means detect it on first run.
 	// The answer is remembered, see cmd/wrikery for the probe.
 	Host string `toml:"host"`
+	// Offline starts the interface and every command without syncing, the --offline flag on the command line wins over it.
+	Offline bool `toml:"offline"`
 	// OAuth names the API app for the browser sign in, the first run offers it only when ClientID is set.
 	OAuth OAuthConfig `toml:"oauth"`
 	UI    UIConfig    `toml:"ui"`

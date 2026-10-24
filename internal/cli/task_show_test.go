@@ -355,3 +355,15 @@ func TestTaskShowOfAnUnknownNumberKeepsTheTitleHint(t *testing.T) {
 		t.Errorf("stderr:\n%s", errOut.String())
 	}
 }
+
+func TestTaskShowOfAnUncachedIdInOfflineModeSaysSo(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = noNetwork(t, env)
+	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitError {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if want := `no task "MAAAAAEPXpuV" in the cache, offline mode`; !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}

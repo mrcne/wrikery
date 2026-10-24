@@ -36,6 +36,9 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 		}
 		return t, exitOK
 	}
+	if env.Offline {
+		return store.Task{}, fail(env, fmt.Errorf("no task %q in the cache, offline mode", arg))
+	}
 	host, code := preflight(ctx, env)
 	if code != exitOK {
 		return store.Task{}, code

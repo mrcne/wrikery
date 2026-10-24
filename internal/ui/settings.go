@@ -75,6 +75,10 @@ func (s settingsModel) rows() []settingRow {
 	if s.sidebarHidden {
 		sidebar = "hidden"
 	}
+	offline := "no"
+	if s.cfg.Offline {
+		offline = "yes"
+	}
 	ask := "yes"
 	if s.moveConfirmed {
 		ask = "no"
@@ -93,6 +97,7 @@ func (s settingsModel) rows() []settingRow {
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
 		{group: "Sync", label: "Wrike host", value: host, key: "host"},
+		{group: "Sync", label: "Start offline", value: offline, key: "offline"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},
 		{group: "Interface", label: "Ask before H and L", value: ask, msg: toggleMoveAskMsg{}},
 		{group: "Interface", label: "Theme", value: theme, key: "ui.theme"},

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -349,6 +350,51 @@ func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	// A request Wrike rejected is not a lost network, the bar must not call it offline.
 	tm.Send(ui.SyncStateMsg{State: "failed"})
 	waitFor(t, tm, "sync failing since")
+}
+
+// Started offline, R asks first, names what goes out, and only a yes starts the engine.
+func TestOfflineModeGoesOnlineOnRAfterAConfirm(t *testing.T) {
+	st := seededStore(t)
+	o := testOptions(st)
+	o.Demo, o.Offline = false, true
+	var online atomic.Int32
+	o.Hooks.GoOnline = func() { online.Add(1) }
+	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks: My tasks (")
+	waitFor(t, tm, "offline mode")
+	waitFor(t, tm, "R go online")
+	press(tm, "R")
+	// The demo data leaves one comment queued.
+	waitFor(t, tm, "Go online? 1 queued write goes out first, oldest first.")
+	// After esc the help still names R as the way online, it would say refresh had esc gone online.
+	from := mark(t, tm)
+	press(tm, "esc", "?")
+	waitAfter(t, tm, from, "esc or ? to close")
+	waitAfter(t, tm, from, "go online")
+	press(tm, "?", "R", "y")
+	waitFor(t, tm, "going online")
+	waitFor(t, tm, "syncing")
+	from = mark(t, tm)
+	press(tm, "R")
+	waitAfter(t, tm, from, "refreshing")
+	if n := online.Load(); n != 1 {
+		t.Errorf("the go online hook ran %d times, want once", n)
+	}
+}
+
+func TestOfflineModeShowsQueuedOnTheDetail(t *testing.T) {
+	st := seededStore(t)
+	o := testOptions(st)
+	o.Offline = true
+	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(120, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+	press(tm, "/")
+	press(tm, "fix auth")
+	waitFor(t, tm, "Queued while offline.")
+	press(tm, "enter") // leave the filter input, or q types into it
+	if view := finalView(t, tm); !strings.Contains(view, "Fix auth retry loop (queued)") || strings.Contains(view, "(sending)") {
+		t.Errorf("offline mode sends nothing, the detail title must read queued and not sending:\n%s", view)
+	}
 }
 
 // TestStatusBarShowsSeededCountsOnFirstFrame covers the demo store's outbox counts reaching the

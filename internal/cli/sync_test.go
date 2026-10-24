@@ -154,3 +154,17 @@ func TestSyncTakesNoArguments(t *testing.T) {
 		t.Fatalf("code = %d\n%s", code, errOut.String())
 	}
 }
+
+func TestSyncInOfflineModeIsAUsageError(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	env = noNetwork(t, env)
+	if code := Run(context.Background(), env, []string{"sync"}); code != exitUsage {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	if !strings.Contains(errOut.String(), "offline mode forbids") || !strings.Contains(errOut.String(), "--offline=false") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if code := Run(context.Background(), env, []string{"sync", "--help"}); code != exitOK {
+		t.Errorf("sync --help = %d, want 0", code)
+	}
+}

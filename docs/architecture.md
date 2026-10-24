@@ -148,6 +148,13 @@ Writes queued on that task name the local id and are not sent until the create h
 The completion then swaps the local row for the server's and points the comments, time entries and queued writes at the real id, in one transaction.
 The deletion sweep and the thread refresh never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for its comments and get a 404.
 
+Offline mode, the `--offline` flag or the `offline` key of the config file, starts no engine and lets no command drain.
+The interface takes no host and asks for no fetch, and a command queues its write without reading the credentials.
+Nothing renews the session either, a renewal only ever rides on a request.
+The one step of a drain pass an offline start still runs is the reset of the rows a dead process left in flight, under the sync lock with a wait of two seconds, so the changes screen can retry or discard them.
+Going online from the interface starts the engine the way a start without the flag does, its first cycle is a manual one and sends the queue first.
+The mode belongs to the process: a command without it, `wrikery sync` in another terminal for example, sends the shared queue as always.
+
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.
 The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.

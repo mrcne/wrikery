@@ -42,6 +42,64 @@ func TestTaskStatusSendsTheChangeAndPrintsBeforeAndAfter(t *testing.T) {
 	}
 }
 
+// noNetwork fails the test when a command in offline mode reads the sign in or the host.
+func noNetwork(t *testing.T, env Env) Env {
+	env.Offline = true
+	env.SignedIn = func() (bool, error) { t.Fatal("offline mode read the sign in"); return false, nil }
+	env.Host = func(context.Context) (string, error) { t.Fatal("offline mode resolved the host"); return "", nil }
+	return env
+}
+
+func TestTaskStatusInOfflineModeQueuesAndTouchesNothing(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = noNetwork(t, env)
+	if code := Run(context.Background(), env, []string{"task", "status", "TASK1", "On Hold"}); code != exitQueued {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "queued: Headless commands for scripts  [On Hold]") {
+		t.Errorf("out:\n%s", out.String())
+	}
+	if !strings.Contains(errOut.String(), "not on Wrike yet: offline mode") {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if pending, _, _ := env.Store.Outbox().Counts(context.Background()); pending != 1 {
+		t.Errorf("%d rows pending, want the one write queued", pending)
+	}
+}
+
+func TestTaskStatusHeldByAConflictSaysSo(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	ctx := context.Background()
+	cached, err := env.Store.Tasks().Get(ctx, "TASK1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Someone completed the task on Wrike, the cache has not seen it yet.
+	onWrike := cached
+	onWrike.CustomStatusID, onWrike.Status = "ST_DONE", "Completed"
+	if err := env.Store.Tasks().Upsert(ctx, []store.Task{onWrike}); err != nil {
+		t.Fatal(err)
+	}
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("%s %s, the held edit must not be sent", r.Method, r.URL.Path)
+	}))
+	if err := env.Store.Tasks().Upsert(ctx, []store.Task{cached}); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run(ctx, env, []string{"task", "status", "TASK1", "In Progress"}); code != exitError {
+		t.Fatalf("code = %d\n%s", code, out.String())
+	}
+	want := `wrikery: not sent, the task changed on Wrike since you set it: status "Completed" now, was "New", r on the changes screen in wrikery sends it anyway`
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr:\n%s\nwant %q", errOut.String(), want)
+	}
+	if _, failed, _ := env.Store.Outbox().Counts(ctx); failed != 1 {
+		t.Errorf("%d rows failed, want the held edit", failed)
+	}
+}
+
 func TestTaskStatusLeavesTheWriteQueuedWhenWrikeIsUnreachable(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)

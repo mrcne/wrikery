@@ -23,6 +23,7 @@ import (
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/internal/ui"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
@@ -93,6 +94,7 @@ func main() {
 	logout := fs.Bool("logout", false, "sign out, remove the stored token or session, and exit")
 	configPath := fs.String("config", "", "read this config file instead of the default")
 	noColor := fs.Bool("no-color", false, "plain output without colors, NO_COLOR in the environment does the same")
+	offline := fs.Bool("offline", false, "start without syncing, nothing is pulled or sent, R in the interface goes online, wins over offline in the config")
 
 	switch err := fs.Parse(os.Args[1:]); {
 	case errors.Is(err, flag.ErrHelp):
@@ -101,16 +103,36 @@ func main() {
 		os.Exit(2)
 	}
 	if fs.NArg() > 0 {
-		os.Exit(runCommand(fs.Args(), *configPath, *noColor, *demoMode, *showVersion, *logout))
+		os.Exit(runCommand(fs.Args(), *configPath, *noColor, *demoMode, *showVersion, *logout, offlineArg(fs, offline)))
 	}
 	if *showVersion {
 		fmt.Println(versionLine(buildVersion(), buildCommit(), runtime.Version()))
 		return
 	}
-	if err := run(*demoMode, *logout, *configPath, *noColor); err != nil {
+	if err := run(*demoMode, *logout, *configPath, *noColor, offlineArg(fs, offline)); err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		os.Exit(1)
 	}
+}
+
+// offlineArg is --offline as the command line gave it, nil when the line did not name it and the config decides.
+// A plain bool cannot tell --offline=false from no flag, and the false must win over offline = true in the file.
+func offlineArg(fs *flag.FlagSet, value *bool) *bool {
+	var given *bool
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "offline" {
+			given = value
+		}
+	})
+	return given
+}
+
+// offlineMode is the flag when the command line gave it, the config key otherwise.
+func offlineMode(cfg config.Config, arg *bool) bool {
+	if arg != nil {
+		return *arg
+	}
+	return cfg.Offline
 }
 
 // setup resolves the paths and loads the config file, the part of a start every mode shares.
@@ -136,7 +158,7 @@ func setup(configPath string) (config.Paths, config.Config, error) {
 	return paths, cfg, nil
 }
 
-func run(demoMode, logout bool, configPath string, noColor bool) error {
+func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bool) error {
 	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -189,20 +211,30 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 	st.Source = store.SourceTUI
 	slog.Info("started", "version", buildVersion(), "db", paths.DBFile)
 
-	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths)}
 	session, err := tokens.Load()
 	firstRun := errors.Is(err, auth.ErrNoToken)
 	if err != nil && !firstRun {
 		return err
 	}
+	offline := offlineMode(cfg, offlineFlag)
+	if offline && firstRun {
+		return errors.New("no sign in stored yet, the first run needs Wrike, start without --offline")
+	}
+	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile,
+		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()
 	}
-	if !firstRun {
+	if offline {
+		// No drain runs, so the rows a process that died mid-send left in flight come back to the queue here,
+		// or the changes screen would show them as being sent and refuse a retry or a discard.
+		if err := syncer.ResetInflight(context.Background(), st, a.lock, 2*time.Second, slog.Default()); err != nil {
+			slog.Warn("could not put back the writes left in flight", "error", err)
+		}
+	} else if !firstRun {
 		host, err := resolveHost(context.Background(), cfg, st, session)
 		if err != nil {
 			slog.Warn("could not detect the Wrike data center", "error", err)
@@ -216,7 +248,7 @@ func run(demoMode, logout bool, configPath string, noColor bool) error {
 }
 
 // runCommand prepares what a command needs, the first half of run without the program, and hands over to internal/cli.
-func runCommand(args []string, configPath string, noColor, demo, showVersion, logout bool) int {
+func runCommand(args []string, configPath string, noColor, demo, showVersion, logout bool, offlineFlag *bool) int {
 	if demo {
 		if args[0] != "ui" {
 			fmt.Fprintln(os.Stderr, "wrikery: --demo runs the interface on sample data, it cannot run a command, only ui drives a demo")
@@ -293,6 +325,7 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 		Theme:    ui.NewTheme(cfg.UI),
 		Width:    width,
 		Deadline: 15 * time.Second,
+		Offline:  offlineMode(cfg, offlineFlag),
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
 		Stderr:   os.Stderr,

@@ -20,6 +20,17 @@ func TestAgo(t *testing.T) {
 	}
 }
 
+// A chosen offline must not read as a lost network: no warning, no time it began.
+func TestStatusBarShowsOfflineMode(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	s := statusModel{state: "offline_mode", pending: 2}
+	out := s.View(th, 80, "", now)
+	if !strings.Contains(out, "offline mode  2 pending") || strings.Contains(out, "since") {
+		t.Errorf("offline mode bar = %q", out)
+	}
+}
+
 func TestStatusBarShowsStateCountsAndToast(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)

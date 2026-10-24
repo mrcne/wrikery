@@ -31,6 +31,7 @@ type taskDetailModel struct {
 	vp           viewport.Model
 	keys         KeyMap
 	loaded       bool
+	offline      bool // offline mode sends nothing, a queued write reads queued and not sending
 }
 
 func (d *taskDetailModel) set(msg taskLoadedMsg) {
@@ -75,6 +76,9 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	bold := lipgloss.NewStyle().Bold(true)
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	sending := lipgloss.NewStyle().Foreground(th.Warn).Render("(sending)")
+	if d.offline {
+		sending = lipgloss.NewStyle().Foreground(th.Muted).Render("(queued)")
+	}
 	label := func(s string) string { return muted.Render(fmt.Sprintf("%-*s", labelWidth, s)) }
 
 	var b strings.Builder

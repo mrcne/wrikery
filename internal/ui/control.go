@@ -114,6 +114,10 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		next, _ := m.answer(msg, msg.Screen, nil)
 		return next, cmd
 	case OpRefresh:
+		if m.opts.Offline {
+			// A command must not end the mode the person chose, going online is the person's R.
+			return m.answer(msg, "", errors.New("offline mode, R in the interface goes online"))
+		}
 		if m.opts.Hooks.Refresh == nil {
 			return m.answer(msg, "", errors.New("refresh is not available"))
 		}
