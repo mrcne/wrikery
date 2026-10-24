@@ -193,6 +193,9 @@ Before a task edit is sent, the engine reads the task from Wrike and compares th
 When one differs, somebody changed it on Wrike since the edit was queued, and the edit is held.
 The row moves to the failed state with the fields named in its error, and the values it remembered are replaced with what Wrike holds now, so the changes screen shows what sending it anyway would do.
 A retry sends it anyway: the check runs again and passes unless the field moved once more.
+A field Wrike already holds at the edit's own value is no conflict, that is a send whose answer was lost, a quit or a timeout mid-send, or the same change made by someone else.
+A discarded or rejected edit hands the values it replaced to the next queued edit of the same field, which read its old values from the cache the dropped edit had changed.
+A held edit hands nothing on, it remembers Wrike's newer value, and the next edit is held against that value as well.
 The description is compared as text, with the tags dropped and the entities decoded.
 Wrike writes `=` inside a link as `&#61;` in its answer and turns paragraphs into line breaks about a minute after a write (seen on the live account), so a byte comparison would hold the second of two edits of one description over markup nobody changed.
 A change of markup alone is not seen, and the last write wins there.

@@ -218,7 +218,8 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	}
 	offline := offlineMode(cfg, offlineFlag)
 	if offline && firstRun {
-		return errors.New("no sign in stored yet, the first run needs Wrike, start without --offline")
+		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
+		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
 	}
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session}
 	a.prog = tea.NewProgram(ui.New(ui.Options{

@@ -167,7 +167,6 @@ func New(o Options) Model {
 	if o.Offline {
 		m.status.state = "offline_mode"
 		m.keys.Refresh.SetHelp("R", "go online")
-		m.detail.offline = true
 	}
 	if o.FirstRun {
 		m.screen = screenFirstRun
@@ -1487,7 +1486,6 @@ func (m Model) goOnline() (tea.Model, tea.Cmd) {
 		return m, m.status.show("going online is not available", true)
 	}
 	m.opts.Offline = false
-	m.detail.offline = false
 	m.keys.Refresh.SetHelp("R", "refresh")
 	m.status.state = "syncing"
 	m.syncPaneSizes()
@@ -1615,7 +1613,7 @@ func (m *Model) syncPaneSizes() {
 		m.board.fit(&m.list, m.theme.HidePrefixes)
 	}
 	if r, ok := m.detailRect(lay); ok {
-		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.UI.Theme)
+		m.detail.layout(m.theme, m.ref, m.opts.Now(), r.w-2, r.h-2, m.opts.Config.UI.Theme, m.opts.Offline)
 	}
 	// The changes screen replaces the whole body with one box, its inner height mirrors what viewChanges gives its View.
 	m.changes.height = max(0, m.height-3)

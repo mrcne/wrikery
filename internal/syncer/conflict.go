@@ -12,7 +12,7 @@ import (
 
 // ConflictPrefix starts the error text of a task edit held because someone changed one of its fields on Wrike since it was queued.
 // The command line reads it off the row to tell a held write from one Wrike rejected.
-const ConflictPrefix = "changed on Wrike since you set it: "
+const ConflictPrefix = store.HeldPrefix
 
 // IsConflict tells the error text of a held edit from any other.
 func IsConflict(text string) bool { return strings.HasPrefix(text, ConflictPrefix) }
@@ -52,8 +52,10 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 		// The send itself answers for a task Wrike no longer lists.
 		return nil, nil
 	}
+	// A field Wrike already holds at the edit's own value is no conflict: the edit's send landed and its answer was lost,
+	// a quit or a timeout mid-send, or someone made the same change, and sending it again changes nothing.
 	var fields []string
-	if p.CustomStatusID != "" && before.CustomStatusID != now.CustomStatusID {
+	if p.CustomStatusID != "" && before.CustomStatusID != now.CustomStatusID && p.CustomStatusID != now.CustomStatusID {
 		names, err := statusNames(ctx, st)
 		if err != nil {
 			return nil, err
@@ -61,17 +63,17 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 		fields = append(fields, fmt.Sprintf("status %q now, was %q", nameOr(names, now.CustomStatusID), nameOr(names, before.CustomStatusID)))
 		before.CustomStatusID, before.Status = now.CustomStatusID, now.Status
 	}
-	if p.Title != "" && before.Title != now.Title {
+	if p.Title != "" && before.Title != now.Title && p.Title != now.Title {
 		fields = append(fields, fmt.Sprintf("title %q now, was %q", now.Title, before.Title))
 		before.Title = now.Title
 	}
-	if p.Importance != "" && before.Importance != now.Importance {
+	if p.Importance != "" && before.Importance != now.Importance && p.Importance != now.Importance {
 		fields = append(fields, fmt.Sprintf("importance %s now, was %s", now.Importance, before.Importance))
 		before.Importance = now.Importance
 	}
 	if p.Dates != nil {
 		wrike := backlogOr(now.Dates)
-		if !sameDates(before.Dates, wrike) {
+		if !sameDates(before.Dates, wrike) && !sameDates(p.Dates, wrike) {
 			fields = append(fields, "dates")
 			before.Dates = wrike
 		}
@@ -79,7 +81,7 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 	// Wrike writes = in a URL as &#61; in its answer and turns paragraphs into line breaks about a minute after a write,
 	// so two edits of one description in a row would hold the second over markup nobody changed.
 	// The text is what a person changes, a change of markup alone stays last write wins.
-	if p.Description != "" && descriptionText(before.Description) != descriptionText(now.Description) {
+	if text := descriptionText(now.Description); p.Description != "" && descriptionText(before.Description) != text && descriptionText(p.Description) != text {
 		fields = append(fields, "description")
 		before.Description = now.Description
 	}

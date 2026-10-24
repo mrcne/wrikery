@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/mrcne/wrikery/internal/store"
 )
 
@@ -95,4 +97,16 @@ func settingRowNamed(s settingsModel, label string) settingRow {
 		}
 	}
 	return settingRow{}
+}
+
+// Several paths build the detail anew, closing the pane beside the timesheet grid is one, and the marker must survive them.
+func TestOfflineModeKeepsQueuedAfterTheDetailIsBuiltAgain(t *testing.T) {
+	m := offlineModel(t)
+	m.timesheet.detailOpen = true
+	_ = m.closeTimesheetDetail()
+	m.detail.set(taskLoadedMsg{task: store.Task{ID: "T1", Title: "Ship it"}, states: map[string]store.OutboxState{"T1": store.StatePending}})
+	m.syncPaneSizes()
+	if view := ansi.Strip(m.detail.View()); !strings.Contains(view, "Ship it (queued)") {
+		t.Errorf("detail after a rebuild:\n%s", view)
+	}
 }

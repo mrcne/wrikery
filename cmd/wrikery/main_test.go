@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -166,5 +167,21 @@ func TestOfflineArgSeesAnExplicitFalse(t *testing.T) {
 	}
 	if got := parse(); got != nil {
 		t.Errorf("no flag = %v, want nil, the config decides", *got)
+	}
+}
+
+// The first start needs Wrike, and the way out has to work whether the mode came from the flag or from the file.
+func TestOfflineFirstRunNamesAWayOutThatWorks(t *testing.T) {
+	dir := isolate(t)
+	cfgDir := filepath.Join(dir, "config", "wrikery")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("offline = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := run(false, false, "", true, nil)
+	if err == nil || !strings.Contains(err.Error(), "--offline=false") {
+		t.Errorf("run = %v, want the refusal naming --offline=false", err)
 	}
 }

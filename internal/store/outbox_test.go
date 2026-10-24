@@ -559,6 +559,73 @@ func TestEnqueueOnALocalTaskKeepsNoBefore(t *testing.T) {
 	}
 }
 
+// queueStatusEdits caches T1 in New with the title "a" and queues three edits on it:
+// status In Progress, then Completed with the title "b", then On Hold, each remembering the cache the one before left.
+func queueStatusEdits(t *testing.T, st *Store) (first, second, third int64) {
+	t.Helper()
+	ctx := context.Background()
+	task := makeTask("T1", "a")
+	task.CustomStatusID = "ST_NEW"
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]int64, 3)
+	for i, p := range []TaskUpdatePayload{
+		{CustomStatusID: "ST_PROG", Status: "Active"},
+		{CustomStatusID: "ST_DONE", Status: "Completed", Title: "b"},
+		{CustomStatusID: "ST_HOLD", Status: "Deferred"},
+	} {
+		id, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = id
+	}
+	return ids[0], ids[1], ids[2]
+}
+
+// A dropped edit never reached Wrike, so the next edit of the same field must remember what the dropped one replaced,
+// or the check before the send would hold it against a value Wrike never had.
+func TestDiscardAndFailPassTheBeforeOnToTheNextEdit(t *testing.T) {
+	for name, drop := range map[string]func(OutboxRepo, int64) error{
+		"discard": func(o OutboxRepo, id int64) error { return o.Discard(context.Background(), id) },
+		"fail": func(o OutboxRepo, id int64) error {
+			return o.Fail(context.Background(), id, "wrike: invalid_parameter (http 400)")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := newTestStore(t)
+			first, second, third := queueStatusEdits(t, st)
+			if err := drop(st.Outbox(), first); err != nil {
+				t.Fatal(err)
+			}
+			got := decodeTaskPayload(t, readRow(t, st, second).Before)
+			if got.CustomStatusID != "ST_NEW" || got.Status != "Active" || got.Title != "a" {
+				t.Errorf("second before = %+v, want the status the dropped edit replaced and its own title", got)
+			}
+			if got := decodeTaskPayload(t, readRow(t, st, third).Before); got.CustomStatusID != "ST_DONE" {
+				t.Errorf("third before = %+v, want the second edit's status, only the next edit of a field takes it", got)
+			}
+		})
+	}
+}
+
+// A held edit remembers Wrike's newer value, passing that on would let the next edit overwrite it without a hold.
+func TestDiscardOfAHeldEditPassesNothingOn(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, second, _ := queueStatusEdits(t, st)
+	if err := st.Outbox().Hold(ctx, first, HeldPrefix+`status "Completed" now, was "New"`, []byte(`{"customStatusId":"ST_DONE","status":"Completed"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeTaskPayload(t, readRow(t, st, second).Before); got.CustomStatusID != "ST_PROG" {
+		t.Errorf("second before = %+v, want it untouched", got)
+	}
+}
+
 func TestHoldFailsTheRowAndRewritesTheBefore(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

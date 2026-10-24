@@ -257,6 +257,27 @@ func TestDrainSendsATaskEditWhoseFieldsMatchWrike(t *testing.T) {
 	wantSent(t, st, id)
 }
 
+// A send that reached Wrike but lost its answer, a quit or a timeout mid-send, comes back with its own values on Wrike,
+// and so does a change someone else made the same way. Neither is a conflict.
+func TestDrainSendsAnEditWhoseValuesWrikeAlreadyHolds(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedEditable(t, st, "<p>Old words</p>")
+	id, err := st.Outbox().EnqueueTaskUpdate(ctx, "TASK1", store.TaskUpdatePayload{CustomStatusID: "ST_PROG", Status: "Active",
+		Title: "Offline mode, sent safely", Description: "<p>New words</p>", Dates: &store.TaskDates{Type: "Planned", Start: "2026-10-23", Due: "2026-10-24"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{tasksByIDs: onWrike(func(task *wrike.Task) {
+		task.CustomStatusID, task.Title, task.Description = "ST_PROG", "Offline mode, sent safely", "<br />New words<br />"
+		task.Dates = &wrike.TaskDates{Type: "Planned", Duration: 960, Start: "2026-10-23T09:00:00", Due: "2026-10-24T17:00:00"}
+	})}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wantSent(t, st, id)
+}
+
 func TestDrainSkipsTheReadForAnAssigneeChange(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
