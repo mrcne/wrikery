@@ -320,6 +320,7 @@ The `[oauth]` table names an API app for the browser sign in: `client_id`, `redi
 `wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
 The commands are `sync`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and the `ui` commands below.
 `wrikery help` prints the same page as `wrikery --help`, every command with its one line and the global flags, `wrikery help task` or `wrikery help ui` prints a group, and `wrikery help <command>` prints one command with its flags, the text `<command> --help` prints.
+`man wrikery` is the manual, with the commands, their flags and the keys of the interface, installed by the Homebrew cask and carried in the release archive.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
 A read prints the cache and waits for the network only to fetch a task argument the cache lacks, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.

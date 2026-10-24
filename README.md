@@ -12,10 +12,11 @@ It keeps a local copy of what you follow, so browsing and search are instant and
 
 ## Install
 
-On macOS with Homebrew: `brew install mrcne/tap/wrikery`.
+On macOS with Homebrew: `brew install mrcne/tap/wrikery`, which also installs the manual, `man wrikery`.
 
 On Linux, or without Homebrew, download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.3.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
 Unpack it and put the `wrikery` binary on your PATH.
+The archive also carries the manual, `man/wrikery.1`, for a `man1` directory on your MANPATH.
 On macOS a browser download is quarantined and Gatekeeper refuses the first run.
 Run `xattr -d com.apple.quarantine wrikery` once after unpacking.
 
@@ -77,6 +78,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 
 `wrikery` alone opens the interface.
 With a command it runs one operation on the same local cache and exits.
+`wrikery help` lists the commands and `wrikery help <command>` explains one.
 
 ```sh
 wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
