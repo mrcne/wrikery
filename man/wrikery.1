@@ -51,9 +51,7 @@ A description is markdown, the text the E editor in the interface writes.
 The ui commands act on the interface that is running and print what it did, wrikery \-\-demo ui ... drives a demo.
 Every command takes \-\-json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 .SS sync
-.nf
 .B "wrikery sync [\-\-full]"
-.fi
 .PP
 Runs one sync cycle, queued writes first, then the pulls, and exits. Ctrl\-C stops it.
 \-\-full also checks for tasks deleted on Wrike, which crawls every followed scope and is slower.
@@ -68,9 +66,7 @@ print JSON
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.
 .SS task list
-.nf
 .B "wrikery task list [\-\-folder F | \-\-me] [\-\-all]"
-.fi
 .PP
 Lists open tasks, your own unless \-\-folder names a folder, project or space.
 .RS
@@ -88,9 +84,7 @@ print JSON
 your own tasks, the default
 .RE
 .SS task show
-.nf
 .B "wrikery task show T"
-.fi
 .PP
 Prints one task: the header fields, the description and the comments the cache holds.
 .RS
@@ -99,9 +93,7 @@ Prints one task: the header fields, the description and the comments the cache h
 print JSON
 .RE
 .SS task status
-.nf
 .B "wrikery task status T STATUS"
-.fi
 .PP
 Moves a task to a status of its own workflow, by name, case does not matter.
 .RS
@@ -110,9 +102,7 @@ Moves a task to a status of its own workflow, by name, case does not matter.
 print JSON
 .RE
 .SS task create
-.nf
 .B "wrikery task create \-\-folder F [\-\-importance L] [\-\-description FILE|\-] TITLE..."
-.fi
 .PP
 Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
 Nobody is assigned, the status is the folder's default on Wrike.
@@ -133,9 +123,7 @@ L is High, Normal or Low, Normal when left out
 print JSON
 .RE
 .SS task edit
-.nf
 .B "wrikery task edit T [\-\-title TITLE] [\-\-importance L] [\-\-description FILE|\-]"
-.fi
 .PP
 Changes the title, the importance or the description of a task, one write for the flags given.
 The description is markdown, the text the E editor in the interface writes, from a file or from stdin with \-.
@@ -155,9 +143,7 @@ print JSON
 the new TITLE
 .RE
 .SS task comment
-.nf
 .B "wrikery task comment T TEXT..."
-.fi
 .PP
 Adds a comment to a task as you. The words after the task make the text, quotes are optional.
 Put \-\- before a text with a word that starts with a dash, everything after it is text.
@@ -167,9 +153,7 @@ Put \-\- before a text with a word that starts with a dash, everything after it 
 print JSON
 .RE
 .SS task assign
-.nf
 .B "wrikery task assign T P..."
-.fi
 .PP
 Puts people on a task, or takes them off, one write.
 P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
@@ -179,9 +163,7 @@ P is me, a contact id, or a part of a name that matches exactly one person in th
 print JSON
 .RE
 .SS task unassign
-.nf
 .B "wrikery task unassign T P..."
-.fi
 .PP
 Puts people on a task, or takes them off, one write.
 P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
@@ -191,9 +173,7 @@ P is me, a contact id, or a part of a name that matches exactly one person in th
 print JSON
 .RE
 .SS task move
-.nf
 .B "wrikery task move T [\-\-to F]... [\-\-from F]..."
-.fi
 .PP
 Puts a task in folders and takes it out of others, one write.
 A task can sit in several folders, so \-\-to alone adds one and keeps the rest, and a move out of a folder names it with \-\-from.
@@ -213,9 +193,7 @@ a folder F to put the task in, may repeat
 The ui commands act on the interface that is running, through its control socket, and print what it did.
 With \-\-demo they reach a running demo, and every value goes as typed, the demo's cache cannot be read.
 .SS ui filter
-.nf
 .B "wrikery ui filter [\-\-importance L]... [\-\-person P] [\-\-status S]... | \-\-clear"
-.fi
 .PP
 Narrows the interface that is running to importance levels, a person and statuses, in any combination, or clears its filter with \-\-clear.
 A person is me, unassigned, a contact id or a part of a name, a status is a name from any cached workflow.
@@ -237,9 +215,7 @@ P is me, unassigned, a contact id or a part of a name
 a status name S, may repeat
 .RE
 .SS ui select
-.nf
 .B "wrikery ui select T"
-.fi
 .PP
 Shows a task in the interface that is running, the way a jump from the search does.
 T is an id, a part of its title, the number or the link from the browser.
@@ -249,9 +225,7 @@ T is an id, a part of its title, the number or the link from the browser.
 print JSON
 .RE
 .SS ui folder
-.nf
 .B "wrikery ui folder F"
-.fi
 .PP
 Opens a space, project or folder in the interface that is running, as from the sidebar.
 F is an id or a part of its title, me is My tasks.
@@ -261,9 +235,7 @@ F is an id or a part of its title, me is My tasks.
 print JSON
 .RE
 .SS ui list
-.nf
 .B "wrikery ui list"
-.fi
 .PP
 Switches the interface that is running to the list.
 .RS
@@ -272,9 +244,7 @@ Switches the interface that is running to the list.
 print JSON
 .RE
 .SS ui board
-.nf
 .B "wrikery ui board"
-.fi
 .PP
 Switches the interface that is running to the board over workflow statuses.
 .RS
@@ -283,9 +253,7 @@ Switches the interface that is running to the board over workflow statuses.
 print JSON
 .RE
 .SS ui open
-.nf
 .B "wrikery ui open tasks|timesheet|changes|settings"
-.fi
 .PP
 Opens one screen of the interface that is running: tasks, timesheet, changes or settings.
 .RS
@@ -294,9 +262,7 @@ Opens one screen of the interface that is running: tasks, timesheet, changes or 
 print JSON
 .RE
 .SS ui refresh
-.nf
 .B "wrikery ui refresh"
-.fi
 .PP
 Runs a sync cycle in the interface that is running, what R does there.
 .RS

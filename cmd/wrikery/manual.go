@@ -24,8 +24,10 @@ func troff(s string) string {
 	return s
 }
 
-// arg quotes a macro argument that holds a space, the texts never hold a double quote.
+// arg makes one macro argument of s: quoted when it holds a space, and a double quote inside becomes the \(dq glyph,
+// which groff and mandoc both know, since a bare one would end the argument.
 func arg(s string) string {
+	s = strings.ReplaceAll(s, `"`, `\(dq`)
 	if strings.ContainsAny(s, " \t") {
 		return `"` + s + `"`
 	}
@@ -161,22 +163,24 @@ func manualPage(global *flag.FlagSet) string {
 
 	line(".SH COMMANDS")
 	text(strings.TrimRight(cli.CommandNotes, "\n"))
-	groups := cli.Groups()
+	headed := map[string]bool{}
 	for _, c := range cli.Commands() {
 		// The group's own heading and notes come before its first command.
-		for i, g := range groups {
-			if g.Name != "" && strings.HasPrefix(c.Name, g.Name+" ") {
+		for _, g := range cli.Groups() {
+			if !headed[g.Name] && strings.HasPrefix(c.Name, g.Name+" ") {
 				line(".SS The %s commands", g.Name)
 				text(g.Notes)
-				groups[i].Name = ""
+				headed[g.Name] = true
 			}
 		}
 		line(".SS %s", c.Name)
-		line(".nf")
-		for _, s := range c.Synopsis {
+		// Filled, not .nf, so a long synopsis wraps at a word on a narrow terminal instead of running off the edge.
+		for i, s := range c.Synopsis {
+			if i > 0 {
+				line(".br")
+			}
 			line(".B %s", arg(troff("wrikery "+s)))
 		}
-		line(".fi")
 		if c.Notes != "" {
 			line(".PP")
 			text(c.Notes)

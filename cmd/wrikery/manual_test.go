@@ -117,3 +117,32 @@ func TestManualPassesMandocLint(t *testing.T) {
 		t.Errorf("mandoc -T lint: %v\n%s", err, out)
 	}
 }
+
+func TestArgQuotesASpaceAndEscapesADoubleQuote(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":     "plain",
+		"two words": `"two words"`,
+		`say "hi"`:  `"say \(dqhi\(dq"`,
+		`a"b`:       `a\(dqb`,
+	} {
+		if got := arg(in); got != want {
+			t.Errorf("arg(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The EXAMPLES section is the README's command block, the two must not drift apart.
+func TestExamplesAreTheReadmeCommandBlock(t *testing.T) {
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, after, ok := strings.Cut(string(readme), "```sh\n")
+	block, _, ok2 := strings.Cut(after, "\n```")
+	if !ok || !ok2 {
+		t.Fatal("README.md has no sh block")
+	}
+	if block != examples {
+		t.Errorf("the manual's examples differ from README.md:\n%s\n---\n%s", examples, block)
+	}
+}
