@@ -20,25 +20,26 @@ import (
 const editorWindowReturn = 2 * time.Second
 
 type editorDoneMsg struct {
-	taskID    string
-	path      string
-	err       error
-	edit      *descriptionEdit // nil when the editor was opened for a comment
-	elapsed   time.Duration    // how long the editor ran, see editorWindowReturn
-	fromPopup bool             // enter in the editor popup rather than the editor's return
+	taskID  string
+	path    string
+	err     error
+	edit    *descriptionEdit // nil when the editor was opened for a comment
+	elapsed time.Duration    // how long the editor ran, see editorWindowReturn
 }
 
-// untouched reports whether the file is still what editorFile wrote, the description's markdown or nothing.
-func (msg editorDoneMsg) untouched(text []byte) bool {
-	if msg.edit == nil {
+// untouched reports whether the file is still what editorFile wrote, the description's markdown or nothing for a comment.
+func untouched(edit *descriptionEdit, text []byte) bool {
+	if edit == nil {
 		return len(text) == 0
 	}
-	return string(text) == msg.edit.text
+	return string(text) == edit.text
 }
 
 // editorWindowDialog holds the temp file an editor left untouched when it returned at once,
 // which is what the code and cursor commands do when they hand the file to a window:
 // the edit happens there, and enter here sends what was saved.
+// The root answers enter and esc itself, see sendEditorBox and dropEditorFile, so the box has no key handling of its own:
+// a message on the way back would let a second enter or an esc land on a file the first one already sent and removed.
 type editorWindowDialog struct {
 	taskID    string
 	path      string
@@ -46,12 +47,7 @@ type editorWindowDialog struct {
 	saveFirst bool // enter found the file still untouched
 }
 
-func (d editorWindowDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	if msg.Type == tea.KeyEnter {
-		return d, intent(editorDoneMsg{taskID: d.taskID, path: d.path, edit: d.edit, fromPopup: true})
-	}
-	return d, nil
-}
+func (d editorWindowDialog) Update(tea.KeyMsg) (dialog, tea.Cmd) { return d, nil }
 
 func (d editorWindowDialog) View(th Theme, width, height int) string {
 	w := min(width, 60)
@@ -140,6 +136,45 @@ func (m Model) loadDescription(id string) tea.Cmd {
 		}
 		return descriptionReadyMsg{task: task}
 	}
+}
+
+// finishEditorFile turns what the editor saved into a write, or into a toast when there is nothing to send.
+func (m *Model) finishEditorFile(taskID string, edit *descriptionEdit, text []byte) tea.Cmd {
+	if edit != nil {
+		return m.finishDescriptionEdit(taskID, edit, string(text))
+	}
+	trimmed := strings.TrimSpace(string(text))
+	if trimmed == "" {
+		return m.status.show("empty comment, nothing sent", false)
+	}
+	return intent(submitCommentMsg{taskID: taskID, text: trimmed})
+}
+
+// sendEditorBox reads the file the editor box holds, at once and in the root, so nothing is in flight when the next key comes.
+// A file still untouched keeps the box, the window may still have it open, anything else ends the edit the way an editor's return does.
+func (m *Model) sendEditorBox(d editorWindowDialog) tea.Cmd {
+	text, _ := os.ReadFile(d.path)
+	if untouched(d.edit, text) {
+		d.saveFirst = true
+		m.dialog = d
+		return nil
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	_ = os.Remove(d.path)
+	return m.finishEditorFile(d.taskID, d.edit, text)
+}
+
+// dropEditorFile gives up the edit an editor box holds, the file goes whatever it holds by now.
+func (m *Model) dropEditorFile() tea.Cmd {
+	d, ok := m.dialog.(editorWindowDialog)
+	if !ok {
+		return nil
+	}
+	_ = os.Remove(d.path)
+	if d.edit != nil {
+		return m.status.show("description edit dropped", false)
+	}
+	return m.status.show("comment dropped, nothing sent", false)
 }
 
 // finishDescriptionEdit turns the saved file into a task update, or into a toast when there is nothing to send.

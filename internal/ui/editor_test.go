@@ -163,19 +163,53 @@ func windowPopup(t *testing.T, edit *descriptionEdit) (Model, string) {
 	return m, path
 }
 
-// enterInPopup presses enter in the popup and feeds back the messages it produced, as the program would,
-// and returns what the model answered those with.
+// enterInPopup presses enter in the popup and feeds back any editor message it produced, as the program would,
+// and returns the rest of what came out.
 func enterInPopup(t *testing.T, m Model) (Model, []tea.Msg) {
 	t.Helper()
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(Model)
 	var out []tea.Msg
 	for _, msg := range collect(cmd) {
-		next, cmd = m.Update(msg)
+		done, ok := msg.(editorDoneMsg)
+		if !ok {
+			out = append(out, msg)
+			continue
+		}
+		next, cmd = m.Update(done)
 		m = next.(Model)
 		out = append(out, collect(cmd)...)
 	}
 	return m, out
+}
+
+// A second enter, typed before the first one landed, must not send the comment twice or bring the box back on a file that is gone.
+func TestEditorWindowSecondEnterDoesNotReopenTheBox(t *testing.T) {
+	m, path := windowPopup(t, nil)
+	if err := os.WriteFile(path, []byte("once\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	next, first := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	next, second := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	sent := 0
+	for _, msg := range append(collect(first), collect(second)...) {
+		if done, ok := msg.(editorDoneMsg); ok {
+			next, cmd := m.Update(done)
+			m = next.(Model)
+			msg = nil
+			if msgs := collect(cmd); len(msgs) == 1 {
+				msg = msgs[0]
+			}
+		}
+		if _, ok := msg.(submitCommentMsg); ok {
+			sent++
+		}
+	}
+	if sent != 1 || m.dialog != nil {
+		t.Errorf("sent %d comments, dialog %#v, want one send and no box", sent, m.dialog)
+	}
 }
 
 func TestEditorDoneAtOnceWithAnUntouchedFileKeepsItAndAsks(t *testing.T) {
@@ -251,7 +285,7 @@ func TestEditorWindowEscDropsTheFile(t *testing.T) {
 	for name, c := range map[string]struct {
 		edit *descriptionEdit
 		want string
-	}{"description": {edit, "description unchanged"}, "comment": {nil, "empty comment, nothing sent"}} {
+	}{"description": {edit, "description edit dropped"}, "comment": {nil, "comment dropped, nothing sent"}} {
 		m, path := windowPopup(t, c.edit)
 		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 		got := next.(Model)

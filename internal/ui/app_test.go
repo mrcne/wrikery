@@ -1248,7 +1248,7 @@ func TestDescriptionKeyWithAWindowEditorAsksBeforeDropping(t *testing.T) {
 	waitAfter(t, tm, from, "returned at once")
 	from = mark(t, tm)
 	press(tm, "esc")
-	waitAfter(t, tm, from, "description unchanged")
+	waitAfter(t, tm, from, "description edit dropped")
 }
 
 // The demo opens on My tasks, so the box starts without a folder and the create assigns the task to the user.
