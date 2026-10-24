@@ -201,7 +201,7 @@ func TestParseRootPrintsTheHelpPageOnStdout(t *testing.T) {
 	fs, _ := rootFlags()
 	var out, errOut bytes.Buffer
 	code, done := parseRoot(fs, []string{"--demmo"}, &out, &errOut)
-	if code != 2 || !done || out.Len() != 0 || !strings.Contains(errOut.String(), "demmo") || !strings.Contains(errOut.String(), "usage: wrikery [flags]") {
+	if code != 2 || !done || out.Len() != 0 || !strings.Contains(errOut.String(), "wrikery: flag provided but not defined: --demmo\n") || !strings.Contains(errOut.String(), "usage: wrikery [flags]") {
 		t.Errorf("--demmo: code %d, done %v, stdout %q, stderr:\n%s", code, done, out.String(), errOut.String())
 	}
 	fs, o := rootFlags()

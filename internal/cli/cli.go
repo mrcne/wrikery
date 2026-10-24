@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -56,8 +57,9 @@ func Run(ctx context.Context, env Env, args []string) int {
 	}
 	switch args[0] {
 	case "help", "-h", "--help":
-		// help help is the page as well, it must not run help on itself.
-		if len(args) == 1 || isHelpWord(args[1]) {
+		// help help is the page as well, it must not run help on itself, and help --json or help -x is the page too,
+		// a word that starts with a dash names no command.
+		if len(args) == 1 || isHelpWord(args[1]) || strings.HasPrefix(args[1], "-") {
 			_, _ = fmt.Fprint(env.Stdout, HelpPage(env.GlobalFlags))
 			return exitOK
 		}
@@ -128,7 +130,7 @@ func parse(env Env, fs *flag.FlagSet, usage string, args []string) ([]string, in
 			printUsage(env.Stdout, fs, usage)
 			return nil, exitOK, true
 		case err != nil:
-			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %v\n", err)
+			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %s\n", FlagError(err))
 			printUsage(env.Stderr, fs, usage)
 			return nil, exitUsage, true
 		}
@@ -168,6 +170,16 @@ func terminator(fs *flag.FlagSet, args []string) int {
 func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
 	_, _ = fmt.Fprint(w, usage)
 	printFlags(w, fs)
+}
+
+// oneDashFlag matches the flag name in the messages of the flag package, "flag provided but not defined: -x",
+// "flag needs an argument: -x", "invalid value "v" for flag -x" and "invalid boolean value "v" for -x".
+var oneDashFlag = regexp.MustCompile(`(defined: |argument: |flag |for )-(\w)`)
+
+// FlagError is the text of a parse error with the flag spelled with two dashes, as every help page spells it.
+// The flag package writes one dash whatever the user typed.
+func FlagError(err error) string {
+	return oneDashFlag.ReplaceAllString(err.Error(), "${1}--${2}")
 }
 
 func usageError(env Env, fs *flag.FlagSet, usage, msg string) int {

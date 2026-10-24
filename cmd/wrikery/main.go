@@ -104,7 +104,7 @@ func parseRoot(fs *flag.FlagSet, args []string, stdout, stderr io.Writer) (code 
 		_, _ = fmt.Fprint(stdout, cli.HelpPage(fs))
 		return 0, true
 	case err != nil:
-		_, _ = fmt.Fprintln(stderr, "wrikery: "+err.Error())
+		_, _ = fmt.Fprintln(stderr, "wrikery: "+cli.FlagError(err))
 		_, _ = fmt.Fprint(stderr, cli.HelpPage(fs))
 		return 2, true
 	}

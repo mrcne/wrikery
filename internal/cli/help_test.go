@@ -162,3 +162,32 @@ func TestFlagListsPrintTwoDashesAndPlaceholders(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageErrorsSpellTheFlagWithTwoDashes(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"task", "list", "--nope"}, "flag provided but not defined: --nope"},
+		{[]string{"task", "list", "--folder"}, "flag needs an argument: --folder"},
+		{[]string{"task", "list", "--all=maybe"}, `invalid boolean value "maybe" for --all`},
+	} {
+		code, out, errOut := runHelp(t, tc.args...)
+		if code != exitUsage || out != "" || !strings.Contains(errOut, tc.want) {
+			t.Errorf("%v: code %d, stdout %q, stderr:\n%s\nwant %q", tc.args, code, out, errOut, tc.want)
+		}
+		if line, _, _ := strings.Cut(errOut, "\n"); regexp.MustCompile(`(^|\s)-[A-Za-z]`).MatchString(line) {
+			t.Errorf("%v: the error line names the flag with one dash: %q", tc.args, line)
+		}
+	}
+}
+
+func TestHelpWithAFlagPrintsThePage(t *testing.T) {
+	// help --json never printed JSON, it printed the page, and a script that typed it keeps the page and exit 0.
+	for _, word := range []string{"--json", "-x", "--nope"} {
+		code, out, errOut := runHelp(t, "help", word)
+		if code != exitOK || errOut != "" || out != HelpPage(nil) {
+			t.Errorf("help %s: code %d, stderr %q, stdout:\n%s", word, code, errOut, out)
+		}
+	}
+}
