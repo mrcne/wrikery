@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -392,5 +393,23 @@ func TestFirstRunShowsNoKeyHints(t *testing.T) {
 	// None of the main screen keys work under the box, and q is swallowed by the field.
 	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "ctrl+f search") || strings.Contains(seen.String(), "q quit") {
 		t.Fatal("the first run frame carries the main screen key hints")
+	}
+}
+
+// Esc on the account box after a browser sign in is the answer no: nothing is confirmed and the screen says what to do instead.
+func TestEscOnTheAccountBoxAfterABrowserSignIn(t *testing.T) {
+	opts, result, _, _ := browserOptions(t, freshStore(t), "s3cret")
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Sign in through the browser")
+	press(tm, "enter")
+	waitFor(t, tm, "login.wrike.com")
+	var confirmed atomic.Int32
+	result <- ui.SignInResult{App: "id1", Err: &ui.SwitchNeeded{From: "Acme on www.wrike.com", To: "Acme on app-eu.wrike.com",
+		DBFile: "/home/ada/.local/share/wrikery/wrike.db", Confirm: func() (string, error) { confirmed.Add(1); return "Ada Nowak", nil }}}
+	waitFor(t, tm, "Is this the new home of this cache?")
+	press(tm, "esc")
+	waitFor(t, tm, "Sign in to that account")
+	if n := confirmed.Load(); n != 0 {
+		t.Errorf("esc confirmed %d times", n)
 	}
 }

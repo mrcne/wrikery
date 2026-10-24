@@ -554,6 +554,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case switchDoneMsg:
 		if msg.err != nil {
+			// The engine still waits for the answer, R asks again.
+			m.status.state = "another_account"
 			return m, m.status.show(msg.err.Error(), true)
 		}
 		return m, m.status.show("the queue goes to the new account", false)

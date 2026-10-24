@@ -144,3 +144,20 @@ func TestReachWaitsForTheAnswerInTheAnotherAccountState(t *testing.T) {
 		t.Errorf("text = %q", got)
 	}
 }
+
+// A yes from the another account state that failed leaves the engine waiting, the bar must say so again and not syncing.
+func TestAFailedYesOnRKeepsTheBarOnAnotherAccount(t *testing.T) {
+	m := New(rootTestOptions(t))
+	next, _ := m.Update(SyncStateMsg{State: "another_account"})
+	m = next.(Model)
+	sw := &SwitchNeeded{From: "Acme on www.wrike.com", To: "Other on www.wrike.com", Confirm: func() (string, error) { return "", errors.New("disk full") }}
+	next, cmd := m.Update(confirmSwitchMsg{d: switchDialog{sw: sw}})
+	m = next.(Model)
+	for _, msg := range collect(cmd) {
+		next, _ = m.Update(msg)
+		m = next.(Model)
+	}
+	if m.status.state != "another_account" {
+		t.Errorf("bar state = %q after a failed yes, want another_account", m.status.state)
+	}
+}
