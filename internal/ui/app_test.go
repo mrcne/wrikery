@@ -1234,7 +1234,7 @@ func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
 	waitFor(t, tm, "-- Comments (")
 	from := mark(t, tm)
 	press(tm, "E")
-	waitAfter(t, tm, from, "set $EDITOR to write in an editor")
+	waitAfter(t, tm, from, "set $EDITOR (or $VISUAL) to write in an editor")
 }
 
 // true takes the file and exits at once, the way the code and cursor commands do when they hand a file to a window.

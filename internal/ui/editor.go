@@ -112,7 +112,7 @@ func openEditor(taskID string, edit *descriptionEdit) (tea.Cmd, error) {
 		editor = os.Getenv("EDITOR")
 	}
 	if editor == "" {
-		return nil, errors.New("set $EDITOR to write in an editor")
+		return nil, errors.New("set $EDITOR (or $VISUAL) to write in an editor")
 	}
 	path, err := editorFile(edit)
 	if err != nil {

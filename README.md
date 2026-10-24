@@ -61,7 +61,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `c` | comment |
 | `s` | status |
 | `e` | edit the title |
-| `E` | edit the description in `$EDITOR` |
+| `E` | edit the description in `$EDITOR`, unless `$VISUAL` is set |
 | `p` | importance |
 | `m` | move, or add to folders |
 | `n` | new task |
