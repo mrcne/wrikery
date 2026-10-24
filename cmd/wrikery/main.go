@@ -220,7 +220,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
 		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
 	}
-	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session}
+	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
@@ -231,7 +231,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	if offline {
 		a.startOffline()
 	} else if !firstRun {
-		host, err := resolveHost(context.Background(), cfg, st, session)
+		host, err := a.engineHost(context.Background())
 		if err != nil {
 			slog.Warn("could not detect the Wrike data center", "error", err)
 			host = wrike.DefaultHost
@@ -309,22 +309,23 @@ func runCommand(args []string, configPath string, noColor, demo, showVersion, lo
 	defer stop()
 	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
 	go func() { <-ctx.Done(); stop() }()
-	creds := &cmdAuth{tokens: tokens, cfg: cfg, st: st}
+	creds := &cmdAuth{tokens: tokens, cfg: cfg, st: st, fromEnv: tokenFromEnv()}
 	return cli.Run(ctx, cli.Env{
-		Config:   cfg,
-		Store:    st,
-		SignedIn: creds.signedIn,
-		Client:   creds.client,
-		Host:     creds.host,
-		LockFile: lockPath(paths),
-		Socket:   socketPath(paths),
-		Theme:    ui.NewTheme(cfg.UI),
-		Width:    width,
-		Deadline: 15 * time.Second,
-		Offline:  offlineMode(cfg, offlineFlag),
-		Stdin:    os.Stdin,
-		Stdout:   os.Stdout,
-		Stderr:   os.Stderr,
+		Config:       cfg,
+		Store:        st,
+		SignedIn:     creds.signedIn,
+		Client:       creds.client,
+		Host:         creds.host,
+		LockFile:     lockPath(paths),
+		Socket:       socketPath(paths),
+		Theme:        ui.NewTheme(cfg.UI),
+		Width:        width,
+		Deadline:     15 * time.Second,
+		Offline:      offlineMode(cfg, offlineFlag),
+		TokenFromEnv: creds.fromEnv,
+		Stdin:        os.Stdin,
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
 	}, args)
 }
 
@@ -345,6 +346,7 @@ type cmdAuth struct {
 	tokens  auth.Tokens
 	cfg     config.Config
 	st      *store.Store
+	fromEnv bool // the credential is WRIKERY_TOKEN, its host is probed
 	loaded  bool
 	session auth.Session
 	err     error
@@ -373,7 +375,15 @@ func (c *cmdAuth) client(host string) *wrike.Client {
 
 func (c *cmdAuth) host(ctx context.Context) (string, error) {
 	s, _ := c.load()
+	if c.fromEnv {
+		return envHost(ctx, c.cfg, s.AccessToken, nil)
+	}
 	return resolveHost(ctx, c.cfg, c.st, s)
+}
+
+// tokenFromEnv says whether WRIKERY_TOKEN overrides the stored sign in, the way Tokens.Load reads it.
+func tokenFromEnv() bool {
+	return strings.TrimSpace(os.Getenv(auth.EnvToken)) != ""
 }
 
 // resolveTheme turns the auto theme into dark or light.

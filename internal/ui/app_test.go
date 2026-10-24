@@ -397,6 +397,40 @@ func TestOfflineModeShowsQueuedOnTheDetail(t *testing.T) {
 	}
 }
 
+// A sign in that meets another account asks before anything is stored, n says what to do instead, y goes on as a sign in does.
+func TestSignInMeetingAnotherAccountOpensTheBox(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "fresh.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	var confirmed atomic.Int32
+	opts := testOptions(st)
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token string) (string, error) {
+		return "", &ui.SwitchNeeded{From: "Acme on www.wrike.com", To: "Acme on app-eu.wrike.com", Pending: 5, Failed: 2,
+			DBFile:  "/home/ada/.local/share/wrikery/wrike.db",
+			Confirm: func() (string, error) { confirmed.Add(1); return "Ada Nowak", nil }}
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Paste a permanent access token")
+	press(tm, "abc", "enter")
+	waitFor(t, tm, "Is this the new home of this cache?")
+	press(tm, "n")
+	waitFor(t, tm, "Sign in to that account")
+	if n := confirmed.Load(); n != 0 {
+		t.Fatalf("n confirmed %d times", n)
+	}
+	from := mark(t, tm)
+	press(tm, "enter")
+	waitAfter(t, tm, from, "Is this the new home of this cache?")
+	press(tm, "y")
+	waitFor(t, tm, "Hello Ada Nowak")
+	if n := confirmed.Load(); n != 1 {
+		t.Errorf("y confirmed %d times, want once", n)
+	}
+}
+
 // TestStatusBarShowsSeededCountsOnFirstFrame covers the demo store's outbox counts reaching the
 // status bar on load, before any OutboxChangedMsg from a sync engine that demo mode never runs.
 // The demo seed leaves one pending comment and two failed writes, see internal/demo/seed.go.

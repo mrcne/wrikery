@@ -163,6 +163,8 @@ A command whose account read Wrike does not answer queues its write and sends no
 The user's yes writes the new record, clears the cursors of the followed scopes and sets a marker in one transaction.
 Every drain pass, the interface's, a command's and `sync`, reads the marker under the sync lock and first checks the queue against the new account: a row whose task, folder or time entry the account does not have, or whose task carries a title the cache never knew for it, is held on the changes screen.
 If the move renumbered anything, an old id must not send a comment or a time entry to another task.
+A sign in, a pasted token or the browser, compares before it stores anything, and a mismatch answers the box instead of a name: its yes writes that transaction, then the credential, then starts the engine, whose first cycle is a manual one, so every followed scope is pulled again from scratch and the sweep runs.
+The engine that met another account waits for the user like one whose token was rejected, `R` asks the same question.
 
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.

@@ -38,6 +38,9 @@ type Hooks struct {
 	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
 	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
 	GoOnline func()
+	// SwitchHome reads the account of the current credential again for R in the another account state:
+	// the box to ask, or nil when the account matches the cache again.
+	SwitchHome func() (*SwitchNeeded, error)
 }
 
 // ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
@@ -134,6 +137,9 @@ type Model struct {
 	settings      settingsModel
 	dialog        dialog
 	moveConfirmed bool // the saved yes to the first H or L, read at start and set on the yes
+	// switched is set by a yes to another account until a folder tree from that account was checked for the followed scopes,
+	// switchArmed once the engine pulled that tree.
+	switched, switchArmed bool
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -225,6 +231,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
 	case StoreChangedMsg:
+		if m.switched && slices.Contains(msg.Entities, "folders") {
+			m.switchArmed = true
+		}
 		return m, m.reload(msg.Entities)
 	case ControlMsg:
 		return m.control(msg)
@@ -268,10 +277,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
+		lost := m.lostFollowed(msg.nodes)
 		if n, ok := m.sidebar.current(); ok {
-			return m, intent(nodeSelectedMsg{node: n})
+			return m, tea.Batch(intent(nodeSelectedMsg{node: n}), lost)
 		}
-		return m, nil
+		return m, lost
 	case focusMsg:
 		if m.screen == screenTimesheet {
 			// The detail pane names the list on h, beside the grid that means the grid.
@@ -436,6 +446,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = screenMain
 		return m, tea.Batch(m.loadRef(), m.loadScopes())
 	case tokenVerifiedMsg:
+		var sw *SwitchNeeded
+		if errors.As(msg.err, &sw) {
+			m.firstRun.verifying = false
+			m.openDialog(switchDialog{sw: sw, signIn: true, browser: msg.browser, app: msg.app})
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
 		if msg.err == nil {
@@ -498,6 +514,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case goOnlineMsg:
 		return m.goOnline()
+	case confirmSwitchMsg:
+		m.switched, m.switchArmed = true, false
+		d := msg.d
+		if d.signIn {
+			m.firstRun.verifying = true
+			return m, func() tea.Msg {
+				name, err := d.sw.Confirm()
+				return tokenVerifiedMsg{name: name, err: err, browser: d.browser, app: d.app}
+			}
+		}
+		m.status.state = "syncing"
+		return m, func() tea.Msg {
+			_, err := d.sw.Confirm()
+			return switchDoneMsg{err: err}
+		}
+	case switchDeclinedMsg:
+		if msg.d.signIn && m.screen == screenFirstRun {
+			m.firstRun.errText = msg.d.sw.Declined()
+			m.firstRun.focus()
+		}
+		return m, nil
+	case switchLoadedMsg:
+		switch {
+		case msg.err != nil:
+			return m, m.status.show(msg.err.Error(), true)
+		case msg.sw == nil:
+			// The credential changed back meanwhile, the engine goes on with a cycle.
+			if m.opts.Hooks.Refresh != nil {
+				m.opts.Hooks.Refresh()
+			}
+			return m, m.status.show("the sign in matches the cache again", false)
+		}
+		m.openDialog(switchDialog{sw: msg.sw})
+		return m, nil
+	case switchDoneMsg:
+		if msg.err != nil {
+			m.switched = false
+			return m, m.status.show(msg.err.Error(), true)
+		}
+		return m, m.status.show("the queue goes to the new account", false)
 	case changesLoadedMsg:
 		m.changes.set(msg.rows)
 		return m, nil
@@ -1005,6 +1061,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == overlayDialog && m.dialog != nil {
 		if msg.Type == tea.KeyEsc {
 			cmd := m.dropEditorFile()
+			if d, ok := m.dialog.(switchDialog); ok && !d.answered {
+				// Esc is the answer no, the first run says what to do instead.
+				cmd = intent(switchDeclinedMsg{d: d})
+			}
 			m.overlay, m.dialog = overlayNone, nil
 			return m, cmd
 		}
@@ -1471,11 +1531,41 @@ func (m Model) refresh() (Model, tea.Cmd) {
 		m.openDialog(confirmDialog{prompt: prompt, onYes: goOnlineMsg{}})
 		return m, nil
 	}
+	if m.status.state == "another_account" {
+		hook := m.opts.Hooks.SwitchHome
+		if hook == nil {
+			return m, m.status.show("deciding about the account is not available", true)
+		}
+		return m, func() tea.Msg {
+			sw, err := hook()
+			return switchLoadedMsg{sw: sw, err: err}
+		}
+	}
 	if m.opts.Hooks.Refresh == nil {
 		return m, m.status.show("refresh is not available", true)
 	}
 	m.opts.Hooks.Refresh()
 	return m, m.status.show("refreshing", false)
+}
+
+// lostFollowed checks, once after a yes to another account and the engine's pull of its folder tree,
+// that the followed spaces and projects are in that tree: an account with new ids has none of them,
+// and the follow box opens so the user picks them again.
+func (m *Model) lostFollowed(nodes []treeNode) tea.Cmd {
+	if !m.switched || !m.switchArmed {
+		return nil
+	}
+	m.switched, m.switchArmed = false, false
+	there := map[string]bool{}
+	for _, n := range nodes {
+		there[n.id] = true
+	}
+	for _, sc := range m.settings.scopes {
+		if sc.Followed && sc.Kind != store.ScopeKindMe && !there[sc.ID] {
+			return tea.Batch(intent(openScopesMsg{}), intent(toastMsg{text: "the followed spaces and projects are not in this account, pick them again"}))
+		}
+	}
+	return nil
 }
 
 // goOnline ends offline mode for the rest of the session, the hook starts the engine on a command goroutine.

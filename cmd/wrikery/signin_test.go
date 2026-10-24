@@ -68,6 +68,8 @@ func newSignInFixture(t *testing.T, cfg config.Config, exchangeDelay time.Durati
 			_, _ = w.Write([]byte(`{"access_token":"at1","refresh_token":"rt1","token_type":"bearer","expires_in":"3600","host":"app-eu.wrike.com"}`))
 		case "/api/v4/contacts":
 			_, _ = w.Write([]byte(`{"kind":"contacts","data":[{"id":"C1","firstName":"Ann","lastName":"Kowalska","me":true}]}`))
+		case "/api/v4/account":
+			_, _ = w.Write([]byte(`{"kind":"accounts","data":[{"id":"ACC1","name":"Acme"}]}`))
 		default:
 			http.NotFound(w, r)
 		}
