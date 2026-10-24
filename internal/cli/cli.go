@@ -29,20 +29,21 @@ const (
 
 // Env is what main prepares for a command: the pieces it builds for the TUI anyway, plus the two output writers.
 type Env struct {
-	Config   config.Config
-	Store    *store.Store
-	SignedIn func() (bool, error)                      // read only by the commands that send, false when nothing is stored
-	Client   func(host string) *wrike.Client           // main's constructor, it carries the User-Agent and the token source
-	Host     func(ctx context.Context) (string, error) // main's config, session, meta, probe chain
-	LockFile string                                    // the sync lock next to the database
-	Socket   string                                    // the control socket of a running interface, next to the database as well
-	Theme    ui.Theme
-	Width    int           // columns of the terminal stdout is, 0 in a pipe
-	Deadline time.Duration // how long a write waits for the lock and to start, a create already sent waits for Wrike's answer, up to a minute and a half when Wrike rate limits
-	Offline  bool          // offline mode: a write is queued and not sent, nothing reads the sign in or talks to Wrike
-	Stdin    io.Reader     // a description given as - is read from here
-	Stdout   io.Writer
-	Stderr   io.Writer
+	Config       config.Config
+	Store        *store.Store
+	SignedIn     func() (bool, error)                      // read only by the commands that send, false when nothing is stored
+	Client       func(host string) *wrike.Client           // main's constructor, it carries the User-Agent and the token source
+	Host         func(ctx context.Context) (string, error) // main's config, session, meta, probe chain
+	LockFile     string                                    // the sync lock next to the database
+	Socket       string                                    // the control socket of a running interface, next to the database as well
+	Theme        ui.Theme
+	Width        int           // columns of the terminal stdout is, 0 in a pipe
+	Deadline     time.Duration // how long a write waits for the lock and to start, a create already sent waits for Wrike's answer, up to a minute and a half when Wrike rate limits
+	Offline      bool          // offline mode: a write is queued and not sent, nothing reads the sign in or talks to Wrike
+	TokenFromEnv bool          // the credential is WRIKERY_TOKEN, which no sign in checked, so every command compares its account with the cache's
+	Stdin        io.Reader     // a description given as - is read from here
+	Stdout       io.Writer
+	Stderr       io.Writer
 }
 
 const rootUsage = `usage: wrikery <command> [flags] [arguments]

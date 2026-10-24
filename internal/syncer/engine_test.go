@@ -88,8 +88,12 @@ func TestEngineFirstCycleDrainsAndSyncs(t *testing.T) {
 	waitFor(t, e, "idle after first cycle", isState(StateIdle))
 
 	log := fc.callLog()
+	// The account check comes first, it reads who the credential is and sends or pulls nothing.
+	for len(log) > 0 && (log[0] == "Me" || log[0] == "Account") {
+		log = log[1:]
+	}
 	if len(log) == 0 || log[0] != "CreateComment T1" {
-		t.Fatalf("calls = %v, the drain must run before any pull", log)
+		t.Fatalf("calls = %v, the drain must run before any pull", fc.callLog())
 	}
 	tasksCalls := 0
 	for _, call := range log {

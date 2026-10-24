@@ -276,6 +276,27 @@ There is no way back to offline mode in the same session, start the app again wi
 `offline = true` in the config file makes every start offline, the interface and the commands alike, and `--offline=false` runs one start online anyway.
 The first start needs Wrike for the sign in, so it refuses the flag.
 
+### Moving to another data center
+
+When Wrike moves an account to another data center, every API token stops working and the API answers on another host, `app-eu.wrike.com` for the EU data center.
+wrikery remembers the account, the data center and the person its cache was built from, and a sign in to anything else sends nothing until you answer.
+The steps, in the order they happen:
+
+1. Before the move, put `offline = true` in the config file, so nothing syncs by accident, from the interface or from a command.
+   Work as usual, the changes wait in the queue.
+2. After the move, run `wrikery --logout`, then `wrikery --offline=false`, the first run needs Wrike.
+3. Sign in with a new permanent token or through the browser.
+   wrikery names the old and the new data center with the queued writes and asks whether this is the new home of the cache.
+   `y` checks the queue against the new account, sends it there oldest first, and builds the cache again from the new account.
+   A write whose task, folder or time entry the new account does not have, or whose task has a title the cache never knew, is held on the changes screen for `r` or `x`.
+   `n` leaves everything as it is and says how to start a fresh cache instead.
+4. Take `offline = true` out of the config file again.
+
+If the config file names the old data center with `host = "www.wrike.com"`, change it or remove it before step 2, the sign in tries that host alone.
+When the followed spaces and projects are not in the new account, the box that picks them opens after the first sync.
+The same question comes when a sign in belongs to another account or another person than the cache, so changes made offline in one account never go to another without your yes.
+A command never asks: with a token in `WRIKERY_TOKEN` of another account it refuses, exits with 1 and says to open wrikery.
+
 ### Demo mode
 
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.

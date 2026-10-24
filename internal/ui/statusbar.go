@@ -11,7 +11,7 @@ import (
 )
 
 type statusModel struct {
-	state      string // idle, syncing, offline, failed, auth_required, offline_mode when started offline on purpose
+	state      string // idle, syncing, offline, failed, auth_required, another_account, offline_mode when started offline on purpose
 	lastSynced time.Time
 	since      time.Time // when the current offline or failed stretch began
 	pending    int
@@ -65,6 +65,8 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sync failing since " + s.since.Format("15:04")))
 	case "auth_required":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sign in rejected"))
+	case "another_account":
+		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " another account, R decides"))
 	default:
 		when := "never"
 		if !s.lastSynced.IsZero() {

@@ -10,6 +10,7 @@ import (
 // pkg/wrike implements it, the tests use a fake.
 type Client interface {
 	Me(ctx context.Context) (wrike.Contact, error)
+	Account(ctx context.Context) (wrike.Account, error)
 	Contacts(ctx context.Context) ([]wrike.Contact, error)
 	Spaces(ctx context.Context) ([]wrike.Space, error)
 	Workflows(ctx context.Context) ([]wrike.Workflow, error)

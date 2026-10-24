@@ -22,12 +22,19 @@ const taskAnswer = `{"kind":"tasks","data":[{"id":"%s","title":"%s","status":"%s
 
 // withNetwork gives env a token, a host and a client that talks to handler. A nil handler is a closed port.
 // The board's tasks are on that Wrike as the cache holds them now: a read of one by id, the check before an edit,
-// answers its values from before the command's write, the rest goes to handler.
+// answers its values from before the command's write, and the board's user and account answer the account check,
+// the rest goes to handler.
 func withNetwork(t *testing.T, env Env, handler http.Handler) Env {
 	t.Helper()
 	if handler != nil {
 		handler = unchangedOnWrike(t, env.Store, handler)
 	}
+	return withServer(t, env, handler)
+}
+
+// withServer is withNetwork with handler alone, for a test that answers the account check itself.
+func withServer(t *testing.T, env Env, handler http.Handler) Env {
+	t.Helper()
 	srv := httptest.NewServer(handler)
 	if handler == nil {
 		srv.Close()
@@ -35,7 +42,7 @@ func withNetwork(t *testing.T, env Env, handler http.Handler) Env {
 		t.Cleanup(srv.Close)
 	}
 	env.SignedIn = func() (bool, error) { return true, nil }
-	env.Host = func(context.Context) (string, error) { return "stub", nil }
+	env.Host = func(context.Context) (string, error) { return "www.wrike.com", nil } // the host the board's task links name
 	env.Client = func(string) *wrike.Client { return wrike.New("test-token", wrike.WithBaseURL(srv.URL)) }
 	env.LockFile = filepath.Join(t.TempDir(), "sync.lock")
 	return env
@@ -138,7 +145,7 @@ func TestSendNamesTheEarlierWriteTheDrainStoppedAt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, reason, err := send(ctx, env, "stub", second)
+		out, reason, err := send(ctx, env, "www.wrike.com", second)
 		want := `waiting behind an earlier write that failed, a new task "Earlier": wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream`
 		if err != nil || out != queued || reason != want {
 			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -151,7 +158,7 @@ func TestSendNamesTheEarlierWriteTheDrainStoppedAt(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, reason, err := send(ctx, env, "stub", first)
+		out, reason, err := send(ctx, env, "www.wrike.com", first)
 		want := "wrike: POST /folders/F1/tasks: http 503, Wrike is unavailable: no healthy upstream"
 		if err != nil || out != queued || reason != want {
 			t.Errorf("send = %v, %q, %v\nwant queued with %q", out, reason, err, want)
@@ -237,9 +244,9 @@ func TestSendNamesTheWriteOnItsOwnTaskOverTheOneThePassStoppedAt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, code := preflight(ctx, env)
-	if code != exitOK {
-		t.Fatalf("preflight = %d", code)
+	host, code, unchecked := preflight(ctx, env)
+	if code != exitOK || unchecked != nil {
+		t.Fatalf("preflight = %d, %v", code, unchecked)
 	}
 	out, reason, err := send(ctx, env, host, change)
 	want := `waiting behind an earlier write that failed, a change to "Headless commands for scripts": wrike: 503 earlier`
@@ -255,6 +262,10 @@ func TestSendNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
 	seedBoard(t, env.Store)
 	env = withNetwork(t, env, nil)
 	ctx := context.Background()
+	// The account was compared before, the closed port is for the send alone.
+	if err := env.Store.AdoptHome(ctx, store.Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
 	create, err := env.Store.Outbox().EnqueueTaskCreate(ctx, "PROJ1", store.TaskCreatePayload{Title: "Fresh"})
 	if err != nil {
 		t.Fatal(err)
@@ -266,9 +277,9 @@ func TestSendNamesTheCreateAChangeToANewTaskWaitsFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, code := preflight(ctx, env)
-	if code != exitOK {
-		t.Fatalf("preflight = %d", code)
+	host, code, unchecked := preflight(ctx, env)
+	if code != exitOK || unchecked != nil {
+		t.Fatalf("preflight = %d, %v", code, unchecked)
 	}
 	out, reason, err := send(ctx, env, host, change)
 	want := `waiting behind an earlier write that failed, a new task "Fresh": wrike: 503 no healthy upstream`
@@ -288,7 +299,7 @@ func TestSendReadsSentFromTheRowState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, reason, err := send(context.Background(), env, "stub", row.ID)
+	out, reason, err := send(context.Background(), env, "www.wrike.com", row.ID)
 	if err != nil || out != sent || reason != "" {
 		t.Fatalf("send = %v, %q, %v, want sent", out, reason, err)
 	}
@@ -310,7 +321,7 @@ func TestSendReportsARowDiscardedMeanwhile(t *testing.T) {
 	if err := env.Store.Outbox().Discard(context.Background(), row.ID); err != nil {
 		t.Fatal(err)
 	}
-	out, _, err := send(context.Background(), env, "stub", row.ID)
+	out, _, err := send(context.Background(), env, "www.wrike.com", row.ID)
 	if err != nil || out != discarded {
 		t.Fatalf("send = %v, %v, want discarded", out, err)
 	}
@@ -321,6 +332,12 @@ func TestSendReportsARowDiscardedMeanwhile(t *testing.T) {
 		t.Errorf("stderr = %q, want it to say the change was discarded", errOut.String())
 	}
 }
+
+// The board's user and account, the answers of the account check, U1 is the board's me_contact_id.
+const (
+	boardMe      = `{"kind":"contacts","data":[{"id":"U1","firstName":"Marcin","lastName":"Tester","type":"Person","me":true}]}`
+	boardAccount = `{"kind":"accounts","data":[{"id":"ACC1","name":"Acme"}]}`
+)
 
 // unchangedOnWrike answers GET /tasks/{id} for a task of the board with the values the cache holds when it is called.
 func unchangedOnWrike(t *testing.T, st *store.Store, next http.Handler) http.Handler {
@@ -348,11 +365,102 @@ func unchangedOnWrike(t *testing.T, st *store.Store, next http.Handler) http.Han
 		}
 		answers["/tasks/"+task.ID] = raw
 	}
+	answers["/account"] = []byte(boardAccount)
+	answers["/contacts"] = []byte(boardMe)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/contacts" && r.URL.Query().Get("me") != "true" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if raw, ok := answers[r.URL.Path]; ok && r.Method == http.MethodGet {
 			_, _ = w.Write(raw)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// otherAccount is a Wrike where the token belongs to another person of another account.
+func otherAccount() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/contacts":
+			_, _ = fmt.Fprint(w, `{"kind":"contacts","data":[{"id":"U2","firstName":"Anna","lastName":"Nowak","type":"Person","me":true}]}`)
+		case "/account":
+			_, _ = fmt.Fprint(w, `{"kind":"accounts","data":[{"id":"ACC2","name":"Other"}]}`)
+		default:
+			http.Error(w, "the write must not reach Wrike", http.StatusTeapot)
+		}
+	})
+}
+
+func TestAnEnvTokenOfAnotherAccountIsRefusedBeforeItIsQueued(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.AdoptHome(context.Background(), store.Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	env = withServer(t, env, otherAccount())
+	env.TokenFromEnv = true
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "hello"}); code != exitError {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	want := "wrikery: this sign in is for Other on www.wrike.com, the cache belongs to Acme on www.wrike.com, open wrikery to decide"
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+	if pending, failed, _ := env.Store.Outbox().Counts(context.Background()); pending+failed != 0 {
+		t.Errorf("%d rows queued, want none", pending+failed)
+	}
+}
+
+func TestALegacyCacheRefusesAnotherPerson(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withServer(t, env, otherAccount())
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "hello"}); code != exitError {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "open wrikery to decide") {
+		t.Errorf("stderr = %q", errOut.String())
+	}
+}
+
+func TestALegacyCacheAdoptsItsAccountOnTheFirstWrite(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"kind":"comments","data":[{"id":"C1","authorId":"U1","text":"hello","taskId":"TASK1","createdDate":"2026-10-23T10:00:00Z"}]}`)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "hello"}); code != exitOK {
+		t.Fatalf("code = %d\n%s\n%s", code, out.String(), errOut.String())
+	}
+	h, err := env.Store.Home(context.Background())
+	if err != nil || h.AccountID != "ACC1" || h.Host != "www.wrike.com" || h.ContactID != "U1" {
+		t.Errorf("record = %+v, %v, want the board's account adopted", h, err)
+	}
+}
+
+// A row the check after a move held is not a rejection by Wrike, the command says it was held and how to send it anyway.
+func TestAWriteHeldAfterTheMoveSaysSo(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.MoveHome(context.Background(), store.Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	env = withServer(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/tasks/TASK1" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, `{"error":"resource_not_found","errorDescription":"Task not found or access denied"}`)
+			return
+		}
+		t.Errorf("%s %s, the held write must not be sent", r.Method, r.URL.Path)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "hello"}); code != exitError {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	want := "wrikery: not sent, held after the move, not found in Acme on www.wrike.com, r on the changes screen in wrikery sends it anyway"
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
 }

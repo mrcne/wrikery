@@ -37,7 +37,17 @@ func permalinkFor(number string) string { return "https://www.wrike.com/open.htm
 // It runs without the sync lock: it writes task rows in one transaction and touches no cursor, so it can run while a cycle does.
 // A 404, a 400 for a malformed id, an answer without the task and a task in the Recycle Bin all mean ErrNoSuchTask.
 // A 400 about the request itself, a field the call refuses for example, is not about the task and travels up as it is.
+// Before the first cycle compared the account of a credential no sign in checked, it fetches nothing, see ErrAccountUnchecked.
 func (e *Engine) Reach(ctx context.Context, ref store.TaskRef) (store.Task, error) {
+	if !e.homeOK.Load() {
+		record, err := e.st.Home(ctx)
+		if err != nil {
+			return store.Task{}, err
+		}
+		if record.AccountID == "" || e.cfg.CheckHome {
+			return store.Task{}, ErrAccountUnchecked
+		}
+	}
 	var found []wrike.Task
 	var err error
 	if ref.Kind == store.RefNumber {

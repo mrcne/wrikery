@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/lockfile"
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 // ErrLocked is returned when another wrikery process held the sync lock until the deadline of the wait.
@@ -23,6 +25,8 @@ type Config struct {
 	ReconnectBase  time.Duration // engine wait after a failed cycle, default 1s
 	ReconnectCeil  time.Duration // cap for that wait, default 2m
 	LockFile       string        // the cross-process sync lock next to the database, empty means none
+	Host           string        // the host the client talks to, the account check names it
+	CheckHome      bool          // read the account before the first cycle even when the cache has a record, the credential came from WRIKERY_TOKEN
 }
 
 func (c Config) withDefaults() Config {
@@ -57,7 +61,7 @@ func (c Config) withDefaults() Config {
 // The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
 // Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
 // Reach is the one exception: it runs on the caller's goroutine while Run runs,
-// so it may touch only client, st, log and events, which New sets and nothing changes after.
+// so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
 	st     *store.Store
@@ -72,9 +76,12 @@ type Engine struct {
 	meID          string
 	lastReference time.Time
 	// unreached holds the referenced ids Wrike did not answer, skipped until the next manual cycle, see reachReferenced.
-	unreached  map[string]bool
-	failures   int
-	lockWarned bool
+	unreached   map[string]bool
+	failures    int
+	lockWarned  bool
+	homeChecked bool // the credential's account was compared with the cache's record, once per engine
+	// homeOK is homeChecked for Reach, which runs on another goroutine.
+	homeOK atomic.Bool
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -157,7 +164,10 @@ func (e *Engine) Drain(ctx context.Context, budget time.Duration) error {
 // stateAfter is the state a cycle outcome puts the engine in.
 // A rejected request means Wrike is reachable and said no, offline would send the user to check the network.
 func stateAfter(err error) SyncState {
+	var another *AnotherAccountError
 	switch {
+	case errors.As(err, &another):
+		return StateAnotherAccount
 	case err == nil:
 		return StateIdle
 	case classify(err) == failAuth:
@@ -210,7 +220,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		case err == nil:
 			e.failures = 0
 			wait = e.cfg.PollInterval
-		case state == StateAuthRequired:
+		case state == StateAuthRequired || state == StateAnotherAccount:
 			e.failures = 0
 		default:
 			e.failures++
@@ -218,8 +228,8 @@ func (e *Engine) Run(ctx context.Context) error {
 			wait = backoff(e.failures-1, e.cfg.ReconnectBase, e.cfg.ReconnectCeil)
 		}
 		e.setState(state)
-		if e.state == StateAuthRequired {
-			// Only a new token can help, so only a manual refresh or the end of the program wakes the engine.
+		if e.state == StateAuthRequired || e.state == StateAnotherAccount {
+			// Only a new token or the user's answer can help, so only a manual refresh or the end of the program wakes the engine.
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -277,6 +287,23 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 	if _, err := e.st.Outbox().ResetInflight(start); err != nil {
 		return false, err
 	}
+	// After a move every drainer runs the queue check first, the interface, a command and sync alike, see checkQueue.
+	pending, err := e.st.SwitchPending(start)
+	if err != nil {
+		return false, err
+	}
+	if pending {
+		home, err := e.st.Home(start)
+		if err != nil {
+			return false, err
+		}
+		if err := checkQueue(start, e.client, e.st, home, e.log); err != nil {
+			return false, err
+		}
+		if err := e.st.ClearSwitch(start); err != nil {
+			return false, err
+		}
+	}
 	return drainOutbox(start, post, e.client, e.st, e.cfg.BackoffBase, e.cfg.BackoffCeil)
 }
 
@@ -320,6 +347,9 @@ func ResetInflight(ctx context.Context, st *store.Store, lockFile string, budget
 
 func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	e.setState(StateSyncing)
+	if err := e.meetHome(ctx); err != nil {
+		return err
+	}
 
 	changed, err := e.drain(ctx, post)
 	if changed {
@@ -356,6 +386,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 	partial := false
 	pulled := 0
+	var answered []store.Scope // the scopes Wrike did not reject, the sweep after a move prunes with these
 	// Scopes pulled from scratch this cycle. The sweep reuses their ids instead of crawling them again.
 	full := map[string][]string{}
 	for _, sc := range scopes {
@@ -369,6 +400,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 			partial = true
 			continue
 		}
+		answered = append(answered, sc)
 		pulled += len(ids)
 		if sc.Cursor == "" {
 			full[sc.ID] = ids
@@ -379,7 +411,24 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 
 	// The sweep prunes with the union of every scope. Without the rejected one it would delete that scope's tasks.
-	if manual && !partial {
+	// The first full cycle after a move is the exception: a scope the new account rejects is the old account's,
+	// its tasks are the ones to go, so it prunes with the scopes that answered and says the followed set was lost.
+	rebuild, err := e.st.RebuildDue(ctx)
+	if err != nil {
+		return err
+	}
+	switch {
+	case manual && rebuild:
+		if err := sweep(ctx, e.client, e.st, answered, meID, full); err != nil {
+			return err
+		}
+		if err := e.st.ClearRebuild(ctx); err != nil {
+			return err
+		}
+		if partial {
+			e.emit(Event{Kind: EventScopesLost})
+		}
+	case manual && !partial:
 		if err := sweep(ctx, e.client, e.st, scopes, meID, full); err != nil {
 			return err
 		}
@@ -448,6 +497,35 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emitOutboxCounts(ctx)
 		e.WakeOutbox()
 	}
+	return nil
+}
+
+// meetHome compares the credential's account with the cache's record before the first cycle sends or pulls anything.
+// A cache with a record was checked by the sign in that stored its credential, so it reads nothing,
+// except under CheckHome, a credential from the environment that no sign in saw.
+// A question keeps homeChecked false, so the cycle after the user's answer compares again.
+func (e *Engine) meetHome(ctx context.Context) error {
+	if e.homeChecked {
+		return nil
+	}
+	record, err := e.st.Home(ctx)
+	if err != nil {
+		return err
+	}
+	if record.AccountID != "" && !e.cfg.CheckHome {
+		e.homeChecked = true
+		e.homeOK.Store(true)
+		return nil
+	}
+	met, m, err := MeetHome(ctx, e.client, e.st, e.cfg.Host, wrike.Contact{})
+	if err != nil {
+		return err
+	}
+	if m == store.MeetAsk {
+		return &AnotherAccountError{Met: met}
+	}
+	e.homeChecked = true
+	e.homeOK.Store(true)
 	return nil
 }
 

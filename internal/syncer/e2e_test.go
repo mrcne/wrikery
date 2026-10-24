@@ -40,6 +40,9 @@ func TestEndToEndSync(t *testing.T) {
 	mux.HandleFunc("/contacts", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"contacts","data":[{"id":"U1","firstName":"Anna","lastName":"Nowak","me":true}]}`)
 	})
+	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"accounts","data":[{"id":"ACC1","name":"Acme"}]}`))
+	})
 	mux.HandleFunc("/folders", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"folders","data":[{"id":"F1","title":"Alpha","scope":"WsFolder","project":{"status":"Green"}}]}`)
 	})

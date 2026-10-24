@@ -155,6 +155,19 @@ The one step of a drain pass an offline start still runs is the reset of the row
 Going online from the interface starts the engine the way a start without the flag does, its first cycle is a manual one and sends the queue first.
 The mode belongs to the process: a command without it, `wrikery sync` in another terminal for example, sends the shared queue as always.
 
+The cache remembers what it was built from: the account, read with `GET /account`, the host the credential was verified on, whatever the config says, and the user.
+A credential that meets anything else sends and pulls nothing until the user says yes, so a queue made offline in one account never reaches another, and a move of the account to another data center is one deliberate step.
+A cache from before this record adopts the account it meets when the host and the user it remembers match, the host taken from the probe or, failing that, from the links of its tasks.
+The interface's engine compares once before its first cycle and a command in its preflight, both only for a cache without a record, or every time when the credential comes from `WRIKERY_TOKEN`, which no sign in saw.
+A command whose account read Wrike does not answer queues its write and sends nothing, the next one compares first.
+The user's yes writes the new record, clears the cursors of the followed scopes and sets a marker in one transaction.
+Every drain pass, the interface's, a command's and `sync`, reads the marker under the sync lock and first checks the queue against the new account: a row whose task, folder or time entry the account does not have, or whose task carries a title the cache never knew for it, is held on the changes screen.
+If the move renumbered anything, an old id must not send a comment or a time entry to another task.
+A sign in, a pasted token or the browser, compares before it stores anything, and a mismatch answers the box instead of a name: its yes writes that transaction, then the credential, then starts the engine, whose first cycle is a manual one, so every followed scope is pulled again from scratch and the sweep runs.
+The engine that met another account waits for the user like one whose token was rejected, `R` asks the same question.
+That first full cycle prunes with the scopes the new account answered: a followed scope it rejects belongs to the old account, its tasks leave with the sweep, and the engine reports the lost scopes so the interface opens the follow box.
+A row the check after the move holds starts its error with "held after the move", the way an edit held over a change on Wrike starts with its own words, so the changes screen, a command and a discard tell both from a rejection.
+
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.
 The claim on a row is atomic, a row is marked in flight only while it is still pending, so no row is sent twice by two drainers.

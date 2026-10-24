@@ -13,6 +13,9 @@ type SyncStateMsg struct{ State string }
 type StoreChangedMsg struct{ Entities []string }
 type OutboxChangedMsg struct{ Pending, Failed int }
 
+// ScopesLostMsg says the first full cycle after a move found followed spaces or projects the new account does not have.
+type ScopesLostMsg struct{}
+
 type errMsg struct{ err error }
 
 // toastMsg reports the result of work the update loop handed to a command, such as a clipboard write.

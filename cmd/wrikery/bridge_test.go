@@ -12,16 +12,17 @@ import (
 )
 
 func TestForwardEventsMapsEveryKind(t *testing.T) {
-	events := make(chan syncer.Event, 3)
+	events := make(chan syncer.Event, 4)
 	events <- syncer.Event{Kind: syncer.EventStateChanged, State: syncer.StateOffline}
 	events <- syncer.Event{Kind: syncer.EventStoreChanged, Entities: []syncer.EntityKind{syncer.KindTasks, syncer.KindComments}}
 	events <- syncer.Event{Kind: syncer.EventOutboxChanged, Pending: 2, Failed: 1}
+	events <- syncer.Event{Kind: syncer.EventScopesLost}
 
 	var got []tea.Msg
 	ctx, cancel := context.WithCancel(context.Background())
 	send := func(msg tea.Msg) {
 		got = append(got, msg)
-		if len(got) == 3 {
+		if len(got) == 4 {
 			cancel()
 		}
 	}
@@ -31,6 +32,7 @@ func TestForwardEventsMapsEveryKind(t *testing.T) {
 		ui.SyncStateMsg{State: "offline"},
 		ui.StoreChangedMsg{Entities: []string{"tasks", "comments"}},
 		ui.OutboxChangedMsg{Pending: 2, Failed: 1},
+		ui.ScopesLostMsg{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)

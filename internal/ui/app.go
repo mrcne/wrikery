@@ -38,6 +38,9 @@ type Hooks struct {
 	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
 	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
 	GoOnline func()
+	// SwitchHome reads the account of the current credential again for R in the another account state:
+	// the box to ask, or nil when the account matches the cache again.
+	SwitchHome func() (*SwitchNeeded, error)
 }
 
 // ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
@@ -48,6 +51,12 @@ var ErrSignInNeeded = errors.New("sign in needed")
 
 // ErrOffline answers what needs Wrike while the interface runs in offline mode, a fetch or a retry.
 var ErrOffline = errors.New("offline mode, R goes online")
+
+// ErrAnotherAccount answers a fetch while the engine waits for the user's answer about another account, nothing is pulled until then.
+var ErrAnotherAccount = errors.New("another account, R decides")
+
+// ErrAccountUnchecked answers a fetch before the engine compared the account of a credential no sign in checked.
+var ErrAccountUnchecked = errors.New("checking the account first, try again in a moment")
 
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
@@ -226,6 +235,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onSyncState(msg.State)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
+	case ScopesLostMsg:
+		if m.screen == screenFirstRun {
+			// The first run's own picker is on screen and shows the new account's spaces.
+			return m, nil
+		}
+		// The box opens on the settings screen, the one the picker's answer opens it on.
+		return m, tea.Batch(m.openScreen(screenSettings), intent(openScopesMsg{}),
+			intent(toastMsg{text: "the followed spaces and projects are not in this account, pick them again"}))
 	case ControlMsg:
 		return m.control(msg)
 	case OutboxChangedMsg:
@@ -436,6 +453,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = screenMain
 		return m, tea.Batch(m.loadRef(), m.loadScopes())
 	case tokenVerifiedMsg:
+		var sw *SwitchNeeded
+		if errors.As(msg.err, &sw) {
+			m.firstRun.verifying = false
+			m.openDialog(switchDialog{sw: sw, signIn: true, browser: msg.browser, app: msg.app})
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.firstRun, cmd = m.firstRun.Update(msg)
 		if msg.err == nil {
@@ -498,6 +521,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case goOnlineMsg:
 		return m.goOnline()
+	case confirmSwitchMsg:
+		d := msg.d
+		if d.signIn {
+			// The spinner stopped when the box opened, the move, the keychain write and the engine start take a moment.
+			m.firstRun.verifying = true
+			return m, tea.Batch(m.firstRun.spinner.Tick, func() tea.Msg {
+				name, err := d.sw.Confirm()
+				return tokenVerifiedMsg{name: name, err: err, browser: d.browser, app: d.app}
+			})
+		}
+		m.status.state = "syncing"
+		return m, func() tea.Msg {
+			_, err := d.sw.Confirm()
+			return switchDoneMsg{err: err}
+		}
+	case switchDeclinedMsg:
+		if msg.d.signIn && m.screen == screenFirstRun {
+			m.firstRun.errText = msg.d.sw.Declined()
+			m.firstRun.focus()
+		}
+		return m, nil
+	case switchLoadedMsg:
+		switch {
+		case msg.err != nil:
+			return m, m.status.show(msg.err.Error(), true)
+		case msg.sw == nil:
+			// The credential changed back meanwhile, the hook let the engine go on already.
+			return m, m.status.show("the sign in matches the cache again", false)
+		}
+		m.openDialog(switchDialog{sw: msg.sw})
+		return m, nil
+	case switchDoneMsg:
+		if msg.err != nil {
+			// The engine still waits for the answer, R asks again.
+			m.status.state = "another_account"
+			return m, m.status.show(msg.err.Error(), true)
+		}
+		return m, m.status.show("the queue goes to the new account", false)
 	case changesLoadedMsg:
 		m.changes.set(msg.rows)
 		return m, nil
@@ -1005,6 +1066,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == overlayDialog && m.dialog != nil {
 		if msg.Type == tea.KeyEsc {
 			cmd := m.dropEditorFile()
+			if d, ok := m.dialog.(switchDialog); ok && !d.answered {
+				// Esc is the answer no, the first run says what to do instead.
+				cmd = intent(switchDeclinedMsg{d: d})
+			}
 			m.overlay, m.dialog = overlayNone, nil
 			return m, cmd
 		}
@@ -1470,6 +1535,16 @@ func (m Model) refresh() (Model, tea.Cmd) {
 		}
 		m.openDialog(confirmDialog{prompt: prompt, onYes: goOnlineMsg{}})
 		return m, nil
+	}
+	if m.status.state == "another_account" {
+		hook := m.opts.Hooks.SwitchHome
+		if hook == nil {
+			return m, m.status.show("deciding about the account is not available", true)
+		}
+		return m, func() tea.Msg {
+			sw, err := hook()
+			return switchLoadedMsg{sw: sw, err: err}
+		}
 	}
 	if m.opts.Hooks.Refresh == nil {
 		return m, m.status.show("refresh is not available", true)

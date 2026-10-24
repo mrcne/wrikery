@@ -46,6 +46,11 @@ type app struct {
 	lock   string
 	// session is the sign in read at start, an offline start goes online with it.
 	session auth.Session
+	// tokenFromEnv is set when the credential is WRIKERY_TOKEN, which no sign in saw: the engine compares its account every start
+	// and its host is probed instead of taken from the cache.
+	tokenFromEnv bool
+	// dbFile is the cache, the box of a switch names it.
+	dbFile string
 	// hc and loginTokenURL are set by the tests, which route every host to a fake server. Nil and empty otherwise.
 	hc            *http.Client
 	loginTokenURL string
@@ -53,6 +58,8 @@ type app struct {
 	mu     sync.Mutex
 	closed bool
 	engine *syncer.Engine
+	src    wrike.TokenSource // the engine's credential and host, R in the another account state compares them again
+	host   string
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -68,7 +75,8 @@ func (a *app) startEngine(src wrike.TokenSource, host string) {
 	}
 	a.stopLocked()
 	client := newClient(src, host, a.clientOpts()...)
-	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock}, slog.Default())
+	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock, Host: host, CheckHome: a.tokenFromEnv}, slog.Default())
+	a.src, a.host = src, host
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	a.engine, a.cancel, a.done = eng, cancel, done
@@ -127,6 +135,7 @@ func (a *app) hooks() ui.Hooks {
 		},
 		VerifyToken: a.verifyToken,
 		GoOnline:    a.goOnline,
+		SwitchHome:  a.switchHome,
 		OpenURL:     openURL,
 		Copy:        copyText,
 		Reach: func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
@@ -139,6 +148,8 @@ func (a *app) hooks() ui.Hooks {
 			switch {
 			case errors.Is(err, syncer.ErrNoSuchTask):
 				return t, ui.ErrNoSuchTask
+			case errors.Is(err, syncer.ErrAccountUnchecked):
+				return t, ui.ErrAccountUnchecked
 			case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
 				// The engine shows the sign in screen after its own next cycle, the row points there now.
 				return t, ui.ErrSignInNeeded
@@ -165,7 +176,7 @@ func (a *app) startOffline() {
 // goOnline ends offline mode the way a start without it begins: the host first, then the engine on the stored session.
 // The interface calls it on a command goroutine, a host nobody stored yet costs the probe's five seconds there and not at the start.
 func (a *app) goOnline() {
-	host, err := resolveHost(context.Background(), a.cfg, a.st, a.session)
+	host, err := a.engineHost(context.Background())
 	if err != nil {
 		slog.Warn("could not detect the Wrike data center", "error", err)
 		host = wrike.DefaultHost
@@ -199,13 +210,34 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 	return a.finish(ctx, wrike.StaticToken(token), host, me, func() error { return a.tokens.SaveToken(token) })
 }
 
-// finish is the tail every sign in shares once Wrike named the user: the host remembered for the settings screen,
-// the credential stored, the engine started.
+// finish is the tail every sign in shares once Wrike named the user.
+// The account comes first: a credential of another account, data center or person than the cache stores nothing and starts nothing,
+// it answers a *ui.SwitchNeeded whose Confirm does the move and the rest of the sign in after the user's yes.
 // A context that ended on the way, esc on the screen, stores nothing and starts nothing.
 func (a *app) finish(ctx context.Context, src wrike.TokenSource, host string, me wrike.Contact, save func() error) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	// The sign in read the person already, the check reads the account alone.
+	met, m, err := syncer.MeetHome(ctx, newClient(src, host, a.clientOpts()...), a.st, host, me)
+	if err != nil {
+		return "", fmt.Errorf("checking the account: %w", err)
+	}
+	if m == store.MeetAsk {
+		// The box comes after the sign in's context ended, so the yes runs on one of its own.
+		return "", a.switchNeeded(met, me, func() (string, error) {
+			bg := context.Background()
+			if err := a.st.MoveHome(bg, met); err != nil {
+				return "", err
+			}
+			return a.keep(bg, src, host, me, save)
+		})
+	}
+	return a.keep(ctx, src, host, me, save)
+}
+
+// keep is the end of a sign in: the host remembered for the settings screen, the credential stored, the engine started.
+func (a *app) keep(ctx context.Context, src wrike.TokenSource, host string, me wrike.Contact, save func() error) (string, error) {
 	if a.cfg.Host == "" {
 		// A failed write here only means the next start probes again,
 		// the credential Wrike already accepted must not be thrown away over it.
@@ -218,6 +250,107 @@ func (a *app) finish(ctx context.Context, src wrike.TokenSource, host string, me
 	}
 	a.startEngine(src, host)
 	return strings.TrimSpace(me.FirstName + " " + me.LastName), nil
+}
+
+// switchNeeded words the box for a credential of another account, data center or person than the cache.
+// The people are named only when the person differs, the old one from the cached contacts, the new one from the sign in.
+func (a *app) switchNeeded(met store.Home, me wrike.Contact, confirm func() (string, error)) *ui.SwitchNeeded {
+	ctx := context.Background()
+	record, err := a.st.Home(ctx)
+	if err != nil {
+		slog.Warn("reading the cache's account for the box", "error", err)
+	}
+	pending, failed, err := a.st.Outbox().Counts(ctx)
+	if err != nil {
+		slog.Warn("reading the queue counts for the box", "error", err)
+	}
+	from, to := place(record, ""), place(met, "")
+	if record.ContactID != "" && record.ContactID != met.ContactID {
+		old := record.ContactID
+		if c, err := a.st.Contacts().Get(ctx, record.ContactID); err == nil {
+			old = c.Name()
+		}
+		from, to = place(record, old), place(met, strings.TrimSpace(me.FirstName+" "+me.LastName))
+	}
+	return &ui.SwitchNeeded{From: from, To: to, Pending: pending, Failed: failed, DBFile: a.dbFile, Confirm: confirm}
+}
+
+// place names an account on its host, with the person in front when given.
+func place(h store.Home, person string) string {
+	s := h.Name() + " on " + h.Host
+	if person != "" {
+		s = person + " in " + s
+	}
+	return s
+}
+
+// switchHome is R in the another account state: the engine's credential is compared again,
+// a match lets the engine go on, a mismatch answers the box, whose yes moves the cache and wakes the engine.
+// The credential is not stored again, it is the stored one or WRIKERY_TOKEN.
+func (a *app) switchHome() (*ui.SwitchNeeded, error) {
+	a.mu.Lock()
+	src, host, eng := a.src, a.host, a.engine
+	a.mu.Unlock()
+	if eng == nil {
+		return nil, errors.New("no sign in to compare")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	client := newClient(src, host, a.clientOpts()...)
+	me, err := client.Me(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking the account: %w", err)
+	}
+	met, m, err := syncer.MeetHome(ctx, client, a.st, host, me)
+	if err != nil {
+		return nil, fmt.Errorf("checking the account: %w", err)
+	}
+	if m != store.MeetAsk {
+		eng.Refresh()
+		return nil, nil
+	}
+	return a.switchNeeded(met, me, func() (string, error) {
+		if err := a.st.MoveHome(context.Background(), met); err != nil {
+			return "", err
+		}
+		eng.Refresh()
+		return "", nil
+	}), nil
+}
+
+// engineHost is the host the engine talks to, see hostFor.
+func (a *app) engineHost(ctx context.Context) (string, error) {
+	return hostFor(ctx, a.cfg, a.st, a.session, a.tokenFromEnv, a.hc)
+}
+
+// hostFor is the remembered chain of resolveHost, or for WRIKERY_TOKEN a probe:
+// no sign in saw that token, and a remembered host may be another credential's or from before a move.
+// A host the config names needs no probe. Only an answer about the token stands, a rejected token or a 300 from every host,
+// anything else, no answer, a rate limit or a server error, falls back to the remembered chain the way the app works offline,
+// and the account check compares once Wrike answers.
+func hostFor(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session, fromEnv bool, hc *http.Client) (string, error) {
+	if !fromEnv || cfg.Host != "" {
+		return resolveHost(ctx, cfg, st, s)
+	}
+	host, err := envHost(ctx, cfg, s.AccessToken, hc)
+	var apiErr *wrike.APIError
+	rejected := errors.As(err, &apiErr) && apiErr.IsAuth()
+	if err != nil && !rejected && !errors.Is(err, errNoDataCenter) {
+		return resolveHost(ctx, cfg, st, s)
+	}
+	return host, err
+}
+
+// envHost probes the hosts for a token no sign in saw, the config's host alone when it names one, under the probe's short deadline.
+func envHost(ctx context.Context, cfg config.Config, token string, hc *http.Client) (string, error) {
+	hosts := apiHosts
+	if cfg.Host != "" {
+		hosts = []string{cfg.Host}
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	host, _, err := probeHost(probeCtx, token, hosts, hc)
+	return host, err
 }
 
 // resolveHost is the chain run uses before starting the engine:

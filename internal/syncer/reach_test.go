@@ -40,7 +40,7 @@ func TestReachFetchesAnIdWithTheCountFieldOnlyAndStampsIt(t *testing.T) {
 		gotFields = fields
 		return []wrike.Task{outsideTask("MAAAAAEPXpuV", "Outside")}, nil
 	}}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	task, err := e.Reach(ctx, store.TaskRef{Kind: store.RefID, Value: "MAAAAAEPXpuV"})
 	if err != nil || task.ID != "MAAAAAEPXpuV" || task.Title != "Outside" {
 		t.Fatalf("Reach = %+v, %v", task, err)
@@ -74,7 +74,7 @@ func TestReachResolvesANumberThroughThePermalinkFilter(t *testing.T) {
 		}
 		return wrike.TasksPage{Tasks: []wrike.Task{outsideTask("MAAAAAEPXpuV", "Outside")}}, nil
 	}}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	task, err := e.Reach(ctx, store.TaskRef{Kind: store.RefNumber, Value: "4552825749"})
 	if err != nil || task.ID != "MAAAAAEPXpuV" {
 		t.Errorf("Reach = %+v, %v", task, err)
@@ -100,7 +100,7 @@ func TestReachReportsNoSuchTask(t *testing.T) {
 		}
 		return nil, answers[ids[0]]
 	}}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	for _, id := range []string{"MAAAAAEPXXXX", "MAAAAAEPYYYY", "MAAAAAEPZZZZ", "MAAAAAEPWWWW"} {
 		if _, err := e.Reach(ctx, store.TaskRef{Kind: store.RefID, Value: id}); !errors.Is(err, ErrNoSuchTask) {
 			t.Errorf("Reach(%s) = %v, want ErrNoSuchTask", id, err)
@@ -176,7 +176,7 @@ func TestCycleRereadsStampedTasksAndDropsTheMissing(t *testing.T) {
 		deleted.Scope = "RbTask"
 		return []wrike.Task{outsideTask("T5", "new title"), deleted}, nil
 	}}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	if _, err := e.Once(ctx, true); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestPollRereadsOnlyTheOpenedStampedTasks(t *testing.T) {
 	fc := &fakeClient{tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
 		return []wrike.Task{outsideTask("T5", "opened")}, nil
 	}}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	if _, err := e.Once(ctx, false); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestCycleSurvivesAPermanentErrorOnTheReread(t *testing.T) {
 		return nil, &wrike.APIError{StatusCode: http.StatusBadRequest, Code: "invalid_request"}
 	}}
 	var buf bytes.Buffer
-	e := New(fc, st, Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	e := newReachEngine(t, fc, st, slog.New(slog.NewTextHandler(&buf, nil)))
 	state, err := e.Once(ctx, true)
 	if err != nil || state != StateIdle {
 		t.Fatalf("Once = %q, %v, want idle and no error", state, err)
@@ -333,7 +333,7 @@ func TestManualCycleReadsAJustReachedTaskOnce(t *testing.T) {
 			return []wrike.Task{outsideTask("T9", "behind a time entry")}, nil
 		},
 	}
-	e := New(fc, st, Config{}, nil)
+	e := newReachEngine(t, fc, st, nil)
 	if _, err := e.Once(ctx, true); err != nil {
 		t.Fatal(err)
 	}
@@ -346,4 +346,14 @@ func TestManualCycleReadsAJustReachedTaskOnce(t *testing.T) {
 	if !reflect.DeepEqual(byIDs, []string{"TasksByIDs T9"}) {
 		t.Errorf("by id calls = %v, want T9 once", byIDs)
 	}
+}
+
+// newReachEngine is an engine whose cache has its record, the state after a first cycle compared the account,
+// so Reach fetches, see ErrAccountUnchecked.
+func newReachEngine(t *testing.T, fc *fakeClient, st *store.Store, log *slog.Logger) *Engine {
+	t.Helper()
+	if err := st.AdoptHome(context.Background(), store.Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	return New(fc, st, Config{}, log)
 }

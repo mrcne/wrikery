@@ -14,6 +14,7 @@ type fakeClient struct {
 	calls []string
 
 	me               func() (wrike.Contact, error)
+	account          func() (wrike.Account, error)
 	contacts         func() ([]wrike.Contact, error)
 	spaces           func() ([]wrike.Space, error)
 	workflows        func() ([]wrike.Workflow, error)
@@ -51,6 +52,14 @@ func (f *fakeClient) Me(ctx context.Context) (wrike.Contact, error) {
 		return wrike.Contact{ID: "U1", Me: true}, nil
 	}
 	return f.me()
+}
+
+func (f *fakeClient) Account(ctx context.Context) (wrike.Account, error) {
+	f.record("Account")
+	if f.account == nil {
+		return wrike.Account{ID: "ACC1", Name: "Acme"}, nil
+	}
+	return f.account()
 }
 
 func (f *fakeClient) Contacts(ctx context.Context) ([]wrike.Contact, error) {
