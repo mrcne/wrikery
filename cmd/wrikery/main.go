@@ -73,7 +73,8 @@ func versionLine(version, commit, goVersion string) string {
 	return fmt.Sprintf("wrikery %s (%s) %s", version, commit, goVersion)
 }
 
-// rootOpts holds the global flags. offline is read through offlineArg, the line may not have named it.
+// rootOpts holds the global flags.
+// offline is read through offlineArg, the line may not have named it.
 type rootOpts struct {
 	version, demo, logout, noColor, offline bool
 	config                                  string

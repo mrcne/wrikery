@@ -17,14 +17,22 @@ func runHelp(t *testing.T, args ...string) (code int, out, errOut string) {
 }
 
 func TestHelpWordsPrintOnePage(t *testing.T) {
-	want := HelpPage(nil)
+	// The root flags are main's, Run has to print the set it is handed, or wrikery help would lose the Flags section.
+	global := flag.NewFlagSet("wrikery", flag.ContinueOnError)
+	global.Bool("offline", false, "start without syncing")
+	want := HelpPage(global)
+	if !strings.Contains(want, "Flags:\n  --offline") {
+		t.Fatalf("the page lacks the global flags:\n%s", want)
+	}
 	for _, word := range []string{"help", "-h", "--help"} {
-		code, out, errOut := runHelp(t, word)
-		if code != exitOK || errOut != "" {
-			t.Errorf("%s: code %d, stderr %q", word, code, errOut)
+		env, out, errOut := testEnv(t)
+		env.GlobalFlags = global
+		code := Run(context.Background(), env, []string{word})
+		if code != exitOK || errOut.Len() != 0 {
+			t.Errorf("%s: code %d, stderr %q", word, code, errOut.String())
 		}
-		if out != want {
-			t.Errorf("%s printed:\n%s\nwant the page:\n%s", word, out, want)
+		if out.String() != want {
+			t.Errorf("%s printed:\n%s\nwant the page:\n%s", word, out.String(), want)
 		}
 	}
 }
