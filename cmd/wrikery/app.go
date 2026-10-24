@@ -148,6 +148,8 @@ func (a *app) hooks() ui.Hooks {
 			switch {
 			case errors.Is(err, syncer.ErrNoSuchTask):
 				return t, ui.ErrNoSuchTask
+			case errors.Is(err, syncer.ErrAccountUnchecked):
+				return t, ui.ErrAccountUnchecked
 			case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
 				// The engine shows the sign in screen after its own next cycle, the row points there now.
 				return t, ui.ErrSignInNeeded
@@ -216,7 +218,8 @@ func (a *app) finish(ctx context.Context, src wrike.TokenSource, host string, me
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	met, m, err := syncer.MeetHome(ctx, newClient(src, host, a.clientOpts()...), a.st, host)
+	// The sign in read the person already, the check reads the account alone.
+	met, m, err := syncer.MeetHome(ctx, newClient(src, host, a.clientOpts()...), a.st, host, me)
 	if err != nil {
 		return "", fmt.Errorf("checking the account: %w", err)
 	}
@@ -274,14 +277,7 @@ func (a *app) switchNeeded(met store.Home, me wrike.Contact, confirm func() (str
 
 // place names an account on its host, with the person in front when given.
 func place(h store.Home, person string) string {
-	name := h.AccountName
-	switch {
-	case name == "" && h.AccountID != "":
-		name = h.AccountID
-	case name == "":
-		name = "another account"
-	}
-	s := name + " on " + h.Host
+	s := h.Name() + " on " + h.Host
 	if person != "" {
 		s = person + " in " + s
 	}
@@ -301,17 +297,17 @@ func (a *app) switchHome() (*ui.SwitchNeeded, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	client := newClient(src, host, a.clientOpts()...)
-	met, m, err := syncer.MeetHome(ctx, client, a.st, host)
+	me, err := client.Me(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking the account: %w", err)
+	}
+	met, m, err := syncer.MeetHome(ctx, client, a.st, host, me)
 	if err != nil {
 		return nil, fmt.Errorf("checking the account: %w", err)
 	}
 	if m != store.MeetAsk {
 		eng.Refresh()
 		return nil, nil
-	}
-	me, err := client.Me(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("checking the account: %w", err)
 	}
 	return a.switchNeeded(met, me, func() (string, error) {
 		if err := a.st.MoveHome(context.Background(), met); err != nil {
@@ -322,13 +318,27 @@ func (a *app) switchHome() (*ui.SwitchNeeded, error) {
 	}), nil
 }
 
-// engineHost is the host the engine talks to: the remembered chain of resolveHost,
-// or for WRIKERY_TOKEN a probe, no sign in saw that token and a remembered host may be another credential's or from before a move.
+// engineHost is the host the engine talks to, see hostFor.
 func (a *app) engineHost(ctx context.Context) (string, error) {
-	if a.tokenFromEnv {
-		return envHost(ctx, a.cfg, a.session.AccessToken, a.hc)
+	return hostFor(ctx, a.cfg, a.st, a.session, a.tokenFromEnv, a.hc)
+}
+
+// hostFor is the remembered chain of resolveHost, or for WRIKERY_TOKEN a probe:
+// no sign in saw that token, and a remembered host may be another credential's or from before a move.
+// A host the config names needs no probe. Only an answer about the token stands, a rejected token or a 300 from every host,
+// anything else, no answer, a rate limit or a server error, falls back to the remembered chain the way the app works offline,
+// and the account check compares once Wrike answers.
+func hostFor(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session, fromEnv bool, hc *http.Client) (string, error) {
+	if !fromEnv || cfg.Host != "" {
+		return resolveHost(ctx, cfg, st, s)
 	}
-	return resolveHost(ctx, a.cfg, a.st, a.session)
+	host, err := envHost(ctx, cfg, s.AccessToken, hc)
+	var apiErr *wrike.APIError
+	rejected := errors.As(err, &apiErr) && apiErr.IsAuth()
+	if err != nil && !rejected && !errors.Is(err, errNoDataCenter) {
+		return resolveHost(ctx, cfg, st, s)
+	}
+	return host, err
 }
 
 // envHost probes the hosts for a token no sign in saw, the config's host alone when it names one, under the probe's short deadline.

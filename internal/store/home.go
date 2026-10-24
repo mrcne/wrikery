@@ -25,6 +25,17 @@ const (
 	MeetAsk                  // anything else, the user decides
 )
 
+// Name names the account for a message: its name, its id, or "another account" for a cache from before the record.
+func (h Home) Name() string {
+	switch {
+	case h.AccountName != "":
+		return h.AccountName
+	case h.AccountID != "":
+		return h.AccountID
+	}
+	return "another account"
+}
+
 // Meet compares the record with what a sign in or a first cycle met.
 // The name is left out, an account can be renamed.
 // A record without an account id is a cache from before the record existed:
@@ -125,15 +136,42 @@ func (s *Store) MoveHome(ctx context.Context, to Home) error {
 		}
 	}
 	// The timesheet reads the new person and the pull replaces only that person's window, the old rows would stay for good.
+	// An entry logged offline keeps its local row, its create is in the queue and lands under the new person.
 	if oldContact != "" && oldContact != to.ContactID {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE user_id = ?`, oldContact); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE user_id = ? AND id NOT LIKE ?`, oldContact, LocalIDPrefix+"%"); err != nil {
 			return err
 		}
 	}
 	if err := setMetaTx(ctx, tx, MetaKeySwitchPending, "1"); err != nil {
 		return err
 	}
+	if err := setMetaTx(ctx, tx, MetaKeyRebuildDue, "1"); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// RebuildDue says whether the first full cycle after a move is still to sweep the cache.
+func (s *Store) RebuildDue(ctx context.Context) (bool, error) {
+	v, err := s.GetMeta(ctx, MetaKeyRebuildDue)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return v == "1", err
+}
+
+// ClearRebuild ends the rebuild once a full cycle swept with the scopes the new account answered.
+func (s *Store) ClearRebuild(ctx context.Context) error {
+	_, err := s.writer.ExecContext(ctx, `DELETE FROM meta WHERE key = ?`, MetaKeyRebuildDue)
+	return err
+}
+
+// RootFolder says whether the cache holds the folder rootID, an account's root, and whether it holds any folder at all.
+// A cache from before the record tells its own account by it: a person's other account has another root.
+func (s *Store) RootFolder(ctx context.Context, rootID string) (known, cached bool, err error) {
+	err = s.reader.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM folders WHERE id = ?), EXISTS(SELECT 1 FROM folders)`, rootID).
+		Scan(&known, &cached)
+	return known, cached, err
 }
 
 // SwitchPending says whether a move waits for its queue check.

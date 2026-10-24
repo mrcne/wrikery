@@ -149,3 +149,95 @@ func TestAdoptHomeWritesNoEmptyKey(t *testing.T) {
 		t.Errorf("me_contact_id read = %v, want it never written", err)
 	}
 }
+
+// An entry logged offline carries the old person's id until its create lands, it is in the queue and must stay on the timesheet.
+func TestMoveHomeKeepsTheEntriesLoggedOffline(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.AdoptHome(ctx, Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueTimelogCreate(ctx, "T1", "U1", TimelogCreatePayload{Hours: 1, TrackedDate: "2026-10-20"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MoveHome(ctx, Home{AccountID: "ACC1", AccountName: "Acme", Host: "app-eu.wrike.com", ContactID: "U2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Timelogs().Get(ctx, LocalID(id)); err != nil {
+		t.Errorf("the entry logged offline went with the old person: %v", err)
+	}
+}
+
+func TestHomeNameFallsBackToTheIdAndThenToAnotherAccount(t *testing.T) {
+	for h, want := range map[Home]string{
+		{AccountID: "ACC1", AccountName: "Acme"}: "Acme",
+		{AccountID: "ACC1"}:                      "ACC1",
+		{}:                                       "another account",
+	} {
+		if got := h.Name(); got != want {
+			t.Errorf("%+v.Name() = %q, want %q", h, got, want)
+		}
+	}
+}
+
+// The first full cycle after a move sweeps with the scopes that answered, the marker says it is due.
+func TestMoveHomeMakesARebuildDue(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if due, err := st.RebuildDue(ctx); err != nil || due {
+		t.Fatalf("fresh store rebuild due = %v, %v", due, err)
+	}
+	if err := st.MoveHome(ctx, Home{AccountID: "ACC1", Host: "app-eu.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if due, err := st.RebuildDue(ctx); err != nil || !due {
+		t.Errorf("rebuild due after a move = %v, %v", due, err)
+	}
+	if err := st.ClearRebuild(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if due, _ := st.RebuildDue(ctx); due {
+		t.Error("the rebuild stayed due after the clear")
+	}
+}
+
+// A legacy cache tells its own account by the root folder it holds, a person's other account has another root.
+func TestRootFolderTellsTheAccountOfALegacyCache(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if known, cached, err := st.RootFolder(ctx, "IEAG3VSGI7777777"); err != nil || known || cached {
+		t.Fatalf("empty cache = %v %v %v, want nothing known and nothing cached", known, cached, err)
+	}
+	if err := st.Folders().ReplaceTree(ctx, []Folder{{ID: "IEAG3VSGI7777777", Title: "Root"}, {ID: "MQAAAAEPLXo-", Title: "Wrikery", Space: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if known, cached, err := st.RootFolder(ctx, "IEAG3VSGI7777777"); err != nil || !known || !cached {
+		t.Errorf("own root = %v %v %v", known, cached, err)
+	}
+	if known, cached, err := st.RootFolder(ctx, "IEAOTHERI7777777"); err != nil || known || !cached {
+		t.Errorf("another account's root = %v %v %v, want unknown in a cache with folders", known, cached, err)
+	}
+}
+
+// A row the check after a move held carries Wrike's answer of the new account, not a value the next edit should take over.
+func TestDiscardOfARowHeldAfterTheMovePassesNothingOn(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	first, second, _ := queueStatusEdits(t, st)
+	if !IsHeld(MovePrefix + "not found in Acme on app-eu.wrike.com") {
+		t.Fatal("IsHeld does not know a hold after a move")
+	}
+	if err := st.Outbox().Hold(ctx, first, MovePrefix+"not found in Acme on app-eu.wrike.com", readRow(t, st, first).Before); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeTaskPayload(t, readRow(t, st, second).Before); got.CustomStatusID != "ST_PROG" {
+		t.Errorf("second before = %+v, want it untouched", got)
+	}
+}

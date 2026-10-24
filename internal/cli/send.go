@@ -76,7 +76,7 @@ func checkHome(ctx context.Context, env Env, host string) (code int, unchecked e
 		ctx, cancel = context.WithTimeout(ctx, env.Deadline)
 		defer cancel()
 	}
-	met, m, err := syncer.MeetHome(ctx, env.Client(host), env.Store, host)
+	met, m, err := syncer.MeetHome(ctx, env.Client(host), env.Store, host, wrike.Contact{})
 	var apiErr *wrike.APIError
 	switch {
 	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
@@ -87,7 +87,7 @@ func checkHome(ctx context.Context, env Env, host string) (code int, unchecked e
 		return exitOK, nil
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: this sign in is for %s on %s, the cache belongs to %s on %s, open wrikery to decide\n",
-		accountName(met), met.Host, accountName(record), record.Host)
+		met.Name(), met.Host, record.Name(), record.Host)
 	return exitError, nil
 }
 
@@ -97,17 +97,6 @@ func uncheckedReason(err error) string {
 		return "Wrike did not answer in time"
 	}
 	return err.Error()
-}
-
-// accountName names an account for a message: its name, its id, or "another account" for a cache from before the record.
-func accountName(h store.Home) string {
-	switch {
-	case h.AccountName != "":
-		return h.AccountName
-	case h.AccountID != "":
-		return h.AccountID
-	}
-	return "another account"
 }
 
 // send runs one drain pass for the row just queued and reads its fate back from the outbox.
@@ -131,7 +120,7 @@ func send(ctx context.Context, env Env, host string, rowID int64) (outcome, stri
 		return sent, "", nil
 	case store.StateFailed:
 		if store.IsHeld(row.LastError) {
-			return held, strings.TrimPrefix(row.LastError, store.HeldPrefix), nil
+			return held, row.LastError, nil
 		}
 		return rejected, row.LastError, nil
 	case store.StateDiscarded:
@@ -252,7 +241,11 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 	case rejected:
 		return fail(env, fmt.Errorf("the change was rejected by Wrike: %s, it is listed on the changes screen in wrikery", reason))
 	case held:
-		return fail(env, fmt.Errorf("not sent, the task changed on Wrike since you set it: %s, r on the changes screen in wrikery sends it anyway", reason))
+		// Two kinds of hold: a field changed on Wrike, and the check after a move to another account or data center.
+		if fields, ok := strings.CutPrefix(reason, store.HeldPrefix); ok {
+			reason = "the task changed on Wrike since you set it: " + fields
+		}
+		return fail(env, fmt.Errorf("not sent, %s, r on the changes screen in wrikery sends it anyway", reason))
 	case discarded:
 		return fail(env, errors.New("the change was discarded in wrikery before it was sent"))
 	case queued:

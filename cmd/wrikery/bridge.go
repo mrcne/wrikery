@@ -22,6 +22,8 @@ func forwardEvents(ctx context.Context, events <-chan syncer.Event, send func(te
 				send(ui.SyncStateMsg{State: string(ev.State)})
 			case syncer.EventStoreChanged:
 				send(ui.StoreChangedMsg{Entities: entityNames(ev.Entities)})
+			case syncer.EventScopesLost:
+				send(ui.ScopesLostMsg{})
 			case syncer.EventOutboxChanged:
 				send(ui.OutboxChangedMsg{Pending: ev.Pending, Failed: ev.Failed})
 			}

@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
@@ -53,29 +56,91 @@ func TestAnotherAccountStateOpensTheBoxOnR(t *testing.T) {
 	}
 }
 
-// The followed spaces of an account with new ids are not in the new folder tree, the user picks them again.
-func TestARebuildThatLostTheFollowedSetOpensTheFollowBox(t *testing.T) {
+// The engine says after the first full cycle of a move that the followed spaces are not in the new account,
+// the follow box opens on the settings screen for the user to pick them again.
+func TestScopesLostOpensTheFollowBoxOnTheSettingsScreen(t *testing.T) {
 	m := New(rootTestOptions(t))
 	m.width, m.height = 120, 40
-	m.settings.setScopes([]store.Scope{
-		{ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true},
-		{ID: "F1", Kind: store.ScopeKindProject, Title: "Alpha", Followed: true},
-	})
-	m.switched = true
-	next, _ := m.Update(StoreChangedMsg{Entities: []string{"folders"}})
-	m = next.(Model)
-	next, cmd := m.Update(treeLoadedMsg{nodes: []treeNode{{id: "F2", title: "Beta", kind: nodeProject}}})
-	m = next.(Model)
-	var opened, told bool
-	for _, msg := range collect(cmd) {
-		switch msg := msg.(type) {
-		case openScopesMsg:
-			opened = true
-		case toastMsg:
-			told = told || msg.text == "the followed spaces and projects are not in this account, pick them again"
+	updated, cmd := m.Update(ScopesLostMsg{})
+	m = updated.(Model)
+	told := false
+	// The messages are fed back the way the program would, until the picker's answer has landed.
+	queue := collect(cmd)
+	for i := 0; i < len(queue) && i < 20; i++ {
+		if toast, ok := queue[i].(toastMsg); ok {
+			told = told || toast.text == "the followed spaces and projects are not in this account, pick them again"
+			continue
+		}
+		updated, c := m.Update(queue[i])
+		m = updated.(Model)
+		if _, isPicker := queue[i].(openScopesMsg); isPicker && c != nil {
+			queue = append(queue, c())
 		}
 	}
-	if !opened || !told || m.switched {
-		t.Errorf("opened %v, told %v, still watching %v", opened, told, m.switched)
+	if _, open := m.dialog.(scopesDialog); !open || !told || m.screen != screenSettings {
+		t.Errorf("dialog %T, told %v, screen %v, want the follow box open on the settings screen", m.dialog, told, m.screen)
+	}
+}
+
+// On the first run screen the picker is on screen already, with the new account's spaces.
+func TestScopesLostLeavesTheFirstRunAlone(t *testing.T) {
+	opts := rootTestOptions(t)
+	opts.FirstRun = true
+	m := New(opts)
+	updated, cmd := m.Update(ScopesLostMsg{})
+	if updated.(Model).screen != screenFirstRun || cmd != nil {
+		t.Errorf("screen %v, cmd %v, want the first run left as it is", updated.(Model).screen, cmd != nil)
+	}
+}
+
+// The yes runs the move, the keychain write and the engine start, the spinner keeps turning meanwhile.
+func TestTheYesKeepsTheSpinnerTurning(t *testing.T) {
+	opts := rootTestOptions(t)
+	opts.FirstRun = true
+	m := New(opts)
+	sw := &SwitchNeeded{From: "Acme on www.wrike.com", To: "Acme on app-eu.wrike.com", Confirm: func() (string, error) { return "Ann", nil }}
+	_, cmd := m.Update(confirmSwitchMsg{d: switchDialog{sw: sw, signIn: true}})
+	ticks := false
+	for _, msg := range collect(cmd) {
+		if _, ok := msg.(spinner.TickMsg); ok {
+			ticks = true
+		}
+	}
+	if !ticks {
+		t.Error("the yes started no spinner tick")
+	}
+}
+
+// The hook refreshes the engine itself on a match, a second refresh would run a second full cycle at once.
+func TestAMatchOnRRefreshesOnce(t *testing.T) {
+	opts := rootTestOptions(t)
+	refreshed := 0
+	opts.Hooks.Refresh = func() { refreshed++ }
+	m := New(opts)
+	if _, cmd := m.Update(switchLoadedMsg{}); cmd == nil || refreshed != 0 {
+		t.Errorf("refreshed %d times from the interface, the hook did it already", refreshed)
+	}
+}
+
+func TestReachErrorTextBeforeTheAccountCheck(t *testing.T) {
+	if got := reachErrorText(store.TaskRef{Kind: store.RefID, Value: "T9"}, ErrAccountUnchecked); got != "checking the account first, try again in a moment" {
+		t.Errorf("text = %q", got)
+	}
+}
+
+// Nothing is pulled while the engine waits for the answer, a fetch from the search or the timesheet included.
+func TestReachWaitsForTheAnswerInTheAnotherAccountState(t *testing.T) {
+	opts := rootTestOptions(t)
+	asked := 0
+	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) { asked++; return store.Task{}, nil }
+	m := New(opts)
+	next, _ := m.Update(SyncStateMsg{State: "another_account"})
+	m = next.(Model)
+	answer, ok := m.reach(reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "T9"}, text: "T9"})().(reachedMsg)
+	if !ok || !errors.Is(answer.err, ErrAnotherAccount) || asked != 0 {
+		t.Fatalf("answer = %+v, hook asked %d times, want ErrAnotherAccount and no fetch", answer, asked)
+	}
+	if got := reachErrorText(answer.ref, answer.err); got != "another account, R decides" {
+		t.Errorf("text = %q", got)
 	}
 }

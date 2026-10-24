@@ -440,3 +440,27 @@ func TestALegacyCacheAdoptsItsAccountOnTheFirstWrite(t *testing.T) {
 		t.Errorf("record = %+v, %v, want the board's account adopted", h, err)
 	}
 }
+
+// A row the check after a move held is not a rejection by Wrike, the command says it was held and how to send it anyway.
+func TestAWriteHeldAfterTheMoveSaysSo(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	if err := env.Store.MoveHome(context.Background(), store.Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	env = withServer(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/tasks/TASK1" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, `{"error":"resource_not_found","errorDescription":"Task not found or access denied"}`)
+			return
+		}
+		t.Errorf("%s %s, the held write must not be sent", r.Method, r.URL.Path)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "comment", "TASK1", "hello"}); code != exitError {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	want := "wrikery: not sent, held after the move, not found in Acme on www.wrike.com, r on the changes screen in wrikery sends it anyway"
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}

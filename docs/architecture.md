@@ -165,6 +165,8 @@ Every drain pass, the interface's, a command's and `sync`, reads the marker unde
 If the move renumbered anything, an old id must not send a comment or a time entry to another task.
 A sign in, a pasted token or the browser, compares before it stores anything, and a mismatch answers the box instead of a name: its yes writes that transaction, then the credential, then starts the engine, whose first cycle is a manual one, so every followed scope is pulled again from scratch and the sweep runs.
 The engine that met another account waits for the user like one whose token was rejected, `R` asks the same question.
+That first full cycle prunes with the scopes the new account answered: a followed scope it rejects belongs to the old account, its tasks leave with the sweep, and the engine reports the lost scopes so the interface opens the follow box.
+A row the check after the move holds starts its error with "held after the move", the way an edit held over a change on Wrike starts with its own words, so the changes screen, a command and a discard tell both from a rejection.
 
 A command sends its write right away: it queues the row and runs one drain pass with a deadline, then reads the row back to report sent, queued or rejected.
 Two processes can therefore drain one outbox, a running TUI and a command.

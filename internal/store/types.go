@@ -162,6 +162,9 @@ const MetaKeyHomeHost = "home_host"
 // MetaKeySwitchPending is "1" from a move to another account or data center until a drain pass checked the queue against it.
 const MetaKeySwitchPending = "switch_pending"
 
+// MetaKeyRebuildDue is "1" from a move until a full cycle swept the cache with the scopes the new account answered.
+const MetaKeyRebuildDue = "rebuild_due"
+
 // MetaKeySidebarPinned is "1" while the sidebar shows only the pinned nodes, so the choice survives a restart.
 const MetaKeySidebarPinned = "sidebar_pinned_only"
 

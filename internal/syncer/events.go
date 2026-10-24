@@ -35,6 +35,8 @@ const (
 	EventStoreChanged  EventKind = "store_changed"
 	EventStateChanged  EventKind = "state_changed"
 	EventOutboxChanged EventKind = "outbox_changed"
+	// EventScopesLost says the first full cycle after a move found followed scopes the new account does not have.
+	EventScopesLost EventKind = "scopes_lost"
 )
 
 // Event is a refresh hint for the UI, never a delta. Receivers re-read what they show from the store.

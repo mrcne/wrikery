@@ -52,6 +52,12 @@ var ErrSignInNeeded = errors.New("sign in needed")
 // ErrOffline answers what needs Wrike while the interface runs in offline mode, a fetch or a retry.
 var ErrOffline = errors.New("offline mode, R goes online")
 
+// ErrAnotherAccount answers a fetch while the engine waits for the user's answer about another account, nothing is pulled until then.
+var ErrAnotherAccount = errors.New("another account, R decides")
+
+// ErrAccountUnchecked answers a fetch before the engine compared the account of a credential no sign in checked.
+var ErrAccountUnchecked = errors.New("checking the account first, try again in a moment")
+
 // SignIn is one browser sign in the hook started: the address for a copy by hand, the answer, and the two ways to end it early.
 type SignIn struct {
 	URL       string
@@ -137,9 +143,6 @@ type Model struct {
 	settings      settingsModel
 	dialog        dialog
 	moveConfirmed bool // the saved yes to the first H or L, read at start and set on the yes
-	// switched is set by a yes to another account until a folder tree from that account was checked for the followed scopes,
-	// switchArmed once the engine pulled that tree.
-	switched, switchArmed bool
 
 	selectedNode   treeNode
 	selectedTaskID string
@@ -231,10 +234,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
 	case StoreChangedMsg:
-		if m.switched && slices.Contains(msg.Entities, "folders") {
-			m.switchArmed = true
-		}
 		return m, m.reload(msg.Entities)
+	case ScopesLostMsg:
+		if m.screen == screenFirstRun {
+			// The first run's own picker is on screen and shows the new account's spaces.
+			return m, nil
+		}
+		// The box opens on the settings screen, the one the picker's answer opens it on.
+		return m, tea.Batch(m.openScreen(screenSettings), intent(openScopesMsg{}),
+			intent(toastMsg{text: "the followed spaces and projects are not in this account, pick them again"}))
 	case ControlMsg:
 		return m.control(msg)
 	case OutboxChangedMsg:
@@ -277,11 +285,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
-		lost := m.lostFollowed(msg.nodes)
 		if n, ok := m.sidebar.current(); ok {
-			return m, tea.Batch(intent(nodeSelectedMsg{node: n}), lost)
+			return m, intent(nodeSelectedMsg{node: n})
 		}
-		return m, lost
+		return m, nil
 	case focusMsg:
 		if m.screen == screenTimesheet {
 			// The detail pane names the list on h, beside the grid that means the grid.
@@ -515,14 +522,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case goOnlineMsg:
 		return m.goOnline()
 	case confirmSwitchMsg:
-		m.switched, m.switchArmed = true, false
 		d := msg.d
 		if d.signIn {
+			// The spinner stopped when the box opened, the move, the keychain write and the engine start take a moment.
 			m.firstRun.verifying = true
-			return m, func() tea.Msg {
+			return m, tea.Batch(m.firstRun.spinner.Tick, func() tea.Msg {
 				name, err := d.sw.Confirm()
 				return tokenVerifiedMsg{name: name, err: err, browser: d.browser, app: d.app}
-			}
+			})
 		}
 		m.status.state = "syncing"
 		return m, func() tea.Msg {
@@ -540,17 +547,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			return m, m.status.show(msg.err.Error(), true)
 		case msg.sw == nil:
-			// The credential changed back meanwhile, the engine goes on with a cycle.
-			if m.opts.Hooks.Refresh != nil {
-				m.opts.Hooks.Refresh()
-			}
+			// The credential changed back meanwhile, the hook let the engine go on already.
 			return m, m.status.show("the sign in matches the cache again", false)
 		}
 		m.openDialog(switchDialog{sw: msg.sw})
 		return m, nil
 	case switchDoneMsg:
 		if msg.err != nil {
-			m.switched = false
 			return m, m.status.show(msg.err.Error(), true)
 		}
 		return m, m.status.show("the queue goes to the new account", false)
@@ -1546,26 +1549,6 @@ func (m Model) refresh() (Model, tea.Cmd) {
 	}
 	m.opts.Hooks.Refresh()
 	return m, m.status.show("refreshing", false)
-}
-
-// lostFollowed checks, once after a yes to another account and the engine's pull of its folder tree,
-// that the followed spaces and projects are in that tree: an account with new ids has none of them,
-// and the follow box opens so the user picks them again.
-func (m *Model) lostFollowed(nodes []treeNode) tea.Cmd {
-	if !m.switched || !m.switchArmed {
-		return nil
-	}
-	m.switched, m.switchArmed = false, false
-	there := map[string]bool{}
-	for _, n := range nodes {
-		there[n.id] = true
-	}
-	for _, sc := range m.settings.scopes {
-		if sc.Followed && sc.Kind != store.ScopeKindMe && !there[sc.ID] {
-			return tea.Batch(intent(openScopesMsg{}), intent(toastMsg{text: "the followed spaces and projects are not in this account, pick them again"}))
-		}
-	}
-	return nil
 }
 
 // goOnline ends offline mode for the rest of the session, the hook starts the engine on a command goroutine.

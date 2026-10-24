@@ -231,12 +231,16 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	if offline {
 		a.startOffline()
 	} else if !firstRun {
-		host, err := a.engineHost(context.Background())
-		if err != nil {
-			slog.Warn("could not detect the Wrike data center", "error", err)
-			host = wrike.DefaultHost
-		}
-		a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
+		// The host may need the network, a probe of up to five seconds, so the engine starts beside the program
+		// and the interface draws at once. startEngine does nothing once the program has returned.
+		go func() {
+			host, err := a.engineHost(context.Background())
+			if err != nil {
+				slog.Warn("could not detect the Wrike data center", "error", err)
+				host = wrike.DefaultHost
+			}
+			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
+		}()
 	}
 	_, err = a.prog.Run()
 	a.shutdown()
@@ -375,10 +379,7 @@ func (c *cmdAuth) client(host string) *wrike.Client {
 
 func (c *cmdAuth) host(ctx context.Context) (string, error) {
 	s, _ := c.load()
-	if c.fromEnv {
-		return envHost(ctx, c.cfg, s.AccessToken, nil)
-	}
-	return resolveHost(ctx, c.cfg, c.st, s)
+	return hostFor(ctx, c.cfg, c.st, s, c.fromEnv, nil)
 }
 
 // tokenFromEnv says whether WRIKERY_TOKEN overrides the stored sign in, the way Tokens.Load reads it.

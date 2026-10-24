@@ -3,9 +3,12 @@ package syncer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 // AnotherAccountError stops the engine before it sends or pulls anything:
@@ -15,24 +18,25 @@ type AnotherAccountError struct {
 }
 
 func (e *AnotherAccountError) Error() string {
-	return fmt.Sprintf("sync: the credential is for %s on %s, the cache belongs to another account", homeName(e.Met), e.Met.Host)
+	return fmt.Sprintf("sync: the credential is for %s on %s, the cache belongs to another account", e.Met.Name(), e.Met.Host)
 }
 
-// homeName is the account's name, or its id when the record has no name.
-func homeName(h store.Home) string {
-	if h.AccountName != "" {
-		return h.AccountName
-	}
-	return h.AccountID
-}
+// ErrAccountUnchecked answers a fetch before the engine compared its credential's account with the cache's,
+// a fetch then could pull a task of another account into the cache.
+var ErrAccountUnchecked = errors.New("sync: the account is not compared yet")
 
 // MeetHome reads who the client's credential belongs to on host and how that stands to the cache's record.
 // host must be the one that already answered for the credential, the account read answers 401 anywhere else.
-// A cache from before the record adopts what it meets when that matches what it remembers.
-func MeetHome(ctx context.Context, c Client, st *store.Store, host string) (store.Home, store.Meeting, error) {
-	me, err := c.Me(ctx)
-	if err != nil {
-		return store.Home{}, 0, err
+// me is the person when the caller has read it already, a sign in has, an empty one is read here.
+// A cache from before the record adopts what it meets when that matches what it remembers,
+// and when it holds folders, only when they include the account's root: one person has one contact id in every account
+// it can reach, so the root folder is what tells a person's other account apart.
+func MeetHome(ctx context.Context, c Client, st *store.Store, host string, me wrike.Contact) (store.Home, store.Meeting, error) {
+	if me.ID == "" {
+		var err error
+		if me, err = c.Me(ctx); err != nil {
+			return store.Home{}, 0, err
+		}
 	}
 	account, err := c.Account(ctx)
 	if err != nil {
@@ -44,6 +48,15 @@ func MeetHome(ctx context.Context, c Client, st *store.Store, host string) (stor
 		return store.Home{}, 0, err
 	}
 	m := record.Meet(met)
+	if m == store.MeetAdopt && account.RootFolderID != "" {
+		known, cached, err := st.RootFolder(ctx, account.RootFolderID)
+		if err != nil {
+			return store.Home{}, 0, err
+		}
+		if cached && !known {
+			m = store.MeetAsk
+		}
+	}
 	if m == store.MeetAdopt {
 		if err := st.AdoptHome(ctx, met); err != nil {
 			return store.Home{}, 0, err
@@ -57,7 +70,16 @@ func MeetHome(ctx context.Context, c Client, st *store.Store, host string) (stor
 // and every row whose task carries a title the cache never knew for it:
 // if the move renumbered anything, an old id must not send a comment or a time entry to another task.
 // A read error returns before anything is held, the marker stays and the next pass tries again.
-func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home) error {
+// A read Wrike answers for good, a 404 or a 400 for an id it cannot parse among them, is no answer: its rows are held.
+func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home, log *slog.Logger) error {
+	// rejected logs a read Wrike refused for good and says so, a read that may pass later stops the check and keeps the marker.
+	rejected := func(what string, err error) bool {
+		if err == nil || classify(err) != failPermanent {
+			return false
+		}
+		log.Warn("queue check after a move, the read was refused, its rows are held", "read", what, "error", err)
+		return true
+	}
 	all, err := st.Outbox().ListChanges(ctx)
 	if err != nil {
 		return err
@@ -101,7 +123,8 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 		case store.KindTaskCreate:
 			folders[r.EntityID] = true
 		case store.KindTimelogUpdate, store.KindTimelogDelete:
-			if r.TaskID != "" && !store.IsLocalID(r.TaskID) {
+			// An entry logged offline has a local id, the edit waits for its create, which is checked through its task.
+			if r.TaskID != "" && !store.IsLocalID(r.TaskID) && !store.IsLocalID(r.EntityID) {
 				entries[r.TaskID] = true
 			}
 		}
@@ -114,6 +137,11 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 	}
 	for start := 0; start < len(ids); start += reachBatch {
 		tasks, err := c.TasksByIDs(ctx, ids[start:min(start+reachBatch, len(ids))], nil)
+		// Wrike answers 404 to a read it knows none of the ids of, and 400 invalid_request to one it cannot parse,
+		// the case of an account whose ids changed in a move: no task of the batch answered, its rows are held.
+		if rejected("tasks", err) {
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -126,7 +154,7 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 	inAccount := map[string]bool{}
 	if len(folders) > 0 {
 		tree, err := c.FolderTree(ctx)
-		if err != nil {
+		if err != nil && !rejected("folders", err) {
 			return err
 		}
 		for _, f := range tree {
@@ -134,7 +162,7 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 		}
 		// A task can be created right in a space, whose root folder has the space's id.
 		spaces, err := c.Spaces(ctx)
-		if err != nil {
+		if err != nil && !rejected("spaces", err) {
 			return err
 		}
 		for _, sp := range spaces {
@@ -144,7 +172,7 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 	mine := map[string]bool{} // the entry ids the new user has on the tasks of queued entry edits
 	for taskID := range entries {
 		logs, err := c.TaskTimelogs(ctx, taskID)
-		if err != nil && !isNotFound(err) {
+		if err != nil && !rejected("time entries", err) {
 			return err
 		}
 		for _, l := range logs {
@@ -154,8 +182,8 @@ func checkQueue(ctx context.Context, c Client, st *store.Store, home store.Home)
 		}
 	}
 
-	notFound := fmt.Sprintf("not found in %s on %s", homeName(home), home.Host)
-	different := fmt.Sprintf("a different task in %s on %s", homeName(home), home.Host)
+	notFound := fmt.Sprintf("%snot found in %s on %s", store.MovePrefix, home.Name(), home.Host)
+	different := fmt.Sprintf("%sa different task in %s on %s", store.MovePrefix, home.Name(), home.Host)
 	for _, r := range rows {
 		reason := rowReason(r, titles, answered, inAccount, mine, notFound, different)
 		if reason == "" {
@@ -197,7 +225,7 @@ func rowReason(r store.OutboxRow, titles map[string]map[string]bool, answered ma
 			return notFound
 		}
 	case store.KindTimelogUpdate, store.KindTimelogDelete:
-		if r.TaskID != "" && !store.IsLocalID(r.TaskID) && !mine[r.EntityID] {
+		if r.TaskID != "" && !store.IsLocalID(r.TaskID) && !store.IsLocalID(r.EntityID) && !mine[r.EntityID] {
 			return notFound
 		}
 	}

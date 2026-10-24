@@ -40,8 +40,14 @@ const (
 // A held row remembers Wrike's newer values, see Hold, which is why a discard passes nothing on from it.
 const HeldPrefix = "changed on Wrike since you set it: "
 
-// IsHeld tells the error of a held edit from a rejection, the command line and the hand-on of a dropped edit read it.
-func IsHeld(text string) bool { return strings.HasPrefix(text, HeldPrefix) }
+// MovePrefix starts the error of a row the check after a move to another account or data center held,
+// its task, folder or time entry is not there or is another one.
+const MovePrefix = "held after the move, "
+
+// IsHeld tells the error of a held row, either kind, from a rejection, the command line and the hand-on of a dropped edit read it.
+func IsHeld(text string) bool {
+	return strings.HasPrefix(text, HeldPrefix) || strings.HasPrefix(text, MovePrefix)
+}
 
 // HistoryDays is how long a sent or discarded row stays in the outbox.
 const HistoryDays = 30

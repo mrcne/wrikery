@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/lockfile"
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
 // ErrLocked is returned when another wrikery process held the sync lock until the deadline of the wait.
@@ -59,7 +61,7 @@ func (c Config) withDefaults() Config {
 // The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
 // Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
 // Reach is the one exception: it runs on the caller's goroutine while Run runs,
-// so it may touch only client, st, log and events, which New sets and nothing changes after.
+// so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
 	st     *store.Store
@@ -78,6 +80,8 @@ type Engine struct {
 	failures    int
 	lockWarned  bool
 	homeChecked bool // the credential's account was compared with the cache's record, once per engine
+	// homeOK is homeChecked for Reach, which runs on another goroutine.
+	homeOK atomic.Bool
 }
 
 func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
@@ -293,7 +297,7 @@ func (e *Engine) drain(start, post context.Context) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if err := checkQueue(start, e.client, e.st, home); err != nil {
+		if err := checkQueue(start, e.client, e.st, home, e.log); err != nil {
 			return false, err
 		}
 		if err := e.st.ClearSwitch(start); err != nil {
@@ -382,6 +386,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 	partial := false
 	pulled := 0
+	var answered []store.Scope // the scopes Wrike did not reject, the sweep after a move prunes with these
 	// Scopes pulled from scratch this cycle. The sweep reuses their ids instead of crawling them again.
 	full := map[string][]string{}
 	for _, sc := range scopes {
@@ -395,6 +400,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 			partial = true
 			continue
 		}
+		answered = append(answered, sc)
 		pulled += len(ids)
 		if sc.Cursor == "" {
 			full[sc.ID] = ids
@@ -405,7 +411,24 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 
 	// The sweep prunes with the union of every scope. Without the rejected one it would delete that scope's tasks.
-	if manual && !partial {
+	// The first full cycle after a move is the exception: a scope the new account rejects is the old account's,
+	// its tasks are the ones to go, so it prunes with the scopes that answered and says the followed set was lost.
+	rebuild, err := e.st.RebuildDue(ctx)
+	if err != nil {
+		return err
+	}
+	switch {
+	case manual && rebuild:
+		if err := sweep(ctx, e.client, e.st, answered, meID, full); err != nil {
+			return err
+		}
+		if err := e.st.ClearRebuild(ctx); err != nil {
+			return err
+		}
+		if partial {
+			e.emit(Event{Kind: EventScopesLost})
+		}
+	case manual && !partial:
 		if err := sweep(ctx, e.client, e.st, scopes, meID, full); err != nil {
 			return err
 		}
@@ -491,9 +514,10 @@ func (e *Engine) meetHome(ctx context.Context) error {
 	}
 	if record.AccountID != "" && !e.cfg.CheckHome {
 		e.homeChecked = true
+		e.homeOK.Store(true)
 		return nil
 	}
-	met, m, err := MeetHome(ctx, e.client, e.st, e.cfg.Host)
+	met, m, err := MeetHome(ctx, e.client, e.st, e.cfg.Host, wrike.Contact{})
 	if err != nil {
 		return err
 	}
@@ -501,6 +525,7 @@ func (e *Engine) meetHome(ctx context.Context) error {
 		return &AnotherAccountError{Met: met}
 	}
 	e.homeChecked = true
+	e.homeOK.Store(true)
 	return nil
 }
 

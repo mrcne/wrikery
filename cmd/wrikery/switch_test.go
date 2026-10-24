@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,9 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
+// meReads counts the reads of the person on the EU host of movedAccount.
+var meReads atomic.Int32
+
 // movedAccount is the account C1 of Acme after its move: the US host answers 300 for it, the EU host answers.
 func movedAccount(t *testing.T) *http.Client {
 	t.Helper()
@@ -30,6 +34,7 @@ func movedAccount(t *testing.T) *http.Client {
 	eu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v4/contacts":
+			meReads.Add(1)
 			_, _ = w.Write([]byte(`{"kind":"contacts","data":[{"id":"C1","firstName":"Ann","lastName":"Kowalska","me":true}]}`))
 		case "/api/v4/account":
 			_, _ = w.Write([]byte(`{"kind":"accounts","data":[{"id":"ACC1","name":"Acme"}]}`))
@@ -130,5 +135,71 @@ func TestEnvTokenProbesTheHost(t *testing.T) {
 	host, err := a.engineHost(context.Background())
 	if err != nil || host != wrike.EUHost {
 		t.Errorf("host = %q, %v, want the EU host the token is served on", host, err)
+	}
+}
+
+// With the network down the probe gets no answer, the remembered host keeps the start and a command working,
+// the account check compares once Wrike answers.
+func TestEnvTokenFallsBackToTheRememberedHostWithTheNetworkDown(t *testing.T) {
+	a, _ := switchApp(t)
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	a.hc = &http.Client{Transport: hostRouter{srv1: down, srv2: down}}
+	if err := a.st.SetMeta(context.Background(), store.MetaKeyHost, wrike.EUHost); err != nil {
+		t.Fatal(err)
+	}
+	a.tokenFromEnv, a.session = true, auth.Session{AccessToken: "env-token"}
+	host, err := a.engineHost(context.Background())
+	if err != nil || host != wrike.EUHost {
+		t.Errorf("host = %q, %v, want the remembered EU host", host, err)
+	}
+}
+
+// Only an answer about the token stands, a rate limited probe is no answer and the remembered host is taken.
+func TestEnvTokenFallsBackOnARateLimitedProbe(t *testing.T) {
+	a, _ := switchApp(t)
+	limited := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(limited.Close)
+	a.hc = &http.Client{Transport: hostRouter{srv1: limited, srv2: limited}}
+	if err := a.st.SetMeta(context.Background(), store.MetaKeyHost, wrike.EUHost); err != nil {
+		t.Fatal(err)
+	}
+	a.tokenFromEnv, a.session = true, auth.Session{AccessToken: "env-token"}
+	host, err := a.engineHost(context.Background())
+	if err != nil || host != wrike.EUHost {
+		t.Errorf("host = %q, %v, want the remembered EU host", host, err)
+	}
+}
+
+// A host the config names is the one to talk to, the probe would only cost the start a round trip.
+func TestEnvTokenWithAConfigHostSkipsTheProbe(t *testing.T) {
+	a, _ := switchApp(t)
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	a.hc = &http.Client{Transport: hostRouter{srv1: down, srv2: down}}
+	a.cfg.Host = wrike.EUHost
+	a.tokenFromEnv, a.session = true, auth.Session{AccessToken: "env-token"}
+	start := time.Now()
+	host, err := a.engineHost(context.Background())
+	if err != nil || host != wrike.EUHost || time.Since(start) > time.Second {
+		t.Errorf("host = %q, %v after %s, want the config host at once", host, err, time.Since(start))
+	}
+}
+
+// The probe read the person already, the account check takes it.
+func TestASignInReadsThePersonOnce(t *testing.T) {
+	a, _ := switchApp(t)
+	if err := a.st.MoveHome(context.Background(), store.Home{AccountID: "ACC1", AccountName: "Acme", Host: wrike.EUHost, ContactID: "C1"}); err != nil {
+		t.Fatal(err)
+	}
+	meReads.Store(0)
+	if _, err := a.verifyToken(context.Background(), "new-token"); err != nil {
+		t.Fatal(err)
+	}
+	if n := meReads.Load(); n != 1 {
+		t.Errorf("the person was read %d times on the EU host, want once", n)
 	}
 }

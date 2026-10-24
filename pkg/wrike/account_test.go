@@ -19,7 +19,7 @@ func TestAccountReadsTheCurrentAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (Account{ID: "IEAG3VSG", Name: "YellowTerm"}) {
+	if got != (Account{ID: "IEAG3VSG", Name: "YellowTerm", RootFolderID: "IEAG3VSGI7777777"}) {
 		t.Errorf("account = %+v", got)
 	}
 }

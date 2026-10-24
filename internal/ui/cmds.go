@@ -374,11 +374,16 @@ const reachTimeout = 15 * time.Second
 
 // reach asks the engine for a task the cache lacks, through the hook, so the interface itself never talks to Wrike.
 func (m Model) reach(ask reachMsg) tea.Cmd {
-	hook, offline := m.opts.Hooks.Reach, m.opts.Offline
+	hook, offline, waiting := m.opts.Hooks.Reach, m.opts.Offline, m.status.state == "another_account"
 	return func() tea.Msg {
 		answer := reachedMsg{ref: ask.ref, text: ask.text, seq: ask.seq, origin: ask.origin}
-		if offline {
+		switch {
+		case offline:
 			answer.err = ErrOffline
+			return answer
+		case waiting:
+			// The credential belongs to another account, a fetch would pull one of its tasks into this cache.
+			answer.err = ErrAnotherAccount
 			return answer
 		}
 		if hook == nil {
@@ -400,7 +405,8 @@ func reachErrorText(ref store.TaskRef, err error) string {
 			return "no task with this link on Wrike, or no access"
 		}
 		return "no task with this id on Wrike, or no access"
-	case errors.Is(err, errReachUnavailable), errors.Is(err, ErrSignInNeeded), errors.Is(err, ErrOffline):
+	case errors.Is(err, errReachUnavailable), errors.Is(err, ErrSignInNeeded), errors.Is(err, ErrOffline), errors.Is(err, ErrAnotherAccount),
+		errors.Is(err, ErrAccountUnchecked):
 		return err.Error()
 	default:
 		return "Wrike could not be reached"

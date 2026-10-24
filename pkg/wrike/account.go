@@ -10,6 +10,8 @@ import (
 type Account struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// RootFolderID is the account's root folder, which a cache of the account holds in its folder tree.
+	RootFolderID string `json:"rootFolderId"`
 }
 
 // Account returns the account of the token, see https://developers.wrike.com/api/v4/account/.
