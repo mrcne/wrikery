@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -387,5 +388,67 @@ func TestTasksByIDsDecodesTheScope(t *testing.T) {
 	tasks, err := c.TasksByIDs(context.Background(), []string{"IEAAAATSK9"}, nil)
 	if err != nil || len(tasks) != 1 || tasks[0].Scope != "RbTask" {
 		t.Errorf("tasks = %+v, %v, want the scope decoded", tasks, err)
+	}
+}
+
+func TestTasksByIDsDecodesCustomFieldsAndEffort(t *testing.T) {
+	// A task without the keys decodes to a nil list and a nil effort, the store tells the two apart from an empty list.
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[
+  {"id":"IEAAAATSK1","title":"With","status":"Active","createdDate":"2026-08-30T08:00:00Z","updatedDate":"2026-09-01T11:00:00Z",
+   "customFields":[{"id":"IEAAAACFAAAABUDG","value":"765"}],"effortAllocation":{"mode":"Basic","totalEffort":1200,"allocatedEffort":0}},
+  {"id":"IEAAAATSK2","title":"Without","status":"Active","createdDate":"2026-08-30T08:00:00Z","updatedDate":"2026-09-01T11:00:00Z"}]}`))
+	}))
+	got, err := c.TasksByIDs(context.Background(), []string{"IEAAAATSK1", "IEAAAATSK2"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got[0].CustomFields, []CustomFieldValue{{ID: "IEAAAACFAAAABUDG", Value: "765"}}) || got[0].Effort == nil || got[0].Effort.Mode != "Basic" || got[0].Effort.TotalEffort != 1200 {
+		t.Errorf("task 1 = %+v, effort %+v", got[0].CustomFields, got[0].Effort)
+	}
+	if got[1].CustomFields != nil || got[1].Effort != nil {
+		t.Errorf("task 2 should carry nil, got %+v, %+v", got[1].CustomFields, got[1].Effort)
+	}
+}
+
+func TestUpdateTaskSendsABudget(t *testing.T) {
+	var forms []url.Values
+	var queries []url.Values
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		forms, queries = append(forms, r.PostForm), append(queries, r.URL.Query())
+		_, _ = w.Write([]byte(`{"kind":"tasks","data":[{"id":"IEAAAATSK1","title":"Fix login","status":"Active","createdDate":"2026-08-30T08:00:00Z","updatedDate":"2026-09-01T11:00:00Z"}]}`))
+	}))
+	ctx := context.Background()
+	if _, err := c.UpdateTask(ctx, "IEAAAATSK1", TaskUpdate{CustomFields: []CustomFieldValue{{ID: "IEAAAACFAAAABUDG", Value: "765"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UpdateTask(ctx, "IEAAAATSK1", TaskUpdate{CustomFields: []CustomFieldValue{{ID: "IEAAAACFAAAABUDG"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UpdateTask(ctx, "IEAAAATSK1", TaskUpdate{Effort: &TaskEffort{Mode: "Basic", TotalEffort: 1200}, Fields: []string{"effortAllocation"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.UpdateTask(ctx, "IEAAAATSK1", TaskUpdate{Effort: &TaskEffort{Mode: "None"}}); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{`[{"id":"IEAAAACFAAAABUDG","value":"765"}]`, `[{"id":"IEAAAACFAAAABUDG","value":null}]`} {
+		if got := forms[i].Get("customFields"); got != want {
+			t.Errorf("customFields %d = %s, want %s", i, got, want)
+		}
+	}
+	if got := forms[2].Get("effortAllocation"); got != `{"mode":"Basic","totalEffort":1200}` {
+		t.Errorf("effortAllocation = %s", got)
+	}
+	if got := queries[2].Get("fields"); got != `["effortAllocation"]` {
+		t.Errorf("fields = %s", got)
+	}
+	if got := forms[3].Get("effortAllocation"); got != `{"mode":"None"}` {
+		t.Errorf("effortAllocation none = %s", got)
+	}
+	if forms[0].Has("effortAllocation") || forms[2].Has("customFields") || queries[0].Has("fields") {
+		t.Errorf("unset members must be omitted: %v %v", forms, queries)
 	}
 }
