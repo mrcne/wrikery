@@ -49,6 +49,9 @@ func TestEndToEndSync(t *testing.T) {
 	mux.HandleFunc("/spaces", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"spaces","data":[{"id":"S1","title":"Dev","accessType":"Private"}]}`)
 	})
+	mux.HandleFunc("/customfields", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"kind":"customfields","data":[]}`)
+	})
 	mux.HandleFunc("/workflows", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"kind":"workflows","data":[{"id":"W1","name":"Default","customStatuses":[{"id":"CS1","name":"New","group":"Active"}]}]}`)
 	})

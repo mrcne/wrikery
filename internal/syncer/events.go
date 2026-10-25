@@ -24,10 +24,12 @@ const (
 	KindTimelogs  EntityKind = "timelogs"
 	// KindDependencies changes only what the task detail draws, the tree and the lists need no reload for it.
 	KindDependencies EntityKind = "dependencies"
+	// KindCustomFields is the account's field definitions and the Effort field's availability, the reference data the budget reads.
+	KindCustomFields EntityKind = "custom_fields"
 )
 
 // AllEntities is every kind, what a full reload names. A new kind goes here next to its constant.
-var AllEntities = []EntityKind{KindTasks, KindFolders, KindSpaces, KindContacts, KindWorkflows, KindComments, KindTimelogs, KindDependencies}
+var AllEntities = []EntityKind{KindTasks, KindFolders, KindSpaces, KindContacts, KindWorkflows, KindComments, KindTimelogs, KindDependencies, KindCustomFields}
 
 type EventKind string
 

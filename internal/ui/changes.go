@@ -108,6 +108,24 @@ func datesText(d *store.TaskDates) string {
 	return d.Type
 }
 
+// budgetText is a budget write as hours, none for no value, the raw value when the field is unknown or its value cannot be read.
+func budgetText(p store.TaskUpdatePayload, ref refData) string {
+	if p.Effort != nil {
+		return store.MinutesWords(p.Effort.TotalMinutes)
+	}
+	if len(p.CustomFields) == 0 {
+		return "none"
+	}
+	cf := p.CustomFields[0]
+	def := store.CustomField{ID: cf.ID}
+	for _, f := range ref.customFields {
+		if f.ID == cf.ID {
+			def = f
+		}
+	}
+	return store.BudgetWords(def, cf.Value)
+}
+
 func timelogText(hours float64, date, note string) string {
 	s := hoursText(hours) + " on " + shortDate(date)
 	if note != "" {
@@ -171,6 +189,10 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 		}
 		if p.Dates != nil {
 			both("dates  " + arrow(datesText(b.Dates), datesText(p.Dates)))
+		}
+		if len(p.CustomFields) > 0 || p.Effort != nil {
+			// The only custom field the client writes is the budget, in the field's format or as the Effort field's minutes.
+			both("budget  " + arrow(budgetText(b, ref), budgetText(p, ref)))
 		}
 		// The description is the long one, it comes last so the short fields stay on screen in a cut summary.
 		if p.Description != "" {

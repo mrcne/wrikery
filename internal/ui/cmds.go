@@ -40,6 +40,16 @@ func (m Model) loadRef() tea.Cmd {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return errMsg{err}
 		}
+		ref.customFields, err = st.CustomFields().List(ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		switch v, err := st.GetMeta(ctx, store.MetaKeyEffortUnavailable); {
+		case err == nil:
+			ref.effortUnavailable = v == "1"
+		case !errors.Is(err, store.ErrNotFound):
+			return errMsg{err}
+		}
 		return refLoadedMsg{ref: ref}
 	}
 }
@@ -277,7 +287,7 @@ func (m Model) loadTasks(node treeNode, crumb, selectID string, lift bool) tea.C
 // loadTask reads one task and its thread. It runs on every cursor move, so it only reads.
 // Recording that a task was opened is markOpened's job.
 func (m Model) loadTask(id string) tea.Cmd {
-	st := m.opts.Store
+	st, ref, budgetCfg := m.opts.Store, m.ref, m.opts.Config.Budget
 	return func() tea.Msg {
 		ctx := context.Background()
 		asked := id
@@ -332,7 +342,11 @@ func (m Model) loadTask(id string) tea.Cmd {
 		for _, rt := range ends {
 			related[rt.ID] = rt
 		}
-		return taskLoadedMsg{asked: asked, task: task, comments: comments, logs: logs, subtasks: subtasks, deps: deps, related: related, states: states, crumb: strings.Join(crumbs, ", ")}
+		budget, err := resolveBudget(ctx, st, budgetCfg, ref.customFields, ref.effortUnavailable, task)
+		if err != nil {
+			return errMsg{err}
+		}
+		return taskLoadedMsg{asked: asked, task: task, comments: comments, logs: logs, subtasks: subtasks, deps: deps, related: related, states: states, crumb: strings.Join(crumbs, ", "), budget: budget}
 	}
 }
 

@@ -56,8 +56,8 @@ func TestPullScopeInitialThenIncremental(t *testing.T) {
 	if gotParams[0].FolderID != "F1" || !gotParams[0].Descendants {
 		t.Errorf("params = %+v, want the folder query with descendants", gotParams[0])
 	}
-	if strings.Join(gotParams[0].Fields, ",") != "description,responsibleIds,parentIds,superTaskIds,dependencyIds,attachmentCount" {
-		t.Errorf("fields = %v, the description, the id lists and the attachment count are optional and must be requested", gotParams[0].Fields)
+	if strings.Join(gotParams[0].Fields, ",") != "description,responsibleIds,parentIds,superTaskIds,dependencyIds,attachmentCount,customFields" {
+		t.Errorf("fields = %v, the description, the id lists, the attachment count and the custom field values are optional and must be requested", gotParams[0].Fields)
 	}
 	if !gotParams[0].SubTasks {
 		t.Error("a subtask without a folder of its own is listed only when subtasks are asked for")
@@ -340,7 +340,7 @@ func TestPullReferenceReplacesAll(t *testing.T) {
 				CustomStatuses: []wrike.CustomStatus{{ID: "CS1", Name: "New"}}}}, nil
 		},
 	}
-	if err := pullReference(ctx, fc, st); err != nil {
+	if err := pullReference(ctx, fc, st, slog.Default()); err != nil {
 		t.Fatal(err)
 	}
 	if f, err := st.Folders().Get(ctx, "F2"); err != nil || f.Project == nil {
@@ -377,7 +377,7 @@ func TestPullReferenceKeepsTheWorkflowsOfEverySpace(t *testing.T) {
 			return nil, nil
 		},
 	}
-	if err := pullReference(ctx, fc, st); err != nil {
+	if err := pullReference(ctx, fc, st, slog.Default()); err != nil {
 		t.Fatal(err)
 	}
 	ws, err := st.Workflows().List(ctx)
@@ -405,7 +405,7 @@ func TestPullReferenceSurvivesASpaceWithoutTheWorkflowsEndpoint(t *testing.T) {
 			return nil, &wrike.APIError{StatusCode: 404, Code: "not_found"}
 		},
 	}
-	if err := pullReference(ctx, fc, st); err != nil {
+	if err := pullReference(ctx, fc, st, slog.Default()); err != nil {
 		t.Fatalf("a missing space endpoint must not fail the pull: %v", err)
 	}
 	if ws, err := st.Workflows().List(ctx); err != nil || len(ws) != 1 {
@@ -505,3 +505,50 @@ func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
 
 // GET /folders lists the Recycle Bin and what was thrown into it next to the live folders.
 // A deleted folder must not be found by title on the command line, so it never reaches the cache.
+
+func TestReferencePullStoresTheCustomFields(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	fc := &fakeClient{customFields: func() ([]wrike.CustomField, error) {
+		return []wrike.CustomField{{ID: "CF1", Title: "Budget", Type: "Duration"}}, nil
+	}}
+	if err := pullReference(ctx, fc, st, slog.Default()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.CustomFields().List(ctx)
+	if len(got) != 1 || got[0].ID != "CF1" || got[0].Type != "Duration" {
+		t.Errorf("fields = %+v", got)
+	}
+	// An account whose plan refuses the call has no fields, the cycle goes on.
+	fc.customFields = func() ([]wrike.CustomField, error) { return nil, &wrike.APIError{StatusCode: 403, Code: "not_allowed"} }
+	if err := pullReference(ctx, fc, st, slog.Default()); err != nil {
+		t.Errorf("a 403 on the fields must not fail the reference pull: %v", err)
+	}
+	if got, _ := st.CustomFields().List(ctx); len(got) != 0 {
+		t.Errorf("a refused call left %+v", got)
+	}
+	// Only the plan's not_allowed is no fields, another 403 is an error like any other.
+	fc.customFields = func() ([]wrike.CustomField, error) {
+		return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+	}
+	if err := pullReference(ctx, fc, st, slog.Default()); err == nil {
+		t.Error("an access_forbidden on the fields must fail the reference pull")
+	}
+}
+
+func TestScopePullAsksForTheCustomFields(t *testing.T) {
+	var fields []string
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) { fields = p.Fields; return wrike.TasksPage{}, nil }}
+	st := newTestStore(t)
+	ctx := context.Background()
+	sc := store.Scope{ID: "F1", Kind: store.ScopeKindProject, Title: "Alpha", Followed: true}
+	if err := st.Scopes().Upsert(ctx, sc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pullScope(ctx, fc, st, sc, "U1"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(fields, "customFields") || slices.Contains(fields, "effortAllocation") {
+		t.Errorf("fields = %q, want customFields and no effort without the wrapper", fields)
+	}
+}

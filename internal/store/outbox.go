@@ -108,6 +108,10 @@ type TaskUpdatePayload struct {
 	// The drain does not send it, Wrike derives the group from the custom status id, and rejects
 	// an update that carries a group name of its own.
 	Status string `json:"status,omitempty"`
+	// CustomFields are values to set, the budget field in practice, an empty Value removes the field from the task.
+	CustomFields []CustomFieldValue `json:"customFields,omitempty"`
+	// Effort is the Effort field to set, mode None with no minutes clears it.
+	Effort *TaskEffort `json:"effort,omitempty"`
 }
 
 // TaskCreatePayload mirrors CreateTask. The folder is the row's entity id.
@@ -231,11 +235,11 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 		return TaskUpdatePayload{}, title, false, err
 	}
 	var description, statusID, group, importance string
-	var dType, dStart, dDue sql.NullString
-	var dDur sql.NullInt64
+	var dType, dStart, dDue, eMode sql.NullString
+	var dDur, eMinutes sql.NullInt64
 	err = tx.QueryRowContext(ctx, `
-		SELECT title, description, custom_status_id, status, importance, dates_type, dates_duration, dates_start, dates_due
-		FROM tasks WHERE id = ?`, taskID).Scan(&title, &description, &statusID, &group, &importance, &dType, &dDur, &dStart, &dDue)
+		SELECT title, description, custom_status_id, status, importance, dates_type, dates_duration, dates_start, dates_due, effort_mode, effort_minutes
+		FROM tasks WHERE id = ?`, taskID).Scan(&title, &description, &statusID, &group, &importance, &dType, &dDur, &dStart, &dDue, &eMode, &eMinutes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskUpdatePayload{}, "", false, nil
 	}
@@ -259,6 +263,22 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 		before.Dates = &TaskDates{Type: "Backlog"}
 		if dType.String != "" {
 			before.Dates = &TaskDates{Type: dType.String, Duration: int(dDur.Int64), Start: dStart.String, Due: dDue.String}
+		}
+	}
+	for _, cf := range p.CustomFields {
+		// A field the task never had is remembered with an empty value, the write that takes a value away again.
+		var value string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM task_custom_fields WHERE task_id = ? AND field_id = ?`, taskID, cf.ID).Scan(&value)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return TaskUpdatePayload{}, "", false, err
+		}
+		before.CustomFields = append(before.CustomFields, CustomFieldValue{ID: cf.ID, Value: value})
+	}
+	if p.Effort != nil {
+		// A task without the Effort field, or one never read with it, comes back to that through a None write.
+		before.Effort = &TaskEffort{Mode: "None"}
+		if eMode.Valid {
+			before.Effort = &TaskEffort{Mode: eMode.String, TotalMinutes: int(eMinutes.Int64)}
 		}
 	}
 	// The mirror is built against the link tables and not from the payload alone: a pull between the dialog and its submit
@@ -411,6 +431,25 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		args = append(args, taskID)
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE tasks SET `+strings.Join(set, ", ")+` WHERE id = ?`, args...); err != nil {
+			return 0, err
+		}
+	}
+	for _, cf := range p.CustomFields {
+		if cf.Value == "" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM task_custom_fields WHERE task_id = ? AND field_id = ?`, taskID, cf.ID); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_custom_fields (task_id, field_id, value) VALUES (?, ?, ?)
+			ON CONFLICT(task_id, field_id) DO UPDATE SET value = excluded.value`, taskID, cf.ID, cf.Value); err != nil {
+			return 0, err
+		}
+	}
+	if p.Effort != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET effort_mode = ?, effort_minutes = ? WHERE id = ?`,
+			p.Effort.Mode, p.Effort.TotalMinutes, taskID); err != nil {
 			return 0, err
 		}
 	}
@@ -1001,7 +1040,12 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		return err
 	}
 	// Each field goes to the first later edit that sets it, the edits after that one remember that one's value.
-	title, description, status, importance, dates := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil
+	title, description, status, importance, dates, effort := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil, p.Effort != nil
+	// A custom field is a field of its own per id, the budget field in practice.
+	customFields := map[string]bool{}
+	for _, cf := range p.CustomFields {
+		customFields[cf.ID] = true
+	}
 	for _, e := range later {
 		// A later edit that does not decode is skipped, the drain fails it on its own when its turn comes.
 		var lp, lb TaskUpdatePayload
@@ -1024,6 +1068,18 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		take(&status, lp.CustomStatusID != "", func() { lb.CustomStatusID, lb.Status = b.CustomStatusID, b.Status })
 		take(&importance, lp.Importance != "", func() { lb.Importance = b.Importance })
 		take(&dates, lp.Dates != nil, func() { lb.Dates = b.Dates })
+		take(&effort, lp.Effort != nil, func() { lb.Effort = b.Effort })
+		for _, lcf := range lp.CustomFields {
+			pending := customFields[lcf.ID]
+			take(&pending, true, func() {
+				for i := range lb.CustomFields {
+					if lb.CustomFields[i].ID == lcf.ID {
+						lb.CustomFields[i].Value = customValueOf(b.CustomFields, lcf.ID)
+					}
+				}
+			})
+			customFields[lcf.ID] = pending
+		}
 		// An edit that remembered nothing, its task was not cached, is sent unchecked and stays so.
 		if !changed || e.before == "" {
 			continue

@@ -22,9 +22,20 @@ type Config struct {
 	// Offline starts the interface and every command without syncing, the --offline flag on the command line wins over it.
 	Offline bool `toml:"offline"`
 	// OAuth names the API app for the browser sign in, the first run offers it only when ClientID is set.
-	OAuth OAuthConfig `toml:"oauth"`
-	UI    UIConfig    `toml:"ui"`
+	OAuth  OAuthConfig  `toml:"oauth"`
+	UI     UIConfig     `toml:"ui"`
+	Budget BudgetConfig `toml:"budget"`
 }
+
+// BudgetConfig names where a task's time budget lives, see docs/overview.md.
+// Wrike has no single place for it: the Effort field of a task on the plans that have it, or a custom field the account defines.
+type BudgetConfig struct {
+	Source string `toml:"source"` // "effort", "field" or empty for no budget
+	Field  string `toml:"field"`  // with source field: the custom field's exact title or its id
+}
+
+// PullEffort says whether the sync engine asks every task read for the Effort field.
+func (b BudgetConfig) PullEffort() bool { return b.Source == "effort" }
 
 // OAuthConfig is an API app registered in Wrike's App Console, the bring your own app of the browser sign in.
 type OAuthConfig struct {
@@ -115,6 +126,20 @@ func Load(path string) (Config, error) {
 	// The sign in binds a listener to the port of this address and Wrike compares it with the registered one, so a bare host or another scheme would fail late.
 	if u, err := url.Parse(cfg.OAuth.RedirectURI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return Config{}, fmt.Errorf("reading %s: oauth.redirect_uri %q must be an http or https address such as %s", path, cfg.OAuth.RedirectURI, defaultRedirectURI)
+	}
+	cfg.Budget.Source = strings.ToLower(strings.TrimSpace(cfg.Budget.Source))
+	cfg.Budget.Field = strings.TrimSpace(cfg.Budget.Field)
+	switch cfg.Budget.Source {
+	case "", "effort", "field":
+	default:
+		return Config{}, fmt.Errorf("reading %s: unknown budget.source %q, use effort or field", path, cfg.Budget.Source)
+	}
+	if cfg.Budget.Source == "field" && cfg.Budget.Field == "" {
+		return Config{}, fmt.Errorf("reading %s: budget.source = \"field\" needs budget.field, the custom field's title or id", path)
+	}
+	// A field named without the source is the likely mistake, and it would silently show no budget.
+	if cfg.Budget.Source != "field" && cfg.Budget.Field != "" {
+		return Config{}, fmt.Errorf("reading %s: budget.field needs budget.source = \"field\"", path)
 	}
 	return cfg, nil
 }

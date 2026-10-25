@@ -45,6 +45,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - change task title, description, importance, status, assignee and dates
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
+- a time budget against the logged time in the task detail, from Wrike's Effort field or a custom field the config names, editable from the actions list
 - commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, with JSON output
 - commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
@@ -60,6 +61,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `f` `F` | filter by importance, person and status, and clear it |
 | `space` `P` | pin a folder, show only the pinned ones |
 | `ctrl+f` | search |
+| `.` | every action on the selected task, with its key |
 | `c` | comment |
 | `s` | status |
 | `e` | edit the title |

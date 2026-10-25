@@ -116,12 +116,13 @@ const (
 )
 
 type Model struct {
-	opts   Options
-	width  int
-	height int
-	theme  Theme
-	keys   KeyMap
-	help   help.Model
+	opts    Options
+	width   int
+	height  int
+	theme   Theme
+	keys    KeyMap
+	actions []taskAction // taskActionTable(keys), built once, the task bindings never change while the process runs
+	help    help.Model
 
 	screen  screen
 	overlay overlay
@@ -154,6 +155,7 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config.UI), keys: defaultKeyMap(), help: help.New(), focus: paneList}
+	m.actions = taskActionTable(m.keys)
 	m.sidebar = newSidebar(m.keys, m.theme.HidePrefixes)
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
@@ -268,13 +270,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		m.settings.budget = budgetRowText(m.opts.Config.Budget, msg.ref.customFields, msg.ref.effortUnavailable)
 		// The by assignee grouping and the columns read contacts and workflows off the list's own copy.
 		m.list.ref = msg.ref
 		m.list.regroup()
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
-		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
-		cmds := []tea.Cmd{m.loadTree()}
+		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref,
+		// and the detail's budget was resolved against the custom fields of its load, so the task is read again with these.
+		cmds := []tea.Cmd{m.loadTree(), m.reloadTask()}
 		if m.screen == screenTimesheet {
 			// The row glyphs were resolved against the reference data of their load, the week is read again with this one.
 			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
@@ -675,6 +679,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitBudgetMsg:
+		// The box was opened on the detail's budget, which says where the task's budget lives.
+		if !m.detail.loaded || m.detail.task.ID != msg.taskID {
+			return m, m.status.show("the selection changed, open the budget again", true)
+		}
+		p, ok := budgetPayload(m.detail.budget, msg.hours)
+		if !ok {
+			return m, m.status.show("the budget has no field to write to, open the budget again", true)
+		}
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, p)
+			return err
+		}, "Budget updated")
 	case submitCreateMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		p := store.TaskCreatePayload{Title: msg.title}
@@ -780,7 +798,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 // reload re-reads what is on screen for the caches that changed.
 func (m Model) reload(entities []string) tea.Cmd {
 	var cmds []tea.Cmd
-	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") {
+	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") || slices.Contains(entities, "custom_fields") {
 		cmds = append(cmds, m.loadRef())
 	}
 	if slices.Contains(entities, "folders") || slices.Contains(entities, "spaces") || slices.Contains(entities, "tasks") {
@@ -1076,6 +1094,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d, ok := m.dialog.(editorWindowDialog); ok && msg.Type == tea.KeyEnter {
 			return m, m.sendEditorBox(d)
 		}
+		if d, ok := m.dialog.(actionsDialog); ok && msg.Type == tea.KeyEnter {
+			return m.runPickedAction(d)
+		}
 		var cmd tea.Cmd
 		m.dialog, cmd = m.dialog.Update(msg)
 		return m, cmd
@@ -1258,125 +1279,41 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // taskAction runs the keys that act on the selected task: the dialogs, the editor hand offs, the browser and the clipboard.
 // The main screen and the detail pane beside the timesheet grid share them. The second result is false when the key is none of them.
+// The actions come from taskActionTable, which is also what the actions list shows.
 func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
-	switch {
-	case key.Matches(msg, m.keys.Open):
+	if key.Matches(msg, m.keys.Actions) {
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			open := m.opts.Hooks.OpenURL
-			if open == nil {
-				return m.status.show("browser not available", true)
-			}
-			if unconfirmed(t) {
-				return m.status.show(notOnWrike, true)
-			}
-			if t.Permalink == "" {
-				return m.status.show(noPermalink, true)
-			}
-			// Starting a browser can block, so it runs as a command and reports back instead of stalling the key handler.
-			return func() tea.Msg {
-				if err := open(t.Permalink); err != nil {
-					return toastMsg{text: "could not open browser: " + err.Error(), isErr: true}
-				}
-				return toastMsg{text: "Opened in browser"}
-			}
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyLink):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyBranch):
-		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.UI.BranchTemplate, t, m.opts.Config.UI.HidePrefixes)
-			return name, "Copied " + name
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyID):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
-		return cmd, true
-	case key.Matches(msg, m.keys.Comment):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CommentEditor):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			cmd, err := openEditor(t.ID, nil)
-			if err != nil {
-				return m.status.show(err.Error(), true)
-			}
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Status):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newStatusDialog(t, m.ref, m.keys))
-			return nil
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
-		delta := 1
-		if key.Matches(msg, m.keys.StatusPrev) {
-			delta = -1
-		}
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
-		return cmd, true
-	case key.Matches(msg, m.keys.LogTime):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			// Beside the grid the entry goes on the day under the cursor, the day n on the cell takes.
-			date := ""
-			if m.screen == screenTimesheet && m.timesheet.loaded {
-				date = m.timesheet.cellDate()
-			}
-			return m.openTimelogDialog(t.ID, t.Title, nil, date)
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Assignee):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newAssigneeDialog(t, m.ref)
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Dates):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newDatesDialog(t, m.opts.Now())
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.EditTitle):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newTitleDialog(t, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.EditDescription):
-		// A list row carries no description, so the task is read again before the editor opens.
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.loadDescription(t.ID) })
-		return cmd, true
-	case key.Matches(msg, m.keys.Importance):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newImportanceDialog(t, m.keys))
-			return nil
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Folders):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			// A move leaves the folders under the node in view. The timesheet shows no folder, so a move from there leaves none.
-			node := m.list.nodeID
-			if m.screen == screenTimesheet {
-				node = ""
-			}
-			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, node)
+			d, cmd := newActionsDialog(t, m.actions)
 			m.openDialog(d)
 			return cmd
 		})
 		return cmd, true
 	}
+	for _, a := range m.actions {
+		if key.Matches(msg, a.key) {
+			return a.run(m), true
+		}
+	}
 	return nil, false
+}
+
+// runPickedAction is enter in the actions box: the box closes and its highlighted row runs in this same update,
+// so a second enter already in the queue meets the box the run opened and never runs the row again.
+// The runs read the selected task, and the list can move under an open box, a sync that completed or moved the task,
+// so a pick on a task that is no longer the selected one is refused instead of acting on another task.
+func (m Model) runPickedAction(d actionsDialog) (tea.Model, tea.Cmd) {
+	index, ok := d.picked()
+	if !ok || index >= len(m.actions) {
+		return m, nil
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	if t, ok := m.selectedTask(); !ok || t.ID != d.taskID {
+		cmd := m.status.show("the selection changed, open the list again", true)
+		return m, cmd
+	}
+	// The run may open a box on m, so it goes in a statement of its own, see openDialog.
+	cmd := m.actions[index].run(&m)
+	return m, cmd
 }
 
 // setSidebarHidden takes the sidebar out of the window and the focus cycle, or puts it back.
@@ -1820,14 +1757,16 @@ func (m Model) hintBindings() []key.Binding {
 	if m.list.narrow.active() {
 		filter = append(filter, m.keys.ClearFilter)
 	}
+	// The actions list is the way to the task keys without the overlay, it goes before the filter keys and after the global ones.
+	actions := []key.Binding{m.keys.Actions}
 	if m.focus == paneBoard {
-		return slices.Concat([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base, filter)
+		return slices.Concat([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base, actions, filter)
 	}
 	if m.focus == paneList {
-		return slices.Concat([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base, filter)
+		return slices.Concat([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base, actions, filter)
 	}
 	if m.focus == paneDetail {
-		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
+		return slices.Concat([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base, actions)
 	}
 	return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.Pin, m.keys.Pinned}, base...)
 }

@@ -63,3 +63,10 @@ func isNotFound(err error) bool {
 	var apiErr *wrike.APIError
 	return errors.As(err, &apiErr) && apiErr.IsNotFound()
 }
+
+// isNotAllowed is the 403 an account answers for a feature its plan does not have, not_allowed in the API's words.
+// The other 403, access_forbidden, is a folder or a task the user cannot see and says nothing about the plan (https://developers.wrike.com/errors/).
+func isNotAllowed(err error) bool {
+	var apiErr *wrike.APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden && apiErr.Code == "not_allowed"
+}

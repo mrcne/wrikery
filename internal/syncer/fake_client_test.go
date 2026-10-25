@@ -19,6 +19,7 @@ type fakeClient struct {
 	spaces           func() ([]wrike.Space, error)
 	workflows        func() ([]wrike.Workflow, error)
 	spaceWorkflows   func(spaceID string) ([]wrike.Workflow, error)
+	customFields     func() ([]wrike.CustomField, error)
 	folderTree       func() ([]wrike.Folder, error)
 	tasks            func(p wrike.TaskParams) (wrike.TasksPage, error)
 	tasksByIDs       func(ids, fields []string) ([]wrike.Task, error)
@@ -100,6 +101,14 @@ func (f *fakeClient) FolderTree(ctx context.Context) ([]wrike.Folder, error) {
 		return nil, nil
 	}
 	return f.folderTree()
+}
+
+func (f *fakeClient) CustomFields(ctx context.Context) ([]wrike.CustomField, error) {
+	f.record("CustomFields")
+	if f.customFields == nil {
+		return nil, nil
+	}
+	return f.customFields()
 }
 
 func (f *fakeClient) Tasks(ctx context.Context, p wrike.TaskParams) (wrike.TasksPage, error) {

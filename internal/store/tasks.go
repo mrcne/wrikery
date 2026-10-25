@@ -69,11 +69,18 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, reachedAt stri
 			dDur = t.Dates.Duration
 			dType, dStart, dDue = nullIfEmpty(t.Dates.Type), nullIfEmpty(t.Dates.Start), nullIfEmpty(t.Dates.Due)
 		}
+		// The API answers the Effort field only when asked, a write's answer or a by id read without it carries nil,
+		// so NULL keeps what the pull read instead of wiping it, where the other columns take the new value.
+		var eMode, eMinutes any
+		if t.Effort != nil {
+			eMode, eMinutes = t.Effort.Mode, t.Effort.TotalMinutes
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, description, description_plain, status,
 				custom_status_id, importance, permalink, dates_type, dates_duration,
-				dates_start, dates_due, created_date, updated_date, attachment_count, reached_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))
+				dates_start, dates_due, created_date, updated_date, attachment_count, reached_at,
+				effort_mode, effort_minutes)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title = excluded.title, description = excluded.description,
 				description_plain = excluded.description_plain, status = excluded.status,
@@ -82,11 +89,23 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, reachedAt stri
 				dates_duration = excluded.dates_duration, dates_start = excluded.dates_start,
 				dates_due = excluded.dates_due, created_date = excluded.created_date,
 				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count,
-				reached_at = CASE WHEN ? THEN NULL ELSE reached_at END`,
+				reached_at = CASE WHEN ? THEN NULL ELSE reached_at END,
+				effort_mode = COALESCE(excluded.effort_mode, effort_mode),
+				effort_minutes = COALESCE(excluded.effort_minutes, effort_minutes)`,
 			t.ID, t.Title, t.Description, StripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
-			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, reachedAt, clearStamp); err != nil {
+			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, reachedAt, eMode, eMinutes, clearStamp); err != nil {
 			return err
+		}
+		// The values come with every read that can carry them, so a task without the key has none and the rows go.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM task_custom_fields WHERE task_id = ?`, t.ID); err != nil {
+			return err
+		}
+		for _, cf := range t.CustomFields {
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO task_custom_fields (task_id, field_id, value) VALUES (?, ?, ?)`, t.ID, cf.ID, cf.Value); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM task_responsibles WHERE task_id = ?`, t.ID); err != nil {
@@ -172,15 +191,16 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	row := t.r.QueryRowContext(ctx, `
 		SELECT id, title, description, description_plain, status, custom_status_id,
 		       importance, permalink, dates_type, dates_duration, dates_start,
-		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), attachment_count
+		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), attachment_count,
+		       effort_mode, effort_minutes
 		FROM tasks WHERE id = ?`, id)
 	var task Task
-	var dType, dStart, dDue sql.NullString
-	var dDur sql.NullInt64
+	var dType, dStart, dDue, eMode sql.NullString
+	var dDur, eMinutes sql.NullInt64
 	err := row.Scan(&task.ID, &task.Title, &task.Description, &task.DescriptionPlain,
 		&task.Status, &task.CustomStatusID, &task.Importance, &task.Permalink,
 		&dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-		&task.LastOpenedAt, &task.AttachmentCount)
+		&task.LastOpenedAt, &task.AttachmentCount, &eMode, &eMinutes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -194,6 +214,13 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 			Start:    dStart.String,
 			Due:      dDue.String,
 		}
+	}
+	if eMode.Valid {
+		task.Effort = &TaskEffort{Mode: eMode.String, TotalMinutes: int(eMinutes.Int64)}
+	}
+	task.CustomFields, err = t.customFieldValues(ctx, id)
+	if err != nil {
+		return Task{}, err
 	}
 	task.ResponsibleIDs, err = t.stringColumn(ctx,
 		`SELECT contact_id FROM task_responsibles WHERE task_id = ? ORDER BY contact_id`, id)
@@ -216,6 +243,24 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 		return Task{}, err
 	}
 	return task, nil
+}
+
+// customFieldValues are the task's values ordered by field id, nil when it has none.
+func (t taskRepo) customFieldValues(ctx context.Context, taskID string) ([]CustomFieldValue, error) {
+	rows, err := t.r.QueryContext(ctx, `SELECT field_id, value FROM task_custom_fields WHERE task_id = ? ORDER BY field_id`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []CustomFieldValue
+	for rows.Next() {
+		var cf CustomFieldValue
+		if err := rows.Scan(&cf.ID, &cf.Value); err != nil {
+			return nil, err
+		}
+		out = append(out, cf)
+	}
+	return out, rows.Err()
 }
 
 func (t taskRepo) stringColumn(ctx context.Context, query string, args ...any) ([]string, error) {

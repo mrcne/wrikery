@@ -23,6 +23,7 @@ type taskDetailModel struct {
 	subtasks     []store.Task
 	deps         []store.Dependency
 	related      map[string]store.Task
+	budget       budgetInfo
 	state        store.OutboxState
 	crumb        string
 	rendered     string
@@ -37,6 +38,7 @@ func (d *taskDetailModel) set(msg taskLoadedMsg) {
 	sameTask := d.task.ID == msg.task.ID
 	d.task, d.comments, d.logs, d.crumb = msg.task, msg.comments, msg.logs, msg.crumb
 	d.subtasks, d.deps, d.related = msg.subtasks, msg.deps, msg.related
+	d.budget = msg.budget
 	d.state = msg.states[msg.task.ID]
 	d.loaded = true
 	if !sameTask {
@@ -110,6 +112,17 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 	if d.task.Importance != "" && d.task.Importance != "Normal" {
 		b.WriteString(label("Importance") + d.task.Importance + "\n")
+	}
+	// Every person's entries count, the queued ones too, which is what a budget is spent against.
+	spent := 0.0
+	for _, l := range d.logs {
+		spent += l.Hours
+	}
+	if text, over := timeLine(spent, d.budget); text != "" {
+		if over != "" {
+			text += ", " + lipgloss.NewStyle().Foreground(th.Error).Render(over)
+		}
+		b.WriteString(label("Time") + text + "\n")
 	}
 	for i, id := range d.task.SuperTaskIDs {
 		name := "Subtask of"

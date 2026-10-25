@@ -45,6 +45,14 @@ func keyNames(b key.Binding) string {
 	return strings.Join(names, ", ")
 }
 
+// keylessText is the sentence after the task keys on the actions that have a row in the list and no key, empty when every action has one.
+func keylessText(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	return "The actions list on . also holds these actions without a key: " + strings.Join(names, ", ") + "."
+}
+
 // troff escapes text for one line of the page.
 // A backslash and a hyphen are troff's own, and a line that starts with a dot or a quote is read as a request and vanishes.
 func troff(s string) string {
@@ -230,6 +238,12 @@ func manualPage(global *flag.FlagSet, date string) string {
 			line(".TP")
 			line(".B %s", arg(troff(keyNames(k))))
 			text(k.Help().Desc)
+		}
+		if g.Title == "The task" {
+			if s := keylessText(ui.KeylessActions()); s != "" {
+				line(".PP")
+				text(s)
+			}
 		}
 	}
 

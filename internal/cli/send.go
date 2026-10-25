@@ -105,7 +105,7 @@ func uncheckedReason(err error) string {
 // The drain error is the reason behind a queued outcome or the sign of a rejected token, otherwise the row's state is the truth.
 func send(ctx context.Context, env Env, host string, rowID int64) (outcome, string, error) {
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.PullEffort()}, slog.Default())
 	drainErr := eng.Drain(ctx, env.Deadline)
 	// Ctrl-C cancels ctx while the drain runs, the engine puts its row back on purpose.
 	// A read on the cancelled ctx would fail at once, so the outcome is read on one that cannot be cancelled.

@@ -8,6 +8,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -249,5 +251,41 @@ func TestDetailWrapsALongTimeEntryNote(t *testing.T) {
 	}
 	if next := lines[first+1]; !strings.HasPrefix(next, "  ") || strings.TrimSpace(next) == "" {
 		t.Errorf("the wrapped part of the entry is not indented under the first line:\n%s", ansi.Strip(out))
+	}
+}
+
+func TestDetailShowsTheTimeLine(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	ref := refData{contacts: map[string]store.Contact{"U2": {ID: "U2", FirstName: "Bartek", LastName: "Lis"}}, statuses: map[string]store.CustomStatus{}}
+	render := func(logs []store.Timelog, b budgetInfo) string {
+		d := taskDetailModel{keys: defaultKeyMap()}
+		d.set(taskLoadedMsg{task: store.Task{ID: "T1", Title: "Budgeted", UpdatedDate: "2026-09-03T10:00:00Z"}, logs: logs, budget: b})
+		d.layout(th, ref, now, 70, 30, "dark", false)
+		return d.View()
+	}
+	// A colleague's entry and a queued one both count, the sum is every person's time.
+	colleague := []store.Timelog{{ID: "L1", UserID: "U2", TrackedDate: "2026-09-02", Hours: 1.5}, {ID: "local:3", UserID: "U2", TrackedDate: "2026-09-03", Hours: 1}}
+	for name, tc := range map[string]struct {
+		logs []store.Timelog
+		b    budgetInfo
+		want string
+	}{
+		"under":      {colleague, budgetInfo{has: true, hours: 20}, "Time         2h 30m of 20h, 17h 30m left"},
+		"over":       {colleague, budgetInfo{has: true, hours: 2}, "Time         2h 30m of 2h, 30m over"},
+		"no budget":  {colleague, budgetInfo{}, "Time         2h 30m"},
+		"no entries": {nil, budgetInfo{has: true, hours: 20}, "Time         0h of 20h, 20h left"},
+	} {
+		if out := render(tc.logs, tc.b); !strings.Contains(out, tc.want) {
+			t.Errorf("%s: detail lacks %q:\n%s", name, tc.want, out)
+		}
+	}
+	if out := render(nil, budgetInfo{}); strings.Contains(out, "Time     ") {
+		t.Errorf("no entries and no budget still draws the line:\n%s", out)
+	}
+	// The over part alone is in the error color, both sides go through the same renderer.
+	over := render(colleague, budgetInfo{has: true, hours: 2})
+	if want := lipgloss.NewStyle().Foreground(th.Error).Render("30m over"); !strings.Contains(over, want) {
+		t.Errorf("the over part is not in the error color, want %q in:\n%q", want, over)
 	}
 }

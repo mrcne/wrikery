@@ -35,6 +35,10 @@ type Task struct {
 	// Scope is WsTask for a task in the account and RbTask for one in the Recycle Bin, the TreeScope values of the reference.
 	// A read by id still answers a deleted task, with RbTask, while the searches leave it out (seen on the live account).
 	Scope string `json:"scope"`
+	// CustomFields comes with a read by id without being asked and as the optional field customFields of a query.
+	// Effort comes only when effortAllocation is asked for, so nil means the read did not ask, not that the task has none.
+	CustomFields []CustomFieldValue `json:"customFields"`
+	Effort       *TaskEffort        `json:"effortAllocation"`
 }
 
 // TaskDates keeps start and due as the API's zone-less strings.
@@ -156,6 +160,9 @@ type TaskUpdate struct {
 	AddParents         []string // folder ids in the same account
 	RemoveParents      []string
 	Dates              *TaskDates
+	CustomFields       []CustomFieldValue // values to set, an empty Value removes the field from the task
+	Effort             *TaskEffort        // the Effort field, mode None clears it
+	Fields             []string           // optional fields to include in the answer, effortAllocation comes back only when asked
 }
 
 // UpdateTask applies a partial update to one task and returns it as Wrike stored it.
@@ -166,6 +173,41 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 	form := url.Values{}
 	if err := taskFields(form, u.Title, u.Description, u.CustomStatusID, u.Importance, u.Dates); err != nil {
 		return Task{}, err
+	}
+	if len(u.CustomFields) > 0 {
+		// "null value removes field" in the Modify Task reference, so a removal travels as a JSON null and not as an empty string.
+		type value struct {
+			ID    string  `json:"id"`
+			Value *string `json:"value"`
+		}
+		values := make([]value, len(u.CustomFields))
+		for i, cf := range u.CustomFields {
+			values[i] = value{ID: cf.ID}
+			if cf.Value != "" {
+				v := cf.Value
+				values[i].Value = &v
+			}
+		}
+		raw, err := json.Marshal(values)
+		if err != nil {
+			return Task{}, err
+		}
+		form.Set("customFields", string(raw))
+	}
+	if u.Effort != nil {
+		raw, err := json.Marshal(struct {
+			Mode        string `json:"mode"`
+			TotalEffort int    `json:"totalEffort,omitempty"`
+		}{u.Effort.Mode, u.Effort.TotalEffort})
+		if err != nil {
+			return Task{}, err
+		}
+		form.Set("effortAllocation", string(raw))
+	}
+	var q url.Values
+	if len(u.Fields) > 0 {
+		q = url.Values{}
+		q.Set("fields", jsonArray(u.Fields))
 	}
 	if len(u.AddResponsibles) > 0 {
 		form.Set("addResponsibles", jsonArray(u.AddResponsibles))
@@ -180,7 +222,7 @@ func (c *Client) UpdateTask(ctx context.Context, taskID string, u TaskUpdate) (T
 		form.Set("removeParents", jsonArray(u.RemoveParents))
 	}
 	var out []Task
-	if _, err := c.do(ctx, http.MethodPut, "/tasks/"+taskID, nil, form, &out); err != nil {
+	if _, err := c.do(ctx, http.MethodPut, "/tasks/"+taskID, q, form, &out); err != nil {
 		return Task{}, err
 	}
 	if len(out) == 0 {

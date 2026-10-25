@@ -2,17 +2,21 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type checkRow struct {
 	id, label string
 	section   string // drawn as a muted header above the first row of a run, the filter box groups its rows with it
+	hint      string // drawn muted at the right edge of the row, the key of an action, the filter ignores it
 }
 
 // checklist is the filterable list of rows the assignee, the folders, the Follow and the filter boxes share, with a check box each,
@@ -51,7 +55,7 @@ func (c *checklist) applyFilter() {
 	}
 	c.visible = c.visible[:0]
 	for i, r := range c.rows {
-		if q == "" || wordPrefix(stableWidth(strings.ToLower(r.label)), q) {
+		if matchesEveryWord(stableWidth(strings.ToLower(r.label)), q) {
 			c.visible = append(c.visible, i)
 		}
 	}
@@ -60,19 +64,23 @@ func (c *checklist) applyFilter() {
 	}
 }
 
-// wordPrefix matches the query against the start of the label or of any word in it, so "sys" finds "Design system" and "now" finds "Ada Nowak".
-func wordPrefix(label, q string) bool {
-	label = strings.TrimSpace(label)
-	if strings.HasPrefix(label, q) {
-		return true
-	}
-	for _, w := range strings.Fields(label) {
-		if strings.HasPrefix(w, q) {
-			return true
+// matchesEveryWord says whether each word of the query is a prefix of a word of the label, so "sys" finds "Design system",
+// "now ada" finds "Ada Nowak" as "ada now" does, and an empty query matches everything.
+// A label word is also tried without the symbols in front of it: the word a person types for "$EDITOR" is editor
+// and a title behind a project code answers to its own first letter, while "$" and "(mx" still find them as they are.
+func matchesEveryWord(label, q string) bool {
+	words := strings.Fields(label)
+	for _, w := range strings.Fields(q) {
+		if !slices.ContainsFunc(words, func(lw string) bool {
+			return strings.HasPrefix(lw, w) || strings.HasPrefix(strings.TrimLeftFunc(lw, isSymbol), w)
+		}) {
+			return false
 		}
 	}
-	return false
+	return true
 }
+
+func isSymbol(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
 
 func (c checklist) current() (checkRow, bool) {
 	if c.cursor < 0 || c.cursor >= len(c.visible) {
@@ -170,6 +178,12 @@ func (c checklist) view(th Theme, width, rows int) string {
 				mark = "[x]"
 			}
 			line = indent + mark + " " + title
+		}
+		if r.hint != "" {
+			// The label is cut before the hint instead of pushing it off the row, and keeps a column of air on each side of it.
+			room := width - 2 - ansi.StringWidth(r.hint) - 1
+			line = ansi.Truncate(line, room-1, "...")
+			line += strings.Repeat(" ", max(room-ansi.StringWidth(line), 1)) + muted.Render(r.hint)
 		}
 		b.WriteString(rowLine(th, line, width, i == c.cursor, true) + "\n")
 	}

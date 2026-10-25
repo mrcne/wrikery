@@ -36,6 +36,23 @@ func taskFromWrike(t wrike.Task) store.Task {
 			Due:      t.Dates.Due,
 		}
 	}
+	if t.CustomFields != nil {
+		out.CustomFields = make([]store.CustomFieldValue, len(t.CustomFields))
+		for i, cf := range t.CustomFields {
+			out.CustomFields[i] = store.CustomFieldValue{ID: cf.ID, Value: cf.Value}
+		}
+	}
+	if t.Effort != nil {
+		out.Effort = &store.TaskEffort{Mode: t.Effort.Mode, TotalMinutes: t.Effort.TotalEffort}
+	}
+	return out
+}
+
+func customFieldsFromWrike(in []wrike.CustomField) []store.CustomField {
+	out := make([]store.CustomField, len(in))
+	for i, f := range in {
+		out[i] = store.CustomField{ID: f.ID, Title: f.Title, Type: f.Type, SpaceID: f.SpaceID}
+	}
 	return out
 }
 

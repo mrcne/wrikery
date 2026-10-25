@@ -751,6 +751,55 @@ func TestDatesDialogSetsDue(t *testing.T) {
 	}
 }
 
+func TestActionsListOpensTheDatesBox(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	from := mark(t, tm)
+	press(tm, ".")
+	waitAfter(t, tm, from, "Actions on")
+	from = mark(t, tm)
+	press(tm, "dat", "enter")
+	waitAfter(t, tm, from, "Dates")
+	// The dates box takes the keys that follow, so it is open and nothing closed it behind the run.
+	// The start field is prefilled when the task has dates, ctrl+u clears it first.
+	from = mark(t, tm)
+	press(tm, "ctrl+u", "2026-09-10")
+	waitAfter(t, tm, from, "Thu 10 Sep 2026")
+	press(tm, "esc")
+
+	// From the detail pane too: the focus starts on the list, one tab is the detail, see TestTabMovesFocusAndWindowSlides.
+	from = mark(t, tm)
+	press(tm, "tab", ".")
+	waitAfter(t, tm, from, "Actions on")
+	press(tm, "esc")
+
+	// On the timesheet grid . is this week, the grid runs no task key. The test clock sits in the week of 31 Aug 2026.
+	press(tm, "T")
+	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
+	from = mark(t, tm)
+	press(tm, "]")
+	waitAfter(t, tm, from, "Timesheet: 7 Sep - 13 Sep 2026")
+	from = mark(t, tm)
+	press(tm, ".")
+	waitAfter(t, tm, from, "Timesheet: 31 Aug - 6 Sep 2026")
+	if strings.Contains(seenOutput(t, tm).String()[from:], "Actions on") {
+		t.Error(". on the timesheet grid opened the actions list")
+	}
+}
+
+// A list filter nothing matches leaves no task selected, and the box has nothing to open on.
+func TestActionsListSaysNoTaskOnAnEmptyList(t *testing.T) {
+	st := seededStore(t)
+	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "-- Comments (")
+	press(tm, "/", "zzzz", "enter") // enter leaves the filter input, the filter itself stays
+	waitFor(t, tm, "Select a task.")
+	from := mark(t, tm)
+	press(tm, ".")
+	waitAfter(t, tm, from, "no task selected")
+}
+
 func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 	st := seededStore(t)
 	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
@@ -1728,4 +1777,15 @@ func TestQuickSearchReachRowInTheDemo(t *testing.T) {
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "not available in the demo")
+}
+
+func TestDetailShowsTheBudgetOfTheDemoTask(t *testing.T) {
+	st := seededStore(t)
+	o := testOptions(st)
+	o.Config.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
+	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(160, 40))
+	// Fix auth retry loop, the first demo task, carries 20h and two entries of 1h 30m.
+	press(tm, "/", "fix auth retry", "enter")
+	waitFor(t, tm, "#1200000")
+	waitFor(t, tm, "3h of 20h, 17h left")
 }

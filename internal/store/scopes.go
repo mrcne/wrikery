@@ -13,6 +13,8 @@ type ScopeRepo interface {
 	Followed(ctx context.Context) ([]Scope, error)
 	// SetFollowed makes the given scopes the followed set and unfollows every other row.
 	SetFollowed(ctx context.Context, scopes []Scope) error
+	// ClearCursors makes the next cycle pull every followed scope from the start, once, the way a migration for a new task field does.
+	ClearCursors(ctx context.Context) error
 }
 
 func (s *Store) Scopes() ScopeRepo { return scopeRepo{w: s.writer, r: s.reader} }
@@ -100,4 +102,9 @@ func (s scopeRepo) Followed(ctx context.Context) ([]Scope, error) {
 		out = append(out, sc)
 	}
 	return out, rows.Err()
+}
+
+func (s scopeRepo) ClearCursors(ctx context.Context) error {
+	_, err := s.w.ExecContext(ctx, `UPDATE scopes SET cursor = NULL, last_synced_at = NULL`)
+	return err
 }

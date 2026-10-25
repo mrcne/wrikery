@@ -75,6 +75,13 @@ func TestSeedFillsEveryTable(t *testing.T) {
 	if ws, _ := st.Workflows().List(ctx); len(ws) != 2 || len(ws[0].CustomStatuses) == 0 {
 		t.Errorf("workflows = %+v", ws)
 	}
+	// One Duration field called Budget with a value on the first task, so the Time line has something to show without a config file.
+	if fields, _ := st.CustomFields().List(ctx); len(fields) != 1 || fields[0].Title != BudgetField || fields[0].Type != "Duration" {
+		t.Errorf("custom fields = %+v, want one Duration field %q", fields, BudgetField)
+	}
+	if first, _ := st.Tasks().Get(ctx, "IEAATASK00"); len(first.CustomFields) != 1 || first.CustomFields[0].Value != "1200" {
+		t.Errorf("the first task's values = %+v, want the budget 1200", first.CustomFields)
+	}
 }
 
 func TestSeedIsInternallyConsistent(t *testing.T) {

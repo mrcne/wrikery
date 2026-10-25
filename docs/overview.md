@@ -63,6 +63,7 @@ The pins and the toggle are kept across restarts.
 A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
+`.` lists every action on the selected task with its key, narrowed as you type, enter runs the highlighted one and esc closes the list.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll, or goes online after a confirm when the app was started offline.
 A jump to a completed task, from the search, the changes screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
@@ -79,14 +80,18 @@ A task the followed spaces do not cover lands the way a jump does, in My tasks w
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
 A link shows its text and then its address, or the address alone when the text is the address, as it is for a pasted one.
-Above it are the status, the assignees, the dates, the importance when it is not Normal, the task this one is a subtask of and the number of attached files.
+Above it are the status, the assignees, the dates, the importance when it is not Normal, the time, the task this one is a subtask of and the number of attached files.
+The time line is the logged time against the task's budget, `12h 30m of 20h, 7h 30m left`, and `2h over` in the error color when the budget is spent.
+A task with a budget and no entries reads `0h of 20h, 20h left`, a task with entries and no budget shows the logged time alone, and a task with neither has no line.
+The logged time counts every person's entries on the task, the queued ones included.
+Where the budget lives is a setting, see `[budget]` under Config, and on an account whose plan has no custom fields or no Effort field the line shows the logged time only.
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
 A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
 The related tasks of a task that was itself fetched this way are not fetched in turn, their lines stay as they are.
 Attachments are counted only, their names and the files stay in the web application, `o` opens the task there.
-Single key actions on the selected task:
+Actions on the selected task, each on a single key, and all of them in a list on `.`:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.
@@ -140,6 +145,11 @@ On My tasks no folder is in view, so the move only joins, and the same happens w
 The first line of the box says which of the two enter will do.
 Unchecking the last folder is refused: Wrike would put the task into the account root, which no followed scope covers, and the task would drop out of the cache at the next sync.
 A folder outside the followed scopes is not in the list, the box counts it and never touches it.
+
+`budget` is a row of the `.` list without a key of its own.
+It opens a box with one field for the budget, which takes the forms a time entry takes, `20h`, `1h 30m` or `0.5`, without the 24 hour limit, and an empty field clears the budget.
+Enter saves, enter on the value the box opened with closes it without a write, esc cancels.
+When the budget cannot be edited, the row says why instead of opening the box: no budget source is set, the account has no Effort field, or the custom field the config names is missing, of another type, or not in the task's space.
 
 `n` creates a task, from any pane of the main screen.
 The box asks for a title and shows the folder the task goes into, preset to the folder or project in view, or to the folder of the section under the cursor when the list is grouped by folder.
@@ -250,6 +260,7 @@ The sidebar drops an unfollowed space at once and shows a newly followed one rig
 
 The Sidebar row says whether the pane is shown or hidden, enter flips it, the same as `S` on the main screen.
 The Account row names the sign in, a permanent token or the browser with the app's client id.
+The Budget row says where the budget comes from as the cache sees it: not set, the Effort field, with a note when the account has none, or the custom field with its type, with a note when the field is missing or of a type that cannot hold hours.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
 The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
 
@@ -300,6 +311,7 @@ A command never asks: with a token in `WRIKERY_TOKEN` of another account it refu
 ### Demo mode
 
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.
+The demo has one custom field, a Duration called Budget, with a value on a few tasks, and uses it as the budget source when the config names none, so the time line and the budget row show without a config file.
 
 ### Config
 
@@ -314,6 +326,11 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 The `[oauth]` table names an API app for the browser sign in: `client_id`, `redirect_uri`, which is `http://localhost:8731/callback` unless the app was registered with another address, and `client_secret`, which the first run asks for when it is not in the file.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
+The `[budget]` table names where a task's time budget lives, since Wrike has no single place for it.
+`source = "effort"` reads the Effort field of the task, the time budget of the task view and the Workload chart on the plans that have it.
+`source = "field"` reads a custom field named by `field`, its exact title or its id: a Duration field holds the budget in minutes, a Numeric field in hours, and the field can belong to the account or to a space, in which case the task's own space decides which one is read.
+Without a source the detail shows the logged time alone and the budget row of the actions list says so.
+On an account whose plan has no Effort field the first read answers 403, the app leaves the field out from then on, says so once in the log, and a manual refresh asks again.
 
 ### Commands
 

@@ -139,6 +139,14 @@ func sendRow(start, post context.Context, c Client, st *store.Store, row store.O
 			u.Dates = &wrike.TaskDates{Type: p.Dates.Type, Duration: p.Dates.Duration,
 				Start: p.Dates.Start, Due: p.Dates.Due}
 		}
+		for _, cf := range p.CustomFields {
+			u.CustomFields = append(u.CustomFields, wrike.CustomFieldValue{ID: cf.ID, Value: cf.Value})
+		}
+		if p.Effort != nil {
+			u.Effort = &wrike.TaskEffort{Mode: p.Effort.Mode, TotalEffort: p.Effort.TotalMinutes}
+			// The answer carries the field only when asked, and without it the upsert of the answer would keep the value the enqueue applied.
+			u.Fields = []string{effortField}
+		}
 		// The check reads the task first and holds the edit when somebody changed one of its fields on Wrike since it was queued.
 		conflict, err := conflictOf(ctx, c, st, row, p, onWrike)
 		if err != nil {

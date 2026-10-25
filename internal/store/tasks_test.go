@@ -761,3 +761,50 @@ func TestByRefLooksUpAnIdOrANumber(t *testing.T) {
 		t.Errorf("an unknown number gave %v, want ErrNotFound", err)
 	}
 }
+
+func TestUpsertKeepsTheEffortWhenNotToldAndReplacesTheValues(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "budgeted")
+	task.CustomFields = []CustomFieldValue{{ID: "CF1", Value: "765"}}
+	task.Effort = &TaskEffort{Mode: "Basic", TotalMinutes: 1200}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().Get(ctx, "T1")
+	if err != nil || !reflect.DeepEqual(got.CustomFields, task.CustomFields) || got.Effort == nil || *got.Effort != *task.Effort {
+		t.Fatalf("after the first upsert: %+v, %+v, %v", got.CustomFields, got.Effort, err)
+	}
+	// A write's answer carries the values without being asked and the effort only when asked.
+	again := makeTask("T1", "budgeted")
+	again.CustomFields = []CustomFieldValue{}
+	if err := st.Tasks().Upsert(ctx, []Task{again}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Tasks().Get(ctx, "T1")
+	if got.CustomFields != nil || got.Effort == nil || got.Effort.TotalMinutes != 1200 || got.Effort.Mode != "Basic" {
+		t.Errorf("after the second upsert: values %+v, effort %+v", got.CustomFields, got.Effort)
+	}
+	// An absent customFields key is no values either.
+	third := makeTask("T1", "budgeted")
+	third.CustomFields = []CustomFieldValue{{ID: "CF1", Value: "60"}}
+	if err := st.Tasks().Upsert(ctx, []Task{third}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "budgeted")}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Tasks().Get(ctx, "T1")
+	if got.CustomFields != nil {
+		t.Errorf("an absent key left %+v", got.CustomFields)
+	}
+	if got.Effort == nil {
+		t.Error("the effort was wiped by a task without one")
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T2", "never read")}); err != nil {
+		t.Fatal(err)
+	}
+	if fresh, _ := st.Tasks().Get(ctx, "T2"); fresh.Effort != nil {
+		t.Errorf("a task never read with the effort has %+v", fresh.Effort)
+	}
+}

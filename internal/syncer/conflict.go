@@ -26,7 +26,7 @@ func (c *Conflict) Error() string { return store.HeldPrefix + strings.Join(c.Fie
 // The read's own error comes back as it is, the drain treats it like the send's.
 // onWrike holds the tasks this drain pass read or sent already, so a queue of edits on one task reads it once.
 func conflictOf(ctx context.Context, c Client, st *store.Store, row store.OutboxRow, p store.TaskUpdatePayload, onWrike map[string]store.Task) (*Conflict, error) {
-	if len(row.Before) == 0 || (p.Title == "" && p.Description == "" && p.CustomStatusID == "" && p.Importance == "" && p.Dates == nil) {
+	if len(row.Before) == 0 || (p.Title == "" && p.Description == "" && p.CustomStatusID == "" && p.Importance == "" && p.Dates == nil && len(p.CustomFields) == 0 && p.Effort == nil) {
 		return nil, nil
 	}
 	var before store.TaskUpdatePayload
@@ -75,6 +75,33 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 		if !sameDates(before.Dates, wrike) && !sameDates(p.Dates, wrike) {
 			fields = append(fields, "dates")
 			before.Dates = wrike
+		}
+	}
+	// A read without the customFields key says nothing about the values, like a read without the effort below.
+	if len(p.CustomFields) > 0 && now.CustomFields != nil {
+		// The only custom field the client writes is the budget, so the wording says budget and reads the value as hours.
+		defs, err := st.CustomFields().List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, cf := range p.CustomFields {
+			wrikeValue := customValue(now.CustomFields, cf.ID)
+			if customValue(before.CustomFields, cf.ID) != wrikeValue && cf.Value != wrikeValue {
+				def := fieldByID(defs, cf.ID)
+				fields = append(fields, fmt.Sprintf("budget %s now, was %s", store.BudgetWords(def, wrikeValue), store.BudgetWords(def, customValue(before.CustomFields, cf.ID))))
+				before.CustomFields = setCustomValue(before.CustomFields, cf.ID, wrikeValue)
+			}
+		}
+	}
+	// A read that did not carry the Effort field says nothing about it, the reuse of an earlier send's answer in this pass for example.
+	if p.Effort != nil && now.Effort != nil {
+		beforeMinutes := 0
+		if before.Effort != nil {
+			beforeMinutes = before.Effort.TotalMinutes
+		}
+		if beforeMinutes != now.Effort.TotalMinutes && p.Effort.TotalMinutes != now.Effort.TotalMinutes {
+			fields = append(fields, fmt.Sprintf("budget %s now, was %s", store.MinutesWords(now.Effort.TotalMinutes), store.MinutesWords(beforeMinutes)))
+			before.Effort = &store.TaskEffort{Mode: now.Effort.Mode, TotalMinutes: now.Effort.TotalMinutes}
 		}
 	}
 	// Wrike writes = in a URL as &#61; in its answer and turns paragraphs into line breaks about a minute after a write,
@@ -133,6 +160,34 @@ func sameDates(a, b *store.TaskDates) bool {
 	a, b = backlogOr(a), backlogOr(b)
 	day := func(s string) string { return s[:min(len(s), len("2006-01-02"))] }
 	return a.Type == b.Type && day(a.Start) == day(b.Start) && day(a.Due) == day(b.Due)
+}
+
+func customValue(values []store.CustomFieldValue, id string) string {
+	for _, v := range values {
+		if v.ID == id {
+			return v.Value
+		}
+	}
+	return ""
+}
+
+func setCustomValue(values []store.CustomFieldValue, id, value string) []store.CustomFieldValue {
+	for i, v := range values {
+		if v.ID == id {
+			values[i].Value = value
+			return values
+		}
+	}
+	return append(values, store.CustomFieldValue{ID: id, Value: value})
+}
+
+func fieldByID(defs []store.CustomField, id string) store.CustomField {
+	for _, d := range defs {
+		if d.ID == id {
+			return d
+		}
+	}
+	return store.CustomField{ID: id}
 }
 
 // descriptionText is a description reduced to its words: the tags dropped, every entity decoded and the white space collapsed.

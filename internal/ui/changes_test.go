@@ -257,3 +257,24 @@ func TestEnqueueWriteOpMapsNotFoundToAPlainToastWithTheCounts(t *testing.T) {
 		t.Errorf("pending = %d, want the queue's count read along with the toast", got.pending)
 	}
 }
+
+func TestDescribeWritesABudgetChange(t *testing.T) {
+	ref := refData{customFields: []store.CustomField{{ID: "CF1", Title: "Budget", Type: "Duration"}}}
+	row := func(payload, before string) store.OutboxRow {
+		return store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(payload), Before: []byte(before)}
+	}
+	for name, tc := range map[string]struct {
+		row  store.OutboxRow
+		want string
+	}{
+		"field":  {row(`{"customFields":[{"ID":"CF1","Value":"1500"}]}`, `{"customFields":[{"ID":"CF1","Value":"1200"}]}`), "budget  20h -> 25h"},
+		"clear":  {row(`{"customFields":[{"ID":"CF1","Value":""}]}`, `{"customFields":[{"ID":"CF1","Value":"1200"}]}`), "budget  20h -> none"},
+		"first":  {row(`{"customFields":[{"ID":"CF1","Value":"1200"}]}`, `{"customFields":[{"ID":"CF1","Value":""}]}`), "budget  none -> 20h"},
+		"effort": {row(`{"effort":{"Mode":"Basic","TotalMinutes":600}}`, `{"effort":{"Mode":"Basic","TotalMinutes":1200}}`), "budget  20h -> 10h"},
+	} {
+		summary, _ := describe(tc.row, ref, nil)
+		if summary != tc.want {
+			t.Errorf("%s: %q, want %q", name, summary, tc.want)
+		}
+	}
+}

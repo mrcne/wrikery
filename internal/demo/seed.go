@@ -10,6 +10,9 @@ import (
 )
 
 const (
+	// BudgetField is the title of the demo's one custom field, a Duration the demo config names as the budget source.
+	BudgetField    = "Budget"
+	budgetFieldID  = "IEAACF01"
 	MeID           = "KUAAAAME"
 	SpacePlatform  = "IEAAPLAT"
 	SpaceMobile    = "IEAAMOBI"
@@ -114,6 +117,9 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err := st.Folders().ReplaceTree(ctx, folders); err != nil {
 		return err
 	}
+	if err := st.CustomFields().ReplaceAll(ctx, []store.CustomField{{ID: budgetFieldID, Title: BudgetField, Type: "Duration"}}); err != nil {
+		return err
+	}
 
 	var tasks []store.Task
 	var mine []store.Task
@@ -157,6 +163,10 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	// Two subtasks under "Fix auth retry loop", with no folder of their own the way a subtask made under a task has none,
 	// a dependency into it and one out of it, and a couple of attachment counts, so the detail shows every relation it can.
 	tasks[0].AttachmentCount, tasks[7].AttachmentCount = 2, 1
+	// Budgets in minutes against the entries below: the first task well under, the second over, the fourth spot on, the seventh with no entries.
+	for i, minutes := range map[int]string{0: "1200", 1: "60", 3: "360", 6: "480"} {
+		tasks[i].CustomFields = []store.CustomFieldValue{{ID: budgetFieldID, Value: minutes}}
+	}
 	tasks[0].DependencyIDs = []string{"IEAADEP01", "IEAADEP02"}
 	tasks[12].DependencyIDs = []string{"IEAADEP01"}
 	tasks[18].DependencyIDs = []string{"IEAADEP02"}

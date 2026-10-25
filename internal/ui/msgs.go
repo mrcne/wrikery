@@ -26,10 +26,13 @@ type toastMsg struct {
 }
 
 type refData struct {
-	meID      string
-	contacts  map[string]store.Contact
-	statuses  map[string]store.CustomStatus
-	workflows []store.Workflow
+	meID         string
+	contacts     map[string]store.Contact
+	statuses     map[string]store.CustomStatus
+	workflows    []store.Workflow
+	customFields []store.CustomField // the account's custom field definitions, the budget setting names one of them
+	// effortUnavailable is the engine's meta row: a read of the Effort field answered 403, the budget cannot come from it.
+	effortUnavailable bool
 }
 
 // statusOf is the custom status of a task as far as the reference data knows it.
@@ -76,6 +79,7 @@ type taskLoadedMsg struct {
 	related  map[string]store.Task // the cached super tasks and dependency ends by id, a missing one is outside the followed spaces
 	states   map[string]store.OutboxState
 	crumb    string
+	budget   budgetInfo // where the task's budget lives and what it is, see resolveBudget
 }
 type pickerLoadedMsg struct {
 	spaces   []store.Space
