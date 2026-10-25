@@ -72,12 +72,18 @@ func TestEveryCommandHasItsOwnHelp(t *testing.T) {
 				t.Errorf("%s --help lacks %q:\n%s", c.Name, want, out)
 			}
 		}
+		// The notes of the group, that the ui commands reach a running interface and how --demo changes that, go with each command.
+		for _, g := range Groups() {
+			if g.Has(c) && !strings.Contains(out, g.Notes) {
+				t.Errorf("%s --help lacks the %s group notes:\n%s", c.Name, g.Name, out)
+			}
+		}
 	}
 }
 
 func TestGroupHelpPrintsTheGroupOnStdout(t *testing.T) {
 	for _, g := range Groups() {
-		for _, word := range []string{"--help", "-h"} {
+		for _, word := range []string{"--help", "-h", "-help", "help"} {
 			code, out, errOut := runHelp(t, g.Name, word)
 			if code != exitOK || errOut != "" {
 				t.Errorf("%s %s: code %d, stderr %q", g.Name, word, code, errOut)
@@ -166,18 +172,18 @@ func TestFlagListsPrintTwoDashesAndPlaceholders(t *testing.T) {
 func TestUsageErrorsSpellTheFlagWithTwoDashes(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
-		want string
+		want string // the whole first line of stderr
 	}{
-		{[]string{"task", "list", "--nope"}, "flag provided but not defined: --nope"},
-		{[]string{"task", "list", "--folder"}, "flag needs an argument: --folder"},
-		{[]string{"task", "list", "--all=maybe"}, `invalid boolean value "maybe" for --all`},
+		{[]string{"task", "list", "--nope"}, "wrikery: flag provided but not defined: --nope"},
+		{[]string{"task", "list", "--folder"}, "wrikery: flag needs an argument: --folder"},
+		{[]string{"task", "list", "--all=maybe"}, `wrikery: invalid boolean value "maybe" for --all: parse error`},
+		// The value the user typed is quoted in the message and must stay as typed.
+		{[]string{"task", "list", "--all=for -x"}, `wrikery: invalid boolean value "for -x" for --all: parse error`},
 	} {
 		code, out, errOut := runHelp(t, tc.args...)
-		if code != exitUsage || out != "" || !strings.Contains(errOut, tc.want) {
-			t.Errorf("%v: code %d, stdout %q, stderr:\n%s\nwant %q", tc.args, code, out, errOut, tc.want)
-		}
-		if line, _, _ := strings.Cut(errOut, "\n"); regexp.MustCompile(`(^|\s)-[A-Za-z]`).MatchString(line) {
-			t.Errorf("%v: the error line names the flag with one dash: %q", tc.args, line)
+		line, _, _ := strings.Cut(errOut, "\n")
+		if code != exitUsage || out != "" || line != tc.want {
+			t.Errorf("%v: code %d, stdout %q, first line %q, want %q", tc.args, code, out, line, tc.want)
 		}
 	}
 }
@@ -189,5 +195,56 @@ func TestHelpWithAFlagPrintsThePage(t *testing.T) {
 		if code != exitOK || errOut != "" || out != HelpPage(nil) {
 			t.Errorf("help %s: code %d, stderr %q, stdout:\n%s", word, code, errOut, out)
 		}
+	}
+	// One level down the same: a dash word after the group names no command, the group page it is.
+	for _, g := range Groups() {
+		_, want, _ := runHelp(t, g.Name, "--help")
+		for _, word := range []string{"--json", "-x"} {
+			code, out, errOut := runHelp(t, "help", g.Name, word)
+			if code != exitOK || errOut != "" || out != want {
+				t.Errorf("help %s %s: code %d, stderr %q, stdout:\n%s", g.Name, word, code, errOut, out)
+			}
+		}
+	}
+}
+
+func TestIsHelpFindsAHelpRequestAtAnyLevel(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"help"}, true}, {[]string{"-h"}, true}, {[]string{"--help"}, true}, {[]string{"-help"}, true},
+		{[]string{"help", "task", "status"}, true},
+		{[]string{"task", "--help"}, true}, {[]string{"task", "-h"}, true}, {[]string{"task", "-help"}, true}, {[]string{"ui", "help"}, true},
+		{[]string{"sync", "--help"}, true}, {[]string{"task", "list", "--help"}, true}, {[]string{"task", "list", "-help"}, true},
+		{[]string{"task", "list", "--folder", "x", "--help"}, true}, {[]string{"task", "list", "--help", "--folder", "x"}, true},
+		{[]string{"task", "list", "--all", "--help"}, true}, {[]string{"task", "status", "T", "--json", "-h"}, true},
+		{[]string{"task", "create", "--folder=x", "--help"}, true},
+		// --help as the value of a flag, or after the -- that ends the flags, is no request for help.
+		{[]string{"task", "create", "--folder", "--help"}, false}, {[]string{"task", "create", "--", "--help"}, false},
+		{[]string{}, false}, {[]string{"task"}, false}, {[]string{"task", "list"}, false}, {[]string{"task", "list", "--folder", "x"}, false},
+		{[]string{"frobnicate", "--help"}, false}, {[]string{"task", "frob", "--help"}, false},
+	} {
+		if got := IsHelp(tc.args); got != tc.want {
+			t.Errorf("IsHelp(%q) = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
+func TestPrintFlagsShowsANonZeroDefault(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.Int("n", 5, "a `COUNT`")
+	fs.String("s", "x", "a `WORD`")
+	fs.String("e", "", "empty")
+	fs.Bool("b", false, "off")
+	var out strings.Builder
+	printFlags(&out, fs)
+	for _, want := range []string{"--n COUNT", "a COUNT (default 5)", "--s WORD", "a WORD (default x)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("flags lack %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Count(out.String(), "default") != 2 {
+		t.Errorf("a zero default is printed:\n%s", out.String())
 	}
 }

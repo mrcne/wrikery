@@ -283,8 +283,9 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
-	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		// Help prints from the command table alone, so it must not create the data directory, open the store or read the token.
+	if cli.IsHelp(args) {
+		// Help at any level prints from the command table alone, so it must not create the data directory,
+		// open the store or read the token, and a broken config file must not stop it.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	if o.noColor {

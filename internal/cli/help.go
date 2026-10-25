@@ -47,9 +47,16 @@ func (g Group) Has(c Command) bool {
 	return strings.HasPrefix(c.Name, g.Name+" ")
 }
 
-// usage is the text the command's --help prints before its flags.
+// usage is the text the command's --help prints before its flags, the command's notes and then its group's,
+// so a ui command's help says on its own that it reaches the interface that is running.
 func (c Command) usage() string {
-	return usageText(c.Synopsis, c.Notes)
+	notes := c.Notes
+	for _, g := range Groups() {
+		if g.Has(c) {
+			notes = strings.TrimSpace(notes + "\n" + g.Notes)
+		}
+	}
+	return usageText(c.Synopsis, notes)
 }
 
 // groupUsage is the page of a group: the synopsis of every command in it, then the group's notes.
@@ -91,6 +98,10 @@ func printFlags(w io.Writer, fs *flag.FlagSet) {
 		head := "--" + f.Name
 		if placeholder != "" {
 			head += " " + placeholder
+		}
+		// The zero values of the kinds of flag the commands define, the standard printer's own check is not exported.
+		if d := f.DefValue; d != "" && d != "false" && d != "0" {
+			text += " (default " + d + ")"
 		}
 		rows = append(rows, row{head, text})
 		width = max(width, len(head))
@@ -157,7 +168,8 @@ func HelpPage(global *flag.FlagSet) string {
 func helpArgs(words []string) []string {
 	n := 1
 	for _, g := range Groups() {
-		if words[0] == g.Name && len(words) > 1 {
+		// A dash word after the group names no command, the group page answers it.
+		if words[0] == g.Name && len(words) > 1 && !strings.HasPrefix(words[1], "-") {
 			n = 2
 		}
 	}
@@ -166,6 +178,58 @@ func helpArgs(words []string) []string {
 	return append(out, words[n:]...)
 }
 
+// isHelpWord matches the word help and the three spellings of the flag the flag package answers with ErrHelp.
 func isHelpWord(s string) bool {
-	return s == "help" || s == "-h" || s == "--help"
+	return s == "help" || s == "-h" || s == "-help" || s == "--help"
+}
+
+// IsHelp says whether args ask for help at some level, so main can skip the setup a command needs:
+// a help word first, a group followed by one, or a help flag among a command's arguments before any --.
+// A --help that is the value of another flag, --folder --help, is a value, the way the flag package reads it.
+func IsHelp(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if isHelpWord(args[0]) {
+		return true
+	}
+	name, rest := args[0], args[1:]
+	for _, g := range Groups() {
+		if args[0] != g.Name {
+			continue
+		}
+		if len(args) == 1 {
+			return false
+		}
+		if isHelpWord(args[1]) {
+			return true
+		}
+		name, rest = args[0]+" "+args[1], args[2:]
+	}
+	var fs *flag.FlagSet
+	for _, c := range Commands() {
+		if c.Name == name {
+			fs = c.Flags()
+		}
+	}
+	if fs == nil {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		if a == "--" {
+			return false
+		}
+		if len(a) < 2 || a[0] != '-' {
+			continue
+		}
+		flagName, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if flagName == "h" || flagName == "help" {
+			return true
+		}
+		if !hasValue && valueFlag(fs, flagName) {
+			i++
+		}
+	}
+	return false
 }

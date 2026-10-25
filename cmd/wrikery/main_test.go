@@ -231,3 +231,26 @@ func TestHelpPageListsTheGlobalFlags(t *testing.T) {
 		}
 	}
 }
+
+// A help request must not need the config or the store, a typo in the config file would turn it into exit 1,
+// and on a fresh machine it would create the data directory and an empty database.
+func TestCommandHelpSkipsTheConfigAndTheStore(t *testing.T) {
+	dir := isolate(t)
+	confDir := filepath.Join(dir, "config", "wrikery")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "config.toml"), []byte("poll_interval = [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, o := rootFlags()
+	o.noColor = true
+	for _, args := range [][]string{{"task", "--help"}, {"ui", "-h"}, {"sync", "--help"}, {"task", "list", "--help"}, {"help", "task", "create"}} {
+		if code := runCommand(args, fs, o); code != 0 {
+			t.Errorf("%v: code = %d, want 0 with a broken config file", args, code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data")); !os.IsNotExist(err) {
+		t.Errorf("help created the data directory, stat err %v", err)
+	}
+}

@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
@@ -82,10 +81,11 @@ func runTask(ctx context.Context, env Env, args []string) int {
 		_, _ = fmt.Fprint(env.Stderr, groupUsage(groupTask))
 		return exitUsage
 	}
-	switch args[0] {
-	case "-h", "--help":
+	if isHelpWord(args[0]) {
 		_, _ = fmt.Fprint(env.Stdout, groupUsage(groupTask))
 		return exitOK
+	}
+	switch args[0] {
 	case "list":
 		return runTaskList(ctx, env, args[1:])
 	case "show":
@@ -156,16 +156,21 @@ func terminator(fs *flag.FlagSet, args []string) int {
 			continue
 		}
 		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		f := fs.Lookup(name)
-		if f == nil || hasValue {
-			continue
+		if !hasValue && valueFlag(fs, name) {
+			i++
 		}
-		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
-			continue
-		}
-		i++
 	}
 	return -1
+}
+
+// valueFlag says whether fs defines name as a flag that takes the next argument as its value, so a scan of the arguments skips it.
+func valueFlag(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
 }
 
 func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
@@ -173,14 +178,23 @@ func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
 	printFlags(w, fs)
 }
 
-// oneDashFlag matches the flag name in the messages of the flag package, "flag provided but not defined: -x",
-// "flag needs an argument: -x", "invalid value "v" for flag -x" and "invalid boolean value "v" for -x".
-var oneDashFlag = regexp.MustCompile(`(defined: |argument: |flag |for )-(\w)`)
-
 // FlagError is the text of a parse error with the flag spelled with two dashes, as every help page spells it.
-// The flag package writes one dash whatever the user typed.
+// The flag package writes one dash whatever the user typed, in four messages: "flag provided but not defined: -x",
+// "flag needs an argument: -x", "invalid value "v" for flag -x: ..." and "invalid boolean value "v" for -x: ...".
+// The last two quote the value the user typed, so the name is looked for after the fixed words and never inside the value.
 func FlagError(err error) string {
-	return oneDashFlag.ReplaceAllString(err.Error(), "${1}--${2}")
+	msg := err.Error()
+	for _, mark := range []string{"flag provided but not defined: -", "flag needs an argument: -"} {
+		if rest, ok := strings.CutPrefix(msg, mark); ok {
+			return mark + "-" + rest
+		}
+	}
+	for _, mark := range []string{" for flag -", " for -"} {
+		if i := strings.LastIndex(msg, mark); i >= 0 {
+			return msg[:i] + mark + "-" + msg[i+len(mark):]
+		}
+	}
+	return msg
 }
 
 func usageError(env Env, fs *flag.FlagSet, usage, msg string) int {

@@ -53,7 +53,7 @@ F is an id or a part of its title, me is My tasks.`,
 	cmdUIOpen = Command{
 		Name:     "ui open",
 		Synopsis: []string{"ui open tasks|timesheet|changes|settings"},
-		Short:    "one of its screens",
+		Short:    "open one screen of the running interface",
 		Notes:    "Opens one screen of the interface that is running: tasks, timesheet, changes or settings.",
 		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui open", new(bool)) },
 	}
@@ -88,10 +88,11 @@ func runUI(ctx context.Context, env Env, args []string) int {
 		_, _ = fmt.Fprint(env.Stderr, groupUsage(groupUI))
 		return exitUsage
 	}
-	switch args[0] {
-	case "-h", "--help":
+	if isHelpWord(args[0]) {
 		_, _ = fmt.Fprint(env.Stdout, groupUsage(groupUI))
 		return exitOK
+	}
+	switch args[0] {
 	case "filter":
 		return runUIFilter(ctx, env, args[1:])
 	case "select":
