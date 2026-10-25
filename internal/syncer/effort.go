@@ -2,9 +2,7 @@ package syncer
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"net/http"
 	"slices"
 	"sync/atomic"
 
@@ -51,8 +49,7 @@ func (r *effortReads) with(fields []string) []string {
 // refused tells the 403 of a read that asked for the field, turns the field off and says whether the read is to be repeated without it.
 // Any other error is the caller's.
 func (r *effortReads) refused(ctx context.Context, err error, asked []string) bool {
-	var apiErr *wrike.APIError
-	if !slices.Contains(asked, effortField) || !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+	if !slices.Contains(asked, effortField) || !isNotAllowed(err) {
 		return false
 	}
 	if r.off.CompareAndSwap(false, true) {

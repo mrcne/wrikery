@@ -27,6 +27,14 @@ func TestTimeLineShapes(t *testing.T) {
 			t.Errorf("timeLine(%v, %+v) = %q, %q, want %q, %q", tc.spent, tc.b, text, over, tc.text, tc.over)
 		}
 	}
+	// The sum of entries is added at run time, 0.1 + 0.2 lands a hair above 0.3 and must not read as over.
+	spent := 0.0
+	for _, h := range []float64{0.1, 0.2} {
+		spent += h
+	}
+	if text, over := timeLine(spent, budget(0.3)); text != "18m of 18m, 0h left" || over != "" {
+		t.Errorf("timeLine(0.1 + 0.2, 0.3) = %q, %q, want spot on", text, over)
+	}
 }
 
 // seedStoreForBudget is a store with two spaces, Platform over F1 and Mobile over F2, the tree the field resolution walks.
@@ -66,9 +74,41 @@ func TestResolveBudgetNamesTheReason(t *testing.T) {
 			t.Errorf("%s: %+v, %v, want %+v", name, got, err, tc.want)
 		}
 	}
+	// The value the task carries counts for the line even when the write target is another space's field.
+	carried := store.Task{ID: "T2", ParentIDs: []string{"F1"}, CustomFields: []store.CustomFieldValue{{ID: "CF3", Value: "10"}}}
+	if got, _ := resolveBudget(ctx, st, config.BudgetConfig{Source: "field", Field: "Hours"}, fields, false, carried); !got.has || got.hours != 10 || got.reason != `Custom field "Hours" is not in this task's space` || got.field.ID != "" {
+		t.Errorf("a carried value of another space's field: %+v", got)
+	}
 	// A value nobody can read is no budget and no reason, the box opens on an empty field.
 	task.CustomFields = []store.CustomFieldValue{{ID: "CF1", Value: "soon"}}
 	if got, _ := resolveBudget(ctx, st, config.BudgetConfig{Source: "field", Field: "Budget"}, fields, false, task); got.has || got.reason != "" || got.field.ID != "CF1" {
 		t.Errorf("unreadable value: %+v", got)
+	}
+}
+
+// The reference data can land after the task, the hourly pull brings a new field for example, and the detail must follow it.
+func TestDetailReloadsTheBudgetWhenTheReferenceDataLands(t *testing.T) {
+	cfg := rootTestOptions(t).Config
+	cfg.Budget = config.BudgetConfig{Source: "field", Field: "Budget"}
+	m := demoModelWith(t, cfg)
+	first, err := m.opts.Store.Tasks().Get(context.Background(), "IEAATASK00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = pump(m, openTaskMsg{task: first})
+	if !m.detail.budget.has {
+		t.Fatalf("the detail did not load the budget: %+v", m.detail.budget)
+	}
+	bare := m.ref
+	bare.customFields = nil
+	m = pump(m, refLoadedMsg{ref: bare})
+	if m.detail.budget.has || m.detail.budget.reason == "" {
+		t.Errorf("after the fields went away the detail still has %+v", m.detail.budget)
+	}
+	full := bare
+	full.customFields, _ = m.opts.Store.CustomFields().List(context.Background())
+	m = pump(m, refLoadedMsg{ref: full})
+	if !m.detail.budget.has {
+		t.Errorf("after the fields came back the detail has %+v", m.detail.budget)
 	}
 }

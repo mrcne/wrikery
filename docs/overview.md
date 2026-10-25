@@ -311,6 +311,7 @@ A command never asks: with a token in `WRIKERY_TOKEN` of another account it refu
 ### Demo mode
 
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.
+The demo has one custom field, a Duration called Budget, with a value on a few tasks, and uses it as the budget source when the config names none, so the time line and the budget row show without a config file.
 
 ### Config
 

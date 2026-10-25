@@ -77,7 +77,7 @@ Most of the mapping is direct, so only three parts need explaining:
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
-- custom_fields holds the account's field definitions and task_custom_fields a task's values, replaced on every write of the task, since every read that can carry the values does and an absent key means the task has none.
+- custom_fields holds the account's field definitions and task_custom_fields a task's values, replaced on every write of the task: the task queries ask for the values and the read by id carries them unasked (checked on the live account), the answer to a write is taken to carry them too, and an absent key means the task has none.
   The Effort field sits in two columns of tasks and is kept when a write carries no Effort field, because the API answers it only when asked and the answer to an edit would otherwise wipe what the pull read.
 
 The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.

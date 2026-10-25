@@ -28,6 +28,9 @@ func TestEffortReadsDropTheFieldAfterA403(t *testing.T) {
 		},
 	}
 	r := newEffortReads(ctx, fc, st, slog.Default())
+	// The engine's hook runs once per switch off, the interface reloads its reference data on it.
+	hooked := 0
+	r.onOff = func() { hooked++ }
 	if _, err := r.Tasks(ctx, wrike.TaskParams{Fields: pullFields}); err != nil {
 		t.Fatalf("the 403 must be swallowed and the read repeated: %v", err)
 	}
@@ -39,6 +42,9 @@ func TestEffortReadsDropTheFieldAfterA403(t *testing.T) {
 	}
 	if v, _ := st.GetMeta(ctx, store.MetaKeyEffortUnavailable); v != "1" {
 		t.Errorf("meta row = %q, want 1", v)
+	}
+	if hooked != 1 {
+		t.Errorf("the hook ran %d times, want once", hooked)
 	}
 	// A new engine starts from the row, a manual cycle asks again.
 	again := newEffortReads(ctx, fc, st, slog.Default())

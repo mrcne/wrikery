@@ -52,6 +52,14 @@ func resolveBudget(ctx context.Context, st *store.Store, cfg config.BudgetConfig
 			b.reason = fmt.Sprintf("Custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, candidates[0].Type)
 			return b, nil
 		}
+		// The value the task carries counts for the line whichever of the fields it is in, the walk below only picks the one a write goes to.
+		for _, f := range typed {
+			for _, v := range task.CustomFields {
+				if v.ID == f.ID && !b.has {
+					b.hours, b.has = store.BudgetHours(f, v.Value)
+				}
+			}
+		}
 		field, ok, err := st.BudgetFieldFor(ctx, task.ParentIDs, typed)
 		if err != nil {
 			return b, err
@@ -61,11 +69,6 @@ func resolveBudget(ctx context.Context, st *store.Store, cfg config.BudgetConfig
 			return b, nil
 		}
 		b.field = field
-		for _, v := range task.CustomFields {
-			if v.ID == field.ID {
-				b.hours, b.has = store.BudgetHours(field, v.Value)
-			}
-		}
 		return b, nil
 	}
 	b.reason = "No budget source is set, see budget.source in the config"
@@ -99,13 +102,15 @@ func budgetPayload(b budgetInfo, hours float64) (store.TaskUpdatePayload, bool) 
 // timeLine is the Time line of the detail: the logged time against the budget, the over part apart so the caller colors it.
 // Empty when the task has neither a budget nor an entry.
 func timeLine(spent float64, b budgetInfo) (text, over string) {
+	// The sum of the entries is a float, compared at the minute, the unit the line is written in, so 0.1 + 0.2 is not over 0.3.
+	spentMinutes, budgetMinutes := math.Round(spent*60), math.Round(b.hours*60)
 	switch {
 	case !b.has && spent == 0:
 		return "", ""
 	case !b.has:
 		return hoursText(spent), ""
-	case spent > b.hours:
-		return hoursText(spent) + " of " + hoursText(b.hours), hoursText(spent-b.hours) + " over"
+	case spentMinutes > budgetMinutes:
+		return hoursText(spent) + " of " + hoursText(b.hours), hoursText((spentMinutes-budgetMinutes)/60) + " over"
 	}
-	return fmt.Sprintf("%s of %s, %s left", hoursText(spent), hoursText(b.hours), hoursText(b.hours-spent)), ""
+	return fmt.Sprintf("%s of %s, %s left", hoursText(spent), hoursText(b.hours), hoursText((budgetMinutes-spentMinutes)/60)), ""
 }

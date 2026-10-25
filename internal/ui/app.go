@@ -276,8 +276,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.regroup()
 		// Contact names and status names are drawn from ref, so the detail has to be built again once it lands.
 		m.syncPaneSizes()
-		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref.
-		cmds := []tea.Cmd{m.loadTree()}
+		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref,
+		// and the detail's budget was resolved against the custom fields of its load, so the task is read again with these.
+		cmds := []tea.Cmd{m.loadTree(), m.reloadTask()}
 		if m.screen == screenTimesheet {
 			// The row glyphs were resolved against the reference data of their load, the week is read again with this one.
 			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
