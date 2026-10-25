@@ -289,3 +289,33 @@ func TestLoadRefusesABadRedirectURI(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReadsAndChecksTheBudgetTable(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body    string
+		want    config.BudgetConfig
+		wantErr string
+	}{
+		"field":          {body: "[budget]\nsource = \"field\"\nfield = \"Budget\"\n", want: config.BudgetConfig{Source: "field", Field: "Budget"}},
+		"effort":         {body: "[budget]\nsource = \"Effort\"\n", want: config.BudgetConfig{Source: "effort"}},
+		"none":           {body: "", want: config.BudgetConfig{}},
+		"unknown source": {body: "[budget]\nsource = \"money\"\n", wantErr: "budget.source"},
+		"field missing":  {body: "[budget]\nsource = \"field\"\n", wantErr: "budget.field"},
+		"field alone":    {body: "[budget]\nfield = \"Budget\"\n", wantErr: "budget.source"},
+	} {
+		path := filepath.Join(t.TempDir(), "config.toml")
+		if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(path)
+		if tc.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: err = %v, want it to name %s", name, err, tc.wantErr)
+			}
+			continue
+		}
+		if err != nil || cfg.Budget != tc.want {
+			t.Errorf("%s: budget = %+v, %v, want %+v", name, cfg.Budget, err, tc.want)
+		}
+	}
+}
