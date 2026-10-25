@@ -40,16 +40,21 @@ func BudgetHours(f CustomField, value string) (float64, bool) {
 	return 0, false
 }
 
-// HoursText writes hours the way the interface writes logged time: 2h, 45m or 1h 20m, exact to the minute.
-// Minutes are rounded and a full sixty carries into the hour, so a value that round trips through BudgetValue reads back the same.
-func HoursText(h float64) string {
+// SplitHours rounds a decimal number of hours to whole hours and minutes, sixty minutes carrying into the hour.
+// Rounded and not truncated, so a value that went through BudgetValue or a time entry edit reads back the same and never drifts a minute short.
+func SplitHours(h float64) (hours, minutes int) {
 	whole := math.Trunc(h)
-	minutes := int(math.Round((h - whole) * 60))
-	hours := int(whole)
+	minutes = int(math.Round((h - whole) * 60))
 	if minutes == 60 {
-		hours++
+		whole++
 		minutes = 0
 	}
+	return int(whole), minutes
+}
+
+// HoursText writes hours the way the interface writes logged time: 2h, 45m or 1h 20m, exact to the minute.
+func HoursText(h float64) string {
+	hours, minutes := SplitHours(h)
 	switch {
 	case minutes == 0:
 		return strconv.Itoa(hours) + "h"
@@ -57,6 +62,26 @@ func HoursText(h float64) string {
 		return strconv.Itoa(minutes) + "m"
 	}
 	return strconv.Itoa(hours) + "h " + strconv.Itoa(minutes) + "m"
+}
+
+// BudgetWords is a field value as hours, none for no value, the raw value when it cannot be read as a budget.
+// The changes screen and a held edit's reason both use it.
+func BudgetWords(f CustomField, value string) string {
+	if value == "" {
+		return "none"
+	}
+	if hours, ok := BudgetHours(f, value); ok {
+		return HoursText(hours)
+	}
+	return value
+}
+
+// MinutesWords is the Effort field's minutes as hours, none for no budget.
+func MinutesWords(minutes int) string {
+	if minutes <= 0 {
+		return "none"
+	}
+	return HoursText(float64(minutes) / 60)
 }
 
 // BudgetValue writes hours in the field's format: whole minutes for a Duration, hours with at most two decimals for a Numeric field.
@@ -119,4 +144,14 @@ func (s *Store) spacesAbove(ctx context.Context, folderID string) ([]string, err
 		out = append(out, space)
 	}
 	return out, rows.Err()
+}
+
+// customValueOf is the task's value of one field, empty when the task has none.
+func customValueOf(values []CustomFieldValue, id string) string {
+	for _, v := range values {
+		if v.ID == id {
+			return v.Value
+		}
+	}
+	return ""
 }

@@ -235,11 +235,11 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 		return TaskUpdatePayload{}, title, false, err
 	}
 	var description, statusID, group, importance string
-	var dType, dStart, dDue sql.NullString
-	var dDur sql.NullInt64
+	var dType, dStart, dDue, eMode sql.NullString
+	var dDur, eMinutes sql.NullInt64
 	err = tx.QueryRowContext(ctx, `
-		SELECT title, description, custom_status_id, status, importance, dates_type, dates_duration, dates_start, dates_due
-		FROM tasks WHERE id = ?`, taskID).Scan(&title, &description, &statusID, &group, &importance, &dType, &dDur, &dStart, &dDue)
+		SELECT title, description, custom_status_id, status, importance, dates_type, dates_duration, dates_start, dates_due, effort_mode, effort_minutes
+		FROM tasks WHERE id = ?`, taskID).Scan(&title, &description, &statusID, &group, &importance, &dType, &dDur, &dStart, &dDue, &eMode, &eMinutes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TaskUpdatePayload{}, "", false, nil
 	}
@@ -276,14 +276,9 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 	}
 	if p.Effort != nil {
 		// A task without the Effort field, or one never read with it, comes back to that through a None write.
-		var mode sql.NullString
-		var minutes sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT effort_mode, effort_minutes FROM tasks WHERE id = ?`, taskID).Scan(&mode, &minutes); err != nil {
-			return TaskUpdatePayload{}, "", false, err
-		}
 		before.Effort = &TaskEffort{Mode: "None"}
-		if mode.Valid {
-			before.Effort = &TaskEffort{Mode: mode.String, TotalMinutes: int(minutes.Int64)}
+		if eMode.Valid {
+			before.Effort = &TaskEffort{Mode: eMode.String, TotalMinutes: int(eMinutes.Int64)}
 		}
 	}
 	// The mirror is built against the link tables and not from the payload alone: a pull between the dialog and its submit
@@ -1045,7 +1040,12 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		return err
 	}
 	// Each field goes to the first later edit that sets it, the edits after that one remember that one's value.
-	title, description, status, importance, dates := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil
+	title, description, status, importance, dates, effort := p.Title != "", p.Description != "", p.CustomStatusID != "", p.Importance != "", p.Dates != nil, p.Effort != nil
+	// A custom field is a field of its own per id, the budget field in practice.
+	customFields := map[string]bool{}
+	for _, cf := range p.CustomFields {
+		customFields[cf.ID] = true
+	}
 	for _, e := range later {
 		// A later edit that does not decode is skipped, the drain fails it on its own when its turn comes.
 		var lp, lb TaskUpdatePayload
@@ -1068,6 +1068,18 @@ func passBeforeOnTx(ctx context.Context, tx *sql.Tx, id int64) error {
 		take(&status, lp.CustomStatusID != "", func() { lb.CustomStatusID, lb.Status = b.CustomStatusID, b.Status })
 		take(&importance, lp.Importance != "", func() { lb.Importance = b.Importance })
 		take(&dates, lp.Dates != nil, func() { lb.Dates = b.Dates })
+		take(&effort, lp.Effort != nil, func() { lb.Effort = b.Effort })
+		for _, lcf := range lp.CustomFields {
+			pending := customFields[lcf.ID]
+			take(&pending, true, func() {
+				for i := range lb.CustomFields {
+					if lb.CustomFields[i].ID == lcf.ID {
+						lb.CustomFields[i].Value = customValueOf(b.CustomFields, lcf.ID)
+					}
+				}
+			})
+			customFields[lcf.ID] = pending
+		}
 		// An edit that remembered nothing, its task was not cached, is sent unchecked and stays so.
 		if !changed || e.before == "" {
 			continue

@@ -71,6 +71,9 @@ func (r *effortReads) Tasks(ctx context.Context, p wrike.TaskParams) (wrike.Task
 	if err != nil && r.refused(ctx, err, asked.Fields) {
 		return r.Client.Tasks(ctx, p)
 	}
+	if err == nil {
+		fillEffort(page.Tasks, asked.Fields)
+	}
 	return page, err
 }
 
@@ -80,5 +83,21 @@ func (r *effortReads) TasksByIDs(ctx context.Context, ids []string, fields []str
 	if err != nil && r.refused(ctx, err, asked) {
 		return r.Client.TasksByIDs(ctx, ids, fields)
 	}
+	if err == nil {
+		fillEffort(tasks, asked)
+	}
 	return tasks, err
+}
+
+// fillEffort gives a task the read asked the Effort field for and that came without it a None.
+// The upsert keeps the columns on a nil Effort, which is right for a read that did not ask, and would keep a cleared budget here.
+func fillEffort(tasks []wrike.Task, asked []string) {
+	if !slices.Contains(asked, effortField) {
+		return
+	}
+	for i := range tasks {
+		if tasks[i].Effort == nil {
+			tasks[i].Effort = &wrike.TaskEffort{Mode: "None"}
+		}
+	}
 }

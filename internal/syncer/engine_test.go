@@ -469,3 +469,81 @@ func TestEngineQuietCyclesEmitNoStoreHints(t *testing.T) {
 		}
 	}
 }
+
+// The start of the interface is a manual cycle too, but only a refresh the user asked for, R or sync --full, asks for the Effort field again.
+func TestEffortIsAskedAgainOnARefreshAlone(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject, Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetMeta(ctx, store.MetaKeyEffortUnavailable, "1"); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var asked [][]string
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		mu.Lock()
+		asked = append(asked, p.Fields)
+		mu.Unlock()
+		return wrike.TasksPage{}, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: time.Hour, PullEffort: true})
+	waitFor(t, e, "first idle", isState(StateIdle))
+	mu.Lock()
+	for _, f := range asked {
+		if slices.Contains(f, effortField) {
+			t.Errorf("the start asked for the effort although the row says the account has none: %q", asked)
+		}
+	}
+	before := len(asked)
+	mu.Unlock()
+	e.Refresh()
+	waitFor(t, e, "syncing after the refresh", isState(StateSyncing))
+	waitFor(t, e, "idle after the refresh", isState(StateIdle))
+	mu.Lock()
+	defer mu.Unlock()
+	found := false
+	for _, f := range asked[before:] {
+		found = found || slices.Contains(f, effortField)
+	}
+	if !found {
+		t.Errorf("the refresh did not ask for the effort again: %q", asked[before:])
+	}
+}
+
+// A new task field, the Effort field turned on in the config for example, is read for every cached task once: the cursors are cleared
+// when the set of fields the pulls ask for differs from the one the last run remembered.
+func TestPullStartsOverWhenTheTaskFieldsChange(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject, Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Every pull answers one task, so the scope gets a cursor and the next pull is incremental unless something cleared it.
+	var since []time.Time
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		if p.FolderID == "F1" {
+			since = append(since, p.UpdatedAfter)
+		}
+		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1", Title: "t", Status: "Active", UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
+	}}
+	if _, err := New(fc, st, Config{}, slog.New(slog.DiscardHandler)).Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(since) != 1 {
+		t.Fatalf("the first run pulled %d times, want once", len(since))
+	}
+	if _, err := New(fc, st, Config{PullEffort: true}, slog.New(slog.DiscardHandler)).Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(since) != 2 || !since[1].IsZero() {
+		t.Fatalf("a run with a new field must pull from the start, since = %v", since)
+	}
+	if _, err := New(fc, st, Config{PullEffort: true}, slog.New(slog.DiscardHandler)).Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(since) != 3 || since[2].IsZero() {
+		t.Errorf("the same set again must stay incremental, since = %v", since)
+	}
+}

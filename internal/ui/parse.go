@@ -3,7 +3,6 @@ package ui
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -208,16 +207,8 @@ func formatHours(h float64) string {
 	return fmt.Sprintf("%d:%02d", hours, minutes)
 }
 
-// splitHours rounds a decimal number of hours to whole hours and minutes, 60 minutes carrying into the hour.
-func splitHours(h float64) (hours, minutes int) {
-	whole := math.Trunc(h)
-	minutes = int(math.Round((h - whole) * 60))
-	if minutes == 60 {
-		whole++
-		minutes = 0
-	}
-	return int(whole), minutes
-}
+// splitHours is the store's rounding, the one rule for hours and minutes in the app.
+func splitHours(h float64) (hours, minutes int) { return store.SplitHours(h) }
 
 // hoursText writes logged time the way the time entry box reads it: 2h, 45m or 1h 20m.
 // Exact to the minute, so what is shown can be checked against what was typed.

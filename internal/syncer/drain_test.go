@@ -820,14 +820,19 @@ func TestDrainSendsABudgetEditAndAsksForTheEffortBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sent []wrike.TaskUpdate
+	// The fake keeps the task's values the way Wrike does, every answer carries them like a read by id does.
+	values := []wrike.CustomFieldValue{}
 	fc := &fakeClient{
 		tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
-			return []wrike.Task{{ID: "T1", Title: "t", Status: "Active", Effort: &wrike.TaskEffort{Mode: "Basic", TotalEffort: 600}}}, nil
+			return []wrike.Task{{ID: "T1", Title: "t", Status: "Active", CustomFields: values, Effort: &wrike.TaskEffort{Mode: "Basic", TotalEffort: 600}}}, nil
 		},
 		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
 			sent = append(sent, u)
-			// The answer carries the effort only when the write asked for it back.
-			answer := wrike.Task{ID: "T1", Title: "t", Status: "Active"}
+			for _, cf := range u.CustomFields {
+				values = append(values, wrike.CustomFieldValue{ID: cf.ID, Value: cf.Value})
+			}
+			// The effort comes back only when the write asked for it.
+			answer := wrike.Task{ID: "T1", Title: "t", Status: "Active", CustomFields: values}
 			if u.Effort != nil {
 				answer.Effort = &wrike.TaskEffort{Mode: "Basic", TotalEffort: u.Effort.TotalEffort}
 			}
@@ -846,5 +851,8 @@ func TestDrainSendsABudgetEditAndAsksForTheEffortBack(t *testing.T) {
 	got, _ := st.Tasks().Get(ctx, "T1")
 	if got.Effort == nil || got.Effort.TotalMinutes != 1200 {
 		t.Errorf("the answer's effort was not applied: %+v", got.Effort)
+	}
+	if len(got.CustomFields) != 1 || got.CustomFields[0].Value != "765" {
+		t.Errorf("the value the first edit set is gone after the second edit's answer: %+v", got.CustomFields)
 	}
 }

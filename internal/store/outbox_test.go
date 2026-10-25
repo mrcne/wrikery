@@ -899,3 +899,40 @@ func TestEnqueueTaskUpdateAppliesABudget(t *testing.T) {
 		t.Errorf("before = %s, want the old effort 1200", row.Before)
 	}
 }
+
+// A dropped budget edit hands the value it replaced to the next budget edit, or that one is held against a value Wrike never had.
+func TestDiscardPassesABudgetBeforeOn(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := makeTask("T1", "budgeted")
+	task.CustomFields = []CustomFieldValue{{ID: "CF1", Value: "600"}}
+	task.Effort = &TaskEffort{Mode: "Basic", TotalMinutes: 600}
+	if err := st.Tasks().Upsert(ctx, []Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{CustomFields: []CustomFieldValue{{ID: "CF1", Value: "900"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{CustomFields: []CustomFieldValue{{ID: "CF1", Value: "1200"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := st.Outbox().Get(ctx, second)
+	var before TaskUpdatePayload
+	if err := json.Unmarshal(row.Before, &before); err != nil || len(before.CustomFields) != 1 || before.CustomFields[0].Value != "600" {
+		t.Errorf("the second edit remembers %s, want the value the first one replaced, 600", row.Before)
+	}
+	first, _ = st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Effort: &TaskEffort{Mode: "Basic", TotalMinutes: 900}})
+	second, _ = st.Outbox().EnqueueTaskUpdate(ctx, "T1", TaskUpdatePayload{Effort: &TaskEffort{Mode: "Basic", TotalMinutes: 1200}})
+	if err := st.Outbox().Discard(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = st.Outbox().Get(ctx, second)
+	if err := json.Unmarshal(row.Before, &before); err != nil || before.Effort == nil || before.Effort.TotalMinutes != 600 {
+		t.Errorf("the second effort edit remembers %s, want 600", row.Before)
+	}
+}

@@ -197,6 +197,10 @@ const MetaKeyStatusMoveConfirmed = "status_move_confirmed"
 // The engine leaves the field out of its reads from then on, and a manual cycle clears the row and asks again.
 const MetaKeyEffortUnavailable = "effort_unavailable"
 
+// MetaKeyPullFields is the set of optional task fields the last run's pulls asked for, comma separated.
+// A run whose set differs clears the scope cursors first, so every cached task is read once with the new field.
+const MetaKeyPullFields = "pull_fields"
+
 // MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
 // The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
 const MetaKeyTimelogFrom = "timelog_window_from"

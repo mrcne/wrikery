@@ -65,11 +65,45 @@ func TestEffortReadsDropTheFieldAfterA403(t *testing.T) {
 
 func TestEffortReadsPassOtherErrorsThrough(t *testing.T) {
 	st := newTestStore(t)
-	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
-		return wrike.TasksPage{}, &wrike.APIError{StatusCode: 404, Code: "resource_not_found"}
-	}}
-	r := newEffortReads(context.Background(), fc, st, slog.Default())
-	if _, err := r.Tasks(context.Background(), wrike.TaskParams{}); err == nil || r.off.Load() {
-		t.Errorf("a 404 must come back as it is and leave the field on: %v, off %v", err, r.off.Load())
+	// A folder the user lost access to answers 403 access_forbidden, which says nothing about the plan.
+	for _, apiErr := range []*wrike.APIError{{StatusCode: 404, Code: "resource_not_found"}, {StatusCode: 403, Code: "access_forbidden"}} {
+		fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) { return wrike.TasksPage{}, apiErr }}
+		r := newEffortReads(context.Background(), fc, st, slog.Default())
+		if _, err := r.Tasks(context.Background(), wrike.TaskParams{}); err == nil || r.off.Load() {
+			t.Errorf("%s must come back as it is and leave the field on: %v, off %v", apiErr.Code, err, r.off.Load())
+		}
+	}
+}
+
+// Wrike may leave the key out for a task whose Effort was cleared, and the upsert keeps the columns on a nil Effort,
+// so a read that asked for the field fills a None in, which the upsert then stores.
+func TestEffortReadsFillANoneInForATaskWithoutTheField(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	fc := &fakeClient{
+		tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+			return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}, {ID: "T2", Effort: &wrike.TaskEffort{Mode: "Basic", TotalEffort: 60}}}}, nil
+		},
+		tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) { return []wrike.Task{{ID: "T1"}}, nil },
+	}
+	r := newEffortReads(ctx, fc, st, slog.Default())
+	page, err := r.Tasks(ctx, wrike.TaskParams{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Tasks[0].Effort == nil || page.Tasks[0].Effort.Mode != "None" || page.Tasks[1].Effort.TotalEffort != 60 {
+		t.Errorf("tasks = %+v, want None filled in and the answered effort kept", page.Tasks)
+	}
+	byID, _ := r.TasksByIDs(ctx, []string{"T1"}, nil)
+	if byID[0].Effort == nil || byID[0].Effort.Mode != "None" {
+		t.Errorf("by id = %+v, want None filled in", byID)
+	}
+	// Off, the read did not ask, nothing is filled in.
+	if err := r.st.SetMeta(ctx, store.MetaKeyEffortUnavailable, "1"); err != nil {
+		t.Fatal(err)
+	}
+	off := newEffortReads(ctx, fc, st, slog.Default())
+	if page, _ := off.Tasks(ctx, wrike.TaskParams{}); page.Tasks[0].Effort != nil {
+		t.Errorf("a read that did not ask filled %+v in", page.Tasks[0].Effort)
 	}
 }

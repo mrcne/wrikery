@@ -43,6 +43,13 @@ func TestConflictHoldsABudgetEdit(t *testing.T) {
 	if c, err := conflictOf(ctx, fc, st, row, p, map[string]store.Task{}); err != nil || c != nil {
 		t.Errorf("same value: conflict = %v, %v", c, err)
 	}
+	// A read that carries no customFields key says nothing about the values and holds nothing either.
+	fc.tasksByIDs = func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{{ID: "T1", Title: "t", Status: "Active"}}, nil
+	}
+	if c, err := conflictOf(ctx, fc, st, row, p, map[string]store.Task{}); err != nil || c != nil {
+		t.Errorf("values unknown: conflict = %v, %v", c, err)
+	}
 	// An effort edit against a read that did not carry the effort says nothing and holds nothing.
 	id, _ = st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Effort: &store.TaskEffort{Mode: "Basic", TotalMinutes: 600}})
 	row, _ = st.Outbox().Get(ctx, id)

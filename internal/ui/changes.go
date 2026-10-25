@@ -111,23 +111,19 @@ func datesText(d *store.TaskDates) string {
 // budgetText is a budget write as hours, none for no value, the raw value when the field is unknown or its value cannot be read.
 func budgetText(p store.TaskUpdatePayload, ref refData) string {
 	if p.Effort != nil {
-		if p.Effort.TotalMinutes <= 0 {
-			return "none"
-		}
-		return hoursText(float64(p.Effort.TotalMinutes) / 60)
+		return store.MinutesWords(p.Effort.TotalMinutes)
 	}
-	if len(p.CustomFields) == 0 || p.CustomFields[0].Value == "" {
+	if len(p.CustomFields) == 0 {
 		return "none"
 	}
 	cf := p.CustomFields[0]
+	def := store.CustomField{ID: cf.ID}
 	for _, f := range ref.customFields {
 		if f.ID == cf.ID {
-			if hours, ok := store.BudgetHours(f, cf.Value); ok {
-				return hoursText(hours)
-			}
+			def = f
 		}
 	}
-	return cf.Value
+	return store.BudgetWords(def, cf.Value)
 }
 
 func timelogText(hours float64, date, note string) string {

@@ -527,6 +527,13 @@ func TestReferencePullStoresTheCustomFields(t *testing.T) {
 	if got, _ := st.CustomFields().List(ctx); len(got) != 0 {
 		t.Errorf("a refused call left %+v", got)
 	}
+	// Only the plan's not_allowed is no fields, another 403 is an error like any other.
+	fc.customFields = func() ([]wrike.CustomField, error) {
+		return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+	}
+	if err := pullReference(ctx, fc, st, slog.Default()); err == nil {
+		t.Error("an access_forbidden on the fields must fail the reference pull")
+	}
 }
 
 func TestScopePullAsksForTheCustomFields(t *testing.T) {

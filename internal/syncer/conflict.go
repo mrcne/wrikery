@@ -77,7 +77,8 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 			before.Dates = wrike
 		}
 	}
-	if len(p.CustomFields) > 0 {
+	// A read without the customFields key says nothing about the values, like a read without the effort below.
+	if len(p.CustomFields) > 0 && now.CustomFields != nil {
 		// The only custom field the client writes is the budget, so the wording says budget and reads the value as hours.
 		defs, err := st.CustomFields().List(ctx)
 		if err != nil {
@@ -87,7 +88,7 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 			wrikeValue := customValue(now.CustomFields, cf.ID)
 			if customValue(before.CustomFields, cf.ID) != wrikeValue && cf.Value != wrikeValue {
 				def := fieldByID(defs, cf.ID)
-				fields = append(fields, fmt.Sprintf("budget %s now, was %s", budgetWords(def, wrikeValue), budgetWords(def, customValue(before.CustomFields, cf.ID))))
+				fields = append(fields, fmt.Sprintf("budget %s now, was %s", store.BudgetWords(def, wrikeValue), store.BudgetWords(def, customValue(before.CustomFields, cf.ID))))
 				before.CustomFields = setCustomValue(before.CustomFields, cf.ID, wrikeValue)
 			}
 		}
@@ -99,7 +100,7 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 			beforeMinutes = before.Effort.TotalMinutes
 		}
 		if beforeMinutes != now.Effort.TotalMinutes && p.Effort.TotalMinutes != now.Effort.TotalMinutes {
-			fields = append(fields, fmt.Sprintf("budget %s now, was %s", minutesWords(now.Effort.TotalMinutes), minutesWords(beforeMinutes)))
+			fields = append(fields, fmt.Sprintf("budget %s now, was %s", store.MinutesWords(now.Effort.TotalMinutes), store.MinutesWords(beforeMinutes)))
 			before.Effort = &store.TaskEffort{Mode: now.Effort.Mode, TotalMinutes: now.Effort.TotalMinutes}
 		}
 	}
@@ -187,24 +188,6 @@ func fieldByID(defs []store.CustomField, id string) store.CustomField {
 		}
 	}
 	return store.CustomField{ID: id}
-}
-
-// budgetWords is a field value as hours, none for no value, the raw value when it cannot be read as a budget.
-func budgetWords(def store.CustomField, value string) string {
-	if value == "" {
-		return "none"
-	}
-	if hours, ok := store.BudgetHours(def, value); ok {
-		return store.HoursText(hours)
-	}
-	return value
-}
-
-func minutesWords(minutes int) string {
-	if minutes <= 0 {
-		return "none"
-	}
-	return store.HoursText(float64(minutes) / 60)
 }
 
 // descriptionText is a description reduced to its words: the tags dropped, every entity decoded and the white space collapsed.

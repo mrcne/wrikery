@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -65,10 +67,13 @@ func (c Config) withDefaults() Config {
 // so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
-	effort *effortReads // the wrapper around client when PullEffort is set, nil otherwise, a manual cycle resets it
-	st     *store.Store
-	cfg    Config
-	log    *slog.Logger
+	effort *effortReads // the wrapper around client when PullEffort is set, nil otherwise, a refresh the user asked for resets it
+	// refreshAsked is set by Refresh and by Once with full, the one cycle that asks for the Effort field again after a 403.
+	// The start of the interface is a manual cycle too and must not, or every start would pay the 403 and log it again.
+	refreshAsked atomic.Bool
+	st           *store.Store
+	cfg          Config
+	log          *slog.Logger
 
 	events  chan Event
 	refresh chan struct{}
@@ -115,6 +120,7 @@ func (e *Engine) Events() <-chan Event { return e.events }
 // Refresh requests a full cycle now, reference data and the deletion sweep included.
 // Safe from any goroutine, coalesces when one is queued.
 func (e *Engine) Refresh() {
+	e.refreshAsked.Store(true)
 	select {
 	case e.refresh <- struct{}{}:
 	default:
@@ -139,6 +145,9 @@ func (e *Engine) Once(ctx context.Context, full bool) (SyncState, error) {
 	if err := e.ensureMeScope(ctx); err != nil {
 		e.setState(stateAfter(err))
 		return e.state, err
+	}
+	if full {
+		e.refreshAsked.Store(true)
 	}
 	err := e.cycle(ctx, context.WithoutCancel(ctx), full)
 	e.setState(stateAfter(err))
@@ -359,8 +368,8 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if err := e.meetHome(ctx); err != nil {
 		return err
 	}
-	if manual && e.effort != nil {
-		// A manual cycle asks for the Effort field again, which is how an upgraded plan gets it.
+	if e.refreshAsked.Swap(false) && e.effort != nil {
+		// A refresh the user asked for asks for the Effort field again, which is how an upgraded plan gets it.
 		if err := e.effort.reset(ctx); err != nil {
 			return err
 		}
@@ -395,6 +404,9 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 			Entities: []EntityKind{KindFolders, KindSpaces, KindContacts, KindWorkflows, KindCustomFields}})
 	}
 
+	if err := e.notePullFields(ctx); err != nil {
+		return err
+	}
 	scopes, err := e.st.Scopes().Followed(ctx)
 	if err != nil {
 		return err
@@ -565,4 +577,34 @@ func (e *Engine) ensureMe(ctx context.Context) (string, error) {
 	}
 	e.meID = me.ID
 	return me.ID, nil
+}
+
+// pullFieldSet is the set of optional task fields the pulls ask for under this config.
+// The Effort field counts when the config asks for it, whatever the account answered, so a 403 does not count as a change.
+func (e *Engine) pullFieldSet() []string {
+	if !e.cfg.PullEffort {
+		return pullFields
+	}
+	return append(slices.Clone(pullFields), effortField)
+}
+
+// notePullFields remembers the set of task fields the pulls ask for and clears the scope cursors when it changed,
+// so a task already in the cache is read again with the new field once, the way a migration does for a new column.
+// A run that finds no remembered set, a fresh cache or one a migration just reset, only writes it down.
+func (e *Engine) notePullFields(ctx context.Context) error {
+	want := strings.Join(e.pullFieldSet(), ",")
+	have, err := e.st.GetMeta(ctx, store.MetaKeyPullFields)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		return err
+	case have == want:
+		return nil
+	default:
+		e.log.Info("the task fields changed, every followed scope is pulled from the start once", "fields", want)
+		if err := e.st.Scopes().ClearCursors(ctx); err != nil {
+			return err
+		}
+	}
+	return e.st.SetMeta(ctx, store.MetaKeyPullFields, want)
 }
