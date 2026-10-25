@@ -63,6 +63,7 @@ The pins and the toggle are kept across restarts.
 A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
+`.` lists every action on the selected task with its key, narrowed as you type, enter runs the highlighted one and esc closes the list.
 `z` shows completed and cancelled tasks in the list, and `R` refreshes from Wrike right away instead of waiting for the next poll, or goes online after a confirm when the app was started offline.
 A jump to a completed task, from the search, the changes screen or the timesheet, turns that on for the folder it lands in and off again when the list moves to another folder.
 
@@ -86,7 +87,7 @@ A dependency line names the other task and whether it is a predecessor, a task t
 A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
 The related tasks of a task that was itself fetched this way are not fetched in turn, their lines stay as they are.
 Attachments are counted only, their names and the files stay in the web application, `o` opens the task there.
-Single key actions on the selected task:
+Actions on the selected task, each on a single key, and all of them in a list on `.`:
 `c` comment, `C` comment in an editor, `t` log time, `s` status, `a` assignee, `d` dates, `e` title, `E` description, `p` importance, `m` folders.
 An action changes the local view at once and is sent to Wrike in the background.
 A task with a write still queued shows `(sending)` next to its title, and one whose write failed shows `(failed, ! to review)` there instead.

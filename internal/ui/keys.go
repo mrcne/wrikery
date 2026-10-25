@@ -3,14 +3,14 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type KeyMap struct {
-	Quit, Help, Search, Timesheet, Changes, Settings, Refresh, NextPane, PrevPane, Back, HideSidebar                     key.Binding
-	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone, Pin, Pinned                         key.Binding
-	Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open, New key.Binding
-	CopyLink, CopyBranch, CopyID                                                                                         key.Binding
-	Retry, Discard                                                                                                       key.Binding
-	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                                   key.Binding
-	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                       key.Binding
-	FilterBox, ClearFilter, FilterHelp                                                                                   key.Binding
+	Quit, Help, Search, Timesheet, Changes, Settings, Refresh, NextPane, PrevPane, Back, HideSidebar                              key.Binding
+	Up, Down, Top, Bottom, HalfDown, HalfUp, Filter, Enter, Left, Right, ToggleDone, Pin, Pinned                                  key.Binding
+	Actions, Comment, CommentEditor, LogTime, Status, Assignee, Dates, EditTitle, EditDescription, Importance, Folders, Open, New key.Binding
+	CopyLink, CopyBranch, CopyID                                                                                                  key.Binding
+	Retry, Discard                                                                                                                key.Binding
+	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                                            key.Binding
+	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                                key.Binding
+	FilterBox, ClearFilter, FilterHelp                                                                                            key.Binding
 }
 
 func b(help, desc string, keys ...string) key.Binding {
@@ -37,6 +37,7 @@ func defaultKeyMap() KeyMap {
 		StatusPrev: b("H", "previous status", "H"), StatusNext: b("L", "next status", "L"),
 		ColPrev: b("h", "previous column", "h", "left"), ColNext: b("l", "next column", "l", "right"),
 
+		Actions: b(".", "actions", "."),
 		Comment: b("c", "comment", "c"), CommentEditor: b("C", "comment in $EDITOR", "C"), LogTime: b("t", "log time", "t"),
 		Status: b("s", "status", "s"), Assignee: b("a", "assignee", "a"), Dates: b("d", "dates", "d"), EditTitle: b("e", "title", "e"), EditDescription: b("E", "description in $EDITOR", "E"), Importance: b("p", "importance", "p"), Folders: b("m", "folders", "m"),
 		New:  b("n", "new task", "n"),
@@ -59,7 +60,7 @@ func (k KeyMap) list() []key.Binding {
 }
 
 func (k KeyMap) task() []key.Binding {
-	return []key.Binding{k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.EditTitle, k.EditDescription, k.Importance, k.Folders, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
+	return []key.Binding{k.Actions, k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.EditTitle, k.EditDescription, k.Importance, k.Folders, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
 }
 
 func (k KeyMap) board() []key.Binding {

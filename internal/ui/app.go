@@ -516,6 +516,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case closeDialogMsg:
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
+	case runActionMsg:
+		// The actions box closes first, the run may open a box of its own in its place.
+		m.overlay, m.dialog = overlayNone, nil
+		if table := taskActionTable(m.keys); msg.index >= 0 && msg.index < len(table) {
+			return m, table[msg.index].run(&m)
+		}
+		return m, nil
 	case openConfirmMsg:
 		m.openDialog(confirmDialog{prompt: msg.prompt, onYes: msg.onYes})
 		return m, nil
@@ -1260,6 +1267,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // The main screen and the detail pane beside the timesheet grid share them. The second result is false when the key is none of them.
 // The actions come from taskActionTable, which is also what the actions list shows.
 func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if key.Matches(msg, m.keys.Actions) {
+		cmd := m.withTask(func(t store.Task) tea.Cmd {
+			d, cmd := newActionsDialog(t, taskActionTable(m.keys))
+			m.openDialog(d)
+			return cmd
+		})
+		return cmd, true
+	}
 	for _, a := range taskActionTable(m.keys) {
 		if a.hasKey() && key.Matches(msg, a.key) {
 			return a.run(m), true

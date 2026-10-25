@@ -8,11 +8,13 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type checkRow struct {
 	id, label string
 	section   string // drawn as a muted header above the first row of a run, the filter box groups its rows with it
+	hint      string // drawn muted at the right edge of the row, the key of an action, the filter ignores it
 }
 
 // checklist is the filterable list of rows the assignee, the folders, the Follow and the filter boxes share, with a check box each,
@@ -170,6 +172,12 @@ func (c checklist) view(th Theme, width, rows int) string {
 				mark = "[x]"
 			}
 			line = indent + mark + " " + title
+		}
+		if r.hint != "" {
+			// The label is cut before the hint instead of pushing it off the row, and keeps a column of air on each side of it.
+			room := width - 2 - ansi.StringWidth(r.hint) - 1
+			line = ansi.Truncate(line, room-1, "...")
+			line += strings.Repeat(" ", max(room-ansi.StringWidth(line), 1)) + muted.Render(r.hint)
 		}
 		b.WriteString(rowLine(th, line, width, i == c.cursor, true) + "\n")
 	}

@@ -68,6 +68,9 @@ func TestKeyGroupsFollowTheOverlay(t *testing.T) {
 	if !has(groups[0], "?") || !has(groups[0], "q") {
 		t.Errorf("Everywhere lacks ? or q: %+v", groups[0])
 	}
+	if !has(groups[2], ".") {
+		t.Errorf("The task lacks .: %+v", groups[2])
+	}
 	if !has(groups[5], "r") || !has(groups[5], "x") {
 		t.Errorf("the changes screen lacks r or x: %+v", groups[5])
 	}

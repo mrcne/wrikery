@@ -5,7 +5,8 @@ import "testing"
 func TestTaskActionTableFollowsTheTaskKeys(t *testing.T) {
 	k := defaultKeyMap()
 	table := taskActionTable(k)
-	keys := k.task()
+	// The first key of the group opens the list and is no row of it.
+	keys := k.task()[1:]
 	if len(table) != len(keys) {
 		t.Fatalf("%d actions, want one per task key, %d", len(table), len(keys))
 	}
