@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,7 +54,7 @@ func (c *checklist) applyFilter() {
 	}
 	c.visible = c.visible[:0]
 	for i, r := range c.rows {
-		if q == "" || wordPrefix(stableWidth(strings.ToLower(r.label)), q) {
+		if matchesEveryWord(stableWidth(strings.ToLower(r.label)), q) {
 			c.visible = append(c.visible, i)
 		}
 	}
@@ -62,19 +63,33 @@ func (c *checklist) applyFilter() {
 	}
 }
 
+// matchesEveryWord says whether each word of the query matches the label on its own, so "now ada" finds "Ada Nowak" as "ada now" does.
+// An empty query matches everything.
+func matchesEveryWord(label, q string) bool {
+	for _, w := range strings.Fields(q) {
+		if !wordPrefix(label, w) {
+			return false
+		}
+	}
+	return true
+}
+
 // wordPrefix matches the query against the start of the label or of any word in it, so "sys" finds "Design system" and "now" finds "Ada Nowak".
+// A word is also tried without the symbols in front of it, the word a person types for "$EDITOR" is editor, and "$" still finds it as it is.
 func wordPrefix(label, q string) bool {
 	label = strings.TrimSpace(label)
 	if strings.HasPrefix(label, q) {
 		return true
 	}
 	for _, w := range strings.Fields(label) {
-		if strings.HasPrefix(w, q) {
+		if strings.HasPrefix(w, q) || strings.HasPrefix(strings.TrimLeftFunc(w, isSymbol), q) {
 			return true
 		}
 	}
 	return false
 }
+
+func isSymbol(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
 
 func (c checklist) current() (checkRow, bool) {
 	if c.cursor < 0 || c.cursor >= len(c.visible) {

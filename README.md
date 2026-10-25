@@ -60,6 +60,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 | `f` `F` | filter by importance, person and status, and clear it |
 | `space` `P` | pin a folder, show only the pinned ones |
 | `ctrl+f` | search |
+| `.` | every action on the selected task, with its key |
 | `c` | comment |
 | `s` | status |
 | `e` | edit the title |

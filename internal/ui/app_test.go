@@ -766,6 +766,11 @@ func TestActionsListOpensTheDatesBox(t *testing.T) {
 	if strings.Contains(view[strings.LastIndex(view, "Dates"):], "Actions on") {
 		t.Error("the actions box is still on screen with the dates box")
 	}
+	// The dates box takes the keys that follow, so it is still open and nothing closed it behind the run.
+	// The start field is prefilled when the task has dates, ctrl+u clears it first.
+	from = mark(t, tm)
+	press(tm, "ctrl+u", "2026-09-10")
+	waitAfter(t, tm, from, "Thu 10 Sep 2026")
 	press(tm, "esc")
 
 	// From the detail pane too: the focus starts on the list, one tab is the detail, see TestTabMovesFocusAndWindowSlides.

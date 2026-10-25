@@ -36,7 +36,7 @@ func keylessLabels(actions []taskAction) []string {
 	return out
 }
 
-// taskActionTable lists the actions in the order of the overlay's task group, KeyMap.task().
+// taskActionTable lists the actions in the order of the overlay's task group, KeyMap.task() after its first key, which opens the list.
 // The key dispatch walks it and the actions list shows it, so an action cannot be in one and missing from the other.
 func taskActionTable(k KeyMap) []taskAction {
 	return []taskAction{

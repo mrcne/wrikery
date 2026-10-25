@@ -51,20 +51,36 @@ func TestActionsDialogNarrowsAndRunsTheHighlightedAction(t *testing.T) {
 			t.Errorf("c left %q visible", label)
 		}
 	}
-	// "cu" starts no word of any action, enter has nothing to run.
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	// The word a person types for the two editor actions is editor, the label's word starts with a dollar sign.
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	for _, r := range "editor" {
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	ad = dl.(actionsDialog)
+	if len(ad.list.visible) != 2 {
+		t.Errorf("editor left %d rows, want the two $EDITOR actions", len(ad.list.visible))
+	}
+	for _, ri := range ad.list.visible {
+		if label := ad.list.rows[ri].label; !strings.HasSuffix(label, "in $EDITOR") {
+			t.Errorf("editor left %q visible", label)
+		}
+	}
+	// "cu" starts no word of any action, enter has nothing to run and sends nothing at all.
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	for _, r := range "cu" {
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
 	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if msgs := runs(collect(cmd)); len(msgs) != 0 {
-		t.Errorf("enter with no row ran something: %#v", msgs)
+	if msgs := collect(cmd); len(msgs) != 0 {
+		t.Errorf("enter with no row sent something: %#v", msgs)
 	}
-	for range 2 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
-	}
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
 	for _, r := range "dat" {
 		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	msgs := runs(collect(cmd))
+	// Unfiltered on purpose: the run has to be the only message, a closeDialogMsg sent with it would race the box the run opens.
+	msgs := collect(cmd)
 	want := -1
 	for i, a := range table {
 		if a.label() == "dates" {

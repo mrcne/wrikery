@@ -519,10 +519,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runActionMsg:
 		// The actions box closes first, the run may open a box of its own in its place.
 		m.overlay, m.dialog = overlayNone, nil
-		if table := taskActionTable(m.keys); msg.index >= 0 && msg.index < len(table) {
-			return m, table[msg.index].run(&m)
+		table := taskActionTable(m.keys)
+		if msg.index < 0 || msg.index >= len(table) {
+			return m, nil
 		}
-		return m, nil
+		// The run may open a box on m, so it goes in a statement of its own, see openDialog.
+		cmd := table[msg.index].run(&m)
+		return m, cmd
 	case openConfirmMsg:
 		m.openDialog(confirmDialog{prompt: msg.prompt, onYes: msg.onYes})
 		return m, nil

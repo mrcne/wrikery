@@ -239,9 +239,11 @@ func manualPage(global *flag.FlagSet, date string) string {
 			line(".B %s", arg(troff(keyNames(k))))
 			text(k.Help().Desc)
 		}
-		if s := keylessText(ui.KeylessActions()); g.Title == "The task" && s != "" {
-			line(".PP")
-			text(s)
+		if g.Title == "The task" {
+			if s := keylessText(ui.KeylessActions()); s != "" {
+				line(".PP")
+				text(s)
+			}
 		}
 	}
 

@@ -23,6 +23,33 @@ func natoRows(n int) []checkRow {
 
 // The cursor opened on Deploy, one typed letter narrows the list, and the highlighted row must be the first match,
 // not whatever now sits at the old position.
+// Every typed word has to match on its own, as a prefix of the label or of a word in it, and a word is also tried
+// without the symbols in front of it, so "editor" reaches the two "... in $EDITOR" actions and "$" still does.
+func TestChecklistMatchesEveryTypedWordAndSkipsALeadingSymbol(t *testing.T) {
+	rows := []checkRow{{id: "1", label: "comment"}, {id: "2", label: "comment in $EDITOR"}, {id: "3", label: "copy task id"}, {id: "4", label: "Ada Nowak"}}
+	for query, want := range map[string][]string{
+		"editor":  {"2"},
+		"e":       {"2"},
+		"$":       {"2"},
+		"copy id": {"3"},
+		"ada now": {"4"},
+		"now ada": {"4"},
+		"c":       {"1", "2", "3"},
+		"cu":      nil,
+	} {
+		c, _ := newChecklist(rows, nil, "")
+		c.filter.SetValue(query)
+		c.applyFilter()
+		var got []string
+		for _, ri := range c.visible {
+			got = append(got, c.rows[ri].id)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%q leaves %q, want %q", query, got, want)
+		}
+	}
+}
+
 func TestChecklistGoesToTheFirstMatchWhenTheQueryChanges(t *testing.T) {
 	c, _ := newChecklist(natoRows(9), []string{"4"}, "")
 	c.selectID("4")
