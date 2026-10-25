@@ -261,6 +261,7 @@ Each module is tested on its own, along the boundaries above:
 - `internal/store` against a real SQLite database in a temporary file, migrations included
 - `internal/syncer` against a fake client and a real store in a temporary file
 - `internal/ui` flows with teatest
+- `man/wrikery.1` is generated from the command table, the root flags and the key map by a test in `cmd/wrikery`, and `go test ./cmd/wrikery -update` rewrites it when a command, a flag or a key changes
 
 The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.
 One more test drives the real client against a local fixture server end to end.
@@ -269,4 +270,5 @@ CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, w
 The same job checks that go.mod and go.sum are tidy, and two more jobs run the tests under the race detector with cgo on and run govulncheck.
 Releases are single static binaries for Linux and macOS on amd64 and arm64.
 `make cross` builds all four.
-A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`.
+A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, each with the manual page inside, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`, which installs the manual as well.
+CI validates the goreleaser config on every push, the release workflow itself runs only on a tag.

@@ -864,7 +864,10 @@ func TestChangesEnterOpensTheTask(t *testing.T) {
 
 	from = mark(t, tm)
 	press(tm, "!")
+	// The title is drawn before the rows arrive from the store, and enter on an empty list does nothing,
+	// so the wait is for the first row, the one the cursor starts on.
 	waitAfter(t, tm, from, "Changes, last 30 days")
+	waitAfter(t, tm, from, "Add signing keys")
 
 	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
 	from = mark(t, tm)

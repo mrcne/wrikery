@@ -13,11 +13,22 @@ import (
 	"github.com/mrcne/wrikery/internal/syncer"
 )
 
-const syncUsage = `usage: wrikery sync [--full] [--json]
+var cmdSync = Command{
+	Name:     "sync",
+	Synopsis: []string{"sync [--full]"},
+	Short:    "run one sync cycle, then exit, --full also checks for deleted tasks",
+	Notes: `Runs one sync cycle, queued writes first, then the pulls, and exits. Ctrl-C stops it.
+--full also checks for tasks deleted on Wrike, which crawls every followed scope and is slower.`,
+	Flags: func() *flag.FlagSet { return new(syncOpts).flagSet() },
+}
 
-Runs one sync cycle, queued writes first, then the pulls, and exits. Ctrl-C stops it.
---full also checks for tasks deleted on Wrike, which crawls every followed scope and is slower.
-`
+type syncOpts struct{ full, json bool }
+
+func (o *syncOpts) flagSet() *flag.FlagSet {
+	fs := jsonFlagSet("sync", &o.json)
+	fs.BoolVar(&o.full, "full", false, "also check for tasks deleted on Wrike, slower")
+	return fs
+}
 
 type syncJSON struct {
 	State   string `json:"state"`
@@ -26,18 +37,17 @@ type syncJSON struct {
 }
 
 func runSync(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
-	full := fs.Bool("full", false, "also check for tasks deleted on Wrike, slower")
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, syncUsage, args)
+	var o syncOpts
+	fs := o.flagSet()
+	positional, code, done := parse(env, fs, cmdSync.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) > 0 {
-		return usageError(env, fs, syncUsage, "sync takes no arguments")
+		return usageError(env, fs, cmdSync.usage(), "sync takes no arguments")
 	}
 	if env.Offline {
-		return usageError(env, fs, syncUsage, "sync talks to Wrike, which offline mode forbids, run wrikery --offline=false sync")
+		return usageError(env, fs, cmdSync.usage(), "sync talks to Wrike, which offline mode forbids, run wrikery --offline=false sync")
 	}
 	// An account read Wrike did not answer is left to the engine, its first cycle compares before it sends or pulls.
 	host, code, _ := preflight(ctx, env)
@@ -46,7 +56,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	}
 	eng := syncer.New(env.Client(host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, CheckHome: env.TokenFromEnv}, slog.Default())
-	state, cycleErr := eng.Once(ctx, *full)
+	state, cycleErr := eng.Once(ctx, o.full)
 	// The pull changed the cache, a running interface shows it now and not at its own next poll.
 	if env.Socket != "" {
 		control.Nudge(ctx, env.Socket)
@@ -61,7 +71,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	if *asJSON {
+	if o.json {
 		code := printJSON(env, syncJSON{State: shown, Pending: pending, Failed: failed})
 		if cycleErr != nil {
 			return fail(env, cycleErr)

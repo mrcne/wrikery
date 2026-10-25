@@ -13,31 +13,44 @@ import (
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
-const listUsage = `usage: wrikery task list [--folder F | --me] [--all] [--json]
+var cmdTaskList = Command{
+	Name:     "task list",
+	Synopsis: []string{"task list [--folder F | --me] [--all]"},
+	Short:    "list tasks, your own by default",
+	Notes:    "Lists open tasks, your own unless --folder names a folder, project or space.",
+	Flags:    func() *flag.FlagSet { return new(listOpts).flagSet() },
+}
 
-Lists open tasks, your own unless --folder names a folder, project or space.
-`
+type listOpts struct {
+	folder        string
+	me, all, json bool
+}
+
+func (o *listOpts) flagSet() *flag.FlagSet {
+	fs := jsonFlagSet("task list", &o.json)
+	fs.StringVar(&o.folder, "folder", "", "`F`, a folder, project or space, by id or by a part of its title")
+	fs.BoolVar(&o.me, "me", false, "your own tasks, the default")
+	fs.BoolVar(&o.all, "all", false, "include completed and cancelled tasks")
+	return fs
+}
 
 func runTaskList(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task list", flag.ContinueOnError)
-	folder := fs.String("folder", "", "a folder, project or space, by id or by a part of its title")
-	me := fs.Bool("me", false, "your own tasks, the default")
-	all := fs.Bool("all", false, "include completed and cancelled tasks")
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, listUsage, args)
+	var o listOpts
+	fs := o.flagSet()
+	positional, code, done := parse(env, fs, cmdTaskList.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) > 0 {
-		return usageError(env, fs, listUsage, "task list takes flags only")
+		return usageError(env, fs, cmdTaskList.usage(), "task list takes flags only")
 	}
-	if *folder != "" && *me {
-		return usageError(env, fs, listUsage, "--folder and --me cannot be combined")
+	if o.folder != "" && o.me {
+		return usageError(env, fs, cmdTaskList.usage(), "--folder and --me cannot be combined")
 	}
 	var tasks []store.Task
 	var err error
-	if *folder != "" {
-		fo, rerr := resolveFolder(ctx, env.Store, *folder)
+	if o.folder != "" {
+		fo, rerr := resolveFolder(ctx, env.Store, o.folder)
 		if rerr != nil {
 			return fail(env, rerr)
 		}
@@ -53,7 +66,7 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 		return fail(env, err)
 	}
 	hidden := 0
-	if !*all {
+	if !o.all {
 		kept := tasks[:0]
 		for _, t := range tasks {
 			if isDone(t) {
@@ -68,7 +81,7 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	if *asJSON {
+	if o.json {
 		rows := make([]taskJSON, 0, len(tasks))
 		for _, t := range tasks {
 			rows = append(rows, taskRow(ctx, env, t, &ref))
@@ -79,20 +92,23 @@ func runTaskList(ctx context.Context, env Env, args []string) int {
 	return exitOK
 }
 
-const showUsage = `usage: wrikery task show T [--json]
-
-Prints one task: the header fields, the description and the comments the cache holds.
-`
+var cmdTaskShow = Command{
+	Name:     "task show",
+	Synopsis: []string{"task show T"},
+	Short:    "print one task with its description and comments",
+	Notes:    "Prints one task: the header fields, the description and the comments the cache holds.",
+	Flags:    func() *flag.FlagSet { return jsonFlagSet("task show", new(bool)) },
+}
 
 func runTaskShow(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task show", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, showUsage, args)
+	var asJSON bool
+	fs := jsonFlagSet("task show", &asJSON)
+	positional, code, done := parse(env, fs, cmdTaskShow.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) != 1 {
-		return usageError(env, fs, showUsage, "task show takes one task, an id or a part of its title")
+		return usageError(env, fs, cmdTaskShow.usage(), "task show takes one task, an id or a part of its title")
 	}
 	t, code := resolveOrReach(ctx, env, positional[0])
 	if code != exitOK {
@@ -110,7 +126,7 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	if *asJSON {
+	if asJSON {
 		d := taskDetailJSON{
 			taskJSON:            taskRow(ctx, env, t, &ref),
 			DescriptionText:     t.DescriptionPlain,
@@ -129,20 +145,23 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	return exitOK
 }
 
-const statusUsage = `usage: wrikery task status T STATUS [--json]
-
-Moves a task to a status of its own workflow, by name, case does not matter.
-`
+var cmdTaskStatus = Command{
+	Name:     "task status",
+	Synopsis: []string{"task status T STATUS"},
+	Short:    "move a task to a status of its workflow",
+	Notes:    "Moves a task to a status of its own workflow, by name, case does not matter.",
+	Flags:    func() *flag.FlagSet { return jsonFlagSet("task status", new(bool)) },
+}
 
 func runTaskStatus(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task status", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, statusUsage, args)
+	var asJSON bool
+	fs := jsonFlagSet("task status", &asJSON)
+	positional, code, done := parse(env, fs, cmdTaskStatus.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) != 2 {
-		return usageError(env, fs, statusUsage, "task status takes a task and a status name")
+		return usageError(env, fs, cmdTaskStatus.usage(), "task status takes a task and a status name")
 	}
 	t, code := resolveOrReach(ctx, env, positional[0])
 	if code != exitOK {
@@ -157,7 +176,7 @@ func runTaskStatus(ctx context.Context, env Env, args []string) int {
 		return fail(env, err)
 	}
 	line := func(_ context.Context, x store.Task) string { return "[" + ref.statusName(x) + "]" }
-	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, *asJSON, line, "")
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{CustomStatusID: cs.ID, Status: cs.Group}, asJSON, line, "")
 }
 
 // currentTask reads the task back after a write. A local id may have been swapped for the server's by the drain.
@@ -174,52 +193,65 @@ func currentTask(ctx context.Context, env Env, id string) (store.Task, error) {
 	return env.Store.Tasks().Get(ctx, id)
 }
 
-const createUsage = `usage: wrikery task create --folder F [--importance L] [--description FILE|-] [--json] TITLE...
-
-Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
+var cmdTaskCreate = Command{
+	Name:     "task create",
+	Synopsis: []string{"task create --folder F [--importance L] [--description FILE|-] TITLE..."},
+	Short:    "create a task, the words make the title",
+	Notes: `Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
 Nobody is assigned, the status is the folder's default on Wrike.
 The description is markdown, the text the E editor in the interface writes, from a file or from stdin with -.
-Put -- before a title with a word that starts with a dash, everything after it is title.
-`
+Put -- before a title with a word that starts with a dash, everything after it is title.`,
+	Flags: func() *flag.FlagSet { return new(createOpts).flagSet() },
+}
+
+type createOpts struct {
+	folder, importance, description string
+	json                            bool
+}
+
+func (o *createOpts) flagSet() *flag.FlagSet {
+	fs := jsonFlagSet("task create", &o.json)
+	fs.StringVar(&o.folder, "folder", "", "the folder, project or space `F` for the task, by id or by a part of its title")
+	fs.StringVar(&o.importance, "importance", "", "`L` is High, Normal or Low, Normal when left out")
+	fs.StringVar(&o.description, "description", "", "a markdown `FILE` with the description, - reads it from stdin")
+	return fs
+}
 
 func runTaskCreate(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task create", flag.ContinueOnError)
-	folder := fs.String("folder", "", "the folder, project or space, by id or by a part of its title")
-	importance := fs.String("importance", "", "High, Normal or Low, Normal when left out")
-	description := fs.String("description", "", "a markdown file with the description, - reads it from stdin")
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, createUsage, args)
+	var o createOpts
+	fs := o.flagSet()
+	positional, code, done := parse(env, fs, cmdTaskCreate.usage(), args)
 	if done {
 		return code
 	}
 	title := strings.TrimSpace(strings.Join(positional, " "))
-	if *folder == "" {
-		return usageError(env, fs, createUsage, "task create needs --folder")
+	if o.folder == "" {
+		return usageError(env, fs, cmdTaskCreate.usage(), "task create needs --folder")
 	}
 	if title == "" {
-		return usageError(env, fs, createUsage, "task create needs a title")
+		return usageError(env, fs, cmdTaskCreate.usage(), "task create needs a title")
 	}
-	level, err := importanceLevel(*importance)
+	level, err := importanceLevel(o.importance)
 	if err != nil {
-		return usageError(env, fs, createUsage, err.Error())
+		return usageError(env, fs, cmdTaskCreate.usage(), err.Error())
 	}
 	var html string
-	if *description != "" {
-		md, err := readMarkdown(env, *description)
+	if o.description != "" {
+		md, err := readMarkdown(env, o.description)
 		if err != nil {
 			return fail(env, err)
 		}
 		// A new task has no description to merge against, so the markdown is converted whole.
 		var ok bool
 		if html, ok = ui.MergeDescription("", md); !ok {
-			return usageError(env, fs, createUsage, "the description is empty")
+			return usageError(env, fs, cmdTaskCreate.usage(), "the description is empty")
 		}
 	}
 	host, code, unchecked := preflight(ctx, env)
 	if code != exitOK {
 		return code
 	}
-	fo, err := resolveFolder(ctx, env.Store, *folder)
+	fo, err := resolveFolder(ctx, env.Store, o.folder)
 	if err != nil {
 		return fail(env, err)
 	}
@@ -231,14 +263,14 @@ func runTaskCreate(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, *asJSON)
+	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, store.Task{ID: store.LocalID(rowID), Title: title}, &ref, o.json)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	if *asJSON || !readOK {
-		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "")
+	if o.json || !readOK {
+		return reportWrite(ctx, env, out, reason, o.json, readOK, task, &ref, "")
 	}
 	word := "created"
 	if out == queued {

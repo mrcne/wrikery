@@ -12,55 +12,68 @@ import (
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
-const editUsage = `usage: wrikery task edit T [--title TITLE] [--importance L] [--description FILE|-] [--json]
-
-Changes the title, the importance or the description of a task, one write for the flags given.
+var cmdTaskEdit = Command{
+	Name:     "task edit",
+	Synopsis: []string{"task edit T [--title TITLE] [--importance L] [--description FILE|-]"},
+	Short:    "change the title, the importance or the description",
+	Notes: `Changes the title, the importance or the description of a task, one write for the flags given.
 The description is markdown, the text the E editor in the interface writes, from a file or from stdin with -.
-It is merged with the description the cache holds: a paragraph left as description_markdown prints it keeps the bytes Wrike stored.
-`
+It is merged with the description the cache holds: a paragraph left as description_markdown prints it keeps the bytes Wrike stored.`,
+	Flags: func() *flag.FlagSet { return new(editOpts).flagSet() },
+}
+
+type editOpts struct {
+	title, importance, description string
+	json                           bool
+}
+
+func (o *editOpts) flagSet() *flag.FlagSet {
+	fs := jsonFlagSet("task edit", &o.json)
+	fs.StringVar(&o.title, "title", "", "the new `TITLE`")
+	fs.StringVar(&o.importance, "importance", "", "`L` is High, Normal or Low")
+	fs.StringVar(&o.description, "description", "", "a markdown `FILE` with the description, - reads it from stdin")
+	return fs
+}
 
 func runTaskEdit(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task edit", flag.ContinueOnError)
-	title := fs.String("title", "", "the new title")
-	importance := fs.String("importance", "", "High, Normal or Low")
-	description := fs.String("description", "", "a markdown file with the description, - reads it from stdin")
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, editUsage, args)
+	var o editOpts
+	fs := o.flagSet()
+	positional, code, done := parse(env, fs, cmdTaskEdit.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) != 1 {
-		return usageError(env, fs, editUsage, "task edit takes one task, an id or a part of its title")
+		return usageError(env, fs, cmdTaskEdit.usage(), "task edit takes one task, an id or a part of its title")
 	}
 	if !given(fs, "title") && !given(fs, "importance") && !given(fs, "description") {
-		return usageError(env, fs, editUsage, "task edit needs --title, --importance or --description")
+		return usageError(env, fs, cmdTaskEdit.usage(), "task edit needs --title, --importance or --description")
 	}
 	// A flag given empty, --importance "$LEVEL" with the variable unset, is refused rather than sent as nothing.
 	var p store.TaskUpdatePayload
 	if given(fs, "title") {
-		p.Title = strings.TrimSpace(*title)
+		p.Title = strings.TrimSpace(o.title)
 		if p.Title == "" {
-			return usageError(env, fs, editUsage, "the title is empty")
+			return usageError(env, fs, cmdTaskEdit.usage(), "the title is empty")
 		}
 	}
-	if given(fs, "importance") && strings.TrimSpace(*importance) == "" {
-		return usageError(env, fs, editUsage, "the importance is empty")
+	if given(fs, "importance") && strings.TrimSpace(o.importance) == "" {
+		return usageError(env, fs, cmdTaskEdit.usage(), "the importance is empty")
 	}
-	level, err := importanceLevel(*importance)
+	level, err := importanceLevel(o.importance)
 	if err != nil {
-		return usageError(env, fs, editUsage, err.Error())
+		return usageError(env, fs, cmdTaskEdit.usage(), err.Error())
 	}
 	p.Importance = level
 	var md string
 	if given(fs, "description") {
-		if *description == "" {
-			return usageError(env, fs, editUsage, "the description is empty")
+		if o.description == "" {
+			return usageError(env, fs, cmdTaskEdit.usage(), "the description is empty")
 		}
-		if md, err = readMarkdown(env, *description); err != nil {
+		if md, err = readMarkdown(env, o.description); err != nil {
 			return fail(env, err)
 		}
 		if strings.TrimSpace(md) == "" {
-			return usageError(env, fs, editUsage, "the description is empty")
+			return usageError(env, fs, cmdTaskEdit.usage(), "the description is empty")
 		}
 	}
 	t, code := resolveOrReach(ctx, env, positional[0])
@@ -81,7 +94,7 @@ func runTaskEdit(ctx context.Context, env Env, args []string) int {
 			_, _ = fmt.Fprintln(env.Stderr, "wrikery: description unchanged")
 		}
 	}
-	return finishUpdate(ctx, env, t, &ref, p, *asJSON, line, suffix)
+	return finishUpdate(ctx, env, t, &ref, p, o.json, line, suffix)
 }
 
 // given reports whether the flag was on the command line, so --title "" is refused while a missing --title is no edit.
@@ -95,25 +108,28 @@ func given(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-const commentUsage = `usage: wrikery task comment T TEXT... [--json]
-
-Adds a comment to a task as you. The words after the task make the text, quotes are optional.
-Put -- before a text with a word that starts with a dash, everything after it is text.
-`
+var cmdTaskComment = Command{
+	Name:     "task comment",
+	Synopsis: []string{"task comment T TEXT..."},
+	Short:    "add a comment as you",
+	Notes: `Adds a comment to a task as you. The words after the task make the text, quotes are optional.
+Put -- before a text with a word that starts with a dash, everything after it is text.`,
+	Flags: func() *flag.FlagSet { return jsonFlagSet("task comment", new(bool)) },
+}
 
 func runTaskComment(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task comment", flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, commentUsage, args)
+	var asJSON bool
+	fs := jsonFlagSet("task comment", &asJSON)
+	positional, code, done := parse(env, fs, cmdTaskComment.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) < 2 {
-		return usageError(env, fs, commentUsage, "task comment takes a task and the text")
+		return usageError(env, fs, cmdTaskComment.usage(), "task comment takes a task and the text")
 	}
 	text := strings.TrimSpace(strings.Join(positional[1:], " "))
 	if text == "" {
-		return usageError(env, fs, commentUsage, "task comment needs a text")
+		return usageError(env, fs, cmdTaskComment.usage(), "task comment needs a text")
 	}
 	// The comment is written as the user. A cache read, so it comes before the token.
 	me, err := meID(ctx, env.Store)
@@ -136,17 +152,17 @@ func runTaskComment(ctx context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
-	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, &ref, *asJSON)
+	out, reason, task, readOK, err := deliver(ctx, env, host, unchecked, rowID, t, &ref, asJSON)
 	if err != nil {
 		return fail(env, err)
 	}
 	// The write is decided, a Ctrl-C from here on must not stop the reads that report it.
 	ctx = context.WithoutCancel(ctx)
-	if *asJSON && readOK {
+	if asJSON && readOK {
 		return reportComment(ctx, env, out, reason, rowID, task, &ref, text)
 	}
-	if *asJSON || !readOK {
-		return reportWrite(ctx, env, out, reason, *asJSON, readOK, task, &ref, "comment on "+task.Title)
+	if asJSON || !readOK {
+		return reportWrite(ctx, env, out, reason, asJSON, readOK, task, &ref, "comment on "+task.Title)
 	}
 	if out == queued {
 		_, _ = fmt.Fprintf(env.Stderr, "wrikery: queued, not on Wrike yet: %s\n", reason)
@@ -192,27 +208,40 @@ func reportComment(ctx context.Context, env Env, out outcome, reason string, row
 	return exitOK
 }
 
-const assignUsage = `usage: wrikery task assign T P... [--json]
-       wrikery task unassign T P... [--json]
+const assignNotes = `Puts people on a task, or takes them off, one write.
+P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.`
 
-Puts people on a task, or takes them off, one write.
-P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
-`
+var (
+	cmdTaskAssign = Command{
+		Name:     "task assign",
+		Synopsis: []string{"task assign T P..."},
+		Short:    "put people on a task",
+		Notes:    assignNotes,
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("task assign", new(bool)) },
+	}
+	cmdTaskUnassign = Command{
+		Name:     "task unassign",
+		Synopsis: []string{"task unassign T P..."},
+		Short:    "take people off a task",
+		Notes:    assignNotes,
+		Flags:    func() *flag.FlagSet { return jsonFlagSet("task unassign", new(bool)) },
+	}
+)
 
 // runTaskAssign serves assign and unassign, the same command with the other list of the write.
 func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int {
-	name := "task assign"
+	cmd := cmdTaskAssign
 	if remove {
-		name = "task unassign"
+		cmd = cmdTaskUnassign
 	}
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, assignUsage, args)
+	var asJSON bool
+	fs := jsonFlagSet(cmd.Name, &asJSON)
+	positional, code, done := parse(env, fs, cmd.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) < 2 {
-		return usageError(env, fs, assignUsage, name+" takes a task and at least one person")
+		return usageError(env, fs, cmd.usage(), cmd.Name+" takes a task and at least one person")
 	}
 	t, code := resolveOrReach(ctx, env, positional[0])
 	if code != exitOK {
@@ -256,7 +285,7 @@ func runTaskAssign(ctx context.Context, env Env, args []string, remove bool) int
 	} else {
 		p.AddResponsibles = keep
 	}
-	return finishUpdate(ctx, env, t, &ref, p, *asJSON, line, "")
+	return finishUpdate(ctx, env, t, &ref, p, asJSON, line, "")
 }
 
 func peopleLine(ids []string, ref *refData) string {
@@ -270,12 +299,27 @@ func peopleLine(ids []string, ref *refData) string {
 	return strings.Join(names, ", ")
 }
 
-const moveUsage = `usage: wrikery task move T [--to F]... [--from F]... [--json]
-
-Puts a task in folders and takes it out of others, one write.
+var cmdTaskMove = Command{
+	Name:     "task move",
+	Synopsis: []string{"task move T [--to F]... [--from F]..."},
+	Short:    "put a task in folders, take it out of others",
+	Notes: `Puts a task in folders and takes it out of others, one write.
 A task can sit in several folders, so --to alone adds one and keeps the rest, and a move out of a folder names it with --from.
-F is a folder, project or space, by id or by a part of its title.
-`
+F is a folder, project or space, by id or by a part of its title.`,
+	Flags: func() *flag.FlagSet { return new(moveOpts).flagSet() },
+}
+
+type moveOpts struct {
+	to, from multiFlag
+	json     bool
+}
+
+func (o *moveOpts) flagSet() *flag.FlagSet {
+	fs := jsonFlagSet("task move", &o.json)
+	fs.Var(&o.to, "to", "a folder `F` to put the task in, may repeat")
+	fs.Var(&o.from, "from", "a folder `F` to take the task out of, may repeat")
+	return fs
+}
 
 // multiFlag collects a flag given more than once, --to A --to B.
 type multiFlag []string
@@ -288,20 +332,17 @@ func (m *multiFlag) Set(v string) error {
 }
 
 func runTaskMove(ctx context.Context, env Env, args []string) int {
-	fs := flag.NewFlagSet("task move", flag.ContinueOnError)
-	var to, from multiFlag
-	fs.Var(&to, "to", "a folder to put the task in, may repeat")
-	fs.Var(&from, "from", "a folder to take the task out of, may repeat")
-	asJSON := fs.Bool("json", false, "print JSON")
-	positional, code, done := parse(env, fs, moveUsage, args)
+	var o moveOpts
+	fs := o.flagSet()
+	positional, code, done := parse(env, fs, cmdTaskMove.usage(), args)
 	if done {
 		return code
 	}
 	if len(positional) != 1 {
-		return usageError(env, fs, moveUsage, "task move takes one task, an id or a part of its title")
+		return usageError(env, fs, cmdTaskMove.usage(), "task move takes one task, an id or a part of its title")
 	}
-	if len(to)+len(from) == 0 {
-		return usageError(env, fs, moveUsage, "task move needs --to or --from")
+	if len(o.to)+len(o.from) == 0 {
+		return usageError(env, fs, cmdTaskMove.usage(), "task move needs --to or --from")
 	}
 	t, code := resolveOrReach(ctx, env, positional[0])
 	if code != exitOK {
@@ -324,17 +365,17 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 		}
 		return ids, nil
 	}
-	toIDs, err := folders(to)
+	toIDs, err := folders(o.to)
 	if err != nil {
 		return fail(env, err)
 	}
-	fromIDs, err := folders(from)
+	fromIDs, err := folders(o.from)
 	if err != nil {
 		return fail(env, err)
 	}
 	for _, id := range toIDs {
 		if slices.Contains(fromIDs, id) {
-			return usageError(env, fs, moveUsage, "a folder cannot be both --to and --from")
+			return usageError(env, fs, cmdTaskMove.usage(), "a folder cannot be both --to and --from")
 		}
 	}
 	var add, remove []string
@@ -354,7 +395,7 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 	}
 	line := func(ctx context.Context, x store.Task) string { return foldersLine(ctx, env, x.ParentIDs, &ref) }
 	if len(add)+len(remove) == 0 {
-		return reportUnchanged(ctx, env, t, &ref, *asJSON, line(ctx, t))
+		return reportUnchanged(ctx, env, t, &ref, o.json, line(ctx, t))
 	}
 	var left []string
 	for _, id := range t.ParentIDs {
@@ -373,7 +414,7 @@ func runTaskMove(ctx context.Context, env Env, args []string) int {
 	if followed, err := followedFolders(ctx, env.Store); err == nil && len(followed) > 0 && !slices.ContainsFunc(left, func(id string) bool { return followed[id] }) {
 		_, _ = fmt.Fprintln(env.Stderr, "wrikery: no followed folder is left on the task, it leaves the cache at the next sync")
 	}
-	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{AddParents: add, RemoveParents: remove}, *asJSON, line, "")
+	return finishUpdate(ctx, env, t, &ref, store.TaskUpdatePayload{AddParents: add, RemoveParents: remove}, o.json, line, "")
 }
 
 // followedFolders is every folder under a followed space or project, the tree the interface shows.

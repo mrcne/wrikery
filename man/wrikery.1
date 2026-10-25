@@ -1,0 +1,600 @@
+.TH WRIKERY 1 2026-10-25 wrikery "User Commands"
+.SH NAME
+wrikery \- an unofficial terminal client for Wrike
+.SH SYNOPSIS
+.B wrikery
+.RI [ flags ]
+.br
+.B wrikery
+.RI [ flags ]
+.I command
+.RI [ arguments ]
+.br
+.B wrikery help
+.RI [ command ]
+.SH DESCRIPTION
+wrikery is a terminal client for Wrike, made for people who prefer the keyboard and the terminal over the web application.
+It browses the spaces, projects and folders you follow, shows a task with its description, comments, subtasks and dependencies, adds comments, changes statuses, logs time and shows your timesheet, without leaving the terminal.
+.PP
+It keeps a local copy of what you follow in one SQLite file, so browsing and search are instant and reading works offline.
+A change is applied to that copy at once and waits in a queue, which is sent when Wrike can be reached.
+The changes screen, !, lists what went out over the last thirty days with the old and the new values, and the writes that failed, for a retry or a discard.
+.PP
+Without a command it opens the interface.
+With a command it runs one operation on the same local copy and exits, for scripts and agents, with \-\-json for a script.
+wrikery \-\-demo runs on built in sample data with no account and no network.
+The first run asks for a permanent API token, or signs in through the browser when the config file names an API app, and keeps the credential in the system keychain.
+.SH OPTIONS
+.TP
+.BI "\-\-config " PATH
+read the config file at PATH instead of the default
+.TP
+.B \-\-demo
+run on built in sample data, no token and no network
+.TP
+.B \-\-logout
+sign out, remove the stored token or session, and exit
+.TP
+.B \-\-no\-color
+plain output without colors, NO_COLOR in the environment does the same
+.TP
+.B \-\-offline
+start without syncing, nothing is pulled or sent, R in the interface goes online, wins over offline in the config
+.TP
+.B \-\-version
+print the version and exit
+.SH COMMANDS
+A task or folder is an id or a part of its title that matches exactly one cached row.
+A task may also be the number or the link from the browser, a bare number is always the number from the link, the link in quotes, like "https://app\-eu.wrike.com/open.htm?id=4552825748".
+A person is me, a contact id or a part of a name that matches exactly one contact.
+A description is markdown, the text the E editor in the interface writes.
+The ui commands act on the interface that is running and print what it did, wrikery \-\-demo ui ... drives a demo.
+Every command takes \-\-json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
+.SS sync
+.B "wrikery sync [\-\-full]"
+.PP
+Runs one sync cycle, queued writes first, then the pulls, and exits. Ctrl\-C stops it.
+\-\-full also checks for tasks deleted on Wrike, which crawls every followed scope and is slower.
+.RS
+.TP
+.B \-\-full
+also check for tasks deleted on Wrike, slower
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS The task commands
+The task commands read the local cache and queue their writes through the same outbox as the interface.
+.SS task list
+.B "wrikery task list [\-\-folder F | \-\-me] [\-\-all]"
+.PP
+Lists open tasks, your own unless \-\-folder names a folder, project or space.
+.RS
+.TP
+.B \-\-all
+include completed and cancelled tasks
+.TP
+.BI "\-\-folder " F
+F, a folder, project or space, by id or by a part of its title
+.TP
+.B \-\-json
+print JSON
+.TP
+.B \-\-me
+your own tasks, the default
+.RE
+.SS task show
+.B "wrikery task show T"
+.PP
+Prints one task: the header fields, the description and the comments the cache holds.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task status
+.B "wrikery task status T STATUS"
+.PP
+Moves a task to a status of its own workflow, by name, case does not matter.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task create
+.B "wrikery task create \-\-folder F [\-\-importance L] [\-\-description FILE|\-] TITLE..."
+.PP
+Creates a task in a folder, project or space. The words after the flags make the title, quotes are optional.
+Nobody is assigned, the status is the folder's default on Wrike.
+The description is markdown, the text the E editor in the interface writes, from a file or from stdin with \-.
+Put \-\- before a title with a word that starts with a dash, everything after it is title.
+.RS
+.TP
+.BI "\-\-description " FILE
+a markdown FILE with the description, \- reads it from stdin
+.TP
+.BI "\-\-folder " F
+the folder, project or space F for the task, by id or by a part of its title
+.TP
+.BI "\-\-importance " L
+L is High, Normal or Low, Normal when left out
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task edit
+.B "wrikery task edit T [\-\-title TITLE] [\-\-importance L] [\-\-description FILE|\-]"
+.PP
+Changes the title, the importance or the description of a task, one write for the flags given.
+The description is markdown, the text the E editor in the interface writes, from a file or from stdin with \-.
+It is merged with the description the cache holds: a paragraph left as description_markdown prints it keeps the bytes Wrike stored.
+.RS
+.TP
+.BI "\-\-description " FILE
+a markdown FILE with the description, \- reads it from stdin
+.TP
+.BI "\-\-importance " L
+L is High, Normal or Low
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-title " TITLE
+the new TITLE
+.RE
+.SS task comment
+.B "wrikery task comment T TEXT..."
+.PP
+Adds a comment to a task as you. The words after the task make the text, quotes are optional.
+Put \-\- before a text with a word that starts with a dash, everything after it is text.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task assign
+.B "wrikery task assign T P..."
+.PP
+Puts people on a task, or takes them off, one write.
+P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task unassign
+.B "wrikery task unassign T P..."
+.PP
+Puts people on a task, or takes them off, one write.
+P is me, a contact id, or a part of a name that matches exactly one person in the cache, or on the task for an unassign.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS task move
+.B "wrikery task move T [\-\-to F]... [\-\-from F]..."
+.PP
+Puts a task in folders and takes it out of others, one write.
+A task can sit in several folders, so \-\-to alone adds one and keeps the rest, and a move out of a folder names it with \-\-from.
+F is a folder, project or space, by id or by a part of its title.
+.RS
+.TP
+.BI "\-\-from " F
+a folder F to take the task out of, may repeat
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-to " F
+a folder F to put the task in, may repeat
+.RE
+.SS The ui commands
+The ui commands act on the interface that is running, through its control socket, and print what it did.
+With \-\-demo they reach a running demo, and every value goes as typed, the demo's cache cannot be read.
+.SS ui filter
+.B "wrikery ui filter [\-\-importance L]... [\-\-person P] [\-\-status S]... | \-\-clear"
+.PP
+Narrows the interface that is running to importance levels, a person and statuses, in any combination, or clears its filter with \-\-clear.
+A person is me, unassigned, a contact id or a part of a name, a status is a name from any cached workflow.
+.RS
+.TP
+.B \-\-clear
+clear the filter, what F does
+.TP
+.BI "\-\-importance " L
+L is High, Normal or Low, may repeat
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-person " P
+P is me, unassigned, a contact id or a part of a name
+.TP
+.BI "\-\-status " S
+a status name S, may repeat
+.RE
+.SS ui select
+.B "wrikery ui select T"
+.PP
+Shows a task in the interface that is running, the way a jump from the search does.
+T is an id, a part of its title, the number or the link from the browser.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui folder
+.B "wrikery ui folder F"
+.PP
+Opens a space, project or folder in the interface that is running, as from the sidebar.
+F is an id or a part of its title, me is My tasks.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui list
+.B "wrikery ui list"
+.PP
+Switches the interface that is running to the list.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui board
+.B "wrikery ui board"
+.PP
+Switches the interface that is running to the board over workflow statuses.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui open
+.B "wrikery ui open tasks|timesheet|changes|settings"
+.PP
+Opens one screen of the interface that is running: tasks, timesheet, changes or settings.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui refresh
+.B "wrikery ui refresh"
+.PP
+Runs a sync cycle in the interface that is running, what R does there.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SH KEYS
+The ? key shows the bindings of the current screen.
+Vim keys and the arrow keys both work, and home, end, page up and page down work beside g, G, ctrl+d and ctrl+u.
+Tab moves between the panes, enter goes one level deeper and esc goes back.
+.SS Everywhere
+.TP
+.B tab
+next pane
+.TP
+.B "S, ctrl+b"
+hide sidebar
+.TP
+.B ?
+help
+.TP
+.B ctrl+f
+search
+.TP
+.B T
+timesheet
+.TP
+.B !
+changes
+.TP
+.B ,
+settings
+.TP
+.B R
+refresh
+.TP
+.B esc
+back
+.TP
+.B "q, ctrl+c"
+quit
+.SS The list
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B "g, home"
+first
+.TP
+.B "G, end"
+last
+.TP
+.B "ctrl+d, pgdown"
+half page down
+.TP
+.B "ctrl+u, pgup"
+half page up
+.TP
+.B /
+filter
+.TP
+.B "f F"
+filter box, F clears it
+.TP
+.B enter
+open
+.TP
+.B "h, left"
+collapse / left
+.TP
+.B "l, right"
+expand / right
+.TP
+.B z
+show completed
+.TP
+.B v
+group by
+.TP
+.B {
+previous group
+.TP
+.B }
+next group
+.TP
+.B b
+board / list
+.TP
+.B n
+new task
+.TP
+.B space
+pin / unpin
+.TP
+.B P
+pinned only
+.SS The task
+.TP
+.B c
+comment
+.TP
+.B C
+comment in $EDITOR
+.TP
+.B t
+log time
+.TP
+.B s
+status
+.TP
+.B H
+previous status
+.TP
+.B L
+next status
+.TP
+.B a
+assignee
+.TP
+.B d
+dates
+.TP
+.B e
+title
+.TP
+.B E
+description in $EDITOR
+.TP
+.B p
+importance
+.TP
+.B m
+folders
+.TP
+.B o
+open in browser
+.TP
+.B y
+copy permalink
+.TP
+.B Y
+copy branch name
+.TP
+.B i
+copy task id
+.SS The board
+.TP
+.B "h, left"
+previous column
+.TP
+.B "l, right"
+next column
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B "g, home"
+first
+.TP
+.B "G, end"
+last
+.TP
+.B {
+previous group
+.TP
+.B }
+next group
+.TP
+.B /
+filter
+.TP
+.B "f F"
+filter box, F clears it
+.TP
+.B z
+show completed
+.TP
+.B v
+group by
+.TP
+.B b
+board / list
+.TP
+.B enter
+open
+.TP
+.B n
+new task
+.SS The timesheet
+.TP
+.B "h, left"
+previous day
+.TP
+.B "l, right"
+next day
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B [
+previous week
+.TP
+.B ]
+next week
+.TP
+.B \&.
+this week
+.TP
+.B n
+add entry
+.TP
+.B e
+edit entry
+.TP
+.B x
+delete entry
+.TP
+.B enter
+open
+.SS The changes screen
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B "g, home"
+first
+.TP
+.B "G, end"
+last
+.TP
+.B "ctrl+d, pgdown"
+half page down
+.TP
+.B "ctrl+u, pgup"
+half page up
+.TP
+.B r
+retry
+.TP
+.B x
+discard
+.TP
+.B enter
+open
+.SS The settings screen
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B enter
+open
+.SH EXIT STATUS
+.TP
+.B 0
+The operation is done, a write is on Wrike and a read printed the cache.
+.TP
+.B 1
+An error: no sign in, a name that matched nothing, a store error, a write Wrike rejected, or a token Wrike refused, which leaves the change queued.
+.TP
+.B 2
+A usage mistake, the error and the usage went to standard error.
+.TP
+.B 3
+The write is queued and not on Wrike yet, in offline mode or because Wrike could not be reached.
+The next sync sends it, from the interface or from wrikery sync.
+.SH ENVIRONMENT
+.TP
+.B WRIKERY_TOKEN
+A permanent API token that overrides the stored sign in, keychain and files both.
+A command run with it compares its account with the one the cache was built from and refuses another.
+.TP
+.B NO_COLOR
+Plain output without colors, what \-\-no\-color does.
+.TP
+.B "VISUAL, EDITOR"
+The editor E and C open for a description or a longer comment, VISUAL first.
+A command that waits for a window, code \-\-wait, works the same way.
+.TP
+.B "XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME"
+Override ~/.config, ~/.local/share and ~/.local/state, where the files below live.
+.SH FILES
+The directories follow the XDG base directory convention on macOS and Linux alike.
+.TP
+.I ~/.config/wrikery/config.toml
+The config file, \-\-config PATH reads another one.
+The settings screen, opened with the comma key, shows the keys of the file with their values, the full list of keys is in docs/overview.md on the project page.
+.TP
+.I ~/.local/share/wrikery/wrike.db
+The local copy and the queue of writes in one SQLite file.
+Deleting it resets the cache, and the queued writes go with it.
+.TP
+.I ~/.local/state/wrikery/wrikery.log
+The log of the last interface run and of the commands run since it, the previous interface run's log is kept as wrikery.log.1.
+A demo run writes demo.log in the same directory.
+.TP
+.B "The API token"
+In the system keychain, the macOS Keychain or the Secret Service on Linux, falling back to ~/.config/wrikery/token with mode 0600 on a machine without one.
+.TP
+.B "The browser session"
+A second keychain item with the access token, the refresh token, the expiry, the host and the app, falling back to ~/.config/wrikery/oauth.json with mode 0600, and ~/.config/wrikery/auth.lock held while it is renewed.
+.SH EXAMPLES
+.nf
+wrikery sync                                 # one sync cycle, \-\-full also checks for deleted tasks
+wrikery task list \-\-folder "4 Later"         # tasks of a folder, project or space
+wrikery task list                            # your own open tasks
+wrikery task show "licence file"             # one task with its description and comments
+wrikery task show "https://app\-eu.wrike.com/open.htm?id=4552825748"
+wrikery task status MAAAAAEPXpuT "In Progress"
+wrikery task create \-\-folder Sandbox Try the new command
+wrikery task create \-\-folder Sandbox \-\-importance High \-\-description notes.md Try it with a description
+wrikery task edit MAAAAAEPXpuT \-\-title "A plainer title" \-\-description \-
+wrikery task comment MAAAAAEPXpuT Pushed the branch
+wrikery task assign MAAAAAEPXpuT me
+wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog
+wrikery ui filter \-\-importance High \-\-person me # narrow the interface that is running
+wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+.fi
+.SH SEE ALSO
+The project page, https://github.com/mrcne/wrikery, with the product description in docs/overview.md and the technical design in docs/architecture.md.

@@ -44,64 +44,26 @@ type Env struct {
 	Stdin        io.Reader     // a description given as - is read from here
 	Stdout       io.Writer
 	Stderr       io.Writer
+	GlobalFlags  *flag.FlagSet // the root flag set, which main owns, the help page lists it
 }
-
-const rootUsage = `usage: wrikery <command> [flags] [arguments]
-
-Commands:
-  wrikery sync [--full]                     run one sync cycle, then exit, --full also checks for deleted tasks
-  wrikery task list [--folder F] [--me] [--all]
-                                            list tasks, your own by default
-  wrikery task show T                       print one task with its description and comments
-  wrikery task status T STATUS              move a task to a status of its workflow
-  wrikery task create --folder F [--importance L] [--description FILE|-] TITLE...
-                                            create a task, the words make the title
-  wrikery task edit T [--title TITLE] [--importance L] [--description FILE|-]
-                                            change the title, the importance or the description
-  wrikery task comment T TEXT...            add a comment as you
-  wrikery task assign T P...                put people on a task
-  wrikery task unassign T P...              take people off a task
-  wrikery task move T [--to F]... [--from F]...
-                                            put a task in folders, take it out of others
-  wrikery ui filter [--importance L]... [--person P] [--status S]... | --clear
-                                            narrow the running interface, or clear its filter
-  wrikery ui select T                       show a task in the running interface
-  wrikery ui folder F                       open a space, project or folder there, me for My tasks
-  wrikery ui list | wrikery ui board        its shape
-  wrikery ui open tasks|timesheet|changes|settings
-                                            one of its screens
-  wrikery ui refresh                        a sync cycle now, what R does
-
-A task or folder is an id or a part of its title that matches exactly one cached row.
-A task may also be the number or the link from the browser, a bare number is always the number from the link, the link in quotes, like "https://app-eu.wrike.com/open.htm?id=4552825748".
-A person is me, a contact id or a part of a name that matches exactly one contact.
-A description is markdown, the text the E editor in the interface writes.
-The ui commands act on the interface that is running and print what it did, wrikery --demo ui ... drives a demo.
-Every command takes --json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
-`
-
-const taskUsage = `usage: wrikery task list [--folder F | --me] [--all]
-       wrikery task show T
-       wrikery task status T STATUS
-       wrikery task create --folder F [--importance L] [--description FILE|-] TITLE...
-       wrikery task edit T [--title TITLE] [--importance L] [--description FILE|-]
-       wrikery task comment T TEXT...
-       wrikery task assign T P...
-       wrikery task unassign T P...
-       wrikery task move T [--to F]... [--from F]...
-`
 
 // Run executes args and returns the exit code.
 // Everything it prints goes to env.Stdout and env.Stderr.
 func Run(ctx context.Context, env Env, args []string) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprint(env.Stderr, rootUsage)
+		_, _ = fmt.Fprint(env.Stderr, HelpPage(env.GlobalFlags))
 		return exitUsage
 	}
+	if isHelpWord(args[0]) {
+		// help help is the page as well, it must not run help on itself, and help --json or help -x is the page too,
+		// a word that starts with a dash names no command.
+		if len(args) == 1 || isHelpWord(args[1]) || strings.HasPrefix(args[1], "-") {
+			_, _ = fmt.Fprint(env.Stdout, HelpPage(env.GlobalFlags))
+			return exitOK
+		}
+		return Run(ctx, env, helpArgs(args[1:]))
+	}
 	switch args[0] {
-	case "help", "-h", "--help":
-		_, _ = fmt.Fprint(env.Stdout, rootUsage)
-		return exitOK
 	case "sync":
 		return runSync(ctx, env, args[1:])
 	case "task":
@@ -110,14 +72,18 @@ func Run(ctx context.Context, env Env, args []string) int {
 		return runUI(ctx, env, args[1:])
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown command %q\n", args[0])
-	_, _ = fmt.Fprint(env.Stderr, rootUsage)
+	_, _ = fmt.Fprint(env.Stderr, HelpPage(env.GlobalFlags))
 	return exitUsage
 }
 
 func runTask(ctx context.Context, env Env, args []string) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprint(env.Stderr, taskUsage)
+		_, _ = fmt.Fprint(env.Stderr, groupUsage(groupTask))
 		return exitUsage
+	}
+	if isHelpWord(args[0]) {
+		_, _ = fmt.Fprint(env.Stdout, groupUsage(groupTask))
+		return exitOK
 	}
 	switch args[0] {
 	case "list":
@@ -140,7 +106,7 @@ func runTask(ctx context.Context, env Env, args []string) int {
 		return runTaskMove(ctx, env, args[1:])
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown task command %q\n", args[0])
-	_, _ = fmt.Fprint(env.Stderr, taskUsage)
+	_, _ = fmt.Fprint(env.Stderr, groupUsage(groupTask))
 	return exitUsage
 }
 
@@ -165,7 +131,7 @@ func parse(env Env, fs *flag.FlagSet, usage string, args []string) ([]string, in
 			printUsage(env.Stdout, fs, usage)
 			return nil, exitOK, true
 		case err != nil:
-			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %v\n", err)
+			_, _ = fmt.Fprintf(env.Stderr, "wrikery: %s\n", FlagError(err))
 			printUsage(env.Stderr, fs, usage)
 			return nil, exitUsage, true
 		}
@@ -190,22 +156,45 @@ func terminator(fs *flag.FlagSet, args []string) int {
 			continue
 		}
 		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		f := fs.Lookup(name)
-		if f == nil || hasValue {
-			continue
+		if !hasValue && valueFlag(fs, name) {
+			i++
 		}
-		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
-			continue
-		}
-		i++
 	}
 	return -1
 }
 
+// valueFlag says whether fs defines name as a flag that takes the next argument as its value, so a scan of the arguments skips it.
+func valueFlag(fs *flag.FlagSet, name string) bool {
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
+}
+
 func printUsage(w io.Writer, fs *flag.FlagSet, usage string) {
 	_, _ = fmt.Fprint(w, usage)
-	fs.SetOutput(w)
-	fs.PrintDefaults()
+	printFlags(w, fs)
+}
+
+// FlagError is the text of a parse error with the flag spelled with two dashes, as every help page spells it.
+// The flag package writes one dash whatever the user typed, in four messages: "flag provided but not defined: -x",
+// "flag needs an argument: -x", "invalid value "v" for flag -x: ..." and "invalid boolean value "v" for -x: ...".
+// The last two quote the value the user typed, so the name is looked for after the fixed words and never inside the value.
+func FlagError(err error) string {
+	msg := err.Error()
+	for _, mark := range []string{"flag provided but not defined: -", "flag needs an argument: -"} {
+		if rest, ok := strings.CutPrefix(msg, mark); ok {
+			return mark + "-" + rest
+		}
+	}
+	for _, mark := range []string{" for flag -", " for -"} {
+		if i := strings.LastIndex(msg, mark); i >= 0 {
+			return msg[:i] + mark + "-" + msg[i+len(mark):]
+		}
+	}
+	return msg
 }
 
 func usageError(env Env, fs *flag.FlagSet, usage, msg string) int {

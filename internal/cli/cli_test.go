@@ -88,7 +88,7 @@ func TestReadsAndUsageErrorsNeverAskForTheToken(t *testing.T) {
 		return false, nil
 	}
 	for _, args := range [][]string{
-		{"help"}, {"task", "list"}, {"task", "show", "TASK1"}, {"task", "status", "TASK1"}, {"task", "create", "x"}, {"frobnicate"},
+		{"help"}, {"help", "task", "status"}, {"task", "--help"}, {"task", "list"}, {"task", "show", "TASK1"}, {"task", "status", "TASK1"}, {"task", "create", "x"}, {"frobnicate"},
 	} {
 		Run(context.Background(), env, args)
 	}

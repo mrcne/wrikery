@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalando/go-keyring"
 
+	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/config"
 )
 
@@ -62,14 +64,18 @@ func TestVersionLine(t *testing.T) {
 }
 
 func TestRunCommandRefusesDemoMode(t *testing.T) {
-	if code := runCommand([]string{"help"}, "", true, true, false, false, nil); code != 2 {
+	fs, o := rootFlags()
+	o.demo, o.noColor = true, true
+	if code := runCommand([]string{"help"}, fs, o); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }
 
 func TestRunCommandRefusesVersionAndLogout(t *testing.T) {
 	for name, c := range map[string][2]bool{"version": {true, false}, "logout": {false, true}} {
-		if code := runCommand([]string{"help"}, "", true, false, c[0], c[1], nil); code != 2 {
+		fs, o := rootFlags()
+		o.noColor, o.version, o.logout = true, c[0], c[1]
+		if code := runCommand([]string{"help"}, fs, o); code != 2 {
 			t.Errorf("--%s: code = %d, want 2", name, code)
 		}
 	}
@@ -93,9 +99,11 @@ func isolate(t *testing.T) string {
 
 func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 	dir := isolate(t)
-	for _, arg := range []string{"help", "-h", "--help"} {
-		if code := runCommand([]string{arg}, "", true, false, false, false, nil); code != 0 {
-			t.Errorf("%s: code = %d, want 0", arg, code)
+	fs, o := rootFlags()
+	o.noColor = true
+	for _, args := range [][]string{{"help"}, {"-h"}, {"--help"}, {"help", "task", "status"}} {
+		if code := runCommand(args, fs, o); code != 0 {
+			t.Errorf("%v: code = %d, want 0", args, code)
 		}
 	}
 	entries, err := os.ReadDir(dir)
@@ -106,7 +114,9 @@ func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 
 func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 	isolate(t)
-	if code := runCommand([]string{"task"}, "", true, false, false, false, nil); code != 2 {
+	fs, o := rootFlags()
+	o.noColor = true
+	if code := runCommand([]string{"task"}, fs, o); code != 2 {
 		t.Errorf("code = %d, want 2", code)
 	}
 }
@@ -183,5 +193,64 @@ func TestOfflineFirstRunNamesAWayOutThatWorks(t *testing.T) {
 	err := run(false, false, "", true, nil)
 	if err == nil || !strings.Contains(err.Error(), "--offline=false") {
 		t.Errorf("run = %v, want the refusal naming --offline=false", err)
+	}
+}
+
+func TestParseRootPrintsTheHelpPageOnStdout(t *testing.T) {
+	for _, word := range []string{"--help", "-h"} {
+		fs, _ := rootFlags()
+		var out, errOut bytes.Buffer
+		code, done := parseRoot(fs, []string{word}, &out, &errOut)
+		if code != 0 || !done || errOut.Len() != 0 || out.String() != cli.HelpPage(fs) {
+			t.Errorf("%s: code %d, done %v, stderr %q, stdout:\n%s", word, code, done, errOut.String(), out.String())
+		}
+	}
+	fs, _ := rootFlags()
+	var out, errOut bytes.Buffer
+	code, done := parseRoot(fs, []string{"--demmo"}, &out, &errOut)
+	if code != 2 || !done || out.Len() != 0 || !strings.Contains(errOut.String(), "wrikery: flag provided but not defined: --demmo\n") || !strings.Contains(errOut.String(), "usage: wrikery [flags]") {
+		t.Errorf("--demmo: code %d, done %v, stdout %q, stderr:\n%s", code, done, out.String(), errOut.String())
+	}
+	fs, o := rootFlags()
+	out.Reset()
+	errOut.Reset()
+	if code, done := parseRoot(fs, []string{"--demo"}, &out, &errOut); done || code != 0 || !o.demo || out.Len()+errOut.Len() != 0 {
+		t.Errorf("--demo: code %d, done %v, demo %v, output %q %q", code, done, o.demo, out.String(), errOut.String())
+	}
+}
+
+func TestHelpPageListsTheGlobalFlags(t *testing.T) {
+	fs, _ := rootFlags()
+	_, flags, ok := strings.Cut(cli.HelpPage(fs), "Flags:")
+	if !ok {
+		t.Fatalf("the page has no Flags section:\n%s", cli.HelpPage(fs))
+	}
+	for _, name := range []string{"config", "demo", "logout", "no-color", "offline", "version"} {
+		if !strings.Contains(flags, name) {
+			t.Errorf("the flags lack %q:\n%s", name, flags)
+		}
+	}
+}
+
+// A help request must not need the config or the store, a typo in the config file would turn it into exit 1,
+// and on a fresh machine it would create the data directory and an empty database.
+func TestCommandHelpSkipsTheConfigAndTheStore(t *testing.T) {
+	dir := isolate(t)
+	confDir := filepath.Join(dir, "config", "wrikery")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "config.toml"), []byte("poll_interval = [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs, o := rootFlags()
+	o.noColor = true
+	for _, args := range [][]string{{"task", "--help"}, {"ui", "-h"}, {"sync", "--help"}, {"task", "list", "--help"}, {"help", "task", "create"}} {
+		if code := runCommand(args, fs, o); code != 0 {
+			t.Errorf("%v: code = %d, want 0 with a broken config file", args, code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data")); !os.IsNotExist(err) {
+		t.Errorf("help created the data directory, stat err %v", err)
 	}
 }
