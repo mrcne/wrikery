@@ -782,7 +782,7 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 // reload re-reads what is on screen for the caches that changed.
 func (m Model) reload(entities []string) tea.Cmd {
 	var cmds []tea.Cmd
-	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") {
+	if slices.Contains(entities, "contacts") || slices.Contains(entities, "workflows") || slices.Contains(entities, "custom_fields") {
 		cmds = append(cmds, m.loadRef())
 	}
 	if slices.Contains(entities, "folders") || slices.Contains(entities, "spaces") || slices.Contains(entities, "tasks") {

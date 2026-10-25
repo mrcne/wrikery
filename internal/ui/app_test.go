@@ -1778,3 +1778,14 @@ func TestQuickSearchReachRowInTheDemo(t *testing.T) {
 	press(tm, "enter")
 	waitAfter(t, tm, from, "not available in the demo")
 }
+
+func TestDetailShowsTheBudgetOfTheDemoTask(t *testing.T) {
+	st := seededStore(t)
+	o := testOptions(st)
+	o.Config.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
+	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(160, 40))
+	// Fix auth retry loop, the first demo task, carries 20h and two entries of 1h 30m.
+	press(tm, "/", "fix auth retry", "enter")
+	waitFor(t, tm, "#1200000")
+	waitFor(t, tm, "3h of 20h, 17h left")
+}
