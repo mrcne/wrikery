@@ -148,7 +148,7 @@ A folder outside the followed scopes is not in the list, the box counts it and n
 
 `budget` is a row of the `.` list without a key of its own.
 It opens a box with one field for the budget, which takes the forms a time entry takes, `20h`, `1h 30m` or `0.5`, without the 24 hour limit, and an empty field clears the budget.
-Enter saves, esc cancels.
+Enter saves, enter on the value the box opened with closes it without a write, esc cancels.
 When the budget cannot be edited, the row says why instead of opening the box: no budget source is set, the account has no Effort field, or the custom field the config names is missing, of another type, or not in the task's space.
 
 `n` creates a task, from any pane of the main screen.

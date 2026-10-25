@@ -143,9 +143,9 @@ A write Wrike rejected holds nothing, the writes after it go out, and a retry of
 When a write succeeds, the temporary local row is swapped for the version the server returned, again in one transaction.
 A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
 The drain sends Wrike only the custom status id and lets it derive the group.
-A budget edit is a task update with one custom field value, in the field's format with null for a removal, or with the Effort field, sent as mode and total minutes and asked for back in the same request, since the API answers it only when asked.
+A budget edit is a task update with one custom field value, in the field's format with null for a removal, or with the Effort field, sent as mode Basic with the total minutes and asked for back in the same request, since the API answers it only when asked.
+Basic is sent whatever mode the task had: a FullTime or Flexible total is Wrike's own, worked out from the schedule or the per person allocations, and the write has not been checked against an account that has the field.
 The conflict check compares the budget like the other fields and words a held edit in hours.
-The Effort write follows the Modify Task reference and was not checked against an account that has the field.
 
 A row is not deleted when it has been sent or discarded.
 It stays for thirty days, marked sent or discarded with the time, and the sweep that removes the older ones runs inside the transaction that completes or discards a row.

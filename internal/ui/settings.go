@@ -53,16 +53,14 @@ func budgetRowText(cfg config.BudgetConfig, fields []store.CustomField, effortUn
 		}
 		return "Effort field"
 	case "field":
-		candidates := store.BudgetCandidates(fields, cfg.Field)
-		if len(candidates) == 0 {
+		typed, firstType, found := budgetCandidates(cfg, fields)
+		switch {
+		case !found:
 			return fmt.Sprintf("custom field %q, not found on this account", cfg.Field)
+		case len(typed) == 0:
+			return fmt.Sprintf("custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, firstType)
 		}
-		for _, f := range candidates {
-			if store.IsBudgetType(f) {
-				return fmt.Sprintf("custom field %q (%s)", cfg.Field, f.Type)
-			}
-		}
-		return fmt.Sprintf("custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, candidates[0].Type)
+		return fmt.Sprintf("custom field %q (%s)", cfg.Field, typed[0].Type)
 	}
 	return "not set"
 }

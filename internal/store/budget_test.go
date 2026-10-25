@@ -73,16 +73,27 @@ func TestBudgetFieldForPrefersTheAccountFieldThenTheTasksSpace(t *testing.T) {
 	account := CustomField{ID: "CF0", Title: "Budget", Type: "Duration"}
 	sp1 := CustomField{ID: "CF1", Title: "Budget", Type: "Duration", SpaceID: "SP1"}
 	sp2 := CustomField{ID: "CF2", Title: "Budget", Type: "Numeric", SpaceID: "SP2"}
-	if got, ok, err := st.BudgetFieldFor(ctx, []string{"F2"}, []CustomField{sp1, account, sp2}); err != nil || !ok || got.ID != "CF0" {
+	if got, ok, err := st.BudgetFieldFor(ctx, Task{ParentIDs: []string{"F2"}}, []CustomField{sp1, account, sp2}); err != nil || !ok || got.ID != "CF0" {
 		t.Errorf("with an account field: %+v %v %v", got, ok, err)
 	}
-	if got, ok, err := st.BudgetFieldFor(ctx, []string{"F2"}, []CustomField{sp1, sp2}); err != nil || !ok || got.ID != "CF2" {
+	if got, ok, err := st.BudgetFieldFor(ctx, Task{ParentIDs: []string{"F2"}}, []CustomField{sp1, sp2}); err != nil || !ok || got.ID != "CF2" {
 		t.Errorf("space fields only, a task in F2: %+v %v %v", got, ok, err)
 	}
-	if _, ok, err := st.BudgetFieldFor(ctx, []string{"F1"}, []CustomField{sp2}); err != nil || ok {
+	if _, ok, err := st.BudgetFieldFor(ctx, Task{ParentIDs: []string{"F1"}}, []CustomField{sp2}); err != nil || ok {
 		t.Errorf("a task in F1 with only the Mobile field: ok %v, %v", ok, err)
 	}
-	if _, ok, err := st.BudgetFieldFor(ctx, nil, []CustomField{sp1}); err != nil || ok {
+	if _, ok, err := st.BudgetFieldFor(ctx, Task{ID: "T0"}, []CustomField{sp1}); err != nil || ok {
 		t.Errorf("a task without folders: ok %v, %v", ok, err)
+	}
+	// A subtask made under a task has no folder of its own, its super task's folders say which space it is in.
+	parent := makeTask("P1", "parent")
+	parent.ParentIDs = []string{"F2"}
+	sub := makeTask("S1", "subtask")
+	sub.SuperTaskIDs = []string{"P1"}
+	if err := st.Tasks().Upsert(ctx, []Task{parent, sub}); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := st.BudgetFieldFor(ctx, sub, []CustomField{sp1, sp2}); err != nil || !ok || got.ID != "CF2" {
+		t.Errorf("a subtask under a task in F2: %+v %v %v, want the Mobile field", got, ok, err)
 	}
 }

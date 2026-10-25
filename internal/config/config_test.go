@@ -317,5 +317,8 @@ func TestLoadReadsAndChecksTheBudgetTable(t *testing.T) {
 		if err != nil || cfg.Budget != tc.want {
 			t.Errorf("%s: budget = %+v, %v, want %+v", name, cfg.Budget, err, tc.want)
 		}
+		if cfg.Budget.PullEffort() != (tc.want.Source == "effort") {
+			t.Errorf("%s: PullEffort = %v", name, cfg.Budget.PullEffort())
+		}
 	}
 }

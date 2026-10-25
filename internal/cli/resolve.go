@@ -47,7 +47,7 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 		return store.Task{}, code
 	}
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.Source == "effort"}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.PullEffort()}, slog.Default())
 	// The write deadline bounds the fetch too, a Wrike that does not answer must not hold a read for the client's whole retry budget.
 	if env.Deadline > 0 {
 		var cancel context.CancelFunc

@@ -94,15 +94,23 @@ func BudgetValue(f CustomField, hours float64) string {
 
 // BudgetFieldFor picks the field of a task among the candidates: an account level field first,
 // else the field owned by the space the task's folders are in, found through the folder tree.
+// A subtask made under a task has no folder of its own, its super tasks' folders stand in for it.
 // False when no candidate fits the task, a space field of another space for example.
-func (s *Store) BudgetFieldFor(ctx context.Context, parentIDs []string, candidates []CustomField) (CustomField, bool, error) {
+func (s *Store) BudgetFieldFor(ctx context.Context, task Task, candidates []CustomField) (CustomField, bool, error) {
 	for _, f := range candidates {
 		if f.SpaceID == "" {
 			return f, true, nil
 		}
 	}
-	if len(candidates) == 0 || len(parentIDs) == 0 {
+	if len(candidates) == 0 {
 		return CustomField{}, false, nil
+	}
+	parentIDs := task.ParentIDs
+	if len(parentIDs) == 0 {
+		var err error
+		if parentIDs, err = s.superTaskFolders(ctx, task.ID); err != nil {
+			return CustomField{}, false, err
+		}
 	}
 	spaces := map[string]bool{}
 	for _, id := range parentIDs {
@@ -120,6 +128,26 @@ func (s *Store) BudgetFieldFor(ctx context.Context, parentIDs []string, candidat
 		}
 	}
 	return CustomField{}, false, nil
+}
+
+// superTaskFolders are the folders of the tasks a task is a subtask of, one hop up.
+func (s *Store) superTaskFolders(ctx context.Context, taskID string) ([]string, error) {
+	rows, err := s.reader.QueryContext(ctx, `
+		SELECT DISTINCT folder_id FROM task_parents
+		WHERE task_id IN (SELECT super_id FROM task_supertasks WHERE task_id = ?)`, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // spacesAbove walks the folder tree up from a folder and names the space roots it reaches, the walk statusForNewTask does.

@@ -37,42 +37,61 @@ func resolveBudget(ctx context.Context, st *store.Store, cfg config.BudgetConfig
 		}
 		return b, nil
 	case "field":
-		candidates := store.BudgetCandidates(fields, cfg.Field)
-		if len(candidates) == 0 {
+		typed, firstType, found := budgetCandidates(cfg, fields)
+		if !found {
 			b.reason = fmt.Sprintf("Custom field %q not found on this account", cfg.Field)
 			return b, nil
 		}
-		var typed []store.CustomField
-		for _, f := range candidates {
-			if store.IsBudgetType(f) {
-				typed = append(typed, f)
-			}
-		}
 		if len(typed) == 0 {
-			b.reason = fmt.Sprintf("Custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, candidates[0].Type)
+			b.reason = fmt.Sprintf("Custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, firstType)
 			return b, nil
 		}
-		// The value the task carries counts for the line whichever of the fields it is in, the walk below only picks the one a write goes to.
-		for _, f := range typed {
-			for _, v := range task.CustomFields {
-				if v.ID == f.ID && !b.has {
-					b.hours, b.has = store.BudgetHours(f, v.Value)
-				}
-			}
-		}
-		field, ok, err := st.BudgetFieldFor(ctx, task.ParentIDs, typed)
+		field, ok, err := st.BudgetFieldFor(ctx, task, typed)
 		if err != nil {
 			return b, err
 		}
-		if !ok {
-			b.reason = fmt.Sprintf("Custom field %q is not in this task's space", cfg.Field)
+		if ok {
+			// The line reads the field a write goes to, so what is shown and what the box writes are one value.
+			b.field = field
+			b.hours, b.has = store.BudgetHours(field, customValue(task, field.ID))
 			return b, nil
 		}
-		b.field = field
+		// No field to write to, a subtask nobody can place or a field of another space: the line still shows a value the task carries.
+		b.reason = fmt.Sprintf("Custom field %q is not in this task's space", cfg.Field)
+		for _, f := range typed {
+			if !b.has {
+				b.hours, b.has = store.BudgetHours(f, customValue(task, f.ID))
+			}
+		}
 		return b, nil
 	}
 	b.reason = "No budget source is set, see budget.source in the config"
 	return b, nil
+}
+
+// budgetCandidates are the fields the config names that can hold a budget, with the type of the first named field
+// for the wording when none can, and false when the config names no field the account has.
+// The detail and the settings row read one check, so the two cannot disagree on a missing or mistyped field.
+func budgetCandidates(cfg config.BudgetConfig, fields []store.CustomField) (typed []store.CustomField, firstType string, found bool) {
+	candidates := store.BudgetCandidates(fields, cfg.Field)
+	if len(candidates) == 0 {
+		return nil, "", false
+	}
+	for _, f := range candidates {
+		if store.IsBudgetType(f) {
+			typed = append(typed, f)
+		}
+	}
+	return typed, candidates[0].Type, true
+}
+
+func customValue(task store.Task, fieldID string) string {
+	for _, v := range task.CustomFields {
+		if v.ID == fieldID {
+			return v.Value
+		}
+	}
+	return ""
 }
 
 // budgetPayload is the write for a new budget, hours of 0 clear it. False when the task's budget has no source to write to.
@@ -85,12 +104,10 @@ func budgetPayload(b budgetInfo, hours float64) (store.TaskUpdatePayload, bool) 
 		}
 		return store.TaskUpdatePayload{CustomFields: []store.CustomFieldValue{{ID: b.field.ID, Value: value}}}, b.field.ID != ""
 	case "effort":
-		// The task's mode stays unless it has none, Basic is the plain total the Modify Task reference describes, None clears.
-		mode := b.effortMode
-		if mode == "" || mode == "None" {
-			mode = "Basic"
-		}
+		// Basic is the plain total of the Modify Task reference, whatever mode the task had: a FullTime or Flexible total is Wrike's own,
+		// worked out from the schedule or the per person allocations, and a total sent with those modes would be ignored or refused. None clears.
 		minutes := int(math.Round(hours * 60))
+		mode := "Basic"
 		if minutes == 0 {
 			mode = "None"
 		}

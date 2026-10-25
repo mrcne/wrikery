@@ -34,6 +34,9 @@ type BudgetConfig struct {
 	Field  string `toml:"field"`  // with source field: the custom field's exact title or its id
 }
 
+// PullEffort says whether the sync engine asks every task read for the Effort field.
+func (b BudgetConfig) PullEffort() bool { return b.Source == "effort" }
+
 // OAuthConfig is an API app registered in Wrike's App Console, the bring your own app of the browser sign in.
 type OAuthConfig struct {
 	ClientID     string `toml:"client_id"`

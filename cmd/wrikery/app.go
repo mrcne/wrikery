@@ -75,7 +75,7 @@ func (a *app) startEngine(src wrike.TokenSource, host string) {
 	}
 	a.stopLocked()
 	client := newClient(src, host, a.clientOpts()...)
-	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock, Host: host, CheckHome: a.tokenFromEnv, PullEffort: a.cfg.Budget.Source == "effort"}, slog.Default())
+	eng := syncer.New(client, a.st, syncer.Config{PollInterval: a.cfg.PollInterval, LockFile: a.lock, Host: host, CheckHome: a.tokenFromEnv, PullEffort: a.cfg.Budget.PullEffort()}, slog.Default())
 	a.src, a.host = src, host
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

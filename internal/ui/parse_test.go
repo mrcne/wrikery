@@ -169,6 +169,15 @@ func TestParseDurationHasNoCap(t *testing.T) {
 	if _, err := parseDuration("soon"); err == nil {
 		t.Error("a word is not a duration")
 	}
+	// strconv reads these as numbers, a budget or a time entry cannot be one of them.
+	for _, in := range []string{"nan", "NaN", "inf", "+Inf", "-inf", "infinity"} {
+		if _, err := parseDuration(in); err == nil {
+			t.Errorf("parseDuration(%q) accepted it", in)
+		}
+		if _, err := parseHours(in); err == nil {
+			t.Errorf("parseHours(%q) accepted it", in)
+		}
+	}
 	if _, err := parseHours("25h"); err == nil {
 		t.Error("a time entry keeps its cap")
 	}

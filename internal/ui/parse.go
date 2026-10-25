@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -188,6 +189,10 @@ func parseDuration(s string) (float64, error) {
 			return 0, fmt.Errorf("could not read %q as hours", s)
 		}
 		hours = v
+	}
+	// strconv reads nan and inf as numbers, neither is a time.
+	if math.IsNaN(hours) || math.IsInf(hours, 0) {
+		return 0, fmt.Errorf("could not read %q as hours", s)
 	}
 	if hours < 0 {
 		return 0, errors.New("hours cannot be negative")

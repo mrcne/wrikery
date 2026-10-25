@@ -74,6 +74,13 @@ func TestResolveBudgetNamesTheReason(t *testing.T) {
 			t.Errorf("%s: %+v, %v, want %+v", name, got, err, tc.want)
 		}
 	}
+	// The line reads the field a write goes to: an account level field wins over a space field the task carries a value in,
+	// or the detail would show one budget and the box write another.
+	fields2 := []store.CustomField{{ID: "CF4", Title: "Budget", Type: "Duration", SpaceID: "SP1"}, {ID: "CF1", Title: "Budget", Type: "Duration"}}
+	inSpace := store.Task{ID: "T3", ParentIDs: []string{"F1"}, CustomFields: []store.CustomFieldValue{{ID: "CF4", Value: "600"}}}
+	if got, _ := resolveBudget(ctx, st, config.BudgetConfig{Source: "field", Field: "Budget"}, fields2, false, inSpace); got.has || got.field.ID != "CF1" || got.reason != "" {
+		t.Errorf("a value in the space field next to an account field: %+v, want the account field and no budget", got)
+	}
 	// The value the task carries counts for the line even when the write target is another space's field.
 	carried := store.Task{ID: "T2", ParentIDs: []string{"F1"}, CustomFields: []store.CustomFieldValue{{ID: "CF3", Value: "10"}}}
 	if got, _ := resolveBudget(ctx, st, config.BudgetConfig{Source: "field", Field: "Hours"}, fields, false, carried); !got.has || got.hours != 10 || got.reason != `Custom field "Hours" is not in this task's space` || got.field.ID != "" {
@@ -110,5 +117,25 @@ func TestDetailReloadsTheBudgetWhenTheReferenceDataLands(t *testing.T) {
 	m = pump(m, refLoadedMsg{ref: full})
 	if !m.detail.budget.has {
 		t.Errorf("after the fields came back the detail has %+v", m.detail.budget)
+	}
+}
+
+// The Effort write sends Basic whatever mode the task had: a FullTime or Flexible total is Wrike's own and a sent one would be ignored or refused.
+func TestBudgetPayloadSendsBasicAndClearsWithNone(t *testing.T) {
+	for _, mode := range []string{"", "None", "Basic", "Flexible", "FullTime"} {
+		p, ok := budgetPayload(budgetInfo{source: "effort", effortMode: mode}, 2.5)
+		if !ok || p.Effort == nil || p.Effort.Mode != "Basic" || p.Effort.TotalMinutes != 150 {
+			t.Errorf("mode %q: payload = %+v, %v, want Basic with 150 minutes", mode, p.Effort, ok)
+		}
+	}
+	if p, ok := budgetPayload(budgetInfo{source: "effort", effortMode: "Basic"}, 0); !ok || p.Effort == nil || p.Effort.Mode != "None" || p.Effort.TotalMinutes != 0 {
+		t.Errorf("a clear = %+v, %v, want None", p.Effort, ok)
+	}
+	field := store.CustomField{ID: "CF1", Type: "Duration"}
+	if p, ok := budgetPayload(budgetInfo{source: "field", field: field}, 2.5); !ok || len(p.CustomFields) != 1 || p.CustomFields[0].Value != "150" {
+		t.Errorf("a field write = %+v, %v", p.CustomFields, ok)
+	}
+	if _, ok := budgetPayload(budgetInfo{source: "field"}, 2.5); ok {
+		t.Error("a field source without a resolved field has nothing to write to")
 	}
 }
