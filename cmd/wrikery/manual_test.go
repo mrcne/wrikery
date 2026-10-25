@@ -97,6 +97,9 @@ func TestManualCoversTheCommandsFlagsAndKeys(t *testing.T) {
 			t.Errorf("the page lacks the key group %s", g.Title)
 		}
 	}
+	if !strings.Contains(page, "also holds these actions without a key: budget.") {
+		t.Error("the page does not name the budget row of the actions list")
+	}
 	allowed := map[string]bool{".TH": true, ".SH": true, ".SS": true, ".TP": true, ".PP": true, ".B": true, ".I": true, ".BI": true, ".RI": true, ".nf": true, ".fi": true, ".br": true, ".RS": true, ".RE": true}
 	lines := strings.Split(page, "\n")
 	for n, line := range lines {
@@ -119,6 +122,19 @@ func TestManualListsEveryKeyOfABinding(t *testing.T) {
 		if !strings.Contains(page, want+"\n") {
 			t.Errorf("the KEYS section lacks %q", want)
 		}
+	}
+}
+
+func TestKeylessTextNamesTheActionsWithoutAKey(t *testing.T) {
+	if got := keylessText(nil); got != "" {
+		t.Errorf("keylessText(nil) = %q, want nothing", got)
+	}
+	want := "The actions list on . also holds these actions without a key: budget."
+	if got := keylessText([]string{"budget"}); got != want {
+		t.Errorf("keylessText = %q, want %q", got, want)
+	}
+	if got := keylessText([]string{"budget", "follow"}); !strings.Contains(got, "budget, follow.") {
+		t.Errorf("keylessText = %q, want the names joined by a comma", got)
 	}
 }
 

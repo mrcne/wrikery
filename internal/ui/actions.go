@@ -7,14 +7,33 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// taskAction is one action on the selected task: its key, its row in the actions list and the run.
+// taskAction is one action on the selected task: its key, when it has one, its row in the actions list and the run.
 type taskAction struct {
-	key key.Binding
-	run func(m *Model) tea.Cmd
+	key  key.Binding // the zero value for an action without a key, a row of the list alone
+	name string      // the label of an action without a key, a keyed one is labeled by its binding's help text
+	run  func(m *Model) tea.Cmd
 }
 
 // label is the row in the actions list, the words the help overlay shows for the key.
-func (a taskAction) label() string { return a.key.Help().Desc }
+func (a taskAction) label() string {
+	if a.hasKey() {
+		return a.key.Help().Desc
+	}
+	return a.name
+}
+
+func (a taskAction) hasKey() bool { return len(a.key.Keys()) > 0 }
+
+// KeylessActions names the actions of the list that have no key, in the order of the list, for the manual.
+func KeylessActions() []string {
+	var out []string
+	for _, a := range taskActionTable(defaultKeyMap()) {
+		if !a.hasKey() {
+			out = append(out, a.label())
+		}
+	}
+	return out
+}
 
 // taskActionTable is the one list of the actions: the key dispatch walks it, the actions list shows it
 // and KeyMap.task() is built from it, so the overlay and the manual cannot drift from the keys that work.
@@ -133,6 +152,22 @@ func taskActionTable(k KeyMap) []taskAction {
 		}},
 		{key: k.CopyID, run: func(m *Model) tea.Cmd {
 			return m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
+		}},
+		// The budget is edited a few times a week at most, a row without a key is enough for it.
+		{name: "budget", run: func(m *Model) tea.Cmd {
+			return m.withTask(func(t store.Task) tea.Cmd {
+				// The loader worked the budget out for the task the detail shows, the row acts on that task alone.
+				if !m.detail.loaded || m.detail.task.ID != t.ID {
+					return m.status.show("the task is still loading, try again", true)
+				}
+				b := m.detail.budget
+				if b.reason != "" {
+					return m.status.show(b.reason, true)
+				}
+				d, cmd := newBudgetDialog(t, b)
+				m.openDialog(d)
+				return cmd
+			})
 		}},
 	}
 }

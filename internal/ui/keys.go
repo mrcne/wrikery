@@ -60,10 +60,12 @@ func (k KeyMap) list() []key.Binding {
 }
 
 func (k KeyMap) task() []key.Binding {
-	// The key that opens the actions list, then the key of every action in it, in the list's order.
+	// The key that opens the actions list, then the key of every action in it, in the list's order, an action without a key has no row here.
 	out := []key.Binding{k.Actions}
 	for _, a := range taskActionTable(k) {
-		out = append(out, a.key)
+		if a.hasKey() {
+			out = append(out, a.key)
+		}
 	}
 	return out
 }

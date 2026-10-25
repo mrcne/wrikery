@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -38,7 +39,14 @@ const outsideFolder = "IEAAELSE"
 // The extra tasks sit in the cache beside the demo's, as a task from an unfollowed space does, a search finds them.
 func demoModel(t *testing.T, extra ...store.Task) Model {
 	t.Helper()
+	return demoModelWith(t, rootTestOptions(t).Config, extra...)
+}
+
+// demoModelWith is demoModel with the config the test needs, the budget source for example.
+func demoModelWith(t *testing.T, cfg config.Config, extra ...store.Task) Model {
+	t.Helper()
 	opts := rootTestOptions(t)
+	opts.Config = cfg
 	ctx := context.Background()
 	opts.Store.Now = opts.Now
 	if err := demo.Seed(ctx, opts.Store, opts.Now()); err != nil {

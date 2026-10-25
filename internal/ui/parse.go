@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mrcne/wrikery/internal/store"
 )
 
 // A date field reads ahead for a due date and back for a time entry, the caller says which.
@@ -134,9 +136,25 @@ func dayAndMonth(today time.Time, month time.Month, day int, dir dateDirection) 
 // parseHours reads 1.5, 1,5, 1:30, 90m, 2h, 2h30m and 1h 20m, the form the app prints logged time in.
 // Wrike stores hours as a decimal, the API rejects zero and negative values.
 func parseHours(s string) (float64, error) {
+	if strings.TrimSpace(s) == "" {
+		return 0, errors.New("hours are required")
+	}
+	hours, err := parseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if hours <= 0 || hours > 24 {
+		return 0, errors.New("hours must be between 0 and 24")
+	}
+	return hours, nil
+}
+
+// parseDuration reads the forms parseHours reads without the cap of a time entry, a budget of 200h is normal.
+// An empty value is 0 with no error, the budget box clears with it.
+func parseDuration(s string) (float64, error) {
 	s = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(s), ",", "."), " ", ""))
 	if s == "" {
-		return 0, errors.New("hours are required")
+		return 0, nil
 	}
 	var hours float64
 	switch {
@@ -172,8 +190,8 @@ func parseHours(s string) (float64, error) {
 		}
 		hours = v
 	}
-	if hours <= 0 || hours > 24 {
-		return 0, errors.New("hours must be between 0 and 24")
+	if hours < 0 {
+		return 0, errors.New("hours cannot be negative")
 	}
 	return hours, nil
 }
@@ -203,16 +221,8 @@ func splitHours(h float64) (hours, minutes int) {
 
 // hoursText writes logged time the way the time entry box reads it: 2h, 45m or 1h 20m.
 // Exact to the minute, so what is shown can be checked against what was typed.
-func hoursText(h float64) string {
-	hours, minutes := splitHours(h)
-	switch {
-	case minutes == 0:
-		return fmt.Sprintf("%dh", hours)
-	case hours == 0:
-		return fmt.Sprintf("%dm", minutes)
-	}
-	return fmt.Sprintf("%dh %dm", hours, minutes)
-}
+// The writer lives in the store, the sync engine words a held budget edit with it too.
+func hoursText(h float64) string { return store.HoursText(h) }
 
 // hoursClock writes logged time as h:mm for the timesheet grid.
 // A cell is seven characters wide with no gap of its own, 1h 20m with the pending mark would fill it,

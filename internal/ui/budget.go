@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -69,6 +70,30 @@ func resolveBudget(ctx context.Context, st *store.Store, cfg config.BudgetConfig
 	}
 	b.reason = "No budget source is set, see budget.source in the config"
 	return b, nil
+}
+
+// budgetPayload is the write for a new budget, hours of 0 clear it. False when the task's budget has no source to write to.
+func budgetPayload(b budgetInfo, hours float64) (store.TaskUpdatePayload, bool) {
+	switch b.source {
+	case "field":
+		value := ""
+		if hours > 0 {
+			value = store.BudgetValue(b.field, hours)
+		}
+		return store.TaskUpdatePayload{CustomFields: []store.CustomFieldValue{{ID: b.field.ID, Value: value}}}, b.field.ID != ""
+	case "effort":
+		// The task's mode stays unless it has none, Basic is the plain total the Modify Task reference describes, None clears.
+		mode := b.effortMode
+		if mode == "" || mode == "None" {
+			mode = "Basic"
+		}
+		minutes := int(math.Round(hours * 60))
+		if minutes == 0 {
+			mode = "None"
+		}
+		return store.TaskUpdatePayload{Effort: &store.TaskEffort{Mode: mode, TotalMinutes: minutes}}, true
+	}
+	return store.TaskUpdatePayload{}, false
 }
 
 // timeLine is the Time line of the detail: the logged time against the budget, the over part apart so the caller colors it.

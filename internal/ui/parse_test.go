@@ -158,3 +158,18 @@ func TestParseHoursReadsWhatHoursTextPrints(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDurationHasNoCap(t *testing.T) {
+	for in, want := range map[string]float64{"200h": 200, "1h 20m": 1 + 20.0/60, "0.5": 0.5, "": 0, "   ": 0} {
+		got, err := parseDuration(in)
+		if err != nil || math.Abs(got-want) > 1e-9 {
+			t.Errorf("parseDuration(%q) = %v, %v, want %v", in, got, err, want)
+		}
+	}
+	if _, err := parseDuration("soon"); err == nil {
+		t.Error("a word is not a duration")
+	}
+	if _, err := parseHours("25h"); err == nil {
+		t.Error("a time entry keeps its cap")
+	}
+}

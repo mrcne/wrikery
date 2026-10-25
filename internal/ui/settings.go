@@ -36,11 +36,35 @@ type settingsModel struct {
 	moveConfirmed bool   // the saved yes to the question before the first H or L
 	signedIn      string // SignedInWithToken or SignedInWithBrowser, empty in the demo and before the first sign in
 	signedInApp   string // the client id of a browser session, from the session itself, the config may have lost its table since
+	budget        string // the Budget row's value, the config read against the cache, see budgetRowText
 	cursor        int
 }
 
 func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsModel {
-	return settingsModel{cfg: cfg, theme: theme, file: file, keys: keys}
+	return settingsModel{cfg: cfg, theme: theme, file: file, keys: keys, budget: budgetRowText(cfg.Budget, nil, false)}
+}
+
+// budgetRowText is the Budget row: the source the config names, read against the account's fields and the Effort flag.
+func budgetRowText(cfg config.BudgetConfig, fields []store.CustomField, effortUnavailable bool) string {
+	switch cfg.Source {
+	case "effort":
+		if effortUnavailable {
+			return "Effort field, not available on this account"
+		}
+		return "Effort field"
+	case "field":
+		candidates := store.BudgetCandidates(fields, cfg.Field)
+		if len(candidates) == 0 {
+			return fmt.Sprintf("custom field %q, not found on this account", cfg.Field)
+		}
+		for _, f := range candidates {
+			if store.IsBudgetType(f) {
+				return fmt.Sprintf("custom field %q (%s)", cfg.Field, f.Type)
+			}
+		}
+		return fmt.Sprintf("custom field %q is a %s field, a Duration or Numeric field is needed", cfg.Field, candidates[0].Type)
+	}
+	return "not set"
 }
 
 func (s *settingsModel) setScopes(scopes []store.Scope) { s.scopes = scopes }
@@ -94,6 +118,7 @@ func (s settingsModel) rows() []settingRow {
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
 		{group: "Sync", label: "Wrike host", value: host, key: "host"},
 		{group: "Sync", label: "Start offline", value: fmt.Sprint(s.cfg.Offline), key: "offline"},
+		{group: "Sync", label: "Budget", value: s.budget, key: "budget.source"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},
 		{group: "Interface", label: "Ask before H and L", value: ask, msg: toggleMoveAskMsg{}},
 		{group: "Interface", label: "Theme", value: theme, key: "ui.theme"},

@@ -270,6 +270,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show(msg.err.Error(), true)
 	case refLoadedMsg:
 		m.ref = msg.ref
+		m.settings.budget = budgetRowText(m.opts.Config.Budget, msg.ref.customFields, msg.ref.effortUnavailable)
 		// The by assignee grouping and the columns read contacts and workflows off the list's own copy.
 		m.list.ref = msg.ref
 		m.list.regroup()
@@ -677,6 +678,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, store.TaskUpdatePayload{Dates: &dates})
 			return err
 		}, "Dates updated")
+	case submitBudgetMsg:
+		// The box was opened on the detail's budget, which says where the task's budget lives.
+		if !m.detail.loaded || m.detail.task.ID != msg.taskID {
+			return m, m.status.show("the selection changed, open the budget again", true)
+		}
+		p, ok := budgetPayload(m.detail.budget, msg.hours)
+		if !ok {
+			return m, m.status.show("the budget has no field to write to, open the budget again", true)
+		}
+		st := m.opts.Store
+		return m, m.enqueue(func(ctx context.Context) error {
+			_, err := st.Outbox().EnqueueTaskUpdate(ctx, msg.taskID, p)
+			return err
+		}, "Budget updated")
 	case submitCreateMsg:
 		st, meID := m.opts.Store, m.ref.meID
 		p := store.TaskCreatePayload{Title: msg.title}

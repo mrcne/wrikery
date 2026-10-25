@@ -121,3 +121,34 @@ func TestSettingsShowsTheSignInRow(t *testing.T) {
 		t.Errorf("enter on the sign in row should say how to change it, got %#v", msgs)
 	}
 }
+
+func TestSettingsRowNamesTheBudgetSource(t *testing.T) {
+	fields := []store.CustomField{{ID: "CF1", Title: "Budget", Type: "Duration"}, {ID: "CF2", Title: "Notes", Type: "Text"}}
+	for name, tc := range map[string]struct {
+		cfg    config.BudgetConfig
+		effort bool
+		want   string
+	}{
+		"none":       {config.BudgetConfig{}, false, "not set"},
+		"effort":     {config.BudgetConfig{Source: "effort"}, false, "Effort field"},
+		"no effort":  {config.BudgetConfig{Source: "effort"}, true, "Effort field, not available on this account"},
+		"field":      {config.BudgetConfig{Source: "field", Field: "Budget"}, false, `custom field "Budget" (Duration)`},
+		"missing":    {config.BudgetConfig{Source: "field", Field: "Nope"}, false, `custom field "Nope", not found on this account`},
+		"wrong type": {config.BudgetConfig{Source: "field", Field: "Notes"}, false, `custom field "Notes" is a Text field, a Duration or Numeric field is needed`},
+	} {
+		if got := budgetRowText(tc.cfg, fields, tc.effort); got != tc.want {
+			t.Errorf("%s: %q, want %q", name, got, tc.want)
+		}
+	}
+	s := newSettings(config.Config{Budget: config.BudgetConfig{Source: "effort"}}, "dark", "/tmp/config.toml", defaultKeyMap())
+	s.budget = budgetRowText(s.cfg.Budget, nil, false)
+	found := false
+	for _, r := range s.rows() {
+		if r.label == "Budget" && r.value == "Effort field" && r.key == "budget.source" && r.group == "Sync" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("rows lack the Budget row: %+v", s.rows())
+	}
+}
