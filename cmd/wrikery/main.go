@@ -23,6 +23,7 @@ import (
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/config"
+	"github.com/mrcne/wrikery/internal/demo"
 	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/internal/ui"
 	"github.com/mrcne/wrikery/pkg/wrike"
@@ -206,6 +207,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			return err
 		}
 		defer cleanup()
+		if cfg.Budget.Source == "" {
+			// The demo's own field shows the time line without a config file, a configured source stays so a user sees their setting against the demo.
+			cfg.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
+		}
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},

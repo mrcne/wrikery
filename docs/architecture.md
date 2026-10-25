@@ -60,8 +60,10 @@ On the first run, and later from the settings screen, the user picks which space
 Only these are synced and searchable, which keeps the database small and the first sync short even on a larger Wrike account.
 The user own tasks are always included, and anything outside the followed set can still be fetched on demand while online.
 
-Cached entities: tasks with descriptions, folders and projects, spaces, contacts, comments, timelogs, workflows and the dependencies between tasks.
+Cached entities: tasks with descriptions, folders and projects, spaces, contacts, comments, timelogs, workflows, the dependencies between tasks, the account's custom field definitions and the custom field values of every task.
 Workflows are there because custom statuses come from them.
+The custom fields are there for the time budget, which the config maps to one of them or to the Effort field of a task.
+The Effort field is read only when the config asks for it, since an account whose plan does not have it refuses every read that does.
 The account call lists only the account workflows, so the reference pull also asks each space for the workflows it owns, since a task in such a space carries a status from one of those.
 Search over task titles and descriptions uses FTS5, the full text search built into SQLite.
 
@@ -75,6 +77,8 @@ Most of the mapping is direct, so only three parts need explaining:
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
+- custom_fields holds the account's field definitions and task_custom_fields a task's values, replaced on every write of the task, since every read that can carry the values does and an absent key means the task has none.
+  The Effort field sits in two columns of tasks and is kept when a write carries no Effort field, because the API answers it only when asked and the answer to an edit would otherwise wipe what the pull read.
 
 The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.
 
@@ -122,6 +126,11 @@ No scope poll covers a fetched task, so a poll reads the stamped tasks opened in
 The interface asks for such a fetch through a hook, the way it asks for a token check, and a command fetches a task argument the cache lacks before it goes on.
 A fetch runs without the sync lock, it writes task rows in one transaction and touches no cursor.
 
+With `budget.source = "effort"` every task read asks for the Effort field as well.
+An account whose plan does not have it answers 403, and one answer is enough: the engine writes a meta row, logs once, repeats the read without the field and leaves it out from then on, so later runs and the commands pay no 403 of their own.
+A manual cycle, `R` or `wrikery sync --full`, clears the row and asks again.
+The custom field definitions are pulled with the reference data, and a 403 there counts as no fields.
+
 ## Sending changes back
 
 Every write becomes a row in the outbox: operation type, entity id, a JSON payload, state (pending, in flight, failed, sent, discarded), attempt count and the last error.
@@ -134,6 +143,9 @@ A write Wrike rejected holds nothing, the writes after it go out, and a retry of
 When a write succeeds, the temporary local row is swapped for the version the server returned, again in one transaction.
 A status change also applies the workflow group to the local task alongside the custom status id, so the lists sort and filter it as done right away.
 The drain sends Wrike only the custom status id and lets it derive the group.
+A budget edit is a task update with one custom field value, in the field's format with null for a removal, or with the Effort field, sent as mode and total minutes and asked for back in the same request, since the API answers it only when asked.
+The conflict check compares the budget like the other fields and words a held edit in hours.
+The Effort write follows the Modify Task reference and was not checked against an account that has the field.
 
 A row is not deleted when it has been sent or discarded.
 It stays for thirty days, marked sent or discarded with the time, and the sweep that removes the older ones runs inside the transaction that completes or discards a row.
@@ -261,7 +273,7 @@ Each module is tested on its own, along the boundaries above:
 - `internal/store` against a real SQLite database in a temporary file, migrations included
 - `internal/syncer` against a fake client and a real store in a temporary file
 - `internal/ui` flows with teatest
-- `man/wrikery.1` is generated from the command table, the root flags and the key map by a test in `cmd/wrikery`, and `go test ./cmd/wrikery -update` rewrites it when a command, a flag or a key changes
+- `man/wrikery.1` is generated from the command table, the root flags, the key map and the actions without a key by a test in `cmd/wrikery`, and `go test ./cmd/wrikery -update` rewrites it when a command, a flag, a key or such an action changes
 
 The sync scenarios cover offline, rate limits, rejected writes, tasks deleted on the server and resuming an interrupted sync.
 One more test drives the real client against a local fixture server end to end.

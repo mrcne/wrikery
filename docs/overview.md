@@ -80,7 +80,11 @@ A task the followed spaces do not cover lands the way a jump does, in My tasks w
 The description comes from Wrike as HTML. It is converted to markdown and rendered in the terminal.
 Underlined and struck text keep their look and a checklist shows its boxes, colors are not shown.
 A link shows its text and then its address, or the address alone when the text is the address, as it is for a pasted one.
-Above it are the status, the assignees, the dates, the importance when it is not Normal, the task this one is a subtask of and the number of attached files.
+Above it are the status, the assignees, the dates, the importance when it is not Normal, the time, the task this one is a subtask of and the number of attached files.
+The time line is the logged time against the task's budget, `12h 30m of 20h, 7h 30m left`, and `2h over` in the error color when the budget is spent.
+A task with a budget and no entries reads `0h of 20h, 20h left`, a task with entries and no budget shows the logged time alone, and a task with neither has no line.
+The logged time counts every person's entries on the task, the queued ones included.
+Where the budget lives is a setting, see `[budget]` under Config, and on an account whose plan has no custom fields or no Effort field the line shows the logged time only.
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
@@ -141,6 +145,11 @@ On My tasks no folder is in view, so the move only joins, and the same happens w
 The first line of the box says which of the two enter will do.
 Unchecking the last folder is refused: Wrike would put the task into the account root, which no followed scope covers, and the task would drop out of the cache at the next sync.
 A folder outside the followed scopes is not in the list, the box counts it and never touches it.
+
+`budget` is a row of the `.` list without a key of its own.
+It opens a box with one field for the budget, which takes the forms a time entry takes, `20h`, `1h 30m` or `0.5`, without the 24 hour limit, and an empty field clears the budget.
+Enter saves, esc cancels.
+When the budget cannot be edited, the row says why instead of opening the box: no budget source is set, the account has no Effort field, or the custom field the config names is missing, of another type, or not in the task's space.
 
 `n` creates a task, from any pane of the main screen.
 The box asks for a title and shows the folder the task goes into, preset to the folder or project in view, or to the folder of the section under the cursor when the list is grouped by folder.
@@ -251,6 +260,7 @@ The sidebar drops an unfollowed space at once and shows a newly followed one rig
 
 The Sidebar row says whether the pane is shown or hidden, enter flips it, the same as `S` on the main screen.
 The Account row names the sign in, a permanent token or the browser with the app's client id.
+The Budget row says where the budget comes from as the cache sees it: not set, the Effort field, with a note when the account has none, or the custom field with its type, with a note when the field is missing or of a type that cannot hold hours.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
 The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
 
@@ -315,6 +325,11 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 The `[oauth]` table names an API app for the browser sign in: `client_id`, `redirect_uri`, which is `http://localhost:8731/callback` unless the app was registered with another address, and `client_secret`, which the first run asks for when it is not in the file.
 `host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
+The `[budget]` table names where a task's time budget lives, since Wrike has no single place for it.
+`source = "effort"` reads the Effort field of the task, the time budget of the task view and the Workload chart on the plans that have it.
+`source = "field"` reads a custom field named by `field`, its exact title or its id: a Duration field holds the budget in minutes, a Numeric field in hours, and the field can belong to the account or to a space, in which case the task's own space decides which one is read.
+Without a source the detail shows the logged time alone and the budget row of the actions list says so.
+On an account whose plan has no Effort field the first read answers 403, the app leaves the field out from then on, says so once in the log, and a manual refresh asks again.
 
 ### Commands
 
