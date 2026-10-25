@@ -98,7 +98,7 @@ func TestControlHandlerReloadSendsTheEngineMessages(t *testing.T) {
 	if reply := handle(control.Request{Op: control.OpReload}); !reply.OK {
 		t.Errorf("reply = %+v", reply)
 	}
-	if store, ok := (<-sent).(ui.StoreChangedMsg); !ok || len(store.Entities) != 8 {
+	if store, ok := (<-sent).(ui.StoreChangedMsg); !ok || len(store.Entities) != 9 {
 		t.Errorf("a reload without kinds = %+v, want every kind", store)
 	}
 	<-sent

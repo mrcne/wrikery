@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -802,5 +803,48 @@ func TestDrainSendsTheDescriptionAndTheImportanceOfACreate(t *testing.T) {
 	}
 	if got.Description != "<p>Why</p>" || got.Importance != "High" {
 		t.Errorf("create sent = %+v, want the description and the importance", got)
+	}
+}
+
+func TestDrainSendsABudgetEditAndAsksForTheEffortBack(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	task := store.Task{ID: "T1", Title: "t", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z", Effort: &store.TaskEffort{Mode: "Basic", TotalMinutes: 600}}
+	if err := st.Tasks().Upsert(ctx, []store.Task{task}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{CustomFields: []store.CustomFieldValue{{ID: "CF1", Value: "765"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{Effort: &store.TaskEffort{Mode: "Basic", TotalMinutes: 1200}}); err != nil {
+		t.Fatal(err)
+	}
+	var sent []wrike.TaskUpdate
+	fc := &fakeClient{
+		tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+			return []wrike.Task{{ID: "T1", Title: "t", Status: "Active", Effort: &wrike.TaskEffort{Mode: "Basic", TotalEffort: 600}}}, nil
+		},
+		updateTask: func(taskID string, u wrike.TaskUpdate) (wrike.Task, error) {
+			sent = append(sent, u)
+			// The answer carries the effort only when the write asked for it back.
+			answer := wrike.Task{ID: "T1", Title: "t", Status: "Active"}
+			if u.Effort != nil {
+				answer.Effort = &wrike.TaskEffort{Mode: "Basic", TotalEffort: u.Effort.TotalEffort}
+			}
+			return answer, nil
+		},
+	}
+	if _, err := drainOutbox(ctx, ctx, fc, st, time.Second, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 || len(sent[0].CustomFields) != 1 || sent[0].CustomFields[0].Value != "765" || sent[0].Effort != nil || sent[0].Fields != nil {
+		t.Errorf("first send = %+v", sent)
+	}
+	if len(sent) == 2 && (sent[1].Effort == nil || sent[1].Effort.TotalEffort != 1200 || !slices.Equal(sent[1].Fields, []string{"effortAllocation"})) {
+		t.Errorf("second send = %+v", sent[1])
+	}
+	got, _ := st.Tasks().Get(ctx, "T1")
+	if got.Effort == nil || got.Effort.TotalMinutes != 1200 {
+		t.Errorf("the answer's effort was not applied: %+v", got.Effort)
 	}
 }

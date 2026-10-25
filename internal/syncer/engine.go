@@ -27,6 +27,7 @@ type Config struct {
 	LockFile       string        // the cross-process sync lock next to the database, empty means none
 	Host           string        // the host the client talks to, the account check names it
 	CheckHome      bool          // read the account before the first cycle even when the cache has a record, the credential came from WRIKERY_TOKEN
+	PullEffort     bool          // ask every task read for the Effort field, budget.source = effort, see effortReads
 }
 
 func (c Config) withDefaults() Config {
@@ -64,6 +65,7 @@ func (c Config) withDefaults() Config {
 // so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
+	effort *effortReads // the wrapper around client when PullEffort is set, nil otherwise, a manual cycle resets it
 	st     *store.Store
 	cfg    Config
 	log    *slog.Logger
@@ -88,7 +90,7 @@ func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Engine{
+	e := &Engine{
 		client:    c,
 		st:        st,
 		cfg:       cfg.withDefaults(),
@@ -99,6 +101,13 @@ func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
 		wake:      make(chan struct{}, 1),
 		state:     StateIdle,
 	}
+	if cfg.PullEffort {
+		r := newEffortReads(context.Background(), c, st, log)
+		// The interface reads the meta row with the reference data, this event makes it read again.
+		r.onOff = func() { e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindCustomFields}}) }
+		e.client, e.effort = r, r
+	}
+	return e
 }
 
 func (e *Engine) Events() <-chan Event { return e.events }
@@ -350,6 +359,12 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if err := e.meetHome(ctx); err != nil {
 		return err
 	}
+	if manual && e.effort != nil {
+		// A manual cycle asks for the Effort field again, which is how an upgraded plan gets it.
+		if err := e.effort.reset(ctx); err != nil {
+			return err
+		}
+	}
 
 	changed, err := e.drain(ctx, post)
 	if changed {
@@ -372,12 +387,12 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 
 	if manual || e.lastReference.IsZero() || time.Since(e.lastReference) >= e.cfg.ReferenceEvery {
-		if err := pullReference(ctx, e.client, e.st); err != nil {
+		if err := pullReference(ctx, e.client, e.st, e.log); err != nil {
 			return err
 		}
 		e.lastReference = time.Now()
 		e.emit(Event{Kind: EventStoreChanged,
-			Entities: []EntityKind{KindFolders, KindSpaces, KindContacts, KindWorkflows}})
+			Entities: []EntityKind{KindFolders, KindSpaces, KindContacts, KindWorkflows, KindCustomFields}})
 	}
 
 	scopes, err := e.st.Scopes().Followed(ctx)

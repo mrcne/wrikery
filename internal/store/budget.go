@@ -40,6 +40,25 @@ func BudgetHours(f CustomField, value string) (float64, bool) {
 	return 0, false
 }
 
+// HoursText writes hours the way the interface writes logged time: 2h, 45m or 1h 20m, exact to the minute.
+// Minutes are rounded and a full sixty carries into the hour, so a value that round trips through BudgetValue reads back the same.
+func HoursText(h float64) string {
+	whole := math.Trunc(h)
+	minutes := int(math.Round((h - whole) * 60))
+	hours := int(whole)
+	if minutes == 60 {
+		hours++
+		minutes = 0
+	}
+	switch {
+	case minutes == 0:
+		return strconv.Itoa(hours) + "h"
+	case hours == 0:
+		return strconv.Itoa(minutes) + "m"
+	}
+	return strconv.Itoa(hours) + "h " + strconv.Itoa(minutes) + "m"
+}
+
 // BudgetValue writes hours in the field's format: whole minutes for a Duration, hours with at most two decimals for a Numeric field.
 func BudgetValue(f CustomField, hours float64) string {
 	if f.Type == "Duration" {

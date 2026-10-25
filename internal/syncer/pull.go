@@ -13,12 +13,13 @@ import (
 )
 
 // The task search returns these only when asked.
-var pullFields = []string{"description", "responsibleIds", "parentIds", "superTaskIds", "dependencyIds", "attachmentCount"}
+// customFields is asked for on every account: a plan without the feature answers the tasks without the key, no error (checked on the live account).
+var pullFields = []string{"description", "responsibleIds", "parentIds", "superTaskIds", "dependencyIds", "attachmentCount", "customFields"}
 
 // dependencyBatch caps the edge reads of one cycle, a first pull of a large plan spreads them over a few cycles.
 const dependencyBatch = 200
 
-func pullReference(ctx context.Context, c Client, st *store.Store) error {
+func pullReference(ctx context.Context, c Client, st *store.Store, log *slog.Logger) error {
 	folders, err := c.FolderTree(ctx)
 	if err != nil {
 		return err
@@ -32,6 +33,18 @@ func pullReference(ctx context.Context, c Client, st *store.Store) error {
 		return err
 	}
 	if err := st.Contacts().ReplaceAll(ctx, contactsFromWrike(contacts)); err != nil {
+		return err
+	}
+	fields, err := c.CustomFields(ctx)
+	if isNotAllowed(err) {
+		// A plan without custom fields may refuse the call outright, the cycle goes on with none.
+		log.Warn("custom fields not available on this account", "error", err)
+		fields, err = nil, nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := st.CustomFields().ReplaceAll(ctx, customFieldsFromWrike(fields)); err != nil {
 		return err
 	}
 	spaces, err := c.Spaces(ctx)

@@ -55,7 +55,7 @@ func runSync(ctx context.Context, env Env, args []string) int {
 		return code
 	}
 	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, CheckHome: env.TokenFromEnv}, slog.Default())
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, CheckHome: env.TokenFromEnv, PullEffort: env.Config.Budget.Source == "effort"}, slog.Default())
 	state, cycleErr := eng.Once(ctx, o.full)
 	// The pull changed the cache, a running interface shows it now and not at its own next poll.
 	if env.Socket != "" {
