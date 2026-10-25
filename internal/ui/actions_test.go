@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestTaskActionTableFollowsTheTaskKeys(t *testing.T) {
 	k := defaultKeyMap()
@@ -18,5 +21,16 @@ func TestTaskActionTableFollowsTheTaskKeys(t *testing.T) {
 	}
 	if a := (taskAction{name: "budget"}); a.hasKey() || a.label() != "budget" {
 		t.Errorf("an action without a key: hasKey %v, label %q", a.hasKey(), a.label())
+	}
+}
+
+func TestKeylessLabelsNameTheActionsWithoutAKey(t *testing.T) {
+	k := defaultKeyMap()
+	table := append(taskActionTable(k), taskAction{name: "budget"}, taskAction{name: "follow"})
+	if got := keylessLabels(table); !slices.Equal(got, []string{"budget", "follow"}) {
+		t.Errorf("keylessLabels = %q, want budget, follow", got)
+	}
+	if got := KeylessActions(); len(got) != 0 {
+		t.Errorf("KeylessActions = %q, every action has a key on this build", got)
 	}
 }

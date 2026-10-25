@@ -23,6 +23,19 @@ func (a taskAction) label() string {
 
 func (a taskAction) hasKey() bool { return len(a.key.Keys()) > 0 }
 
+// KeylessActions names the actions of the list that have no key, in the order of the list, for the manual.
+func KeylessActions() []string { return keylessLabels(taskActionTable(defaultKeyMap())) }
+
+func keylessLabels(actions []taskAction) []string {
+	var out []string
+	for _, a := range actions {
+		if !a.hasKey() {
+			out = append(out, a.label())
+		}
+	}
+	return out
+}
+
 // taskActionTable lists the actions in the order of the overlay's task group, KeyMap.task().
 // The key dispatch walks it and the actions list shows it, so an action cannot be in one and missing from the other.
 func taskActionTable(k KeyMap) []taskAction {
