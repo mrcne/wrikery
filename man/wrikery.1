@@ -1,4 +1,4 @@
-.TH WRIKERY 1 2026-10-24 wrikery "User Commands"
+.TH WRIKERY 1 2026-10-25 wrikery "User Commands"
 .SH NAME
 wrikery \- an unofficial terminal client for Wrike
 .SH SYNOPSIS
@@ -279,7 +279,7 @@ Tab moves between the panes, enter goes one level deeper and esc goes back.
 .B tab
 next pane
 .TP
-.B S
+.B "S, ctrl+b"
 hide sidebar
 .TP
 .B ?
@@ -303,26 +303,26 @@ refresh
 .B esc
 back
 .TP
-.B q
+.B "q, ctrl+c"
 quit
 .SS The list
 .TP
-.B j
+.B "j, down"
 down
 .TP
-.B k
+.B "k, up"
 up
 .TP
-.B g
+.B "g, home"
 first
 .TP
-.B G
+.B "G, end"
 last
 .TP
-.B ctrl+d
+.B "ctrl+d, pgdown"
 half page down
 .TP
-.B ctrl+u
+.B "ctrl+u, pgup"
 half page up
 .TP
 .B /
@@ -334,10 +334,10 @@ filter box, F clears it
 .B enter
 open
 .TP
-.B h
+.B "h, left"
 collapse / left
 .TP
-.B l
+.B "l, right"
 expand / right
 .TP
 .B z
@@ -414,22 +414,22 @@ copy branch name
 copy task id
 .SS The board
 .TP
-.B h
+.B "h, left"
 previous column
 .TP
-.B l
+.B "l, right"
 next column
 .TP
-.B j
+.B "j, down"
 down
 .TP
-.B k
+.B "k, up"
 up
 .TP
-.B g
+.B "g, home"
 first
 .TP
-.B G
+.B "G, end"
 last
 .TP
 .B {
@@ -460,16 +460,16 @@ open
 new task
 .SS The timesheet
 .TP
-.B h
+.B "h, left"
 previous day
 .TP
-.B l
+.B "l, right"
 next day
 .TP
-.B j
+.B "j, down"
 down
 .TP
-.B k
+.B "k, up"
 up
 .TP
 .B [
@@ -494,22 +494,22 @@ delete entry
 open
 .SS The changes screen
 .TP
-.B j
+.B "j, down"
 down
 .TP
-.B k
+.B "k, up"
 up
 .TP
-.B g
+.B "g, home"
 first
 .TP
-.B G
+.B "G, end"
 last
 .TP
-.B ctrl+d
+.B "ctrl+d, pgdown"
 half page down
 .TP
-.B ctrl+u
+.B "ctrl+u, pgup"
 half page up
 .TP
 .B r
@@ -522,10 +522,10 @@ discard
 open
 .SS The settings screen
 .TP
-.B j
+.B "j, down"
 down
 .TP
-.B k
+.B "k, up"
 up
 .TP
 .B enter
@@ -571,7 +571,7 @@ The local copy and the queue of writes in one SQLite file.
 Deleting it resets the cache, and the queued writes go with it.
 .TP
 .I ~/.local/state/wrikery/wrikery.log
-The log of the last run, the previous run's log is kept as wrikery.log.1.
+The log of the last interface run and of the commands run since it, the previous interface run's log is kept as wrikery.log.1.
 A demo run writes demo.log in the same directory.
 .TP
 .B "The API token"

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/ui"
@@ -31,17 +32,21 @@ func TestTroffEscapesWhatTroffWouldEat(t *testing.T) {
 }
 
 // The page is committed like a golden file, so a change to a command, a flag or a key shows up as a diff of it.
+// The .TH date is read back from the committed page, so a run without -update reproduces it byte for byte,
+// and -update stamps a new date only when the text of the page changed.
 func TestManualMatchesTheCommittedPage(t *testing.T) {
 	fs, _ := rootFlags()
-	got := []byte(manualPage(fs))
-	if *updateManual {
+	want, err := os.ReadFile(manualPath)
+	if err != nil && !*updateManual {
+		t.Fatalf("%v, run go test ./cmd/wrikery -update to write the page", err)
+	}
+	got := []byte(manualPage(fs, pageDate(string(want))))
+	if *updateManual && !bytes.Equal(got, want) {
+		got = []byte(manualPage(fs, weekendBefore(time.Now())))
 		if err := os.WriteFile(manualPath, got, 0o644); err != nil {
 			t.Fatal(err)
 		}
-	}
-	want, err := os.ReadFile(manualPath)
-	if err != nil {
-		t.Fatalf("%v, run go test ./cmd/wrikery -update to write the page", err)
+		want = got
 	}
 	if !bytes.Equal(got, want) {
 		gotLines, wantLines := strings.Split(string(got), "\n"), strings.Split(string(want), "\n")
@@ -56,7 +61,7 @@ func TestManualMatchesTheCommittedPage(t *testing.T) {
 
 func TestManualCoversTheCommandsFlagsAndKeys(t *testing.T) {
 	fs, _ := rootFlags()
-	page := manualPage(fs)
+	page := manualPage(fs, "2026-10-18")
 	for i := range len(page) {
 		if page[i] >= 0x80 {
 			t.Fatalf("byte %d of the page is not ASCII", i)
@@ -93,16 +98,50 @@ func TestManualCoversTheCommandsFlagsAndKeys(t *testing.T) {
 		}
 	}
 	allowed := map[string]bool{".TH": true, ".SH": true, ".SS": true, ".TP": true, ".PP": true, ".B": true, ".I": true, ".BI": true, ".RI": true, ".nf": true, ".fi": true, ".br": true, ".RS": true, ".RE": true}
-	for n, line := range strings.Split(page, "\n") {
+	lines := strings.Split(page, "\n")
+	for n, line := range lines {
 		if strings.HasPrefix(line, ".") || strings.HasPrefix(line, "'") {
 			macro, _, _ := strings.Cut(line, " ")
 			if !allowed[macro] {
 				t.Errorf("line %d would be read as a request: %q", n+1, line)
 			}
 		}
-		if line == "" && n+1 < len(strings.Split(page, "\n")) {
+		if line == "" && n+1 < len(lines) {
 			t.Errorf("line %d is empty, troff prints a blank line for it", n+1)
 		}
+	}
+}
+
+func TestManualListsEveryKeyOfABinding(t *testing.T) {
+	fs, _ := rootFlags()
+	page := manualPage(fs, "2026-10-18")
+	for _, want := range []string{`.B "q, ctrl+c"`, `.B "S, ctrl+b"`, `.B "j, down"`, `.B "ctrl+d, pgdown"`, ".B space", `.B "f F"`} {
+		if !strings.Contains(page, want+"\n") {
+			t.Errorf("the KEYS section lacks %q", want)
+		}
+	}
+}
+
+func TestPageDateIsTheWeekendBeforeAndIsReadBack(t *testing.T) {
+	for in, want := range map[string]string{
+		"2026-10-22": "2026-10-18", // a Thursday goes back to the Sunday
+		"2026-10-19": "2026-10-18", // a Monday too
+		"2026-10-24": "2026-10-24", // a Saturday stays
+		"2026-10-25": "2026-10-25", // a Sunday stays
+	} {
+		day, err := time.Parse("2006-01-02", in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := weekendBefore(day); got != want {
+			t.Errorf("weekendBefore(%s) = %s, want %s", in, got, want)
+		}
+	}
+	if got := pageDate(".TH WRIKERY 1 2026-10-18 wrikery \"User Commands\"\n.SH NAME\n"); got != "2026-10-18" {
+		t.Errorf("pageDate = %q, want the .TH date", got)
+	}
+	if got := pageDate(""); got == "" {
+		t.Error("pageDate of no page is empty, want a day to stamp")
 	}
 }
 

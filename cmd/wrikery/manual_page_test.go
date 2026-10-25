@@ -3,15 +3,47 @@ package main
 import (
 	"flag"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/key"
 
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
-// manualDate is the .TH date, the day the text of the page last changed.
-// mandoc warns on a page without a date, and a build date would change the committed page on every run.
-const manualDate = "2026-10-24"
+// pageDate is the .TH date of the committed page, so a regeneration reproduces the page byte for byte,
+// or a day to stamp a first page with.
+func pageDate(page string) string {
+	first, _, _ := strings.Cut(page, "\n")
+	if f := strings.Fields(first); len(f) > 3 && f[0] == ".TH" {
+		return f[3]
+	}
+	return weekendBefore(time.Now())
+}
+
+// weekendBefore is the closest Saturday or Sunday on or before day, as a .TH date.
+// The page carries a date because mandoc warns on one without, and the weekend before the change is close enough.
+func weekendBefore(day time.Time) string {
+	for day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+		day = day.AddDate(0, 0, -1)
+	}
+	return day.Format("2006-01-02")
+}
+
+// keyNames is the help key of a binding and the other keys it answers to, "q, ctrl+c", the overlay shows the first alone.
+func keyNames(b key.Binding) string {
+	h := b.Help()
+	names := []string{h.Key}
+	for _, k := range b.Keys() {
+		if strings.TrimSpace(k) == "" || slices.Contains(strings.Fields(h.Key), k) {
+			continue
+		}
+		names = append(names, k)
+	}
+	return strings.Join(names, ", ")
+}
 
 // troff escapes text for one line of the page.
 // A backslash and a hyphen are troff's own, and a line that starts with a dot or a quote is read as a request and vanishes.
@@ -78,7 +110,7 @@ var files = []entry{
 The settings screen, opened with the comma key, shows the keys of the file with their values, the full list of keys is in docs/overview.md on the project page.`},
 	{tag: "~/.local/share/wrikery/wrike.db", italic: true, text: `The local copy and the queue of writes in one SQLite file.
 Deleting it resets the cache, and the queued writes go with it.`},
-	{tag: "~/.local/state/wrikery/wrikery.log", italic: true, text: `The log of the last run, the previous run's log is kept as wrikery.log.1.
+	{tag: "~/.local/state/wrikery/wrikery.log", italic: true, text: `The log of the last interface run and of the commands run since it, the previous interface run's log is kept as wrikery.log.1.
 A demo run writes demo.log in the same directory.`},
 	{tag: "The API token", text: `In the system keychain, the macOS Keychain or the Secret Service on Linux, falling back to ~/.config/wrikery/token with mode 0600 on a machine without one.`},
 	{tag: "The browser session", text: `A second keychain item with the access token, the refresh token, the expiry, the host and the app, falling back to ~/.config/wrikery/oauth.json with mode 0600, and ~/.config/wrikery/auth.lock held while it is renewed.`},
@@ -103,8 +135,8 @@ wrikery ui folder "Next release"                # open a folder there, as from t
 const seeAlso = `The project page, https://github.com/mrcne/wrikery, with the product description in docs/overview.md and the technical design in docs/architecture.md.`
 
 // manualPage is man/wrikery.1 in the man(7) macros, built from the command table, the root flag set and the key groups,
-// so a change to any of them shows up in the committed page.
-func manualPage(global *flag.FlagSet) string {
+// so a change to any of them shows up in the committed page. date is the .TH date, see pageDate.
+func manualPage(global *flag.FlagSet, date string) string {
 	var b strings.Builder
 	line := func(format string, args ...any) { _, _ = fmt.Fprintf(&b, format+"\n", args...) }
 	// text writes prose, one sentence per source line, escaped.
@@ -137,7 +169,7 @@ func manualPage(global *flag.FlagSet) string {
 		}
 	}
 
-	line(`.TH WRIKERY 1 %s wrikery "User Commands"`, manualDate)
+	line(`.TH WRIKERY 1 %s wrikery "User Commands"`, date)
 	line(".SH NAME")
 	line(`wrikery \- an unofficial terminal client for Wrike`)
 	line(".SH SYNOPSIS")
@@ -195,10 +227,9 @@ func manualPage(global *flag.FlagSet) string {
 	for _, g := range ui.KeyGroups() {
 		line(".SS %s", g.Title)
 		for _, k := range g.Keys {
-			h := k.Help()
 			line(".TP")
-			line(".B %s", arg(troff(h.Key)))
-			text(h.Desc)
+			line(".B %s", arg(troff(keyNames(k))))
+			text(k.Help().Desc)
 		}
 	}
 
