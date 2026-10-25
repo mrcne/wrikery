@@ -72,3 +72,32 @@ func TestCreateCommentRejectsEmpty(t *testing.T) {
 		t.Error("want error for empty task id, got nil")
 	}
 }
+
+func TestCommentsSendsTheWindowAndPlainText(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/comments" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if got := q.Get("plainText"); got != "true" {
+			t.Errorf("plainText = %q, want true", got)
+		}
+		if got := q.Get("createdDate"); got != `{"start":"2026-09-01T09:00:00Z","end":"2026-09-03T09:00:00Z"}` {
+			t.Errorf("createdDate = %q", got)
+		}
+		if got := q.Get("limit"); got != "1000" {
+			t.Errorf("limit = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"kind":"comments","data":[
+  {"id":"IEAAAACM1","authorId":"KUAAAA01","text":"on a task","taskId":"IEAAAATSK1","createdDate":"2026-09-02T09:30:00Z","updatedDate":"2026-09-02T09:30:00Z"},
+  {"id":"IEAAAACM2","authorId":"KUAAAA01","text":"on a folder","folderId":"IEAAAAFLD1","createdDate":"2026-09-02T10:00:00Z","updatedDate":"2026-09-02T10:00:00Z"}]}`))
+	}))
+	got, err := c.Comments(context.Background(), CommentParams{
+		CreatedFrom: time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC), CreatedTo: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC), Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].TaskID != "IEAAAATSK1" || got[1].TaskID != "" {
+		t.Errorf("comments = %+v, want the folder comment with an empty task id", got)
+	}
+}

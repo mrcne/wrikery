@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 )
 
 const timelogsFixture = `{"kind":"timelogs","nextPageToken":"TLPAGE2","data":[
@@ -182,5 +183,25 @@ func TestTimelogsFromOnlyAndToOnlyRanges(t *testing.T) {
 	}
 	if got != `{"end":"2026-09-06"}` {
 		t.Errorf("trackedDate = %q", got)
+	}
+}
+
+func TestTimelogsSendsTheUpdatedWindow(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("updatedDate"); got != `{"start":"2026-09-01T09:00:00Z","end":"2026-09-03T09:00:00Z"}` {
+			t.Errorf("updatedDate = %q", got)
+		}
+		if r.URL.Query().Has("trackedDate") || r.URL.Query().Has("me") {
+			t.Errorf("query = %q, want the updated window alone", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(timelogsFixture))
+	}))
+	page, err := c.Timelogs(context.Background(), TimelogParams{
+		UpdatedFrom: time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC), UpdatedTo: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC), PageSize: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Timelogs) != 1 {
+		t.Errorf("timelogs = %+v", page.Timelogs)
 	}
 }

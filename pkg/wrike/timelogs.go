@@ -30,12 +30,15 @@ type Timelog struct {
 }
 
 // TimelogParams filters the account wide timelog listing.
-// Dates are yyyy-MM-dd strings because that is what the API takes and returns.
+// Tracked dates are yyyy-MM-dd strings because that is what the API takes and returns.
+// The updated window is a range on the last change of an entry, with no cap on its length (checked on the live account over thirty days).
 // Setting PageSize turns paging on, the API then returns a page token while there is more.
 type TimelogParams struct {
 	Me          bool
 	TrackedFrom string
 	TrackedTo   string
+	UpdatedFrom time.Time
+	UpdatedTo   time.Time
 	PageSize    int
 	PageToken   string
 }
@@ -71,6 +74,9 @@ func (c *Client) Timelogs(ctx context.Context, p TimelogParams) (TimelogsPage, e
 		}
 		rangeJSON += "}"
 		q.Set("trackedDate", rangeJSON)
+	}
+	if !p.UpdatedFrom.IsZero() || !p.UpdatedTo.IsZero() {
+		q.Set("updatedDate", instantRange(p.UpdatedFrom, p.UpdatedTo))
 	}
 	var out []Timelog
 	next, err := c.do(ctx, http.MethodGet, "/timelogs", q, nil, &out)
