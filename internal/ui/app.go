@@ -1258,123 +1258,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // taskAction runs the keys that act on the selected task: the dialogs, the editor hand offs, the browser and the clipboard.
 // The main screen and the detail pane beside the timesheet grid share them. The second result is false when the key is none of them.
+// The actions come from taskActionTable, which is also what the actions list shows.
 func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
-	switch {
-	case key.Matches(msg, m.keys.Open):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			open := m.opts.Hooks.OpenURL
-			if open == nil {
-				return m.status.show("browser not available", true)
-			}
-			if unconfirmed(t) {
-				return m.status.show(notOnWrike, true)
-			}
-			if t.Permalink == "" {
-				return m.status.show(noPermalink, true)
-			}
-			// Starting a browser can block, so it runs as a command and reports back instead of stalling the key handler.
-			return func() tea.Msg {
-				if err := open(t.Permalink); err != nil {
-					return toastMsg{text: "could not open browser: " + err.Error(), isErr: true}
-				}
-				return toastMsg{text: "Opened in browser"}
-			}
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyLink):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.Permalink, "Copied permalink" })
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyBranch):
-		cmd := m.copy(func(t store.Task) (string, string) {
-			name := branchName(m.opts.Config.UI.BranchTemplate, t, m.opts.Config.UI.HidePrefixes)
-			return name, "Copied " + name
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CopyID):
-		cmd := m.copy(func(t store.Task) (string, string) { return t.ID, "Copied task id" })
-		return cmd, true
-	case key.Matches(msg, m.keys.Comment):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.CommentEditor):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			cmd, err := openEditor(t.ID, nil)
-			if err != nil {
-				return m.status.show(err.Error(), true)
-			}
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Status):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newStatusDialog(t, m.ref, m.keys))
-			return nil
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.StatusPrev), key.Matches(msg, m.keys.StatusNext):
-		delta := 1
-		if key.Matches(msg, m.keys.StatusPrev) {
-			delta = -1
+	for _, a := range taskActionTable(m.keys) {
+		if a.hasKey() && key.Matches(msg, a.key) {
+			return a.run(m), true
 		}
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.moveStatus(t, delta) })
-		return cmd, true
-	case key.Matches(msg, m.keys.LogTime):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			// Beside the grid the entry goes on the day under the cursor, the day n on the cell takes.
-			date := ""
-			if m.screen == screenTimesheet && m.timesheet.loaded {
-				date = m.timesheet.cellDate()
-			}
-			return m.openTimelogDialog(t.ID, t.Title, nil, date)
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Assignee):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newAssigneeDialog(t, m.ref)
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Dates):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newDatesDialog(t, m.opts.Now())
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.EditTitle):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newTitleDialog(t, min(m.width-4, 80))
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.EditDescription):
-		// A list row carries no description, so the task is read again before the editor opens.
-		cmd := m.withTask(func(t store.Task) tea.Cmd { return m.loadDescription(t.ID) })
-		return cmd, true
-	case key.Matches(msg, m.keys.Importance):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			m.openDialog(newImportanceDialog(t, m.keys))
-			return nil
-		})
-		return cmd, true
-	case key.Matches(msg, m.keys.Folders):
-		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			// A move leaves the folders under the node in view. The timesheet shows no folder, so a move from there leaves none.
-			node := m.list.nodeID
-			if m.screen == screenTimesheet {
-				node = ""
-			}
-			d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, node)
-			m.openDialog(d)
-			return cmd
-		})
-		return cmd, true
 	}
 	return nil, false
 }
