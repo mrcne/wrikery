@@ -21,12 +21,12 @@ func natoRows(n int) []checkRow {
 	return rows
 }
 
-// The cursor opened on Deploy, one typed letter narrows the list, and the highlighted row must be the first match,
-// not whatever now sits at the old position.
 // Every typed word has to match on its own, as a prefix of the label or of a word in it, and a word is also tried
 // without the symbols in front of it, so "editor" reaches the two "... in $EDITOR" actions and "$" still does.
+// The rule is shared by every pick box: in the folders box a project code in front of a title no longer hides the title from its first letter.
 func TestChecklistMatchesEveryTypedWordAndSkipsALeadingSymbol(t *testing.T) {
-	rows := []checkRow{{id: "1", label: "comment"}, {id: "2", label: "comment in $EDITOR"}, {id: "3", label: "copy task id"}, {id: "4", label: "Ada Nowak"}}
+	rows := []checkRow{{id: "1", label: "comment"}, {id: "2", label: "comment in $EDITOR"}, {id: "3", label: "copy task id"}, {id: "4", label: "Ada Nowak"},
+		{id: "5", label: "(MX) Mobile"}, {id: "6", label: "Marketing"}}
 	for query, want := range map[string][]string{
 		"editor":  {"2"},
 		"e":       {"2"},
@@ -36,6 +36,9 @@ func TestChecklistMatchesEveryTypedWordAndSkipsALeadingSymbol(t *testing.T) {
 		"now ada": {"4"},
 		"c":       {"1", "2", "3"},
 		"cu":      nil,
+		"m":       {"5", "6"},
+		"mo":      {"5"},
+		"(mx":     {"5"},
 	} {
 		c, _ := newChecklist(rows, nil, "")
 		c.filter.SetValue(query)
@@ -50,6 +53,8 @@ func TestChecklistMatchesEveryTypedWordAndSkipsALeadingSymbol(t *testing.T) {
 	}
 }
 
+// The cursor opened on Deploy, one typed letter narrows the list, and the highlighted row must be the first match,
+// not whatever now sits at the old position.
 func TestChecklistGoesToTheFirstMatchWhenTheQueryChanges(t *testing.T) {
 	c, _ := newChecklist(natoRows(9), []string{"4"}, "")
 	c.selectID("4")

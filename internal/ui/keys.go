@@ -60,7 +60,12 @@ func (k KeyMap) list() []key.Binding {
 }
 
 func (k KeyMap) task() []key.Binding {
-	return []key.Binding{k.Actions, k.Comment, k.CommentEditor, k.LogTime, k.Status, k.StatusPrev, k.StatusNext, k.Assignee, k.Dates, k.EditTitle, k.EditDescription, k.Importance, k.Folders, k.Open, k.CopyLink, k.CopyBranch, k.CopyID}
+	// The key that opens the actions list, then the key of every action in it, in the list's order.
+	out := []key.Binding{k.Actions}
+	for _, a := range taskActionTable(k) {
+		out = append(out, a.key)
+	}
+	return out
 }
 
 func (k KeyMap) board() []key.Binding {

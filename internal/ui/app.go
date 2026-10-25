@@ -116,12 +116,13 @@ const (
 )
 
 type Model struct {
-	opts   Options
-	width  int
-	height int
-	theme  Theme
-	keys   KeyMap
-	help   help.Model
+	opts    Options
+	width   int
+	height  int
+	theme   Theme
+	keys    KeyMap
+	actions []taskAction // taskActionTable(keys), built once, the task bindings never change while the process runs
+	help    help.Model
 
 	screen  screen
 	overlay overlay
@@ -154,6 +155,7 @@ func New(o Options) Model {
 		o.Now = time.Now
 	}
 	m := Model{opts: o, theme: NewTheme(o.Config.UI), keys: defaultKeyMap(), help: help.New(), focus: paneList}
+	m.actions = taskActionTable(m.keys)
 	m.sidebar = newSidebar(m.keys, m.theme.HidePrefixes)
 	m.list = newTaskList(m.keys)
 	m.detail.keys = m.keys
@@ -516,16 +518,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case closeDialogMsg:
 		m.overlay, m.dialog = overlayNone, nil
 		return m, nil
-	case runActionMsg:
-		// The actions box closes first, the run may open a box of its own in its place.
-		m.overlay, m.dialog = overlayNone, nil
-		table := taskActionTable(m.keys)
-		if msg.index < 0 || msg.index >= len(table) {
-			return m, nil
-		}
-		// The run may open a box on m, so it goes in a statement of its own, see openDialog.
-		cmd := table[msg.index].run(&m)
-		return m, cmd
 	case openConfirmMsg:
 		m.openDialog(confirmDialog{prompt: msg.prompt, onYes: msg.onYes})
 		return m, nil
@@ -1086,6 +1078,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d, ok := m.dialog.(editorWindowDialog); ok && msg.Type == tea.KeyEnter {
 			return m, m.sendEditorBox(d)
 		}
+		if d, ok := m.dialog.(actionsDialog); ok && msg.Type == tea.KeyEnter {
+			return m.runPickedAction(d)
+		}
 		var cmd tea.Cmd
 		m.dialog, cmd = m.dialog.Update(msg)
 		return m, cmd
@@ -1272,18 +1267,37 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
 	if key.Matches(msg, m.keys.Actions) {
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
-			d, cmd := newActionsDialog(t, taskActionTable(m.keys))
+			d, cmd := newActionsDialog(t, m.actions)
 			m.openDialog(d)
 			return cmd
 		})
 		return cmd, true
 	}
-	for _, a := range taskActionTable(m.keys) {
-		if a.hasKey() && key.Matches(msg, a.key) {
+	for _, a := range m.actions {
+		if key.Matches(msg, a.key) {
 			return a.run(m), true
 		}
 	}
 	return nil, false
+}
+
+// runPickedAction is enter in the actions box: the box closes and its highlighted row runs in this same update,
+// so a second enter already in the queue meets the box the run opened and never runs the row again.
+// The runs read the selected task, and the list can move under an open box, a sync that completed or moved the task,
+// so a pick on a task that is no longer the selected one is refused instead of acting on another task.
+func (m Model) runPickedAction(d actionsDialog) (tea.Model, tea.Cmd) {
+	index, ok := d.picked()
+	if !ok || index >= len(m.actions) {
+		return m, nil
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	if t, ok := m.selectedTask(); !ok || t.ID != d.taskID {
+		cmd := m.status.show("the selection changed, open the list again", true)
+		return m, cmd
+	}
+	// The run may open a box on m, so it goes in a statement of its own, see openDialog.
+	cmd := m.actions[index].run(&m)
+	return m, cmd
 }
 
 // setSidebarHidden takes the sidebar out of the window and the focus cycle, or puts it back.
@@ -1727,14 +1741,16 @@ func (m Model) hintBindings() []key.Binding {
 	if m.list.narrow.active() {
 		filter = append(filter, m.keys.ClearFilter)
 	}
+	// The actions list is the way to the task keys without the overlay, it goes before the filter keys and after the global ones.
+	actions := []key.Binding{m.keys.Actions}
 	if m.focus == paneBoard {
-		return slices.Concat([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base, filter)
+		return slices.Concat([]key.Binding{m.keys.ColPrev, m.keys.ColNext, m.keys.StatusNext, m.keys.Enter, m.keys.Board, m.keys.GroupBy}, base, actions, filter)
 	}
 	if m.focus == paneList {
-		return slices.Concat([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base, filter)
+		return slices.Concat([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.GroupBy, m.keys.Board, m.keys.ToggleDone}, base, actions, filter)
 	}
 	if m.focus == paneDetail {
-		return append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base...)
+		return slices.Concat([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Left}, base, actions)
 	}
 	return append([]key.Binding{m.keys.Enter, m.keys.Filter, m.keys.Pin, m.keys.Pinned}, base...)
 }

@@ -9,15 +9,12 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// runActionMsg asks the root to run the entry at index of taskActionTable.
-// The box sends it alone, with no closeDialogMsg: the run may open a box of its own, and a close that landed after the run
-// would shut that one, so the root closes the actions box itself before it runs the entry.
-type runActionMsg struct{ index int }
-
 // actionsDialog is the list of every action on the selected task, the keyed ones with their key, narrowed as you type.
+// Enter is the root's, see runPickedAction: the box closes and the row runs in the same update, no message in between.
 type actionsDialog struct {
-	title string
-	list  checklist
+	taskID string // the task the box opened on, the run is refused when the selection has moved since
+	title  string
+	list   checklist
 }
 
 func newActionsDialog(task store.Task, actions []taskAction) (actionsDialog, tea.Cmd) {
@@ -27,18 +24,20 @@ func newActionsDialog(task store.Task, actions []taskAction) (actionsDialog, tea
 	}
 	list, cmd := newChecklist(rows, nil, "type an action")
 	list.single = true
-	return actionsDialog{title: task.Title, list: list}, cmd
+	return actionsDialog{taskID: task.ID, title: task.Title, list: list}, cmd
+}
+
+// picked is the index in the table of the highlighted row, false when the filter left none.
+func (d actionsDialog) picked() (int, bool) {
+	r, ok := d.list.current()
+	if !ok {
+		return 0, false
+	}
+	index, err := strconv.Atoi(r.id)
+	return index, err == nil
 }
 
 func (d actionsDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	if msg.Type == tea.KeyEnter {
-		r, ok := d.list.current()
-		if !ok {
-			return d, nil
-		}
-		index, _ := strconv.Atoi(r.id)
-		return d, intent(runActionMsg{index: index})
-	}
 	cmd := d.list.update(msg)
 	return d, cmd
 }

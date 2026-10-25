@@ -7,37 +7,17 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// taskAction is one action on the selected task: its key, when it has one, its label in the actions list and the run.
+// taskAction is one action on the selected task: its key, its row in the actions list and the run.
 type taskAction struct {
-	key  key.Binding // the zero value for an action without a key
-	name string      // the label of an action without a key, a keyed one is labeled by its binding's help text
-	run  func(m *Model) tea.Cmd
+	key key.Binding
+	run func(m *Model) tea.Cmd
 }
 
-func (a taskAction) label() string {
-	if a.hasKey() {
-		return a.key.Help().Desc
-	}
-	return a.name
-}
+// label is the row in the actions list, the words the help overlay shows for the key.
+func (a taskAction) label() string { return a.key.Help().Desc }
 
-func (a taskAction) hasKey() bool { return len(a.key.Keys()) > 0 }
-
-// KeylessActions names the actions of the list that have no key, in the order of the list, for the manual.
-func KeylessActions() []string { return keylessLabels(taskActionTable(defaultKeyMap())) }
-
-func keylessLabels(actions []taskAction) []string {
-	var out []string
-	for _, a := range actions {
-		if !a.hasKey() {
-			out = append(out, a.label())
-		}
-	}
-	return out
-}
-
-// taskActionTable lists the actions in the order of the overlay's task group, KeyMap.task() after its first key, which opens the list.
-// The key dispatch walks it and the actions list shows it, so an action cannot be in one and missing from the other.
+// taskActionTable is the one list of the actions: the key dispatch walks it, the actions list shows it
+// and KeyMap.task() is built from it, so the overlay and the manual cannot drift from the keys that work.
 func taskActionTable(k KeyMap) []taskAction {
 	return []taskAction{
 		{key: k.Comment, run: func(m *Model) tea.Cmd {

@@ -760,13 +760,8 @@ func TestActionsListOpensTheDatesBox(t *testing.T) {
 	waitAfter(t, tm, from, "Actions on")
 	from = mark(t, tm)
 	press(tm, "dat", "enter")
-	// The actions box has to be gone and the dates box open, a close that landed after the run would have shut it.
 	waitAfter(t, tm, from, "Dates")
-	view := seenOutput(t, tm).String()[from:]
-	if strings.Contains(view[strings.LastIndex(view, "Dates"):], "Actions on") {
-		t.Error("the actions box is still on screen with the dates box")
-	}
-	// The dates box takes the keys that follow, so it is still open and nothing closed it behind the run.
+	// The dates box takes the keys that follow, so it is open and nothing closed it behind the run.
 	// The start field is prefilled when the task has dates, ctrl+u clears it first.
 	from = mark(t, tm)
 	press(tm, "ctrl+u", "2026-09-10")

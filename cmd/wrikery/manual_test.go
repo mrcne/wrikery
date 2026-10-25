@@ -122,19 +122,6 @@ func TestManualListsEveryKeyOfABinding(t *testing.T) {
 	}
 }
 
-func TestKeylessTextNamesTheActionsWithoutAKey(t *testing.T) {
-	if got := keylessText(nil); got != "" {
-		t.Errorf("keylessText(nil) = %q, want nothing", got)
-	}
-	want := "The actions list on . also holds these actions without a key: budget."
-	if got := keylessText([]string{"budget"}); got != want {
-		t.Errorf("keylessText = %q, want %q", got, want)
-	}
-	if got := keylessText([]string{"budget", "follow"}); !strings.Contains(got, "budget, follow.") {
-		t.Errorf("keylessText = %q, want the names joined by a comma", got)
-	}
-}
-
 func TestPageDateIsTheWeekendBeforeAndIsReadBack(t *testing.T) {
 	for in, want := range map[string]string{
 		"2026-10-22": "2026-10-18", // a Thursday goes back to the Sunday

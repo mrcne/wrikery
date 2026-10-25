@@ -2,35 +2,63 @@ package ui
 
 import (
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestTaskActionTableFollowsTheTaskKeys(t *testing.T) {
-	k := defaultKeyMap()
-	table := taskActionTable(k)
-	// The first key of the group opens the list and is no row of it.
-	keys := k.task()[1:]
-	if len(table) != len(keys) {
-		t.Fatalf("%d actions, want one per task key, %d", len(table), len(keys))
+func typed(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+// Enter closes the actions box and runs the row in the same update, so a second enter already in the queue
+// meets the box the run opened and never runs the row again.
+func TestEnterInTheActionsBoxRunsTheRowAtOnce(t *testing.T) {
+	m := demoModel(t)
+	m = pump(m, typed("."))
+	if _, ok := m.dialog.(actionsDialog); !ok {
+		t.Fatalf(". opened %T, want the actions box", m.dialog)
 	}
-	for i, a := range table {
-		want := keys[i].Help()
-		if !a.hasKey() || a.key.Help().Key != want.Key || a.label() != want.Desc || a.run == nil {
-			t.Errorf("action %d is %q/%q, want %q/%q with a run", i, a.key.Help().Key, a.label(), want.Key, want.Desc)
-		}
-	}
-	if a := (taskAction{name: "budget"}); a.hasKey() || a.label() != "budget" {
-		t.Errorf("an action without a key: hasKey %v, label %q", a.hasKey(), a.label())
+	m = pump(m, typed("a"), typed("s"), typed("s"))
+	// The command is not run on purpose: the run must not travel through a message.
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if _, ok := m.dialog.(assigneeDialog); !ok {
+		t.Errorf("after enter the dialog is %T, want the assignee box in the same update", m.dialog)
 	}
 }
 
-func TestKeylessLabelsNameTheActionsWithoutAKey(t *testing.T) {
-	k := defaultKeyMap()
-	table := append(taskActionTable(k), taskAction{name: "budget"}, taskAction{name: "follow"})
-	if got := keylessLabels(table); !slices.Equal(got, []string{"budget", "follow"}) {
-		t.Errorf("keylessLabels = %q, want budget, follow", got)
+// The list can move under an open box, a sync that completes or moves the task, and the keys read the selection at run time.
+func TestEnterInTheActionsBoxRefusesWhenTheSelectionMoved(t *testing.T) {
+	m := demoModel(t)
+	before, _ := m.selectedTask()
+	m = pump(m, typed("."))
+	m.list = pressKey(m.list, "j")
+	if after, _ := m.selectedTask(); after.ID == before.ID {
+		t.Fatal("j did not move the selection")
 	}
-	if got := KeylessActions(); len(got) != 0 {
-		t.Errorf("KeylessActions = %q, every action has a key on this build", got)
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if m.dialog != nil {
+		t.Errorf("after enter the dialog is %T, want none", m.dialog)
+	}
+	if !strings.Contains(m.status.toast, "selection changed") {
+		t.Errorf("toast = %q, want the selection changed", m.status.toast)
+	}
+}
+
+func TestHintBarNamesTheActionsKey(t *testing.T) {
+	m := demoModel(t)
+	names := func() bool {
+		return slices.ContainsFunc(m.hintBindings(), func(b key.Binding) bool { return b.Help().Key == "." })
+	}
+	if m.focus = paneList; !names() {
+		t.Error("the list hints lack .")
+	}
+	if m.focus = paneDetail; !names() {
+		t.Error("the detail hints lack .")
+	}
+	if m.shape, m.focus = shapeBoard, paneBoard; !names() {
+		t.Error("the board hints lack .")
 	}
 }
