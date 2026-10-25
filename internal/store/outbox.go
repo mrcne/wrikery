@@ -108,6 +108,10 @@ type TaskUpdatePayload struct {
 	// The drain does not send it, Wrike derives the group from the custom status id, and rejects
 	// an update that carries a group name of its own.
 	Status string `json:"status,omitempty"`
+	// CustomFields are values to set, the budget field in practice, an empty Value removes the field from the task.
+	CustomFields []CustomFieldValue `json:"customFields,omitempty"`
+	// Effort is the Effort field to set, mode None with no minutes clears it.
+	Effort *TaskEffort `json:"effort,omitempty"`
 }
 
 // TaskCreatePayload mirrors CreateTask. The folder is the row's entity id.
@@ -261,6 +265,27 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 			before.Dates = &TaskDates{Type: dType.String, Duration: int(dDur.Int64), Start: dStart.String, Due: dDue.String}
 		}
 	}
+	for _, cf := range p.CustomFields {
+		// A field the task never had is remembered with an empty value, the write that takes a value away again.
+		var value string
+		err := tx.QueryRowContext(ctx, `SELECT value FROM task_custom_fields WHERE task_id = ? AND field_id = ?`, taskID, cf.ID).Scan(&value)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return TaskUpdatePayload{}, "", false, err
+		}
+		before.CustomFields = append(before.CustomFields, CustomFieldValue{ID: cf.ID, Value: value})
+	}
+	if p.Effort != nil {
+		// A task without the Effort field, or one never read with it, comes back to that through a None write.
+		var mode sql.NullString
+		var minutes sql.NullInt64
+		if err := tx.QueryRowContext(ctx, `SELECT effort_mode, effort_minutes FROM tasks WHERE id = ?`, taskID).Scan(&mode, &minutes); err != nil {
+			return TaskUpdatePayload{}, "", false, err
+		}
+		before.Effort = &TaskEffort{Mode: "None"}
+		if mode.Valid {
+			before.Effort = &TaskEffort{Mode: mode.String, TotalMinutes: int(minutes.Int64)}
+		}
+	}
 	// The mirror is built against the link tables and not from the payload alone: a pull between the dialog and its submit
 	// can have put an added id on the task already, then the add changes nothing on Wrike and putting it back must not remove it.
 	responsibles, err := idSetTx(ctx, tx, `SELECT contact_id FROM task_responsibles WHERE task_id = ?`, taskID)
@@ -411,6 +436,25 @@ func (o outboxRepo) EnqueueTaskUpdate(ctx context.Context, taskID string, p Task
 		args = append(args, taskID)
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE tasks SET `+strings.Join(set, ", ")+` WHERE id = ?`, args...); err != nil {
+			return 0, err
+		}
+	}
+	for _, cf := range p.CustomFields {
+		if cf.Value == "" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM task_custom_fields WHERE task_id = ? AND field_id = ?`, taskID, cf.ID); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO task_custom_fields (task_id, field_id, value) VALUES (?, ?, ?)
+			ON CONFLICT(task_id, field_id) DO UPDATE SET value = excluded.value`, taskID, cf.ID, cf.Value); err != nil {
+			return 0, err
+		}
+	}
+	if p.Effort != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET effort_mode = ?, effort_minutes = ? WHERE id = ?`,
+			p.Effort.Mode, p.Effort.TotalMinutes, taskID); err != nil {
 			return 0, err
 		}
 	}

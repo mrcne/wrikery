@@ -14,7 +14,9 @@ type Task struct {
 	SuperTaskIDs     []string // the tasks this one is a subtask of
 	DependencyIDs    []string // the edges this task is an end of, see Dependency
 	AttachmentCount  int
-	Dates            *TaskDates // nil when the task has no dates block
+	Dates            *TaskDates         // nil when the task has no dates block
+	CustomFields     []CustomFieldValue // the task's custom field values, nil when it has none
+	Effort           *TaskEffort        // the Effort field, nil until a read asked for it, see the upsert
 	CreatedDate      string
 	UpdatedDate      string
 	LastOpenedAt     string // empty when never opened, local bookeeping
@@ -25,6 +27,23 @@ type TaskDates struct {
 	Duration int
 	Start    string
 	Due      string
+}
+
+// CustomField is a custom field the account defines, the type is the API's, Duration, Numeric, Text and the rest.
+type CustomField struct {
+	ID, Title, Type string
+	SpaceID         string // empty for an account level field, the space that owns the field otherwise
+}
+
+// CustomFieldValue is one value a task carries, a string whatever the field's type.
+type CustomFieldValue struct {
+	ID, Value string
+}
+
+// TaskEffort is the Effort field of a task: the minutes the API calls totalEffort and the mode, Basic, Flexible, FullTime or None.
+type TaskEffort struct {
+	Mode         string
+	TotalMinutes int
 }
 
 // Dependency is one scheduling edge between two tasks. Either end can be a task outside the cache.
@@ -173,6 +192,10 @@ const MetaKeySidebarHidden = "sidebar_hidden"
 
 // MetaKeyStatusMoveConfirmed is "1" once the user said yes to the first one key status move, the keys move at once from then on.
 const MetaKeyStatusMoveConfirmed = "status_move_confirmed"
+
+// MetaKeyEffortUnavailable is "1" after a read of the Effort field answered 403.
+// The engine leaves the field out of its reads from then on, and a manual cycle clears the row and asks again.
+const MetaKeyEffortUnavailable = "effort_unavailable"
 
 // MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
 // The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
