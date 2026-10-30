@@ -103,8 +103,18 @@ A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
 A change of the followed set asks the engine for a full cycle, the kind the refresh key asks for: a newly followed scope is pulled from the start, and the sweep at the end of such a cycle removes the tasks of an unfollowed scope, which is why a scope followed again later starts from scratch as well.
 The task search also lists subtasks, including those with no folder of their own, and carries each task's super tasks, dependency ids and attachment count.
-Comments, timelogs and dependencies are synced only for tasks the user recently viewed or touched, not for the whole account.
-The dependencies are among them because adding or removing one on Wrike moves the updatedDate of neither task, so the poll would never see the change.
+Comments and time entries come from two account wide reads every cycle, the comments created and the time entries changed since the last cycle, two requests whatever the size of the cache.
+Each read keeps a cursor in the meta table and starts ten minutes before it, for the skew between Wrike's clock and this machine's, the writes are idempotent and a row read twice counts as no change.
+The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
+The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
+Both reads keep only the rows of cached tasks, the comments of folders go with the rest, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
+What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.
+Those come with the per task read of a thread, the comments, the time entries and the dependencies of one task, which runs every cycle for the tasks the user opened in the last seven days, fifty at most, and stamps the task with the time of the read.
+A change to the thread moves the task's updatedDate (checked on the live account), so a cycle also reads again the stamped tasks whose updatedDate passed the stamp, fifty at most, a set bounded by the tasks read before and not by the cache.
+A task whose thread was never read says so in the detail, and the engine reads it on request, on the caller's goroutine like a fetch: the interface asks when the cursor rests on the task for a second or on enter, `task show` asks before it prints.
+A thread read once is never asked for that way again, the cycle keeps it current.
+The migration that added the stamp set it from the time of the open for the tasks opened before, and a created task gets it when its local id is swapped for the real one.
+The dependencies are part of the per task read because adding or removing one on Wrike moves the updatedDate of neither task, so the poll would never see the change.
 The task's own dependencies endpoint answers every edge of the task with both ends, so one read also takes a removed edge off the other end and adds a new one to it.
 At the end of a cycle the engine reads the dependencies of the tasks that list an edge the cache does not have yet, two hundred tasks at most per cycle, so a first pull of a large plan catches up over a few cycles.
 A read that Wrike refuses forgets that task's dependency ids rather than the task, the pull and the sweep are what decide a task exists, and the ids come back with the task's next pull.

@@ -86,6 +86,8 @@ A task with a budget and no entries reads `0h of 20h, 20h left`, a task with ent
 The logged time counts every person's entries on the task, the queued ones included.
 Where the budget lives is a setting, see `[budget]` under Config, and on an account whose plan has no custom fields or no Effort field the line shows the logged time only.
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
+A task whose comments and time entries were never synced says `not synced yet` under both, the read runs when the cursor rests on the task for a second or you open it with enter, and the lines go when it lands.
+New comments and time entries on any cached task arrive with the next sync whether or not you opened the task.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
 A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
@@ -340,7 +342,8 @@ The commands are `sync`, `task list`, `task show`, `task status`, `task create`,
 `man wrikery` is the manual, with the commands, their flags and the keys of the interface, installed by the Homebrew cask and carried in the release archive.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
-A read prints the cache and waits for the network only to fetch a task argument the cache lacks, so the comments a command shows are the ones the cache holds, and a task nobody opened in the interface has none yet.
+A read prints the cache and waits for the network only to fetch a task argument the cache lacks, or to read the comments and time entries of a task the cache never read, which `task show` does before it prints.
+In offline mode it prints what the cache holds and marks such a thread `not synced yet`, in JSON as `thread_synced`.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
 A create already sent is waited for up to a minute and a half when Wrike rate limits.
 A task edit someone changed on Wrike since it was queued is not sent, the command says which field changed and exits with 1, and the changes screen offers to send it anyway.
