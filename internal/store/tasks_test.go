@@ -834,6 +834,17 @@ func TestMarkThreadReadStampsTheTask(t *testing.T) {
 	if list, err := st.Tasks().ByIDs(ctx, []string{"T1"}); err != nil || len(list) != 1 || list[0].ThreadReadAt != "2026-09-03T10:00:00Z" {
 		t.Errorf("after a pull ByIDs = %+v, %v, want the stamp kept", list, err)
 	}
+	// An empty stamp clears the read, and a cleared task is never read, not stale.
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Tasks().Get(ctx, "T1")
+	if got.ThreadReadAt != "" {
+		t.Errorf("ThreadReadAt after a clear = %q", got.ThreadReadAt)
+	}
+	if ids, _ := st.Tasks().StaleThreadIDs(ctx, 10); len(ids) != 0 {
+		t.Errorf("a cleared task is listed as stale: %v", ids)
+	}
 }
 
 func TestStaleThreadIDsListsOnlyStampedTasksThatChanged(t *testing.T) {

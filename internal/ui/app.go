@@ -36,6 +36,9 @@ type Hooks struct {
 	// It answers ErrNoSuchTask when Wrike does not list the task for this user and ErrSignInNeeded when no session can ask.
 	// Nil in the demo.
 	Reach func(ctx context.Context, ref store.TaskRef) (store.Task, error)
+	// FetchThread reads the task's comments and time entries when the cache never read them, see the engine.
+	// Nil in the demo.
+	FetchThread func(ctx context.Context, id string) (bool, error)
 	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
 	GoOnline func()
 	// SwitchHome reads the account of the current credential again for R in the another account state:
@@ -148,6 +151,7 @@ type Model struct {
 	selectedNode   treeNode
 	selectedTaskID string
 	pendingDate    string // date a new timesheet entry is for, set while search stands in as its task picker
+	threadAsked    string // the task whose thread was last asked for, so a reload does not ask again while it stays selected
 }
 
 func New(o Options) Model {
@@ -356,6 +360,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.list.has(msg.id) || m.paneBesideGrid() {
 			return m, nil
 		}
+		if msg.id != m.selectedTaskID {
+			// Another task, the one before may be asked for its thread again when the cursor comes back.
+			m.threadAsked = ""
+		}
 		m.selectedTaskID = msg.id
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:
@@ -367,7 +375,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.selectedTaskID = msg.task.ID
 		m.detail.set(msg)
 		m.syncPaneSizes()
-		return m, nil
+		return m, m.restOnThread(msg.task)
+	case threadRestMsg:
+		// The cursor may have moved on, or the stamp landed meanwhile, then the rest asks nothing.
+		if msg.id != m.selectedTaskID {
+			return m, nil
+		}
+		return m, m.askThread(msg.id)
 	case taskGoneMsg:
 		if msg.id != m.selectedTaskID {
 			return m, nil
@@ -496,7 +510,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.timesheet.detailOpen && msg.id == m.selectedTaskID && m.detail.loaded {
 			// The pane followed the row here already, enter only hands it the keys.
 			m.timesheet.detailFocus = true
-			return m, m.markOpened(msg.id)
+			return m, tea.Batch(m.markOpened(msg.id), m.askThread(msg.id))
 		}
 		// The pane starts empty rather than show the main screen's task until the read lands.
 		m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
@@ -872,7 +886,7 @@ func (m *Model) afterFocus(prev pane) tea.Cmd {
 	switch m.focus {
 	case paneDetail:
 		if m.selectedTaskID != "" {
-			return m.markOpened(m.selectedTaskID)
+			return tea.Batch(m.markOpened(m.selectedTaskID), m.askThread(m.selectedTaskID))
 		}
 	case paneList, paneBoard:
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {

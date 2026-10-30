@@ -289,3 +289,23 @@ func TestDetailShowsTheTimeLine(t *testing.T) {
 		t.Errorf("the over part is not in the error color, want %q in:\n%q", want, over)
 	}
 }
+
+func TestDetailSaysWhenTheThreadIsNotSyncedYet(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		id, stamp string
+		want      int
+	}{
+		"never read":  {id: "T1", want: 2},
+		"read":        {id: "T1", stamp: "2026-09-03T11:00:00Z", want: 0},
+		"queued task": {id: "local:3", want: 0},
+	} {
+		d := taskDetailModel{keys: defaultKeyMap()}
+		d.set(taskLoadedMsg{task: store.Task{ID: tc.id, Title: "A task", ThreadReadAt: tc.stamp, UpdatedDate: "2026-09-03T10:00:00Z"}})
+		d.layout(th, refData{}, now, 60, 40, "dark", false)
+		if got := strings.Count(ansi.Strip(d.View()), "not synced yet"); got != tc.want {
+			t.Errorf("%s: not synced yet appears %d times, want %d:\n%s", name, got, tc.want, d.View())
+		}
+	}
+}

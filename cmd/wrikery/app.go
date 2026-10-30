@@ -156,6 +156,13 @@ func (a *app) hooks() ui.Hooks {
 			}
 			return t, err
 		},
+		FetchThread: func(ctx context.Context, id string) (bool, error) {
+			e := a.current()
+			if e == nil {
+				return false, nil
+			}
+			return e.FetchThread(ctx, id)
+		},
 	}
 	// Without an app in the config the browser sign in has nothing to open, so the screen does not offer it.
 	if a.cfg.OAuth.ClientID != "" {

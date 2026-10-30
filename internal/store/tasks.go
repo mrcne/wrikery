@@ -354,8 +354,9 @@ func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 	return nil
 }
 
+// An empty stamp clears the read, as NULL, so StaleThreadIDs does not take the task for one read before anything.
 func (t taskRepo) MarkThreadRead(ctx context.Context, id, at string) error {
-	_, err := t.w.ExecContext(ctx, `UPDATE tasks SET thread_read_at = ? WHERE id = ?`, at, id)
+	_, err := t.w.ExecContext(ctx, `UPDATE tasks SET thread_read_at = NULLIF(?, '') WHERE id = ?`, at, id)
 	return err
 }
 
