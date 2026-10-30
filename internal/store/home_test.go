@@ -87,6 +87,11 @@ func TestMoveHomeClearsWhatTheOldAccountLeft(t *testing.T) {
 			{ID: "L2", TaskID: "T1", UserID: "U2", TrackedDate: "2026-10-20", Hours: 2}}); err != nil {
 			t.Fatal(err)
 		}
+		for _, key := range []string{MetaKeyCommentsPulledTo, MetaKeyTimelogChangesPulledTo} {
+			if err := st.SetMeta(ctx, key, "2026-10-22T10:00:00Z"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		to := Home{AccountID: "ACC2", AccountName: "Other", Host: "app-eu.wrike.com", ContactID: "U2"}
 		if !moved {
 			to = Home{AccountID: "ACC1", AccountName: "Acme", Host: "app-eu.wrike.com", ContactID: "U1"}
@@ -96,6 +101,16 @@ func TestMoveHomeClearsWhatTheOldAccountLeft(t *testing.T) {
 		}
 		if h, err := st.Home(ctx); err != nil || h != to {
 			t.Errorf("moved %v: record = %+v, %v, want %+v", moved, h, err, to)
+		}
+		// The account wide reads start over on another account, the window back, and go on from where they were on a data center move.
+		for _, key := range []string{MetaKeyCommentsPulledTo, MetaKeyTimelogChangesPulledTo} {
+			v, err := st.GetMeta(ctx, key)
+			if moved && !errors.Is(err, ErrNotFound) {
+				t.Errorf("moved: %s = %q, %v, want the cursor gone", key, v, err)
+			}
+			if !moved && (err != nil || v != "2026-10-22T10:00:00Z") {
+				t.Errorf("same account: %s = %q, %v, want the cursor kept", key, v, err)
+			}
 		}
 		sc, err := st.Scopes().Get(ctx, "F1")
 		if err != nil || sc.Cursor != "" || sc.LastSyncedAt != "" {

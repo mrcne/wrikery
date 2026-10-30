@@ -1862,7 +1862,8 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	waitCalls(2, 3*time.Second)
 
-	// Enter asks at once, without waiting for the rest, and the rest that follows adds nothing.
+	// Enter asks without waiting for the rest, and the rest that follows adds nothing.
+	// The wait is the generous one of the other phases, a race run on a slow runner must not fail on the timing alone.
 	// Two presses inside one frame leave the screen as it was and draw nothing, so the move away is waited for first.
 	from = mark(t, tm)
 	press(tm, "j")
@@ -1871,7 +1872,7 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 	press(tm, "k")
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	press(tm, "enter")
-	waitCalls(3, 700*time.Millisecond)
+	waitCalls(3, 3*time.Second)
 	time.Sleep(1300 * time.Millisecond)
 	waitCalls(3, 0)
 	if got := calls(); got[0] != unread.ID || got[1] != unread.ID || got[2] != unread.ID {

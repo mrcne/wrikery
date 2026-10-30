@@ -59,7 +59,8 @@ type taskDetailJSON struct {
 	Subtasks            []subtaskJSON    `json:"subtasks"`
 	Predecessors        []dependencyJSON `json:"predecessors"`
 	Successors          []dependencyJSON `json:"successors"`
-	// ThreadSynced is false while the cache never read the task's comments and time entries, a script then runs a sync and asks again.
+	// ThreadSynced is false while the cache never read the task's comments and time entries: the command was offline,
+	// or the read failed and stderr said why. A sync does not read it, task show online does.
 	ThreadSynced bool          `json:"thread_synced"`
 	Comments     []commentJSON `json:"comments"`
 }

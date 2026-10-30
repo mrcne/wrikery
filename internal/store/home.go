@@ -134,6 +134,10 @@ func (s *Store) MoveHome(ctx context.Context, to Home) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM pins`); err != nil {
 			return err
 		}
+		// The account wide reads of comments and time entries start over, the window back, the old cursor would skip the new account's week.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM meta WHERE key IN (?, ?)`, MetaKeyCommentsPulledTo, MetaKeyTimelogChangesPulledTo); err != nil {
+			return err
+		}
 	}
 	// The timesheet reads the new person and the pull replaces only that person's window, the old rows would stay for good.
 	// An entry logged offline keeps its local row, its create is in the queue and lands under the new person.

@@ -107,7 +107,7 @@ Comments and time entries come from two account wide reads every cycle, the comm
 Each read keeps a cursor in the meta table and starts ten minutes before it, for the skew between Wrike's clock and this machine's, the writes are idempotent and a row read twice counts as no change.
 The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
 The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
-Both reads keep only the rows of cached tasks, the comments of folders go with the rest, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
+Both reads keep only the rows of cached tasks, the comments of folders are dropped too, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.
 Those come with the per task read of a thread, the comments, the time entries and the dependencies of one task, which runs every cycle for the tasks the user opened in the last seven days, fifty at most, and stamps the task with the time of the read.
 A change to the thread moves the task's updatedDate (checked on the live account), so a cycle also reads again the stamped tasks whose updatedDate passed the stamp, fifty at most, a set bounded by the tasks read before and not by the cache.
