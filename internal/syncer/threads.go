@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -145,4 +146,99 @@ func walkTimelogs(ctx context.Context, c Client, p wrike.TimelogParams) ([]wrike
 		}
 		p.PageToken = page.NextPageToken
 	}
+}
+
+// readThread is one per task read: the comments and the time entries with the stamp, then the dependencies, and it reports the caches it touched.
+// A 404 on the thread means the task is gone on the server: it is dropped, the tasks kind reported and ErrNoSuchTask answered.
+// Any other rejection skips the task with a log line, it may be readable later and must not block the other threads.
+// The dependency read comes after the thread and has an outcome of its own:
+// the comment read is the one that says whether the task exists, and a rejected dependency read must not undo a thread already written.
+func readThread(ctx context.Context, c Client, st *store.Store, log *slog.Logger, id string) ([]EntityKind, error) {
+	var touched []EntityKind
+	switch err := refreshThread(ctx, c, st, id); {
+	case err == nil:
+		touched = append(touched, KindComments, KindTimelogs)
+	case isNotFound(err):
+		if err := st.Tasks().Delete(ctx, id); err != nil {
+			return nil, err
+		}
+		return []EntityKind{KindTasks}, ErrNoSuchTask
+	case classify(err) == failPermanent:
+		log.Warn("thread refresh rejected", "task", id, "error", err)
+		return nil, nil
+	default:
+		return nil, err
+	}
+	switch _, err := refreshDependencies(ctx, c, st, id); {
+	case err == nil:
+		touched = append(touched, KindDependencies)
+	case isNotFound(err) || classify(err) == failPermanent:
+		log.Warn("dependency read rejected", "task", id, "error", err)
+	default:
+		return touched, err
+	}
+	return touched, nil
+}
+
+// readThreads reads the given tasks one by one and unions what they touched, a gone task is dropped and the rest go on.
+func readThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, ids []string) ([]EntityKind, error) {
+	var touched []EntityKind
+	for _, id := range ids {
+		kinds, err := readThread(ctx, c, st, log, id)
+		if err != nil && !errors.Is(err, ErrNoSuchTask) {
+			return nil, err
+		}
+		for _, k := range kinds {
+			if !slices.Contains(touched, k) {
+				touched = append(touched, k)
+			}
+		}
+	}
+	return touched, nil
+}
+
+// rereadStale reads again the threads of stamped tasks that changed since their stamp, up to limit, and reports what it touched.
+// A change to the thread moves the task's updatedDate (checked on the live account), so a stamped task the poll listed
+// may have an edited or deleted comment or entry, which the account wide reads cannot show.
+// The set is bounded by the tasks read before, the ones somebody looked at, not by the cache,
+// and a task changed for another reason costs one read too, the price of one rule.
+func rereadStale(ctx context.Context, c Client, st *store.Store, log *slog.Logger, limit int) ([]EntityKind, error) {
+	ids, err := st.Tasks().StaleThreadIDs(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	return readThreads(ctx, c, st, log, ids)
+}
+
+// FetchThread reads the thread of a task the cache never read, for the cursor resting on the task, enter and task show,
+// and reports whether it read anything.
+// It runs without the sync lock like Reach: it writes the rows of one task and touches no cursor, so it can run while a cycle does.
+// A local id has no thread on the server, and a thread read once is kept current by the cycle, so a second call costs no request.
+// A 404 drops the task and answers ErrNoSuchTask, a rejection is logged and answers false, any other failure travels up.
+// Before the first cycle compared the account of a credential no sign in checked, it reads nothing, see ErrAccountUnchecked.
+func (e *Engine) FetchThread(ctx context.Context, id string) (bool, error) {
+	if !e.homeOK.Load() {
+		record, err := e.st.Home(ctx)
+		if err != nil {
+			return false, err
+		}
+		if record.AccountID == "" || e.cfg.CheckHome {
+			return false, ErrAccountUnchecked
+		}
+	}
+	if store.IsLocalID(id) {
+		return false, nil
+	}
+	task, err := e.st.Tasks().Get(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if task.ThreadReadAt != "" {
+		return false, nil
+	}
+	kinds, err := readThread(ctx, e.client, e.st, e.log, id)
+	if len(kinds) > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: kinds})
+	}
+	return err == nil && len(kinds) > 0, err
 }

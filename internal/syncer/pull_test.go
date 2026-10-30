@@ -266,6 +266,9 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 	if err != nil || len(logs) != 1 {
 		t.Fatalf("timelogs = %+v, %v", logs, err)
 	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt == "" {
+		t.Error("T1 must carry the thread stamp after the refresh")
+	}
 	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
 		t.Error("T2 must be deleted after the 404")
 	}

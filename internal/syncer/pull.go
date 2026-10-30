@@ -179,55 +179,16 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 	return err
 }
 
-// refreshThreads pulls comments, timelogs and dependencies for recently opened tasks and reports which caches it touched.
-// A 404 on the thread means the task is gone on the server, drop it. Any other rejection skips the task,
-// it stays in the window for days and must not block the other threads for that long.
-// The dependency read comes after the thread and has an outcome of its own:
-// the comment read is the one that says whether the task exists, and a rejected dependency read must not undo a thread already written.
+// refreshThreads reads comments, timelogs and dependencies for recently opened tasks again every cycle and reports which caches it touched.
+// The account wide pulls and rereadStale cover a changed thread, but adding or removing a dependency moves neither task's updatedDate,
+// see refreshDependencies, so an opened task is read whether or not it changed.
 func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
 	since := rfc3339(time.Now().Add(-window))
 	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, since, limit)
 	if err != nil {
 		return nil, err
 	}
-	threads, dropped, deps := false, false, false
-	for _, id := range ids {
-		err := refreshThread(ctx, c, st, id)
-		switch {
-		case err == nil:
-			threads = true
-		case isNotFound(err):
-			if err := st.Tasks().Delete(ctx, id); err != nil {
-				return nil, err
-			}
-			dropped = true
-			continue
-		case classify(err) == failPermanent:
-			log.Warn("thread refresh rejected", "task", id, "error", err)
-			continue
-		default:
-			return nil, err
-		}
-		switch _, err := refreshDependencies(ctx, c, st, id); {
-		case err == nil:
-			deps = true
-		case isNotFound(err) || classify(err) == failPermanent:
-			log.Warn("dependency read rejected", "task", id, "error", err)
-		default:
-			return nil, err
-		}
-	}
-	var touched []EntityKind
-	if threads {
-		touched = append(touched, KindComments, KindTimelogs)
-	}
-	if dropped {
-		touched = append(touched, KindTasks)
-	}
-	if deps {
-		touched = append(touched, KindDependencies)
-	}
-	return touched, nil
+	return readThreads(ctx, c, st, log, ids)
 }
 
 // pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
@@ -262,7 +223,12 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, id string) er
 	if err != nil {
 		return err
 	}
-	return st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs))
+	if err := st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs)); err != nil {
+		return err
+	}
+	// The stamp says the thread is as Wrike had it at this moment: the detail tells a never read thread by its absence,
+	// and rereadStale reads the thread again once the task's updatedDate passes it.
+	return st.Tasks().MarkThreadRead(ctx, id, rfc3339(time.Now()))
 }
 
 // refreshDependencies replaces the task's dependency list with what Wrike holds now and returns it.

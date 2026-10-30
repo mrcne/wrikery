@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -200,5 +201,157 @@ func TestCycleBringsANewCommentOnATaskNobodyOpened(t *testing.T) {
 	}
 	if calls := fc.callLog(); slices.ContainsFunc(calls, func(s string) bool { return strings.HasPrefix(s, "TaskComments") }) {
 		t.Errorf("the per task read ran for a task nobody opened: %v", calls)
+	}
+}
+
+func TestFetchThreadReadsANeverReadThreadOnce(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "never read")
+	seedTask(t, st, "T2", "read before")
+	if err := st.Tasks().MarkThreadRead(ctx, "T2", rfc3339(time.Now().Add(-48*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return []wrike.Comment{{ID: "C-" + taskID, TaskID: taskID, AuthorID: "U2", Text: "hi", CreatedDate: time.Now()}}, nil
+	}}
+	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
+	for _, tc := range []struct {
+		id   string
+		want bool
+	}{{"T1", true}, {"T1", false}, {"T2", false}, {"local:4", false}} {
+		read, err := e.FetchThread(ctx, tc.id)
+		if err != nil || read != tc.want {
+			t.Errorf("FetchThread(%s) = %v, %v, want %v", tc.id, read, err, tc.want)
+		}
+	}
+	calls := fc.callLog()
+	if n := strings.Count(strings.Join(calls, "\n"), "TaskComments T1"); n != 1 {
+		t.Errorf("T1 read %d times, want once: %v", n, calls)
+	}
+	for _, id := range []string{"T2", "local:4"} {
+		if slices.Contains(calls, "TaskComments "+id) {
+			t.Errorf("%s was read: %v", id, calls)
+		}
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt == "" {
+		t.Error("T1 must carry the stamp after the read")
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 {
+		t.Errorf("comments of T1 = %+v", got)
+	}
+	// The read reports the caches it touched for the interface to read again.
+	select {
+	case ev := <-e.Events():
+		if ev.Kind != EventStoreChanged || !slices.Contains(ev.Entities, KindComments) {
+			t.Errorf("event = %+v, want a store change naming the comments", ev)
+		}
+	default:
+		t.Error("no event after the read")
+	}
+}
+
+func TestFetchThreadDropsAGoneTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "deleted on the server")
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return nil, &wrike.APIError{StatusCode: 404, Code: "resource_not_found"}
+	}}
+	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
+	if read, err := e.FetchThread(ctx, "T1"); !errors.Is(err, ErrNoSuchTask) || read {
+		t.Errorf("FetchThread = %v, %v, want ErrNoSuchTask", read, err)
+	}
+	if _, err := st.Tasks().Get(ctx, "T1"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("T1 after the 404: %v, want gone", err)
+	}
+	select {
+	case ev := <-e.Events():
+		if !slices.Contains(ev.Entities, KindTasks) {
+			t.Errorf("event = %+v, want the tasks kind", ev)
+		}
+	default:
+		t.Error("no event after the drop")
+	}
+}
+
+func TestFetchThreadLogsARejectionAndReadsNothing(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "not shared")
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+	}}
+	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
+	if read, err := e.FetchThread(ctx, "T1"); err != nil || read {
+		t.Errorf("FetchThread = %v, %v, want false and no error", read, err)
+	}
+	if got, err := st.Tasks().Get(ctx, "T1"); err != nil || got.ThreadReadAt != "" {
+		t.Errorf("T1 after the 403 = %+v, %v, want the task kept without a stamp", got, err)
+	}
+}
+
+func TestRereadStaleReadsChangedStampedTasksOnly(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	for _, tc := range []struct{ id, updated, stamp string }{
+		{"T1", "2026-09-03T12:00:00Z", "2026-09-03T10:00:00Z"},
+		{"T2", "2026-09-03T09:00:00Z", "2026-09-03T10:00:00Z"},
+		{"T3", "2026-09-03T12:00:00Z", ""},
+	} {
+		if err := st.Tasks().Upsert(ctx, []store.Task{{ID: tc.id, Title: tc.id, Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: tc.updated}}); err != nil {
+			t.Fatal(err)
+		}
+		if tc.stamp != "" {
+			if err := st.Tasks().MarkThreadRead(ctx, tc.id, tc.stamp); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return []wrike.Comment{{ID: "C-" + taskID, TaskID: taskID, AuthorID: "U2", Text: "edited", CreatedDate: time.Now()}}, nil
+	}}
+	touched, err := rereadStale(ctx, fc, st, slog.New(slog.DiscardHandler), 50)
+	if err != nil || !slices.Contains(touched, KindComments) {
+		t.Fatalf("rereadStale = %v, %v, want the comments touched", touched, err)
+	}
+	calls := fc.callLog()
+	if !slices.Contains(calls, "TaskComments T1") || slices.Contains(calls, "TaskComments T2") || slices.Contains(calls, "TaskComments T3") {
+		t.Errorf("calls = %v, want T1 alone: changed since its stamp", calls)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt <= got.UpdatedDate {
+		t.Errorf("T1 stamp %q must be later than its change %q after the read", got.ThreadReadAt, got.UpdatedDate)
+	}
+	fc.calls = nil
+	if touched, err := rereadStale(ctx, fc, st, slog.New(slog.DiscardHandler), 50); err != nil || len(touched) != 0 || len(fc.callLog()) != 0 {
+		t.Errorf("a second pass = %v, %v, calls %v, want nothing to read", touched, err, fc.callLog())
+	}
+}
+
+// A stamped task the poll lists as changed has its thread read again in the same cycle.
+func TestCycleReadsAgainTheThreadOfAChangedStampedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject, Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, st, "T1", "read before")
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-02T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{
+		tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+			return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1", Title: "read before", Status: "Active", UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}}}, nil
+		},
+		taskComments: func(taskID string) ([]wrike.Comment, error) {
+			return []wrike.Comment{{ID: "C1", TaskID: taskID, AuthorID: "U2", Text: "edited on the server", CreatedDate: time.Now()}}, nil
+		},
+	}
+	e := New(fc, st, Config{PollInterval: time.Hour}, slog.New(slog.DiscardHandler))
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].Text != "edited on the server" {
+		t.Errorf("comments = %+v, want the thread read again after the change", got)
 	}
 }

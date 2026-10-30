@@ -63,8 +63,8 @@ func (c Config) withDefaults() Config {
 // Engine keeps the store and the API in step from one goroutine.
 // The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
 // Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
-// Reach is the one exception: it runs on the caller's goroutine while Run runs,
-// so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
+// Reach and FetchThread are the exceptions: they run on the caller's goroutine while Run runs,
+// so they may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
 	effort *effortReads // the wrapper around client when PullEffort is set, nil otherwise, a refresh the user asked for resets it
@@ -491,6 +491,14 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 	if len(touched) > 0 {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
+	}
+	// After the opened tasks, which are stamped by now, so a task in both sets is read once.
+	stale, err := rereadStale(ctx, e.client, e.st, e.log, e.cfg.ThreadLimit)
+	if err != nil {
+		return err
+	}
+	if len(stale) > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: stale})
 	}
 
 	// The tasks behind the time entries and the relations, then a re-read of the reached tasks no scope poll covers:
