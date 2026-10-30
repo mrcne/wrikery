@@ -96,7 +96,7 @@ var cmdTaskShow = Command{
 	Name:     "task show",
 	Synopsis: []string{"task show T"},
 	Short:    "print one task with its description and comments",
-	Notes:    "Prints one task: the header fields, the description and the comments the cache holds.",
+	Notes:    "Prints one task: the header fields, the description and the comments. The comments of a task the cache never read are fetched first, offline mode prints what the cache holds.",
 	Flags:    func() *flag.FlagSet { return jsonFlagSet("task show", new(bool)) },
 }
 
@@ -113,6 +113,13 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	t, code := resolveOrReach(ctx, env, positional[0])
 	if code != exitOK {
 		return code
+	}
+	if !threadSynced(t) && !env.Offline {
+		fetchThreadNow(ctx, env, t.ID)
+		// The stamp lands with the read, the printer reads it to say whether the thread is synced.
+		if fresh, err := env.Store.Tasks().Get(ctx, t.ID); err == nil {
+			t = fresh
+		}
 	}
 	comments, err := env.Store.Comments().ListForTask(ctx, t.ID)
 	if err != nil {
@@ -133,6 +140,7 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 			DescriptionHTML:     t.Description,
 			DescriptionMarkdown: ui.EditorText(t.Description),
 			AttachmentCount:     t.AttachmentCount,
+			ThreadSynced:        threadSynced(t),
 			Comments:            make([]commentJSON, 0, len(comments)),
 		}
 		d.SuperTasks, d.Subtasks, d.Predecessors, d.Successors = rel.json(t, &ref)

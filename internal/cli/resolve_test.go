@@ -58,6 +58,18 @@ func seedBoard(t *testing.T, st *store.Store) {
 			Permalink: "https://www.wrike.com/open.htm?id=4", ResponsibleIDs: []string{"U1", "U2"}, ParentIDs: []string{"PROJ2"},
 			CreatedDate: "2026-09-08T10:00:00Z", UpdatedDate: "2026-10-02T12:00:00Z"},
 	}))
+	// A board the user has used had its threads read, so a command on it reads nothing from Wrike.
+	for _, id := range []string{"TASK1", "TASK2", "TASK3", "TASK4"} {
+		must(st.Tasks().MarkThreadRead(ctx, id, "2026-10-03T08:00:00Z"))
+	}
+}
+
+// unstamp makes a task one whose thread the cache never read.
+func unstamp(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	if err := st.Tasks().MarkThreadRead(context.Background(), id, ""); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestResolveTaskTakesAnIdFirst(t *testing.T) {

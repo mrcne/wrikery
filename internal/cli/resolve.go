@@ -39,21 +39,15 @@ func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) 
 	if env.Offline {
 		return store.Task{}, fail(env, fmt.Errorf("no task %q in the cache, offline mode", arg))
 	}
-	host, code, unchecked := preflight(ctx, env)
+	eng, code, unchecked := onlineEngine(ctx, env)
 	if unchecked != nil {
 		return store.Task{}, fail(env, fmt.Errorf("could not reach Wrike: %w", unchecked))
 	}
 	if code != exitOK {
 		return store.Task{}, code
 	}
-	eng := syncer.New(env.Client(host), env.Store,
-		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.PullEffort()}, slog.Default())
-	// The write deadline bounds the fetch too, a Wrike that does not answer must not hold a read for the client's whole retry budget.
-	if env.Deadline > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, env.Deadline)
-		defer cancel()
-	}
+	ctx, cancel := withDeadline(ctx, env)
+	defer cancel()
 	t, err = eng.Reach(ctx, uncached.ref)
 	// A rejected session and a Wrike that does not answer get the words a write prints, a script reads one message for both.
 	var apiErr *wrike.APIError
@@ -319,4 +313,55 @@ func findStatus(workflows []store.Workflow, currentID, name string) (store.Custo
 		names = append(names, cs.Name)
 	}
 	return store.CustomStatus{}, fmt.Errorf("no status %q in workflow %s, it has: %s", name, wf.Name, strings.Join(names, ", "))
+}
+
+// onlineEngine is the engine a read uses to ask Wrike for what the cache lacks, once the sign in and the account are checked.
+// The code is exitOK or the failure already printed, unchecked is the account check that could not run, as preflight reports it.
+func onlineEngine(ctx context.Context, env Env) (*syncer.Engine, int, error) {
+	host, code, unchecked := preflight(ctx, env)
+	if unchecked != nil || code != exitOK {
+		return nil, code, unchecked
+	}
+	eng := syncer.New(env.Client(host), env.Store,
+		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.PullEffort()}, slog.Default())
+	return eng, exitOK, nil
+}
+
+// withDeadline bounds a read that talks to Wrike the way the write deadline bounds a write,
+// a Wrike that does not answer must not hold a read for the client's whole retry budget.
+func withDeadline(ctx context.Context, env Env) (context.Context, context.CancelFunc) {
+	if env.Deadline > 0 {
+		return context.WithTimeout(ctx, env.Deadline)
+	}
+	return ctx, func() {}
+}
+
+// fetchThreadNow reads the thread of a task the cache never read before task show prints it.
+// The command prints the cache and exits 0 whatever happens here, the thread is a bonus a script must not fail on,
+// so a failure is one line on stderr, and a preflight failure printed its own.
+func fetchThreadNow(ctx context.Context, env Env, id string) {
+	eng, code, unchecked := onlineEngine(ctx, env)
+	if code != exitOK {
+		return
+	}
+	err := unchecked
+	if err == nil {
+		ctx, cancel := withDeadline(ctx, env)
+		defer cancel()
+		_, err = eng.FetchThread(ctx, id)
+	}
+	// A rejected session and a Wrike that does not answer get the words the fetch of a task prints, a script reads one message for both.
+	var apiErr *wrike.APIError
+	var reason string
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, context.DeadlineExceeded):
+		reason = "Wrike did not answer in time"
+	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+		reason = "sign in rejected, run wrikery to sign in again"
+	default:
+		reason = err.Error()
+	}
+	_, _ = fmt.Fprintf(env.Stderr, "wrikery: comments not synced: %s\n", reason)
 }
