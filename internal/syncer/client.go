@@ -20,6 +20,7 @@ type Client interface {
 	Tasks(ctx context.Context, p wrike.TaskParams) (wrike.TasksPage, error)
 	TasksByIDs(ctx context.Context, ids []string, fields []string) ([]wrike.Task, error)
 	TaskComments(ctx context.Context, taskID string) ([]wrike.Comment, error)
+	Comments(ctx context.Context, p wrike.CommentParams) ([]wrike.Comment, error)
 	TaskTimelogs(ctx context.Context, taskID string) ([]wrike.Timelog, error)
 	TaskDependencies(ctx context.Context, taskID string) ([]wrike.Dependency, error)
 	Timelogs(ctx context.Context, p wrike.TimelogParams) (wrike.TimelogsPage, error)

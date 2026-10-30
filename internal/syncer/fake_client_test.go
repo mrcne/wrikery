@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
@@ -24,6 +25,7 @@ type fakeClient struct {
 	tasks            func(p wrike.TaskParams) (wrike.TasksPage, error)
 	tasksByIDs       func(ids, fields []string) ([]wrike.Task, error)
 	taskComments     func(taskID string) ([]wrike.Comment, error)
+	comments         func(p wrike.CommentParams) ([]wrike.Comment, error)
 	taskTimelogs     func(taskID string) ([]wrike.Timelog, error)
 	taskDependencies func(taskID string) ([]wrike.Dependency, error)
 	timelogs         func(p wrike.TimelogParams) (wrike.TimelogsPage, error)
@@ -125,6 +127,14 @@ func (f *fakeClient) TaskComments(ctx context.Context, taskID string) ([]wrike.C
 		return nil, nil
 	}
 	return f.taskComments(taskID)
+}
+
+func (f *fakeClient) Comments(ctx context.Context, p wrike.CommentParams) ([]wrike.Comment, error) {
+	f.record("Comments " + p.CreatedFrom.UTC().Format(time.RFC3339) + " " + p.CreatedTo.UTC().Format(time.RFC3339))
+	if f.comments == nil {
+		return nil, nil
+	}
+	return f.comments(p)
 }
 
 func (f *fakeClient) TaskTimelogs(ctx context.Context, taskID string) ([]wrike.Timelog, error) {

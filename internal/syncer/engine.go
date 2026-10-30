@@ -469,6 +469,22 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
 	}
 
+	// The whole account's new comments and changed time entries, two requests, before the per task reads below.
+	changedComments, err := pullComments(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
+	if err != nil {
+		return err
+	}
+	if changedComments {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindComments}})
+	}
+	changedEntries, err := pullTimelogChanges(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
+	if err != nil {
+		return err
+	}
+	if changedEntries {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
+	}
+
 	touched, err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
 	if err != nil {
 		return err

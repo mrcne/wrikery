@@ -236,21 +236,9 @@ func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Lo
 // The window start goes to the meta table afterwards, for the timesheet to tell an unsynced week from an empty one.
 func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string, now time.Time) (bool, error) {
 	from, to := store.TimelogWindow(now)
-	p := wrike.TimelogParams{Me: true, TrackedFrom: from, TrackedTo: to, PageSize: 1000}
-	var all []wrike.Timelog
-	for {
-		page, err := c.Timelogs(ctx, p)
-		if err != nil {
-			return false, err
-		}
-		all = append(all, page.Timelogs...)
-		// An empty page ends the walk even when it carries a token.
-		// Wrike sends one with an empty answer (seen on an account with no entries) and refuses it on the next request.
-		// The reference (https://developers.wrike.com/api/v4/timelogs/) only says the token applies an offset to the next page.
-		if page.NextPageToken == "" || len(page.Timelogs) == 0 {
-			break
-		}
-		p.PageToken = page.NextPageToken
+	all, err := walkTimelogs(ctx, c, wrike.TimelogParams{Me: true, TrackedFrom: from, TrackedTo: to, PageSize: 1000})
+	if err != nil {
+		return false, err
 	}
 	changed, err := st.Timelogs().ReplaceForUserRange(ctx, meID, from, to, timelogsFromWrike(all))
 	if err != nil {
