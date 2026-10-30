@@ -101,3 +101,50 @@ func TestTimelogGet(t *testing.T) {
 		t.Fatalf("Get(missing) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestUpsertCachedKeepsOnlyCachedTasksAndCountsChanges(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "cached")}); err != nil {
+		t.Fatal(err)
+	}
+	batch := []Comment{
+		{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "hi", CreatedDate: "2026-09-03T09:00:00Z"},
+		{ID: "C2", TaskID: "T9", AuthorID: "U1", Text: "unknown task", CreatedDate: "2026-09-03T09:00:00Z"},
+	}
+	n, err := st.Comments().UpsertCached(ctx, batch)
+	if err != nil || n != 1 {
+		t.Fatalf("UpsertCached = %d, %v, want 1 row for the cached task and no foreign key error", n, err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].ID != "C1" {
+		t.Errorf("comments = %+v", got)
+	}
+	if n, err := st.Comments().UpsertCached(ctx, batch); err != nil || n != 0 {
+		t.Errorf("the same batch again = %d, %v, want 0 changes", n, err)
+	}
+	batch[0].Text = "edited"
+	if n, err := st.Comments().UpsertCached(ctx, batch); err != nil || n != 1 {
+		t.Errorf("an edited text = %d, %v, want 1 change", n, err)
+	}
+
+	logs := []Timelog{
+		{ID: "L1", TaskID: "T1", UserID: "U2", TrackedDate: "2026-09-03", Hours: 1, CreatedDate: "2026-09-03T09:00:00Z", UpdatedDate: "2026-09-03T09:00:00Z"},
+		{ID: "L2", TaskID: "T9", UserID: "U2", TrackedDate: "2026-09-03", Hours: 1, CreatedDate: "2026-09-03T09:00:00Z", UpdatedDate: "2026-09-03T09:00:00Z"},
+	}
+	if n, err := st.Timelogs().UpsertCached(ctx, logs); err != nil || n != 1 {
+		t.Fatalf("timelogs UpsertCached = %d, %v, want 1", n, err)
+	}
+	if n, err := st.Timelogs().UpsertCached(ctx, logs); err != nil || n != 0 {
+		t.Errorf("the same entries again = %d, %v, want 0", n, err)
+	}
+	logs[0].Hours, logs[0].UpdatedDate = 2, "2026-09-03T10:00:00Z"
+	if n, err := st.Timelogs().UpsertCached(ctx, logs); err != nil || n != 1 {
+		t.Errorf("a changed entry = %d, %v, want 1", n, err)
+	}
+	if got, _ := st.Timelogs().ListForTask(ctx, "T1"); len(got) != 1 || got[0].Hours != 2 {
+		t.Errorf("timelogs = %+v", got)
+	}
+	if got, _ := st.Timelogs().ListForTask(ctx, "T9"); len(got) != 0 {
+		t.Errorf("an entry of an unknown task was written: %+v", got)
+	}
+}

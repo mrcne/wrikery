@@ -865,7 +865,8 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 		}
 	}
 	// The user may be looking at the task, the thread refresh must keep fetching its comments after the swap.
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET last_opened_at = (SELECT last_opened_at FROM tasks WHERE id = ?) WHERE id = ?`, localID, real.ID); err != nil {
+	// Wrike had nothing on the task before this moment, so its thread is as synced as it gets and the detail must not say otherwise.
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET last_opened_at = (SELECT last_opened_at FROM tasks WHERE id = ?), thread_read_at = ? WHERE id = ?`, localID, o.stamp(), real.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {

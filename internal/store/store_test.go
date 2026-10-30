@@ -345,3 +345,54 @@ func TestOutboxHistoryRebuildKeepsRowsAndNamesTheirTasks(t *testing.T) {
 		t.Errorf("next outbox id = %d, want 5, the sequence must survive the rebuild", id)
 	}
 }
+
+// The thread stamp starts from the open: the polls read the thread of every opened task,
+// so a task the user looked at must not say not synced yet after the upgrade.
+func TestThreadReadBackfillFollowsTheOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	names, err := fs.Glob(migrationFS, "migrations/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name >= "migrations/0015_thread_read.sql" {
+			break
+		}
+		body, err := migrationFS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("applying %s: %v", name, err)
+		}
+		if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO tasks (id, title, last_opened_at) VALUES ('T1', 'opened', '2026-09-03T10:00:00Z'), ('T2', 'never', NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	opened, _ := st.Tasks().Get(ctx, "T1")
+	never, _ := st.Tasks().Get(ctx, "T2")
+	if opened.ThreadReadAt != "2026-09-03T10:00:00Z" || never.ThreadReadAt != "" {
+		t.Errorf("stamps = %q, %q, want the opened task stamped from its open and the other empty", opened.ThreadReadAt, never.ThreadReadAt)
+	}
+}

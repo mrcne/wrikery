@@ -447,6 +447,7 @@ func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
 	real := Task{ID: "T9", Title: "New one", Status: "Active", CustomStatusID: "CS1", Importance: "Normal",
 		ParentIDs: []string{"F1"}, Permalink: "https://www.wrike.com/open.htm?id=9",
 		CreatedDate: "2026-10-01T09:00:05Z", UpdatedDate: "2026-10-01T09:00:05Z"}
+	st.Now = func() time.Time { return time.Date(2026, 10, 1, 9, 0, 6, 0, time.UTC) }
 	if err := st.Outbox().CompleteTaskCreate(ctx, createID, real); err != nil {
 		t.Fatal(err)
 	}
@@ -456,6 +457,9 @@ func TestCompleteTaskCreateSwapsTheRowAndRepointsDependents(t *testing.T) {
 	}
 	if got, err := st.Tasks().Get(ctx, "T9"); err != nil || got.Permalink == "" {
 		t.Errorf("server task = %+v, %v", got, err)
+	} else if got.ThreadReadAt != "2026-10-01T09:00:06Z" {
+		// Wrike had nothing on the task before the create, so its thread is as synced as it gets.
+		t.Errorf("ThreadReadAt after the swap = %q, want the completion time", got.ThreadReadAt)
 	}
 	if opened, err := st.Tasks().RecentlyOpenedIDs(ctx, "2026-10-01T00:00:00Z", 10); err != nil || len(opened) != 1 || opened[0] != "T9" {
 		t.Errorf("recently opened after the swap = %v, %v, want T9", opened, err)
