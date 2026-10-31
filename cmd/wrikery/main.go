@@ -211,6 +211,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			// The demo's own field shows the time line without a config file, a configured source stays so a user sees their setting against the demo.
 			cfg.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
 		}
+		stop, err := startProfile(os.Getenv(envProfile))
+		if err != nil {
+			return err
+		}
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
@@ -218,8 +222,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
 			defer func() { _ = l.Close() }()
 		}
-		_, err = p.Run()
-		return err
+		return runProgram(p, stop)
 	}
 
 	st, err := store.Open(paths.DBFile)
@@ -239,6 +242,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	if offline && firstRun {
 		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
 		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
+	}
+	stop, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		return err
 	}
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
@@ -262,7 +269,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
 		}()
 	}
-	_, err = a.prog.Run()
+	err = runProgram(a.prog, stop)
 	a.shutdown()
 	return err
 }
@@ -337,7 +344,12 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
 	go func() { <-ctx.Done(); stop() }()
 	creds := &cmdAuth{tokens: tokens, cfg: cfg, st: st, fromEnv: tokenFromEnv()}
-	return cli.Run(ctx, cli.Env{
+	stopProfile, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		return 1
+	}
+	code := cli.Run(ctx, cli.Env{
 		Config:       cfg,
 		Store:        st,
 		SignedIn:     creds.signedIn,
@@ -355,6 +367,13 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		Stderr:       os.Stderr,
 		GlobalFlags:  global,
 	}, args)
+	if err := stopProfile(); err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		if code == 0 {
+			code = 1
+		}
+	}
+	return code
 }
 
 // signedInWith names the stored sign in for the settings screen and the re-auth notice.
