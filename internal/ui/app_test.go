@@ -3,6 +3,7 @@ package ui_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -1809,6 +1810,10 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		asked = append(asked, id)
+		// The second ask fails, the one the return to the task sends.
+		if len(asked) == 2 {
+			return false, errors.New("no answer")
+		}
 		return true, nil
 	}
 	calls := func() []string {
@@ -1852,7 +1857,7 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 	time.Sleep(1300 * time.Millisecond)
 	waitCalls(1, 0)
 
-	// Away and back asks again.
+	// Away and back asks again, and this time the hook fails.
 	// Two presses inside one frame leave the screen as it was and draw nothing, so the move away is waited for first.
 	from = mark(t, tm)
 	press(tm, "j")
@@ -1862,15 +1867,8 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	waitCalls(2, 3*time.Second)
 
-	// Enter asks without waiting for the rest, and the rest that follows adds nothing.
+	// After a failure the same selection asks again on enter, no reselect needed, and the rest that follows adds nothing.
 	// The wait is the generous one of the other phases, a race run on a slow runner must not fail on the timing alone.
-	// Two presses inside one frame leave the screen as it was and draw nothing, so the move away is waited for first.
-	from = mark(t, tm)
-	press(tm, "j")
-	waitAfter(t, tm, from, "#"+permalinkNumber(t, tasks[2].Permalink))
-	from = mark(t, tm)
-	press(tm, "k")
-	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	press(tm, "enter")
 	waitCalls(3, 3*time.Second)
 	time.Sleep(1300 * time.Millisecond)

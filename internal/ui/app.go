@@ -151,7 +151,8 @@ type Model struct {
 	selectedNode   treeNode
 	selectedTaskID string
 	pendingDate    string // date a new timesheet entry is for, set while search stands in as its task picker
-	threadAsked    string // the task whose thread was last asked for, so a reload does not ask again while it stays selected
+	threadAsked    string // the task whose thread was asked for, so a reload does not ask again while it stays selected
+	threadWanted   string // the task enter asked for before its detail loaded, asked for when the load lands
 }
 
 func New(o Options) Model {
@@ -360,11 +361,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.list.has(msg.id) || m.paneBesideGrid() {
 			return m, nil
 		}
-		if msg.id != m.selectedTaskID {
-			// Another task, the one before may be asked for its thread again when the cursor comes back.
-			m.threadAsked = ""
-		}
-		m.selectedTaskID = msg.id
+		m.selectTask(msg.id)
 		return m, m.loadTask(msg.id)
 	case taskLoadedMsg:
 		// The cursor is free to move while the read runs, so an answer for a task nobody is on any more is dropped.
@@ -372,9 +369,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// The read may have followed a swap, the selection follows it too.
-		m.selectedTaskID = msg.task.ID
+		m.selectTask(msg.task.ID)
 		m.detail.set(msg)
 		m.syncPaneSizes()
+		if m.threadWanted == msg.task.ID {
+			// Enter came before the detail, see askThread.
+			m.threadWanted = ""
+			return m, m.askThread(msg.task.ID)
+		}
 		return m, m.restOnThread(msg.task)
 	case threadRestMsg:
 		// The cursor may have moved on, or the stamp landed meanwhile, then the rest asks nothing.
@@ -382,12 +384,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.askThread(msg.id)
+	case threadFetchedMsg:
+		if msg.err != nil {
+			slog.Warn("thread fetch", "task", msg.id, "error", msg.err)
+			// The next rest or enter on the same task asks again.
+			if m.threadAsked == msg.id {
+				m.threadAsked = ""
+			}
+		}
+		return m, nil
 	case taskGoneMsg:
 		if msg.id != m.selectedTaskID {
 			return m, nil
 		}
 		// Without this the detail and the action keys would stay on the task from before.
-		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+		m.selectTask("")
+		m.detail = taskDetailModel{keys: m.keys}
 		m.syncPaneSizes()
 		return m, m.status.show("that task is no longer in the cache", true)
 	case firstRunSubmitTokenMsg:
@@ -514,7 +526,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// The pane starts empty rather than show the main screen's task until the read lands.
 		m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
-		m.selectedTaskID, m.detail = msg.id, taskDetailModel{keys: m.keys}
+		m.selectTask(msg.id)
+		m.detail = taskDetailModel{keys: m.keys}
 		m.syncPaneSizes()
 		// A deliberate open, like enter on the main screen, so the thread of the task gets refreshed.
 		return m, tea.Batch(m.loadTask(msg.id), m.markOpened(msg.id))
@@ -905,7 +918,8 @@ func (m *Model) afterFocus(prev pane) tea.Cmd {
 // A task in neither stays in the pane over the folder left behind, the reload rule in tasksLoadedMsg keeps it there.
 func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, tea.Cmd) {
 	prevFocus := m.focus
-	m.screen, m.overlay, m.focus, m.selectedTaskID = screenMain, overlayNone, paneDetail, id
+	m.screen, m.overlay, m.focus = screenMain, overlayNone, paneDetail
+	m.selectTask(id)
 	m.search.blur()
 	// A pick from the search overlay leaves the timesheet too, the grid has no pane beside it when T comes back.
 	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
@@ -917,7 +931,8 @@ func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, te
 		m.selectedNode = n
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id, true), m.flushPins())
 	}
-	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus))
+	// A jump is a deliberate open whatever pane it came from, the thread is asked for when the detail lands.
+	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus), m.askThread(id))
 	return m, tea.Batch(cmds...)
 }
 
@@ -1028,13 +1043,21 @@ func (m *Model) followTimesheetRow() tea.Cmd {
 	if id == m.selectedTaskID {
 		return nil
 	}
-	m.selectedTaskID = id
+	m.selectTask(id)
 	if id == "" {
 		m.detail = taskDetailModel{keys: m.keys}
 		m.syncPaneSizes()
 		return nil
 	}
 	return m.loadTask(id)
+}
+
+// selectTask moves the selection and forgets what was asked for the task before, so a return to it asks again.
+func (m *Model) selectTask(id string) {
+	if id != m.selectedTaskID {
+		m.threadAsked, m.threadWanted = "", ""
+	}
+	m.selectedTaskID = id
 }
 
 // closeTimesheetDetail closes the pane beside the grid and puts the detail back on the list's own row,
@@ -1044,10 +1067,11 @@ func (m *Model) closeTimesheetDetail() tea.Cmd {
 		return nil
 	}
 	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
-	m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+	m.selectTask("")
+	m.detail = taskDetailModel{keys: m.keys}
 	m.syncPaneSizes()
 	if row, ok := m.list.current(); ok {
-		m.selectedTaskID = row.task.ID
+		m.selectTask(row.task.ID)
 		return m.loadTask(row.task.ID)
 	}
 	return nil
@@ -1058,7 +1082,8 @@ func (m *Model) closeTimesheetDetail() tea.Cmd {
 // It runs wherever the rows are rebuilt: after a load, and after a key the list or the board handled.
 func (m *Model) clearIfListEmpty() {
 	if _, ok := m.list.current(); !ok && m.selectedTaskID != "" {
-		m.selectedTaskID, m.detail = "", taskDetailModel{keys: m.keys}
+		m.selectTask("")
+		m.detail = taskDetailModel{keys: m.keys}
 		m.syncPaneSizes()
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -28,45 +29,61 @@ func (e *errUncached) Error() string { return fmt.Sprintf("no task %q in the cac
 // and a cached task costs none of it.
 // The code is exitOK or the failure already printed.
 func resolveOrReach(ctx context.Context, env Env, arg string) (store.Task, int) {
+	t, _, code := resolveOrReachWith(ctx, env, arg)
+	return t, code
+}
+
+// resolveOrReachWith is resolveOrReach that also hands back the engine the fetch built, nil when the cache had the task,
+// so a read that goes on to Wrike for the same task checks the sign in and the account once.
+func resolveOrReachWith(ctx context.Context, env Env, arg string) (store.Task, *syncer.Engine, int) {
 	t, err := resolveTask(ctx, env.Store, arg)
 	var uncached *errUncached
 	if !errors.As(err, &uncached) {
 		if err != nil {
-			return store.Task{}, fail(env, err)
+			return store.Task{}, nil, fail(env, err)
 		}
-		return t, exitOK
+		return t, nil, exitOK
 	}
 	if env.Offline {
-		return store.Task{}, fail(env, fmt.Errorf("no task %q in the cache, offline mode", arg))
+		return store.Task{}, nil, fail(env, fmt.Errorf("no task %q in the cache, offline mode", arg))
 	}
 	eng, code, unchecked := onlineEngine(ctx, env)
 	if unchecked != nil {
-		return store.Task{}, fail(env, fmt.Errorf("could not reach Wrike: %w", unchecked))
+		return store.Task{}, nil, fail(env, fmt.Errorf("could not reach Wrike: %w", unchecked))
 	}
 	if code != exitOK {
-		return store.Task{}, code
+		return store.Task{}, nil, code
 	}
 	ctx, cancel := withDeadline(ctx, env)
 	defer cancel()
 	t, err = eng.Reach(ctx, uncached.ref)
-	// A rejected session and a Wrike that does not answer get the words a write prints, a script reads one message for both.
-	var apiErr *wrike.APIError
 	switch {
 	case errors.Is(err, syncer.ErrNoSuchTask) && uncached.ref.Kind == store.RefNumber:
 		// A number is never tried as a title, so a task titled with one is still named by more of its title.
-		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access, a title that is a number needs more of it", arg))
+		return store.Task{}, nil, fail(env, fmt.Errorf("no task %q on Wrike, or no access, a title that is a number needs more of it", arg))
 	case errors.Is(err, syncer.ErrNoSuchTask):
-		return store.Task{}, fail(env, fmt.Errorf("no task %q on Wrike, or no access", arg))
-	case errors.Is(err, context.DeadlineExceeded):
-		_, _ = fmt.Fprintln(env.Stderr, "wrikery: Wrike did not answer in time")
-		return store.Task{}, exitError
-	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
-		_, _ = fmt.Fprintln(env.Stderr, "wrikery: sign in rejected, run wrikery to sign in again")
-		return store.Task{}, exitError
+		return store.Task{}, nil, fail(env, fmt.Errorf("no task %q on Wrike, or no access", arg))
 	case err != nil:
-		return store.Task{}, fail(env, err)
+		if words := reachFailureWords(err); words != "" {
+			_, _ = fmt.Fprintln(env.Stderr, "wrikery: "+words)
+			return store.Task{}, nil, exitError
+		}
+		return store.Task{}, nil, fail(env, err)
 	}
-	return t, exitOK
+	return t, eng, exitOK
+}
+
+// reachFailureWords are the words a read that went to Wrike prints for a Wrike that did not answer and for a rejected session,
+// the ones a write prints too, so a script reads one message for each. Empty for any other failure.
+func reachFailureWords(err error) string {
+	var apiErr *wrike.APIError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Wrike did not answer in time"
+	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
+		return "sign in rejected, run wrikery to sign in again"
+	}
+	return ""
 }
 
 // candidateLimit caps the rows an ambiguous fragment lists back, the next attempt uses an id anyway.
@@ -322,9 +339,13 @@ func onlineEngine(ctx context.Context, env Env) (*syncer.Engine, int, error) {
 	if unchecked != nil || code != exitOK {
 		return nil, code, unchecked
 	}
-	eng := syncer.New(env.Client(host), env.Store,
+	return newEngine(env, host), exitOK, nil
+}
+
+// newEngine is the engine a command runs, one construction for the drain of a write and for the reads that go to Wrike.
+func newEngine(env Env, host string) *syncer.Engine {
+	return syncer.New(env.Client(host), env.Store,
 		syncer.Config{PollInterval: env.Config.PollInterval, LockFile: env.LockFile, Host: host, PullEffort: env.Config.Budget.PullEffort()}, slog.Default())
-	return eng, exitOK, nil
 }
 
 // withDeadline bounds a read that talks to Wrike the way the write deadline bounds a write,
@@ -336,32 +357,38 @@ func withDeadline(ctx context.Context, env Env) (context.Context, context.Cancel
 	return ctx, func() {}
 }
 
-// fetchThreadNow reads the thread of a task the cache never read before task show prints it.
-// The command prints the cache and exits 0 whatever happens here, the thread is a bonus a script must not fail on,
+// fetchThreadNow reads the thread of a task the cache never read before task show prints it,
+// with the engine the fetch of the task built or a new one.
+// The command prints the cache and exits 0 on a failure, the thread is a bonus a script must not fail on,
 // so a failure is one line on stderr, and a preflight failure printed its own.
-func fetchThreadNow(ctx context.Context, env Env, id string) {
-	eng, code, unchecked := onlineEngine(ctx, env)
-	if code != exitOK {
-		return
+// A task Wrike answers 404 for is gone from the cache by now, that one comes back as ErrNoSuchTask for the caller to fail on.
+func fetchThreadNow(ctx context.Context, env Env, eng *syncer.Engine, id string) error {
+	var unchecked error
+	if eng == nil {
+		var code int
+		if eng, code, unchecked = onlineEngine(ctx, env); code != exitOK {
+			return nil
+		}
 	}
-	err := unchecked
-	if err == nil {
+	var reason string
+	if unchecked != nil {
+		reason = uncheckedReason(unchecked)
+	} else {
 		ctx, cancel := withDeadline(ctx, env)
 		defer cancel()
-		_, err = eng.FetchThread(ctx, id)
-	}
-	// A rejected session and a Wrike that does not answer get the words the fetch of a task prints, a script reads one message for both.
-	var apiErr *wrike.APIError
-	var reason string
-	switch {
-	case err == nil:
-		return
-	case errors.Is(err, context.DeadlineExceeded):
-		reason = "Wrike did not answer in time"
-	case errors.As(err, &apiErr) && (apiErr.IsAuth() || apiErr.IsWrongHost()):
-		reason = "sign in rejected, run wrikery to sign in again"
-	default:
-		reason = err.Error()
+		read, err := eng.FetchThread(ctx, id)
+		switch {
+		case errors.Is(err, syncer.ErrNoSuchTask):
+			return err
+		case err != nil:
+			reason = cmp.Or(reachFailureWords(err), err.Error())
+		case !read:
+			// A rejection the engine logged, a 403 on the thread for example, and the cache has nothing new.
+			reason = "Wrike refused the read, see the log"
+		default:
+			return nil
+		}
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: comments not synced: %s\n", reason)
+	return nil
 }

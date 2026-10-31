@@ -354,8 +354,14 @@ func TestTaskShowFetchesAnUncachedTask(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)
 	env = withNetwork(t, env, outsideWrike(t))
+	// The fetch and the thread read that follows it share one sign in and one engine.
+	signedIn, inner := 0, env.SignedIn
+	env.SignedIn = func() (bool, error) { signedIn++; return inner() }
 	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitOK {
 		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if signedIn != 1 {
+		t.Errorf("the sign in was read %d times, want once", signedIn)
 	}
 	if !strings.Contains(out.String(), "Outside the scopes") {
 		t.Errorf("out:\n%s", out.String())
@@ -445,5 +451,40 @@ func TestTaskShowOfAnUncachedIdInOfflineModeSaysSo(t *testing.T) {
 	}
 	if want := `no task "MAAAAAEPXpuV" in the cache, offline mode`; !strings.Contains(errOut.String(), want) {
 		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}
+
+func TestTaskShowFailsWhenTheThreadReadFindsTheTaskGone(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errorDescription":"Task not found or access denied","error":"resource_not_found"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitError {
+		t.Fatalf("code = %d, want a failure for a task gone from Wrike", code)
+	}
+	if !strings.Contains(errOut.String(), `no task "TASK1" on Wrike, or no access`) {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if _, err := env.Store.Tasks().Get(context.Background(), "TASK1"); err == nil {
+		t.Error("the task is still in the cache after the 404")
+	}
+}
+
+func TestTaskShowSaysWhenTheThreadReadWasRefused(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errorDescription":"Access forbidden","error":"access_forbidden"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "comments  not synced yet") || !strings.Contains(errOut.String(), "wrikery: comments not synced:") {
+		t.Errorf("out:\n%s\nstderr: %q, want the note on both", out.String(), errOut.String())
 	}
 }

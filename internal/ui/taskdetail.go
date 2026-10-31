@@ -171,8 +171,8 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 
 	b.WriteString(divider(th, fmt.Sprintf("Comments (%d)", len(d.comments)), width) + "\n")
 	// A thread never read shows what the account wide pull brought, which can be nothing, so the reader is told under both dividers.
-	// A queued task has no thread on the server yet.
-	unsynced := d.task.ThreadReadAt == "" && !store.IsLocalID(d.task.ID)
+	// A queued task is stamped when it is queued, Wrike has nothing on it yet.
+	unsynced := d.task.ThreadReadAt == ""
 	if unsynced {
 		b.WriteString(muted.Render("not synced yet") + "\n")
 	}

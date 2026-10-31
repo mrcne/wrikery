@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/internal/ui"
 )
 
@@ -110,12 +111,14 @@ func runTaskShow(ctx context.Context, env Env, args []string) int {
 	if len(positional) != 1 {
 		return usageError(env, fs, cmdTaskShow.usage(), "task show takes one task, an id or a part of its title")
 	}
-	t, code := resolveOrReach(ctx, env, positional[0])
+	t, eng, code := resolveOrReachWith(ctx, env, positional[0])
 	if code != exitOK {
 		return code
 	}
 	if !threadSynced(t) && !env.Offline {
-		fetchThreadNow(ctx, env, t.ID)
+		if err := fetchThreadNow(ctx, env, eng, t.ID); errors.Is(err, syncer.ErrNoSuchTask) {
+			return fail(env, fmt.Errorf("no task %q on Wrike, or no access", positional[0]))
+		}
 		// The stamp lands with the read, the printer reads it to say whether the thread is synced.
 		if fresh, err := env.Store.Tasks().Get(ctx, t.ID); err == nil {
 			t = fresh

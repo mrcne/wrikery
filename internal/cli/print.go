@@ -65,8 +65,8 @@ type taskDetailJSON struct {
 	Comments     []commentJSON `json:"comments"`
 }
 
-// threadSynced says whether the cache read the task's thread, a queued task has none on the server yet and counts as synced.
-func threadSynced(t store.Task) bool { return t.ThreadReadAt != "" || store.IsLocalID(t.ID) }
+// threadSynced says whether the cache read the task's thread, a queued task is stamped when it is queued.
+func threadSynced(t store.Task) bool { return t.ThreadReadAt != "" }
 
 // relatedJSON names a task the cache may not hold, the title is empty then and the id is all there is.
 type relatedJSON struct {

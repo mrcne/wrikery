@@ -297,9 +297,8 @@ func TestDetailSaysWhenTheThreadIsNotSyncedYet(t *testing.T) {
 		id, stamp string
 		want      int
 	}{
-		"never read":  {id: "T1", want: 2},
-		"read":        {id: "T1", stamp: "2026-09-03T11:00:00Z", want: 0},
-		"queued task": {id: "local:3", want: 0},
+		"never read": {id: "T1", want: 2},
+		"read":       {id: "T1", stamp: "2026-09-03T11:00:00Z", want: 0},
 	} {
 		d := taskDetailModel{keys: defaultKeyMap()}
 		d.set(taskLoadedMsg{task: store.Task{ID: tc.id, Title: "A task", ThreadReadAt: tc.stamp, UpdatedDate: "2026-09-03T10:00:00Z"}})

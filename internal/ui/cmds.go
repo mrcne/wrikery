@@ -373,7 +373,7 @@ const threadRest = time.Second
 
 // restOnThread starts the rest timer when the detail of a never read task lands, see threadRestMsg.
 func (m Model) restOnThread(task store.Task) tea.Cmd {
-	if task.ThreadReadAt != "" || store.IsLocalID(task.ID) || m.threadAsked == task.ID || m.opts.Hooks.FetchThread == nil {
+	if task.ThreadReadAt != "" || m.threadAsked == task.ID || m.opts.Hooks.FetchThread == nil {
 		return nil
 	}
 	id := task.ID
@@ -382,16 +382,26 @@ func (m Model) restOnThread(task store.Task) tea.Cmd {
 
 // askThread asks for a never read thread once per selection: the rest and enter both come here,
 // and a reload of the same task, the engine's event after a poll, must not ask again.
+// A task whose detail is still to load, a pick from the search or a jump, is asked for when the load lands.
+// The mark is set only when a request goes out, a state that sends nothing, offline or the account question, leaves the task for a later ask.
 func (m *Model) askThread(id string) tea.Cmd {
-	if m.detail.task.ID != id || m.detail.task.ThreadReadAt != "" || store.IsLocalID(id) || m.threadAsked == id {
+	if m.detail.task.ID != id {
+		m.threadWanted = id
 		return nil
 	}
-	m.threadAsked = id
-	return m.fetchThread(id)
+	if m.detail.task.ThreadReadAt != "" || m.threadAsked == id {
+		return nil
+	}
+	cmd := m.fetchThread(id)
+	if cmd != nil {
+		m.threadAsked = id
+	}
+	return cmd
 }
 
-// fetchThread asks the engine for a never read thread through the hook, the way reach does for a task.
-// Nothing on screen waits for it: the engine's event reloads the detail when the read lands, a failure is logged.
+// fetchThread asks the engine for a never read thread through the hook, the way reach does for a task, and reports the outcome.
+// Nothing on screen waits for it: the engine's event reloads the detail when the read lands,
+// and a failure clears the mark so a later rest or enter asks again.
 func (m Model) fetchThread(id string) tea.Cmd {
 	hook, offline, waiting := m.opts.Hooks.FetchThread, m.opts.Offline, m.status.state == "another_account"
 	if hook == nil || offline || waiting {
@@ -400,10 +410,8 @@ func (m Model) fetchThread(id string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), threadReadTimeout)
 		defer cancel()
-		if _, err := hook(ctx, id); err != nil {
-			slog.Warn("thread fetch", "task", id, "error", err)
-		}
-		return nil
+		_, err := hook(ctx, id)
+		return threadFetchedMsg{id: id, err: err}
 	}
 }
 
