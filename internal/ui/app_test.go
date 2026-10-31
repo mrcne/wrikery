@@ -234,6 +234,16 @@ func TestTaskActionGoldens(t *testing.T) {
 		waitAfter(t, tm, from, "Task not found")
 		golden.RequireEqual(t, []byte(finalView(t, tm)))
 	})
+	t.Run("inbox", func(t *testing.T) {
+		st := seededStore(t)
+		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		waitFor(t, tm, "-- Comments (")
+		from := mark(t, tm)
+		press(tm, "@")
+		waitAfter(t, tm, from, "Inbox, last 30 days")
+		waitAfter(t, tm, from, "mentioned you")
+		golden.RequireEqual(t, []byte(finalView(t, tm)))
+	})
 }
 
 func TestSidebarShowsFollowedSpaces(t *testing.T) {

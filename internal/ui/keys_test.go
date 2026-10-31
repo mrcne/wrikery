@@ -40,7 +40,7 @@ func TestDefaultKeyMapMatchesTheKeysItAdvertises(t *testing.T) {
 
 func TestKeyGroupsFollowTheOverlay(t *testing.T) {
 	groups := KeyGroups()
-	want := []string{"Everywhere", "The list", "The task", "The board", "The timesheet", "The changes screen", "The settings screen"}
+	want := []string{"Everywhere", "The list", "The task", "The board", "The timesheet", "The changes screen", "The inbox", "The settings screen"}
 	if len(groups) != len(want) {
 		t.Fatalf("%d groups, want %d", len(groups), len(want))
 	}
@@ -73,5 +73,8 @@ func TestKeyGroupsFollowTheOverlay(t *testing.T) {
 	}
 	if !has(groups[5], "r") || !has(groups[5], "x") {
 		t.Errorf("the changes screen lacks r or x: %+v", groups[5])
+	}
+	if !has(groups[0], "@") || !has(groups[6], "enter") {
+		t.Errorf("the inbox key is missing from Everywhere or enter from the inbox: %+v, %+v", groups[0], groups[6])
 	}
 }

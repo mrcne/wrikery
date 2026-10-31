@@ -60,7 +60,8 @@ In the sidebar, the list and the task detail, ctrl+d, ctrl+u, page down and page
 In the sidebar `/` filters the tree by name and shows the matches with the folders above them, Enter keeps the filter and Esc clears it with the match still selected.
 Space in the sidebar pins the space, project or folder under the cursor, and `P` shows only the pinned ones, with their parents and whatever is open under them.
 The pins and the toggle are kept across restarts.
-A jump to a task, from the search, the changes screen or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
+`@` opens the inbox, the comments addressed to you, see Inbox below.
+A jump to a task, from the search, the changes screen, the inbox or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `.` lists every action on the selected task with its key, narrowed as you type, enter runs the highlighted one and esc closes the list.
@@ -87,7 +88,7 @@ The logged time counts every person's entries on the task, the queued ones inclu
 Where the budget lives is a setting, see `[budget]` under Config, and on an account whose plan has no custom fields or no Effort field the line shows the logged time only.
 Below it, when the task has them, a list of its subtasks and a list of its dependencies, then the comment thread and the time entries.
 A task whose comments and time entries were never synced says `not synced yet` under both, the read runs when the cursor rests on the task for a second or you open it with enter, and the lines go when it lands.
-New comments and time entries on any cached task arrive with the next sync whether or not you opened the task.
+New comments and time entries on any cached task arrive with the next sync whether or not you opened the task, and the inbox lists the comments addressed to you.
 A subtask line starts with the status glyph in its color, a done one is muted.
 A dependency line names the other task and whether it is a predecessor, a task this one comes after, or a successor, one it comes before, followed by the relation type as Wrike words it, finish to start and the like, and the lag in work days or hours, written as a lead when the successor may start early.
 A related task that lives in a space you do not follow is fetched on its own at the next sync when the task you look at is one you follow, and until then, or when Wrike does not share it with you, the line says so instead of a title.
@@ -215,6 +216,21 @@ Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goe
 A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
+
+### Inbox
+
+`@` opens the inbox: the comments other people wrote in the last thirty days on the tasks you follow in Wrike, and the comments that mention you, newest first.
+A row shows the task, the author and the comment on one line with the time at the end, `Fix auth retry loop  Ada Nowak: the staging run is green...  2 h ago`.
+A comment that mentions you, by name or through `@assignees` on a task you are assigned to, reads `Ada Nowak mentioned you: ` instead.
+The row under the cursor shows the comment in full below it, up to three lines.
+A row you have not looked at yet starts with `*`, and the status bar counts those rows, `2 unread`, so a new comment is noticed without opening the screen.
+Leaving the screen, with esc, by opening a task or by quitting, marks the rows that were on screen as seen, and a row that reaches the cache later is unread whatever its date, an older comment of a task that was just assigned to you for example.
+That marker is this machine's: Wrike's own inbox is not read and reading there does not clear it, nor the other way round.
+On a fresh cache the inbox starts with the first week of comments and older ones come in as their threads are read.
+Enter opens the task the way the changes screen does, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back.
+A mention of you on a task outside the spaces you follow is fetched on its own and stays cached for thirty days, like a task opened by its link.
+What the inbox cannot show: a comment on a task you follow that lives outside the spaces you follow, when it does not mention you, and a mention of a group you belong to.
+Your own comments never show.
 
 ### Timesheet
 
@@ -377,7 +393,7 @@ The interface, when it is running at the same time, is told to re-read the cache
 The `ui` commands act on the interface that is running instead of the cache, through a socket next to the database, and print what it did.
 `wrikery ui filter` narrows the list and the board the way the filter box does, with `--importance` and `--status` repeated for each level or status and one `--person`, and replaces the filter in place, `wrikery ui filter --clear` is `F`.
 `wrikery ui select T` shows a task the way a pick from the search does, `wrikery ui folder F` opens a space, project or folder the way enter on it in the sidebar does, and `me` is My tasks.
-`wrikery ui list` and `wrikery ui board` set the shape, `wrikery ui open tasks|timesheet|changes|settings` a screen, and `wrikery ui refresh` is `R`.
+`wrikery ui list` and `wrikery ui board` set the shape, `wrikery ui open tasks|timesheet|changes|inbox|settings` a screen, and `wrikery ui refresh` is `R`.
 A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
 With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.

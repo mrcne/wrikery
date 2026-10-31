@@ -105,6 +105,7 @@ const (
 	screenMain screen = iota
 	screenTimesheet
 	screenChanges
+	screenInbox
 	screenSettings
 	screenFirstRun
 )
@@ -143,6 +144,7 @@ type Model struct {
 	detail        taskDetailModel
 	search        searchModel
 	changes       changesModel
+	inbox         inboxModel
 	timesheet     timesheetModel
 	settings      settingsModel
 	dialog        dialog
@@ -166,6 +168,7 @@ func New(o Options) Model {
 	m.detail.keys = m.keys
 	m.search = newSearch(m.keys)
 	m.changes.keys = m.keys
+	m.inbox.keys = m.keys
 	m.timesheet.keys = m.keys
 	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
 	m.settings.setSignedIn(o.SignedInWith, o.SignedInApp)
@@ -283,10 +286,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncPaneSizes()
 		// The tree needs meID for the open task count and statuses for the project glyphs, both live on ref,
 		// and the detail's budget was resolved against the custom fields of its load, so the task is read again with these.
-		cmds := []tea.Cmd{m.loadTree(), m.reloadTask()}
+		// The inbox count needs the user's id, which arrives here, and a contact change can rename an author on the screen.
+		cmds := []tea.Cmd{m.loadTree(), m.reloadTask(), m.loadUnread()}
 		if m.screen == screenTimesheet {
 			// The row glyphs were resolved against the reference data of their load, the week is read again with this one.
 			cmds = append(cmds, m.loadWeek(m.timesheet.weekStart))
+		}
+		if m.screen == screenInbox {
+			cmds = append(cmds, m.loadInbox())
 		}
 		return m, tea.Batch(cmds...)
 	case treeLoadedMsg:
@@ -509,7 +516,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.search, cmd = m.search.Update(msg)
 		return m, cmd
 	case openTaskMsg:
-		return m.jumpToTask(msg.task.ID, msg.task.ParentIDs, m.mine(msg.task.ResponsibleIDs))
+		var leaving tea.Cmd
+		if m.screen == screenInbox {
+			leaving = m.leaveInbox()
+		}
+		next, cmd := m.jumpToTask(msg.task.ID, msg.task.ParentIDs, m.mine(msg.task.ResponsibleIDs))
+		return next, tea.Batch(cmd, leaving)
 	case reachMsg:
 		return m, m.reach(msg)
 	case reachedMsg:
@@ -592,6 +604,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.status.show("the queue goes to the new account", false)
 	case changesLoadedMsg:
 		m.changes.set(msg.rows)
+	case inboxLoadedMsg:
+		// A load that lands after the screen was left would be rows nobody saw, the next open loads its own.
+		if m.screen == screenInbox {
+			m.inbox.set(msg.rows, msg.seenTo)
+		}
+	case inboxUnreadMsg:
+		m.status.unread = msg.count
 		return m, nil
 	case weekLoadedMsg:
 		m.timesheet.set(msg)
@@ -801,8 +820,8 @@ func (m Model) onSyncState(state string) (tea.Model, tea.Cmd) {
 		}
 	case "auth_required":
 		if m.screen != screenFirstRun {
-			// The way back lands on the main screen, which must not find the pane beside the grid still open.
-			cmd = m.closeTimesheetDetail()
+			// The way back lands on the main screen, which must not find the pane beside the grid still open, and the inbox writes what was read.
+			cmd = m.leaveScreen()
 			m.screen = screenFirstRun
 			notice := "Wrike did not accept the stored token. Paste it again to continue."
 			switch {
@@ -837,6 +856,13 @@ func (m Model) reload(entities []string) tea.Cmd {
 	}
 	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") || slices.Contains(entities, "timelogs") || slices.Contains(entities, "dependencies") {
 		cmds = append(cmds, m.reloadTask())
+	}
+	// A comment or a follow flag can add an inbox row, the count follows and so does the screen when it is open.
+	if slices.Contains(entities, "tasks") || slices.Contains(entities, "comments") {
+		cmds = append(cmds, m.loadUnread())
+		if m.screen == screenInbox {
+			cmds = append(cmds, m.loadInbox())
+		}
 	}
 	// A task change can be a status, and the row glyph is resolved when the week loads.
 	if (slices.Contains(entities, "timelogs") || slices.Contains(entities, "tasks")) && m.screen == screenTimesheet {
@@ -1118,7 +1144,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if d, ok := m.dialog.(editorWindowDialog); ok {
 			_ = os.Remove(d.path)
 		}
-		return m, tea.Quit
+		return m.quit()
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
 		if msg.Type == tea.KeyEsc {
@@ -1179,13 +1205,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sidebar.filtering {
 		return m, m.updateSidebar(msg)
 	}
-	if m.screen == screenChanges || m.screen == screenTimesheet || m.screen == screenSettings {
+	if m.screen == screenChanges || m.screen == screenInbox || m.screen == screenTimesheet || m.screen == screenSettings {
 		// Only the keys that make sense with no task on screen fall through:
 		// everything else would otherwise reach whatever task the main screen had last selected,
 		// underneath the box this screen is showing instead, the task action keys below included.
 		switch {
 		case key.Matches(msg, m.keys.Quit):
-			return m, tea.Quit
+			return m.quit()
 		case key.Matches(msg, m.keys.Help):
 			m.overlay = overlayHelp
 			return m, nil
@@ -1196,6 +1222,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.refresh()
 		case key.Matches(msg, m.keys.Changes) && m.screen != screenChanges:
 			cmd := m.openScreen(screenChanges)
+			return m, cmd
+		case key.Matches(msg, m.keys.Inbox) && m.screen != screenInbox:
+			cmd := m.openScreen(screenInbox)
 			return m, cmd
 		case key.Matches(msg, m.keys.Timesheet) && m.screen != screenTimesheet:
 			cmd := m.openScreen(screenTimesheet)
@@ -1209,13 +1238,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				closing := m.closeTimesheetDetail()
 				return m, closing
 			}
+			leaving := m.leaveScreen()
 			m.screen = screenMain
-			return m, nil
+			return m, leaving
 		}
 		var cmd tea.Cmd
 		switch m.screen {
 		case screenChanges:
 			m.changes, cmd = m.changes.Update(msg)
+		case screenInbox:
+			m.inbox, cmd = m.inbox.Update(msg)
 		case screenTimesheet:
 			return m.timesheetKey(msg)
 		default:
@@ -1239,6 +1271,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case key.Matches(msg, m.keys.Changes):
 		cmd := m.openScreen(screenChanges)
+		return m, cmd
+	case key.Matches(msg, m.keys.Inbox):
+		cmd := m.openScreen(screenInbox)
 		return m, cmd
 	case key.Matches(msg, m.keys.Settings):
 		cmd := m.openScreen(screenSettings)
@@ -1621,6 +1656,8 @@ func (m Model) View() string {
 		body = m.firstRun.View(m.theme, m.width, bodyHeight)
 	case screenChanges:
 		body = m.viewChanges(bodyHeight)
+	case screenInbox:
+		body = m.theme.box(fmt.Sprintf("Inbox, last %d days", store.InboxDays), m.inbox.View(m.theme, m.opts.Now(), m.width-2, bodyHeight-2), m.width, bodyHeight, true)
 	case screenTimesheet:
 		body = m.viewTimesheet(bodyHeight)
 	case screenSettings:
@@ -1668,6 +1705,7 @@ func (m *Model) syncPaneSizes() {
 	}
 	// The changes screen replaces the whole body with one box, its inner height mirrors what viewChanges gives its View.
 	m.changes.height = max(0, m.height-3)
+	m.inbox.height = max(0, m.height-3)
 	// Same box, same formula: the timesheet screen also replaces the whole body with one box.
 	m.timesheet.height = max(0, m.height-3)
 }
@@ -1769,6 +1807,9 @@ func (m Model) hintBindings() []key.Binding {
 	if m.screen == screenChanges {
 		return []key.Binding{m.keys.Retry, m.keys.Discard, m.keys.Enter, m.keys.Back}
 	}
+	if m.screen == screenInbox {
+		return []key.Binding{m.keys.Enter, m.keys.Back}
+	}
 	if m.screen == screenTimesheet {
 		if m.timesheet.detailFocus {
 			return []key.Binding{m.keys.Up, m.keys.Down, m.keys.Status, m.keys.Comment, m.keys.LogTime, m.keys.Enter, m.keys.NextPane, m.keys.Back}
@@ -1846,6 +1887,9 @@ func (m Model) folderCrumbs() map[string]string {
 func (m Model) helpGroups() [][]key.Binding {
 	if m.screen == screenChanges {
 		return [][]key.Binding{m.keys.global(), m.keys.changes()}
+	}
+	if m.screen == screenInbox {
+		return [][]key.Binding{m.keys.global(), m.keys.inbox()}
 	}
 	if m.screen == screenTimesheet {
 		if m.timesheet.detailFocus {

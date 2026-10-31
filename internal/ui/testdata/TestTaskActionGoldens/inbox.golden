@@ -1,0 +1,40 @@
++- Inbox, last 30 days ------------------------------------------------------------------------------------------------+
+|> * Rotate rate limit test  Celina Wrona mentioned you: @Ada Nowak the staging run is green, can you check...  3 h ago|
+|    @Ada Nowak the staging run is green, can you check the retry counts?                                              |
+|  * Refactor sync cursor  Dawid Mroz mentioned you: @assignees the deploy window moved to Thursday.  yesterday        |
+|    Remove signing keys  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday                   |
+|    Rotate timesheet export  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday               |
+|    Investigate legacy config l...  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday        |
+|    Refactor rate limit test  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday              |
+|    Write tests for search ranking  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday        |
+|    Bump dependencies  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday                     |
+|    Document rate limit test  Ewa Zajac: Leaving the old flag in place until the mobile build ships.  yesterday       |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
+|                                                                                                                      |
++----------------------------------------------------------------------------------------------------------------------+
+ demo  * synced 0 s ago  1 pending  2 failed  2 unread                                             enter open  esc back 

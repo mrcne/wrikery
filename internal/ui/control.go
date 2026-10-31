@@ -62,9 +62,13 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		next, _ := m.answer(msg, text, nil)
 		return next, cmd
 	case OpSelect:
+		var leaving tea.Cmd
+		if m.screen == screenInbox {
+			leaving = m.leaveInbox()
+		}
 		next, cmd := m.jumpToTask(msg.TaskID, msg.ParentIDs, m.mine(msg.ResponsibleIDs))
 		msg.send("selected", nil)
-		return next, cmd
+		return next, tea.Batch(cmd, leaving)
 	case OpFolder:
 		if !m.sidebar.reveal(msg.FolderID) {
 			return m.answer(msg, "", errors.New("not in the sidebar, follow its space"))
@@ -72,7 +76,7 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		// Enter on the node: the main screen, the node selected, its tasks loaded, the keys on the list.
 		// The pin changes reveal may have queued are written before the reply, on the model that is returned.
 		n, _ := m.sidebar.current()
-		closing := m.closeTimesheetDetail()
+		closing := m.leaveScreen()
 		m.screen, m.selectedNode = screenMain, n
 		m.focus = paneList
 		if m.shape == shapeBoard {
@@ -105,10 +109,12 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 			want = screenTimesheet
 		case "changes":
 			want = screenChanges
+		case "inbox":
+			want = screenInbox
 		case "settings":
 			want = screenSettings
 		default:
-			return m.answer(msg, "", fmt.Errorf("no screen %q, tasks, timesheet, changes or settings", msg.Screen))
+			return m.answer(msg, "", fmt.Errorf("no screen %q, tasks, timesheet, changes, inbox or settings", msg.Screen))
 		}
 		cmd := m.openScreen(want)
 		next, _ := m.answer(msg, msg.Screen, nil)
@@ -156,14 +162,13 @@ func (m *Model) openScreen(s screen) tea.Cmd {
 	if m.screen == s {
 		return nil
 	}
-	var closing tea.Cmd
-	if m.screen == screenTimesheet {
-		closing = m.closeTimesheetDetail()
-	}
+	closing := m.leaveScreen()
 	m.screen = s
 	switch s {
 	case screenChanges:
 		return tea.Batch(closing, m.loadChanges())
+	case screenInbox:
+		return tea.Batch(closing, m.loadInbox())
 	case screenTimesheet:
 		return tea.Batch(closing, m.loadWeek(time.Time{}))
 	case screenSettings:

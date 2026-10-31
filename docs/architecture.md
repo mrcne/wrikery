@@ -74,6 +74,9 @@ Most of the mapping is direct, so only three parts need explaining:
 
 - tasks keep their dates in flat columns, with task_responsibles, task_parents, task_supertasks and task_dependencies as join tables.
   The subtasks of a task are the tasks that name it in task_supertasks, nothing is kept on the parent, because adding a subtask on Wrike leaves the parent's updatedDate alone and a list on the parent would go stale.
+  A task also carries whether the user follows it, the flag the inbox reads.
+- comments keep the text as the thread shows it, the users the comment mentions, a list of ids with `@assignees` and `@followers` for the group forms, read from the anchors of the HTML form before the text is stripped, and when the row entered the cache, set once and kept by every later write of the row.
+  An index on the creation date bounds the inbox query to its window, a year of comments on a large account is hundreds of thousands of rows.
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
@@ -93,6 +96,9 @@ The scopes table lists the followed spaces and projects, plus one row for the us
 Each row remembers how far the last sync got.
 Unfollowing a scope clears that memory, so following it again later pulls it from the start instead of asking only for the changes since the day it was dropped.
 The pins table lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
+The inbox's seen marker is one meta row, the arrival stamp of the newest row the user had on screen, and a row is unread when it arrived after the marker.
+Arrival and not creation, because comments do not enter the cache in creation order: a task cached late, a task the user starts following, or a thread read on an open brings comments older than what was seen already, and those must still show as unread.
+The marker only moves forward, a second interface on the cache with an older list cannot star rows again, and a move to another person forgets it.
 The outbox table holds the queued writes, and for thirty days the sent and discarded ones, and is described below.
 
 ## Getting changes from Wrike
@@ -108,6 +114,16 @@ Each read keeps a cursor in the meta table and starts ten minutes before it, for
 The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
 The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
 Both reads keep only the rows of cached tasks, the comments of folders are dropped too, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
+The comment reads, this one and the per task one, ask for the HTML form of a comment, because a mention is an anchor in it, `<a class="stream-user-id avatar" rel="KUAAAAAA">@Name</a>`, and the plain form the API can answer instead keeps only the name (https://developers.wrike.com/docs/special-syntax, checked on the live account).
+The text is reduced to what the thread shows before it is stored, with a `<br>` kept as a line break the way the plain form kept it, and the mentions are kept beside it.
+A comment that mentions the user on a task the cache lacks fetches that task in the same step, one request for the step, and the task is a reached task from then on, see below.
+A failure of that fetch is logged and the step's comments are still written, the fetch is an extra for the inbox and must not hold the comments of every cached task behind one task whose answer fails.
+A cache from before the inbox reads the month of comments again once, four windows, so the rows of the window carry their mentions, a fresh cache reads its first week as before.
+Only a mention by id counts there, a group form cannot be judged without the task, and a comment on a followed task outside the followed scopes stays out, the read cannot tell such a task from any other without fetching it.
+The follow flag comes with every task: the scope pulls ask for `followerIds`, which brings `followedByMe` with it, the query refuses `followedByMe` as a field name of its own, and the reads by id and the write answers carry both unasked (checked on the live account).
+A name added to the set of fields the pulls ask for makes the next cycle pull every followed scope from the start once, the way a new column does, so a cache built before the field has it on every task after one full pull.
+Following a task moves its updatedDate and unfollowing does not (checked on the live account), so a task the user stopped following keeps the flag until it changes for another reason.
+The inbox is one query over the comments of the last thirty days joined with their task: the comments of other people on followed tasks, and the ones whose mention list names the user or `@assignees` on a task the user is responsible for, with a count of the rows after the seen marker for the status bar.
 Any other failure is logged as well and the cycle goes on: the comments read keeps the end of the last step that completed and the time entry read, one request, keeps its cursor as it was, so the next cycle asks what is still missing.
 The reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.

@@ -19,6 +19,7 @@ It browses the spaces, projects and folders you follow, shows a task with its de
 It keeps a local copy of what you follow in one SQLite file, so browsing and search are instant and reading works offline.
 A change is applied to that copy at once and waits in a queue, which is sent when Wrike can be reached.
 The changes screen, !, lists what went out over the last thirty days with the old and the new values, and the writes that failed, for a retry or a discard.
+The inbox, @, lists the comments other people wrote on the tasks you follow and the ones that mention you, with a count of the unread ones in the status bar.
 .PP
 Without a command it opens the interface.
 With a command it runs one operation on the same local copy and exits, for scripts and agents, with \-\-json for a script.
@@ -253,9 +254,9 @@ Switches the interface that is running to the board over workflow statuses.
 print JSON
 .RE
 .SS ui open
-.B "wrikery ui open tasks|timesheet|changes|settings"
+.B "wrikery ui open tasks|timesheet|changes|inbox|settings"
 .PP
-Opens one screen of the interface that is running: tasks, timesheet, changes or settings.
+Opens one screen of the interface that is running: tasks, timesheet, changes, inbox or settings.
 .RS
 .TP
 .B \-\-json
@@ -293,6 +294,9 @@ timesheet
 .TP
 .B !
 changes
+.TP
+.B @
+inbox
 .TP
 .B ,
 settings
@@ -522,6 +526,28 @@ retry
 .TP
 .B x
 discard
+.TP
+.B enter
+open
+.SS The inbox
+.TP
+.B "j, down"
+down
+.TP
+.B "k, up"
+up
+.TP
+.B "g, home"
+first
+.TP
+.B "G, end"
+last
+.TP
+.B "ctrl+d, pgdown"
+half page down
+.TP
+.B "ctrl+u, pgup"
+half page up
 .TP
 .B enter
 open

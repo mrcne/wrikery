@@ -18,6 +18,7 @@ func KeyGroups() []KeyGroup {
 		{Title: "The board", Keys: k.board()},
 		{Title: "The timesheet", Keys: k.timesheet()},
 		{Title: "The changes screen", Keys: k.changes()},
+		{Title: "The inbox", Keys: k.inbox()},
 		{Title: "The settings screen", Keys: k.settings()},
 	}
 }

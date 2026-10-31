@@ -52,9 +52,9 @@ F is an id or a part of its title, me is My tasks.`,
 	}
 	cmdUIOpen = Command{
 		Name:     "ui open",
-		Synopsis: []string{"ui open tasks|timesheet|changes|settings"},
+		Synopsis: []string{"ui open tasks|timesheet|changes|inbox|settings"},
 		Short:    "open one screen of the running interface",
-		Notes:    "Opens one screen of the interface that is running: tasks, timesheet, changes or settings.",
+		Notes:    "Opens one screen of the interface that is running: tasks, timesheet, changes, inbox or settings.",
 		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui open", new(bool)) },
 	}
 	cmdUIRefresh = Command{
@@ -263,12 +263,12 @@ func runUIOpen(ctx context.Context, env Env, args []string) int {
 		return code
 	}
 	if len(positional) != 1 {
-		return usageError(env, fs, cmdUIOpen.usage(), "ui open takes one screen, tasks, timesheet, changes or settings")
+		return usageError(env, fs, cmdUIOpen.usage(), "ui open takes one screen, tasks, timesheet, changes, inbox or settings")
 	}
 	switch positional[0] {
-	case "tasks", "timesheet", "changes", "settings":
+	case "tasks", "timesheet", "changes", "inbox", "settings":
 	default:
-		return usageError(env, fs, cmdUIOpen.usage(), fmt.Sprintf("no screen %q, tasks, timesheet, changes or settings", positional[0]))
+		return usageError(env, fs, cmdUIOpen.usage(), fmt.Sprintf("no screen %q, tasks, timesheet, changes, inbox or settings", positional[0]))
 	}
 	return uiCall(ctx, env, control.Request{Op: control.OpScreen, Screen: positional[0]}, asJSON, "")
 }

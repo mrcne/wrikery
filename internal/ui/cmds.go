@@ -766,3 +766,115 @@ func (m Model) verifyToken(token string) tea.Cmd {
 		return tokenVerifiedMsg{name: name, err: err}
 	}
 }
+
+// loadInbox reads the rows of the inbox screen and resolves what they name: the author's name, and the task for the jump.
+// The tasks come in one list read, its columns carry the folders and the people the jump needs and skip the description,
+// where a read of each task would cost six queries per row on every store change.
+// A task gone between the two reads keeps the row with the title the inbox row carries and no task id, so enter says so instead of jumping.
+// Nothing is read without the user's id, the inbox is empty before the first sync wrote it.
+func (m Model) loadInbox() tea.Cmd {
+	st, ref, nowFn := m.opts.Store, m.ref, m.opts.Now
+	return func() tea.Msg {
+		if ref.meID == "" {
+			return inboxLoadedMsg{}
+		}
+		ctx, now := context.Background(), nowFn()
+		seenTo, err := st.GetMeta(ctx, store.MetaKeyInboxSeenTo)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return errMsg{err}
+		}
+		since := now.AddDate(0, 0, -store.InboxDays).UTC().Format(time.RFC3339)
+		all, err := st.Comments().Inbox(ctx, ref.meID, since, inboxLimit)
+		if err != nil {
+			return errMsg{err}
+		}
+		var ids []string
+		for _, r := range all {
+			if !slices.Contains(ids, r.TaskID) {
+				ids = append(ids, r.TaskID)
+			}
+		}
+		list, err := st.Tasks().ByIDs(ctx, ids)
+		if err != nil {
+			return errMsg{err}
+		}
+		tasks := map[string]store.Task{}
+		for _, t := range list {
+			tasks[t.ID] = t
+		}
+		rows := make([]inboxRow, 0, len(all))
+		for _, r := range all {
+			rows = append(rows, inboxRow{row: r, author: contactName(r.AuthorID, ref), task: tasks[r.TaskID]})
+		}
+		return inboxLoadedMsg{rows: rows, seenTo: seenTo}
+	}
+}
+
+func (m Model) loadUnread() tea.Cmd {
+	st, meID, nowFn := m.opts.Store, m.ref.meID, m.opts.Now
+	return func() tea.Msg {
+		n, err := unreadCount(context.Background(), st, meID, nowFn())
+		if err != nil {
+			return errMsg{err}
+		}
+		return inboxUnreadMsg{count: n}
+	}
+}
+
+// unreadCount is zero without the user's id, before the first sync wrote it nothing is addressed to anyone.
+func unreadCount(ctx context.Context, st *store.Store, meID string, now time.Time) (int, error) {
+	if meID == "" {
+		return 0, nil
+	}
+	seenTo, err := st.GetMeta(ctx, store.MetaKeyInboxSeenTo)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	since := now.AddDate(0, 0, -store.InboxDays).UTC().Format(time.RFC3339)
+	return st.Comments().InboxUnread(ctx, meID, since, seenTo)
+}
+
+// leaveInbox writes the seen marker from the newest arrival drawn since the load and reads the count again in the same command,
+// so the bar drops once the marker is in.
+// A screen that drew nothing writes nothing, there was nothing to see.
+func (m Model) leaveInbox() tea.Cmd {
+	seen := m.inbox.seen
+	if seen == "" {
+		return nil
+	}
+	st, meID, nowFn := m.opts.Store, m.ref.meID, m.opts.Now
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := st.Comments().MarkInboxSeen(ctx, seen); err != nil {
+			return errMsg{err}
+		}
+		n, err := unreadCount(ctx, st, meID, nowFn())
+		if err != nil {
+			return errMsg{err}
+		}
+		return inboxUnreadMsg{count: n}
+	}
+}
+
+// leaveScreen is what every way off a full screen runs first: the pane beside the timesheet grid closes,
+// and the inbox writes what was read. A screen change that skips it leaves the rows read unread again at the next start.
+func (m *Model) leaveScreen() tea.Cmd {
+	switch m.screen {
+	case screenTimesheet:
+		return m.closeTimesheetDetail()
+	case screenInbox:
+		return m.leaveInbox()
+	}
+	return nil
+}
+
+// quit writes the inbox marker on the spot when the inbox is up: a quit waits for no command, and the write is one row.
+// Nothing shows an error at a quit, so a failed write is logged and the rows read are unread again at the next start.
+func (m Model) quit() (tea.Model, tea.Cmd) {
+	if m.screen == screenInbox && m.inbox.seen != "" {
+		if err := m.opts.Store.Comments().MarkInboxSeen(context.Background(), m.inbox.seen); err != nil {
+			slog.Error("ui", "error", err)
+		}
+	}
+	return m, tea.Quit
+}
