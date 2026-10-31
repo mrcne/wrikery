@@ -160,14 +160,9 @@ func (m Model) loadTree() tea.Cmd {
 		covered := map[string]bool{}
 		open := 0
 		if meID != "" {
-			mine, err := st.Tasks().ListForResponsible(ctx, meID)
+			open, err = st.Tasks().CountOpenForResponsible(ctx, meID)
 			if err != nil {
 				return errMsg{err}
-			}
-			for _, t := range mine {
-				if !isDone(t) {
-					open++
-				}
 			}
 		}
 		nodes = append(nodes, treeNode{id: store.ScopeKindMe, title: "My tasks", kind: nodeMe, count: open})

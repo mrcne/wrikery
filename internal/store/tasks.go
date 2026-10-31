@@ -28,6 +28,8 @@ type TaskRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
+	// CountOpenForResponsible is how many of a person's tasks are neither completed nor cancelled, the number next to My tasks in the sidebar.
+	CountOpenForResponsible(ctx context.Context, contactID string) (int, error)
 	// Subtasks lists the tasks that name the given one as a super task, in list order.
 	Subtasks(ctx context.Context, superID string) ([]Task, error)
 	// ByIDs returns the cached tasks among the ids in list order, an unknown id is left out.
@@ -469,6 +471,8 @@ const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importan
 const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
 	NULLIF(t.dates_due, '') IS NULL, NULLIF(t.dates_due, ''), t.updated_date DESC`
 
+// A task in two folders of the tree has two task_parents rows and the IN keeps it once.
+// A join with DISTINCT over the row did the same and was half of the query's time at five thousand rows.
 func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
 	return t.list(ctx, `
 		WITH RECURSIVE tree(id) AS (
@@ -476,9 +480,8 @@ func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, er
 			UNION
 			SELECT fc.child_id FROM folder_children fc JOIN tree ON fc.parent_id = tree.id
 		)
-		SELECT DISTINCT `+taskListColumns+` FROM tasks t
-		JOIN task_parents tp ON tp.task_id = t.id
-		JOIN tree ON tree.id = tp.folder_id
+		SELECT `+taskListColumns+` FROM tasks t
+		WHERE t.id IN (SELECT tp.task_id FROM task_parents tp JOIN tree ON tree.id = tp.folder_id)
 		`+taskListOrder, folderID)
 }
 
@@ -507,6 +510,17 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 		SELECT `+taskListColumns+` FROM tasks t
 		JOIN task_responsibles tr ON tr.task_id = t.id
 		WHERE tr.contact_id = ? `+taskListOrder, contactID)
+}
+
+// A count and not the list: the sidebar is read again on every sync cycle that changed a task,
+// and the list of a person with thousands of tasks cost a hundred milliseconds and sixteen megabytes each time.
+func (t taskRepo) CountOpenForResponsible(ctx context.Context, contactID string) (int, error) {
+	var n int
+	err := t.r.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM tasks t
+		JOIN task_responsibles tr ON tr.task_id = t.id
+		WHERE tr.contact_id = ? AND t.status NOT IN ('Completed', 'Cancelled')`, contactID).Scan(&n)
+	return n, err
 }
 
 // FindByTitle is the lookup behind a title fragment on the command line.
@@ -570,11 +584,13 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 	}
 	defer func() { _ = rows.Close() }()
 	var out []Task
+	// One row value for the whole scan: a fresh one per row escaped to the heap through Scan, an allocation of the struct for every row of a long list.
+	var task Task
+	var dType, dStart, dDue sql.NullString
+	var dDur sql.NullInt64
+	var resp, parents string
 	for rows.Next() {
-		var task Task
-		var dType, dStart, dDue sql.NullString
-		var dDur sql.NullInt64
-		var resp, parents string
+		task = Task{}
 		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
 			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
 			&task.LastOpenedAt, &task.ThreadReadAt, &task.FollowedByMe, &resp, &parents); err != nil {

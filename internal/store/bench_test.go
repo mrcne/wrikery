@@ -60,6 +60,14 @@ func BenchmarkQueries(b *testing.B) {
 			}
 		}
 	})
+	b.Run("CountOpenForResponsible", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if n, err := st.Tasks().CountOpenForResponsible(ctx, demo.MeID); err != nil || n == 0 {
+				b.Fatal(err, n)
+			}
+		}
+	})
 	b.Run("FindByTitle", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

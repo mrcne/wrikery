@@ -296,6 +296,26 @@ func TestListForResponsible(t *testing.T) {
 	}
 }
 
+func TestCountOpenForResponsibleSkipsTheDoneOnes(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{
+		{ID: "open", Title: "Open", Status: "Active", ResponsibleIDs: []string{"ME"}},
+		{ID: "shared", Title: "Shared", Status: "Deferred", ResponsibleIDs: []string{"ME", "U2"}},
+		{ID: "done", Title: "Done", Status: "Completed", ResponsibleIDs: []string{"ME"}},
+		{ID: "dropped", Title: "Dropped", Status: "Cancelled", ResponsibleIDs: []string{"ME"}},
+		{ID: "theirs", Title: "Theirs", Status: "Active", ResponsibleIDs: []string{"U2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.Tasks().CountOpenForResponsible(ctx, "ME"); err != nil || n != 2 {
+		t.Errorf("open for ME = %d, %v, want 2", n, err)
+	}
+	if n, err := st.Tasks().CountOpenForResponsible(ctx, "NOBODY"); err != nil || n != 0 {
+		t.Errorf("open for nobody = %d, %v, want 0", n, err)
+	}
+}
+
 func TestListRowsCarryParentIDs(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
