@@ -112,6 +112,10 @@ A command run with it compares its account with the one the cache was built from
 	{tag: "VISUAL, EDITOR", text: `The editor E and C open for a description or a longer comment, VISUAL first.
 A command that waits for a window, code --wait, works the same way.`},
 	{tag: "XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME", text: "Override ~/.config, ~/.local/share and ~/.local/state, where the files below live."},
+	{tag: "WRIKERY_PROFILE", text: `A directory the run writes its profiles into, cpu.pprof for the run and heap.pprof at exit, for the interface and the commands alike.
+go tool pprof reads them.`},
+	{tag: "WRIKERY_DEMO_TASKS", text: `A number of generated tasks --demo adds to its sample data, to see the interface at the size of a large account.
+They are seeded on every start, sixty thousand take some seconds.`},
 }
 
 var files = []entry{

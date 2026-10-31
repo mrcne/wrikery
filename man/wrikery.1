@@ -590,6 +590,14 @@ A command that waits for a window, code \-\-wait, works the same way.
 .TP
 .B "XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME"
 Override ~/.config, ~/.local/share and ~/.local/state, where the files below live.
+.TP
+.B WRIKERY_PROFILE
+A directory the run writes its profiles into, cpu.pprof for the run and heap.pprof at exit, for the interface and the commands alike.
+go tool pprof reads them.
+.TP
+.B WRIKERY_DEMO_TASKS
+A number of generated tasks \-\-demo adds to its sample data, to see the interface at the size of a large account.
+They are seeded on every start, sixty thousand take some seconds.
 .SH FILES
 The directories follow the XDG base directory convention on macOS and Linux alike.
 .TP
