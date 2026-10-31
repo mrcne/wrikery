@@ -47,6 +47,21 @@ func TestDemoSocketLivesInTheDataDirectory(t *testing.T) {
 	}
 }
 
+func TestDemoSocketPathFallsBackForALongPathLikeTheRealOne(t *testing.T) {
+	long := config.Paths{DBFile: filepath.Join("/", strings.Repeat("d", 120), "wrike.db")}
+	got := demoSocketPath(long)
+	userDir := filepath.Join("/tmp", fmt.Sprintf("wrikery-%d", os.Getuid()))
+	if len(got) > 100 || !strings.HasSuffix(got, ".sock") || filepath.Dir(got) != userDir {
+		t.Errorf("long = %q, want a short hashed name under the user's own %s", got, userDir)
+	}
+	if got == socketPath(long) {
+		t.Errorf("the demo and the real interface share the fallback socket %q", got)
+	}
+	if again := demoSocketPath(long); again != got {
+		t.Errorf("the fallback must be the same every time, %q then %q", got, again)
+	}
+}
+
 func TestControlOpsMatchTheInterface(t *testing.T) {
 	pairs := map[string]string{
 		control.OpFilter: ui.OpFilter, control.OpSelect: ui.OpSelect, control.OpFolder: ui.OpFolder,

@@ -24,7 +24,14 @@ import (
 // in a directory of the user's own under /tmp instead, computed the same way by the interface and by a command.
 // An empty result means no socket: the interface runs without control and a command finds no interface.
 func socketPath(p config.Paths) string {
-	path := filepath.Join(filepath.Dir(p.DBFile), "wrikery.sock")
+	return socketIn(p, "")
+}
+
+// socketIn is the socket of that suffix beside the database, or when a unix socket path would be too long for the kernel,
+// a hashed name in the user's temp directory, the same for the same database every time.
+// The suffix stays on the hashed name too, so a demo and the real interface of one data directory never share a socket.
+func socketIn(p config.Paths, suffix string) string {
+	path := filepath.Join(filepath.Dir(p.DBFile), "wrikery"+suffix+".sock")
 	if len(path) <= 100 {
 		return path
 	}
@@ -34,7 +41,7 @@ func socketPath(p config.Paths) string {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(p.DBFile))
-	return filepath.Join(dir, hex.EncodeToString(sum[:4])+".sock")
+	return filepath.Join(dir, hex.EncodeToString(sum[:4])+suffix+".sock")
 }
 
 // userTempDir is /tmp/wrikery-<uid>, made 0700 and checked to be the user's own directory,
@@ -60,7 +67,7 @@ func userTempDir() (string, error) {
 // demoSocketPath is where a demo listens: beside the real database, in the user's own data directory,
 // one fixed name since a demo's own data directory is a throwaway nobody can find.
 func demoSocketPath(p config.Paths) string {
-	return filepath.Join(filepath.Dir(p.DBFile), "wrikery-demo.sock")
+	return socketIn(p, "-demo")
 }
 
 // controlWait is how long a request waits for the interface's reply before it is called busy, a variable for the tests.
