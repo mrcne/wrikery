@@ -175,12 +175,14 @@ func taskRow(ctx context.Context, env Env, t store.Task, ref *refData) taskJSON 
 	return row
 }
 
+// printJSON writes the document straight to the output.
+// MarshalIndent and a string of it held a list of thousands of rows three times over before a byte went out.
 func printJSON(env Env, v any) int {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	enc := json.NewEncoder(env.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		return fail(env, err)
 	}
-	_, _ = fmt.Fprintln(env.Stdout, string(b))
 	return exitOK
 }
 
