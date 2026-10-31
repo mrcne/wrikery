@@ -28,6 +28,8 @@ var contacts = []store.Contact{
 	{ID: "KUAAAAD1", FirstName: "Dawid", LastName: "Mroz", Type: "Person", PrimaryEmail: "dawid@example.com"},
 	{ID: "KUAAAAE1", FirstName: "Ewa", LastName: "Zajac", Type: "Person", PrimaryEmail: "ewa@example.com"},
 	{ID: "KUAAAAF1", FirstName: "Filip", LastName: "Gone", Type: "Person", Deleted: true},
+	// A user group with Ada in it, so a comment that mentions the group reaches her inbox.
+	{ID: "KXAAAAG1", FirstName: "Platform team", Type: "Group", MemberIDs: []string{MeID, "KUAAAAB1"}},
 }
 
 var workflows = []store.Workflow{
@@ -143,6 +145,8 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		if i%13 == 0 {
 			t.Importance = "High"
 		}
+		// A followed task is one Ada is on, or one she chose to follow, every third of the others.
+		t.FollowedByMe = row%3 != 1 || i%3 == 0
 		switch row % 3 {
 		case 0:
 			t.ResponsibleIDs = []string{MeID}
@@ -194,6 +198,11 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		return err
 	}
 
+	// A comment enters the demo's cache when it was written, the way a poll soon after would stamp it, so the inbox marker below reads right.
+	clock := func(rfc string) {
+		at, _ := time.Parse(time.RFC3339, rfc)
+		st.Now = func() time.Time { return at }
+	}
 	for i, t := range tasks {
 		row := i / len(taskFolders)
 		if row%3 != 1 {
@@ -203,9 +212,33 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 			{ID: fmt.Sprintf("IEAACMT%02da", i), TaskID: t.ID, AuthorID: "KUAAAAB1", Text: "Reproduced on staging, logs attached in the thread.", CreatedDate: stamp(-1, 15)},
 			{ID: fmt.Sprintf("IEAACMT%02db", i), TaskID: t.ID, AuthorID: MeID, Text: "Taking this one.", CreatedDate: stamp(-3, 11)},
 		}
+		clock(stamp(-1, 15))
 		if err := st.Comments().ReplaceForTask(ctx, t.ID, comments); err != nil {
 			return err
 		}
+	}
+	// Three comments by other people on followed tasks the loop above left alone, for the inbox:
+	// a mention of Ada, one to the assignees of a task she is on, and a plain one.
+	// The seen marker sits between them, so the two later ones are unread and the bar shows the count.
+	for _, cm := range []store.Comment{
+		{ID: "IEAACMTI1", TaskID: tasks[2].ID, AuthorID: "KUAAAAC1", Text: "@Ada Nowak the staging run is green, can you check the retry counts?", CreatedDate: stamp(0, 9), Mentions: []string{MeID}},
+		{ID: "IEAACMTI2", TaskID: tasks[4].ID, AuthorID: "KUAAAAD1", Text: "@assignees the deploy window moved to Thursday.", CreatedDate: stamp(-1, 17), Mentions: []string{"@assignees"}},
+		{ID: "IEAACMTI3", TaskID: tasks[13].ID, AuthorID: "KUAAAAE1", Text: "Leaving the old flag in place until the mobile build ships.", CreatedDate: stamp(-1, 8)},
+	} {
+		clock(cm.CreatedDate)
+		if err := st.Comments().ReplaceForTask(ctx, cm.TaskID, []store.Comment{cm}); err != nil {
+			return err
+		}
+	}
+	// A mention of Ada's group on a task she neither follows nor is on, the group alone brings it into the inbox.
+	clock(stamp(-1, 12))
+	if _, err := st.Comments().UpsertCached(ctx, []store.Comment{{ID: "IEAACMTI4", TaskID: tasks[7].ID, AuthorID: "KUAAAAD1",
+		Text: "@Platform team the build is green again, the retry change can go out.", CreatedDate: stamp(-1, 12), Mentions: []string{store.GroupMentionPrefix + "Platform team"}}}); err != nil {
+		return err
+	}
+	st.Now = func() time.Time { return now }
+	if err := st.SetMeta(ctx, store.MetaKeyInboxSeenTo, stamp(-1, 16)); err != nil {
+		return err
 	}
 
 	// Three weeks of my time on my tasks, weekdays only, so the timesheet has totals to show.

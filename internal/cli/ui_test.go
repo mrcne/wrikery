@@ -170,7 +170,7 @@ func TestUIFolderSendsMeOrTheFolder(t *testing.T) {
 func TestUIShapeOpenAndRefresh(t *testing.T) {
 	env, _, _ := testEnv(t)
 	env, got := uiStub(t, env, control.Reply{OK: true, Text: "done"})
-	for _, args := range [][]string{{"ui", "board"}, {"ui", "list"}, {"ui", "open", "timesheet"}, {"ui", "refresh"}} {
+	for _, args := range [][]string{{"ui", "board"}, {"ui", "list"}, {"ui", "open", "timesheet"}, {"ui", "open", "inbox"}, {"ui", "refresh"}} {
 		if code := Run(context.Background(), env, args); code != exitOK {
 			t.Errorf("%v code = %d", args, code)
 		}
@@ -181,11 +181,11 @@ func TestUIShapeOpenAndRefresh(t *testing.T) {
 	if code := Run(context.Background(), env, []string{"ui", "dance"}); code != exitUsage {
 		t.Errorf("unknown ui command code = %d, want %d", code, exitUsage)
 	}
-	if len(*got) != 4 {
-		t.Fatalf("requests = %+v, want four", *got)
+	if len(*got) != 5 {
+		t.Fatalf("requests = %+v, want five", *got)
 	}
 	if (*got)[0].Op != control.OpShape || (*got)[0].Shape != "board" || (*got)[1].Shape != "list" ||
-		(*got)[2].Op != control.OpScreen || (*got)[2].Screen != "timesheet" || (*got)[3].Op != control.OpRefresh {
+		(*got)[2].Op != control.OpScreen || (*got)[2].Screen != "timesheet" || (*got)[3].Screen != "inbox" || (*got)[4].Op != control.OpRefresh {
 		t.Errorf("requests = %+v", *got)
 	}
 }

@@ -57,8 +57,8 @@ func TestPullScopeInitialThenIncremental(t *testing.T) {
 	if gotParams[0].FolderID != "F1" || !gotParams[0].Descendants {
 		t.Errorf("params = %+v, want the folder query with descendants", gotParams[0])
 	}
-	if strings.Join(gotParams[0].Fields, ",") != "description,responsibleIds,parentIds,superTaskIds,dependencyIds,attachmentCount,customFields" {
-		t.Errorf("fields = %v, the description, the id lists, the attachment count and the custom field values are optional and must be requested", gotParams[0].Fields)
+	if strings.Join(gotParams[0].Fields, ",") != "description,responsibleIds,parentIds,superTaskIds,dependencyIds,attachmentCount,customFields,followerIds" {
+		t.Errorf("fields = %v, the description, the id lists, the attachment count, the custom field values and the followers are optional and must be requested", gotParams[0].Fields)
 	}
 	if !gotParams[0].SubTasks {
 		t.Error("a subtask without a folder of its own is listed only when subtasks are asked for")
@@ -628,5 +628,25 @@ func TestScopePullAsksForTheCustomFields(t *testing.T) {
 	}
 	if !slices.Contains(fields, "customFields") || slices.Contains(fields, "effortAllocation") {
 		t.Errorf("fields = %q, want customFields and no effort without the wrapper", fields)
+	}
+}
+
+func TestPullStoresTheFollowFlag(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	sc := mustScope(t, st, "F1", store.ScopeKindProject)
+	at := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	followed := wtask("T1", "followed", at)
+	followed.FollowedByMe = true
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		return wrike.TasksPage{Tasks: []wrike.Task{followed, wtask("T2", "not followed", at)}}, nil
+	}}
+	if _, err := pullScope(ctx, fc, st, sc, "U1"); err != nil {
+		t.Fatal(err)
+	}
+	one, _ := st.Tasks().Get(ctx, "T1")
+	two, _ := st.Tasks().Get(ctx, "T2")
+	if !one.FollowedByMe || two.FollowedByMe {
+		t.Errorf("followed = %v, %v, want the flag the query answered", one.FollowedByMe, two.FollowedByMe)
 	}
 }

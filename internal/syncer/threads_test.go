@@ -29,7 +29,7 @@ func TestPullCommentsWritesCachedTasksAndMovesTheCursor(t *testing.T) {
 			{ID: "C3", AuthorID: "U2", Text: "on a folder", CreatedDate: now.Add(-time.Hour)},
 		}, nil
 	}}
-	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now)
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
 	if err != nil || !changed {
 		t.Fatalf("pullComments = %v, %v, want a change", changed, err)
 	}
@@ -45,7 +45,7 @@ func TestPullCommentsWritesCachedTasksAndMovesTheCursor(t *testing.T) {
 	// The next cycle reads from ten minutes before the cursor, and nothing new is no change.
 	asked = nil
 	later := now.Add(time.Minute)
-	changed, err = pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, later)
+	changed, err = pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, later)
 	if err != nil || changed {
 		t.Errorf("second pull = %v, %v, want no change for the same rows", changed, err)
 	}
@@ -75,7 +75,7 @@ func TestPullCommentsStepsThroughALongGapAndSplitsAFullWindow(t *testing.T) {
 		}
 		return []wrike.Comment{{ID: "S" + strconv.Itoa(len(asked)), TaskID: "T1", CreatedDate: p.CreatedFrom}}, nil
 	}}
-	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); err != nil {
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil {
 		t.Fatal(err)
 	}
 	// 20 days and 10 minutes in steps of 7 days is 3 steps, the full one is read again as 2 halves.
@@ -113,7 +113,7 @@ func TestPullCommentsCapsTheCatchUp(t *testing.T) {
 		asked = append(asked, p)
 		return nil, nil
 	}}
-	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); err != nil {
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil {
 		t.Fatal(err)
 	}
 	if len(asked) != 4 || !asked[0].CreatedFrom.Equal(now.Add(-28*24*time.Hour)) || !asked[3].CreatedTo.Equal(now) {
@@ -128,7 +128,7 @@ func TestPullCommentsSkipsARejectedReadAndMovesTheCursor(t *testing.T) {
 	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
 		return nil, &wrike.APIError{StatusCode: 500, Code: "server_error"}
 	}}
-	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); err == nil {
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err == nil {
 		t.Error("a 500 must fail the pull, the next cycle tries again")
 	}
 	if cursor, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); cursor != "" {
@@ -137,7 +137,7 @@ func TestPullCommentsSkipsARejectedReadAndMovesTheCursor(t *testing.T) {
 	fc.comments = func(p wrike.CommentParams) ([]wrike.Comment, error) {
 		return nil, &wrike.APIError{StatusCode: 400, Code: "invalid_parameter"}
 	}
-	if changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); err != nil || changed {
+	if changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil || changed {
 		t.Errorf("a 400 = %v, %v, want no error and no change", changed, err)
 	}
 	if cursor, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); cursor != rfc3339(now) {
@@ -427,7 +427,7 @@ func TestPullCommentsReportsWhatItWroteBeforeAFailure(t *testing.T) {
 		}
 		return nil, &wrike.APIError{StatusCode: 500, Code: "server_error"}
 	}}
-	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now)
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
 	if err == nil || !changed {
 		t.Errorf("pullComments = %v, %v, want the change reported with the error", changed, err)
 	}
@@ -530,7 +530,7 @@ func TestPullCommentsKeepsTheCursorAtTheStartOfAStepWhoseHalfFailed(t *testing.T
 		}
 		return []wrike.Comment{{ID: "C" + strconv.Itoa(calls), TaskID: "T1", CreatedDate: p.CreatedFrom}}, nil
 	}}
-	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now)
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
 	if err == nil || !changed || calls != 4 {
 		t.Fatalf("pullComments = %v, %v after %d calls, want the error with the change after the failed half", changed, err, calls)
 	}
@@ -559,11 +559,159 @@ func TestPullCommentsKeepsTheCompletedStepsOnACancellation(t *testing.T) {
 		}
 		return []wrike.Comment{{ID: "C1", TaskID: "T1", CreatedDate: p.CreatedFrom}}, nil
 	}}
-	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); !errors.Is(err, context.Canceled) {
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); !errors.Is(err, context.Canceled) {
 		t.Fatalf("pullComments = %v, want the cancellation answered", err)
 	}
 	stepEnd := rfc3339(now.Add(-3*24*time.Hour - pullOverlap))
 	if v, _ := st.GetMeta(context.Background(), store.MetaKeyCommentsPulledTo); v != stepEnd {
 		t.Errorf("cursor = %q, want the completed step kept %q", v, stepEnd)
+	}
+}
+
+func TestPullCommentsFetchesTheTaskOfAMentionOfTheUser(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	mention := func(id string) string { return `<a class="stream-user-id avatar" rel="` + id + `">&#64;Someone</a>` }
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		return []wrike.Comment{
+			{ID: "C1", TaskID: "T9", AuthorID: "U2", Text: mention("U1") + " can you look", CreatedDate: now.Add(-time.Hour)},
+			{ID: "C2", TaskID: "T8", AuthorID: "U2", Text: mention("U3") + " not me", CreatedDate: now.Add(-time.Hour)},
+			{ID: "C3", TaskID: "T7", AuthorID: "U2", Text: mention("@assignees") + " a group form the pull cannot judge", CreatedDate: now.Add(-time.Hour)},
+		}, nil
+	}, tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T9", "outside")}, nil
+	}}
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
+	if err != nil || !changed {
+		t.Fatalf("pullComments = %v, %v, want a change", changed, err)
+	}
+	calls := fc.callLog()
+	fetches := slices.DeleteFunc(slices.Clone(calls), func(c string) bool { return !strings.HasPrefix(c, "TasksByIDs") })
+	if !slices.Equal(fetches, []string{"TasksByIDs T9"}) {
+		t.Errorf("calls = %v, want one fetch of T9 alone", calls)
+	}
+	if reached, _ := st.Tasks().ReachedIDs(ctx, ""); !slices.Equal(reached, []string{"T9"}) {
+		t.Errorf("reached = %v, want T9 stamped like a task reached by id", reached)
+	}
+	got, _ := st.Comments().ListForTask(ctx, "T9")
+	if len(got) != 1 || got[0].Text != "@Someone can you look" || !slices.Equal(got[0].Mentions, []string{"U1"}) {
+		t.Errorf("comments of T9 = %+v, want C1 with the text stripped and the mention kept", got)
+	}
+	for _, id := range []string{"T8", "T7"} {
+		if _, err := st.Tasks().Get(ctx, id); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s was fetched: %v", id, err)
+		}
+	}
+	if cursor, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); cursor != "2026-09-10T12:00:00Z" {
+		t.Errorf("cursor = %q", cursor)
+	}
+}
+
+func TestPullCommentsDropsAMentionWhoseTaskWrikeDoesNotAnswer(t *testing.T) {
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	for name, answer := range map[string]func() ([]wrike.Task, error){
+		"not in the answer": func() ([]wrike.Task, error) { return nil, nil },
+		"404":               func() ([]wrike.Task, error) { return nil, &wrike.APIError{StatusCode: 404, Code: "resource_not_found"} },
+		"403":               func() ([]wrike.Task, error) { return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := newTestStore(t)
+			ctx := context.Background()
+			fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+				return []wrike.Comment{{ID: "C1", TaskID: "T9", AuthorID: "U2", Text: `<a class="stream-user-id avatar" rel="U1">&#64;Me</a>`, CreatedDate: now.Add(-time.Hour)}}, nil
+			}, tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) { return answer() }}
+			changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
+			if err != nil || changed {
+				t.Fatalf("pullComments = %v, %v, want no change and no error", changed, err)
+			}
+			if _, err := st.Tasks().Get(ctx, "T9"); !errors.Is(err, store.ErrNotFound) {
+				t.Errorf("T9 in the cache: %v", err)
+			}
+			if cursor, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); cursor != "2026-09-10T12:00:00Z" {
+				t.Errorf("cursor = %q, want moved to now", cursor)
+			}
+		})
+	}
+}
+
+// The fetch is an extra for the inbox, a failure of it must not hold back the comments of every cached task:
+// one task whose answer fails every cycle would stop the account wide read for four weeks.
+func TestPullCommentsGoesOnWhenTheFetchOfAMentionedTaskFails(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "cached")
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		return []wrike.Comment{
+			{ID: "C1", TaskID: "T9", AuthorID: "U2", Text: `<a class="stream-user-id avatar" rel="U1">&#64;Me</a>`, CreatedDate: now.Add(-time.Hour)},
+			{ID: "C2", TaskID: "T1", AuthorID: "U2", Text: "on a cached task", CreatedDate: now.Add(-time.Hour)},
+		}, nil
+	}, tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return nil, &wrike.APIError{StatusCode: 503}
+	}}
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now)
+	if err != nil || !changed {
+		t.Fatalf("pullComments = %v, %v, want the step written and no error", changed, err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 {
+		t.Errorf("comments of T1 = %+v, want the cached task's comment written despite the failed fetch", got)
+	}
+	if cursor, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); cursor != "2026-09-10T12:00:00Z" {
+		t.Errorf("cursor = %q, want moved to now", cursor)
+	}
+}
+
+func TestReadThreadStoresTheMentions(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "never read")
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return []wrike.Comment{{ID: "C1", TaskID: taskID, AuthorID: "U2", CreatedDate: time.Now(),
+			Text: `<a class="stream-user-id avatar" rel="U1">&#64;Ada</a> it&#39;s ready<br />second line <a class="stream-user-id avatar highlighted" rel="GD~0MjIRGbS9t">&#64;My Team</a>`}}, nil
+	}}
+	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
+	if read, err := e.FetchThread(ctx, "T1"); err != nil || !read {
+		t.Fatalf("FetchThread = %v, %v", read, err)
+	}
+	got, _ := st.Comments().ListForTask(ctx, "T1")
+	if len(got) != 1 || got[0].Text != "@Ada it's ready\nsecond line @My Team" || !slices.Equal(got[0].Mentions, []string{"U1", store.GroupMentionPrefix + "My Team"}) {
+		t.Errorf("comments = %+v, want the text with the entities decoded and the line break kept, the user by id and the group by name", got)
+	}
+}
+
+// A mention of a group the user is in fetches the task like a mention of the user, a group the user is not in does not.
+func TestPullCommentsFetchesTheTaskOfAMentionOfTheUsersGroup(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Contacts().ReplaceAll(ctx, []store.Contact{
+		{ID: "U1", FirstName: "Ada", Type: "Person"},
+		{ID: "G1", FirstName: "QA", Type: "Group", MemberIDs: []string{"U1"}},
+		{ID: "G2", FirstName: "Ops", Type: "Group", MemberIDs: []string{"U2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	group := func(name string) string {
+		return `<a class="stream-user-id avatar highlighted" rel="GD~x">&#64;` + name + `</a>`
+	}
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		return []wrike.Comment{
+			{ID: "C1", TaskID: "T9", AuthorID: "U2", Text: group("QA") + " please", CreatedDate: now.Add(-time.Hour)},
+			{ID: "C2", TaskID: "T8", AuthorID: "U2", Text: group("Ops") + " please", CreatedDate: now.Add(-time.Hour)},
+		}, nil
+	}, tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T9", "outside")}, nil
+	}}
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil {
+		t.Fatal(err)
+	}
+	calls := fc.callLog()
+	fetches := slices.DeleteFunc(slices.Clone(calls), func(c string) bool { return !strings.HasPrefix(c, "TasksByIDs") })
+	if !slices.Equal(fetches, []string{"TasksByIDs T9"}) {
+		t.Errorf("calls = %v, want one fetch of T9 alone", calls)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T9"); len(got) != 1 || !slices.Equal(got[0].Mentions, []string{store.GroupMentionPrefix + "QA"}) {
+		t.Errorf("comments of T9 = %+v, want C1 with the group by name", got)
 	}
 }

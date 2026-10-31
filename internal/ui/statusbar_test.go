@@ -34,12 +34,16 @@ func TestStatusBarShowsOfflineMode(t *testing.T) {
 func TestStatusBarShowsStateCountsAndToast(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
-	s := statusModel{state: "idle", lastSynced: now.Add(-12 * time.Second), pending: 2, failed: 1}
+	s := statusModel{state: "idle", lastSynced: now.Add(-12 * time.Second), pending: 2, failed: 1, unread: 3}
 	out := s.View(th, 80, "? help", now)
-	for _, want := range []string{"synced 12 s ago", "2 pending", "1 failed", "? help"} {
+	for _, want := range []string{"synced 12 s ago", "2 pending", "1 failed", "3 unread", "? help"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status bar %q lacks %q", out, want)
 		}
+	}
+	s.unread = 0
+	if out := s.View(th, 80, "? help", now); strings.Contains(out, "unread") {
+		t.Errorf("status bar %q names the unread count at zero", out)
 	}
 	s.state = "offline"
 	s.since = now.Add(-time.Hour)

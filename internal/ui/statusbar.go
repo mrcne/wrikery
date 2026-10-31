@@ -16,6 +16,7 @@ type statusModel struct {
 	since      time.Time // when the current offline or failed stretch began
 	pending    int
 	failed     int
+	unread     int
 	toast      string
 	toastErr   bool
 	toastSeq   int
@@ -79,6 +80,9 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 	}
 	if s.failed > 0 {
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(fmt.Sprintf("  %d failed", s.failed)))
+	}
+	if s.unread > 0 {
+		left.WriteString(muted.Render(fmt.Sprintf("  %d unread", s.unread)))
 	}
 	return left.String()
 }

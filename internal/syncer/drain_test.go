@@ -856,3 +856,24 @@ func TestDrainSendsABudgetEditAndAsksForTheEffortBack(t *testing.T) {
 		t.Errorf("the value the first edit set is gone after the second edit's answer: %+v", got.CustomFields)
 	}
 }
+
+// The post is answered in plain text, as sent (checked on the live account), unlike the reads, which answer HTML.
+// The drain keeps that answer as it is, a strip would eat the rest of a comment after a <.
+func TestDrainKeepsThePostedCommentAsAnswered(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "before")
+	if _, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "x < y & z"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{createComment: func(taskID, text string) (wrike.Comment, error) {
+		return wrike.Comment{ID: "C9", TaskID: taskID, AuthorID: "U1", Text: text, CreatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)}, nil
+	}}
+	if _, err := drainOutbox(ctx, ctx, fc, st, 2*time.Second, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Comments().ListForTask(ctx, "T1")
+	if len(got) != 1 || got[0].Text != "x < y & z" || got[0].Mentions != nil {
+		t.Errorf("comments = %+v, want the answer kept as plain text with no mentions", got)
+	}
+}

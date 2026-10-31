@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"strings"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -25,6 +26,7 @@ func taskFromWrike(t wrike.Task) store.Task {
 		SuperTaskIDs:    t.SuperTaskIDs,
 		DependencyIDs:   t.DependencyIDs,
 		AttachmentCount: t.AttachmentCount,
+		FollowedByMe:    t.FollowedByMe,
 		CreatedDate:     rfc3339(t.CreatedDate),
 		UpdatedDate:     rfc3339(t.UpdatedDate),
 	}
@@ -113,6 +115,7 @@ func contactsFromWrike(in []wrike.Contact) []store.Contact {
 			PrimaryEmail: c.PrimaryEmail,
 			Deleted:      c.Deleted,
 			Me:           c.Me,
+			MemberIDs:    c.MemberIDs,
 		}
 	}
 	return out
@@ -137,6 +140,8 @@ func workflowsFromWrike(in []wrike.Workflow) []store.Workflow {
 	return out
 }
 
+// commentFromWrike converts the answer to a post, plain text as sent (checked on the live account).
+// The reads answer HTML and go through commentFromHTML, a strip of this plain answer would eat the rest after a <.
 func commentFromWrike(c wrike.Comment) store.Comment {
 	return store.Comment{
 		ID:          c.ID,
@@ -147,10 +152,38 @@ func commentFromWrike(c wrike.Comment) store.Comment {
 	}
 }
 
-func commentsFromWrike(in []wrike.Comment) []store.Comment {
+// commentFromHTML converts a read comment: the mentions are read from the anchors before the text is reduced to what the thread shows.
+func commentFromHTML(c wrike.Comment) store.Comment {
+	out := commentFromWrike(c)
+	out.Text = store.CommentText(c.Text)
+	out.Mentions = mentionKeys(c)
+	return out
+}
+
+// mentionKeys is the comment's mention list as the store keeps it: a user by id, the two group forms as they are,
+// and a user group by the name the comment showed, because the id Wrike writes for a group maps to nothing any read answers
+// (checked on the live account, a mention posted with the group's contact id comes back rewritten to that form).
+// A group name with a comma would break the comma joined list and is left out.
+func mentionKeys(c wrike.Comment) []string {
+	var out []string
+	for _, m := range c.Mentions() {
+		switch {
+		case strings.HasPrefix(m.ID, "GD~"):
+			if m.Name == "" || strings.Contains(m.Name, ",") {
+				continue
+			}
+			out = append(out, store.GroupMentionPrefix+m.Name)
+		default:
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+func commentsFromHTML(in []wrike.Comment) []store.Comment {
 	out := make([]store.Comment, len(in))
 	for i, c := range in {
-		out[i] = commentFromWrike(c)
+		out[i] = commentFromHTML(c)
 	}
 	return out
 }

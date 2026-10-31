@@ -3,6 +3,7 @@ package wrike
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -58,5 +59,21 @@ func TestContactsListsEveryone(t *testing.T) {
 	}
 	if len(got) != 2 || got[1].FirstName != "Grace" {
 		t.Errorf("contacts = %+v", got)
+	}
+}
+
+// A group comes with its members in the contacts read (checked on the live account), the inbox reads them.
+func TestContactsCarryTheirMembers(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"contacts","data":[
+  {"id":"KUAAAA01","firstName":"Ada","lastName":"Nowak","type":"Person"},
+  {"id":"KXAAAAG1","firstName":"My Team","lastName":"","type":"Group","memberIds":["KUAAAA01","KUAAAA02"],"myTeam":true}]}`))
+	}))
+	got, err := c.Contacts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].MemberIDs != nil || !slices.Equal(got[1].MemberIDs, []string{"KUAAAA01", "KUAAAA02"}) {
+		t.Errorf("contacts = %+v, want the group's members and none on a person", got)
 	}
 }

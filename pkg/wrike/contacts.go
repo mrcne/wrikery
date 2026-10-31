@@ -19,6 +19,8 @@ type Contact struct {
 	PrimaryEmail string `json:"primaryEmail"`
 	Deleted      bool   `json:"deleted"`
 	Me           bool   `json:"me"`
+	// MemberIDs are the members of a contact of type Group, the contacts read carries them (checked on the live account).
+	MemberIDs []string `json:"memberIds"`
 }
 
 // Me returns the contact of the token's owner. It doubles as the token

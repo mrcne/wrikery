@@ -132,7 +132,7 @@ func TestControlOpenScreens(t *testing.T) {
 	for _, c := range []struct {
 		word string
 		want screen
-	}{{"timesheet", screenTimesheet}, {"changes", screenChanges}, {"settings", screenSettings}, {"tasks", screenMain}} {
+	}{{"timesheet", screenTimesheet}, {"changes", screenChanges}, {"inbox", screenInbox}, {"settings", screenSettings}, {"tasks", screenMain}} {
 		var r ControlReply
 		m, r = control(t, m, ControlMsg{Op: "screen", Screen: c.word})
 		if r.Err != nil || r.Text != c.word || m.screen != c.want {

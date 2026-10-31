@@ -79,7 +79,8 @@ var descriptionParagraphs = []string{
 It browses the spaces, projects and folders you follow, shows a task with its description, comments, subtasks and dependencies, adds comments, changes statuses, logs time and shows your timesheet, without leaving the terminal.`,
 	`It keeps a local copy of what you follow in one SQLite file, so browsing and search are instant and reading works offline.
 A change is applied to that copy at once and waits in a queue, which is sent when Wrike can be reached.
-The changes screen, !, lists what went out over the last thirty days with the old and the new values, and the writes that failed, for a retry or a discard.`,
+The changes screen, !, lists what went out over the last thirty days with the old and the new values, and the writes that failed, for a retry or a discard.
+The inbox, @, lists the comments other people wrote on the tasks you follow and the ones that mention you, with a count of the unread ones in the status bar.`,
 	`Without a command it opens the interface.
 With a command it runs one operation on the same local copy and exits, for scripts and agents, with --json for a script.
 wrikery --demo runs on built in sample data with no account and no network.

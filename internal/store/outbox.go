@@ -904,11 +904,11 @@ func (o outboxRepo) CompleteComment(ctx context.Context, id int64, real Comment)
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO comments (id, task_id, author_id, text, created_date)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO comments (id, task_id, author_id, text, created_date, mentions, arrived_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET author_id = excluded.author_id,
-			text = excluded.text, created_date = excluded.created_date`,
-		real.ID, real.TaskID, real.AuthorID, real.Text, real.CreatedDate); err != nil {
+			text = excluded.text, created_date = excluded.created_date, mentions = excluded.mentions`,
+		real.ID, real.TaskID, real.AuthorID, real.Text, real.CreatedDate, joinMentions(real.Mentions), o.now().UTC().Format(time.RFC3339)); err != nil {
 		return err
 	}
 	if err := recordSwapTx(ctx, tx, LocalID(id), real.ID); err != nil {

@@ -145,6 +145,10 @@ func (s *Store) MoveHome(ctx context.Context, to Home) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM timelogs WHERE user_id = ? AND id NOT LIKE ?`, oldContact, LocalIDPrefix+"%"); err != nil {
 			return err
 		}
+		// What the old person read in the inbox says nothing about the new person's comments.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM meta WHERE key = ?`, MetaKeyInboxSeenTo); err != nil {
+			return err
+		}
 	}
 	if err := setMetaTx(ctx, tx, MetaKeySwitchPending, "1"); err != nil {
 		return err

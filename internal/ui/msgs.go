@@ -34,6 +34,8 @@ type toastMsg struct {
 	isErr bool
 }
 
+type inboxUnreadMsg struct{ count int }
+
 type refData struct {
 	meID         string
 	contacts     map[string]store.Contact

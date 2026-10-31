@@ -51,7 +51,7 @@ func pullStart(ctx context.Context, st *store.Store, key string, window time.Dur
 // A rejection Wrike will not take back, a 400 or a 403, must not fail every cycle: it is logged and the cursor still moves,
 // so the next cycle asks a small fresh range instead of the same one again.
 // Any other failure is answered as it is, with the cursor at the end of the last step that completed, so those steps are not read again.
-func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, now time.Time) (bool, error) {
+func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logger, meID string, window time.Duration, now time.Time) (bool, error) {
 	from, err := pullStart(ctx, st, store.MetaKeyCommentsPulledTo, window, now)
 	if err != nil {
 		return false, err
@@ -62,7 +62,7 @@ func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logg
 		if b.After(now) {
 			b = now
 		}
-		n, err := pullCommentWindow(ctx, c, st, a, b)
+		n, err := pullCommentWindow(ctx, c, st, log, meID, a, b, now)
 		// What a failed step wrote before it failed is in the cache, the caller must hear about it.
 		changed += n
 		if err != nil {
@@ -89,18 +89,18 @@ func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logg
 
 // pullCommentWindow reads one range of at most commentWindow.
 // The read has no paging and no documented order, so a full answer may have left comments out: two halves read the range again.
-func pullCommentWindow(ctx context.Context, c Client, st *store.Store, from, to time.Time) (int, error) {
+func pullCommentWindow(ctx context.Context, c Client, st *store.Store, log *slog.Logger, meID string, from, to, now time.Time) (int, error) {
 	comments, err := c.Comments(ctx, wrike.CommentParams{CreatedFrom: from, CreatedTo: to, Limit: commentLimit})
 	if err != nil {
 		return 0, err
 	}
 	if len(comments) >= commentLimit && to.Sub(from) > splitFloor {
 		mid := from.Add(to.Sub(from) / 2)
-		first, err := pullCommentWindow(ctx, c, st, from, mid)
+		first, err := pullCommentWindow(ctx, c, st, log, meID, from, mid, now)
 		if err != nil {
 			return first, err
 		}
-		second, err := pullCommentWindow(ctx, c, st, mid, to)
+		second, err := pullCommentWindow(ctx, c, st, log, meID, mid, to, now)
 		return first + second, err
 	}
 	// A comment without a task is a folder's, the client has no place for it.
@@ -110,7 +110,75 @@ func pullCommentWindow(ctx context.Context, c Client, st *store.Store, from, to 
 			onTasks = append(onTasks, cm)
 		}
 	}
-	return st.Comments().UpsertCached(ctx, commentsFromWrike(onTasks))
+	if err := reachMentioned(ctx, c, st, log, meID, onTasks, now); err != nil {
+		if ctx.Err() != nil {
+			return 0, err
+		}
+		// The fetch is an extra for the inbox, the comments of every cached task must not wait on it:
+		// a task whose answer fails every cycle would hold the account wide read for four weeks otherwise.
+		log.Warn("mentioned tasks not fetched", "error", err)
+	}
+	return st.Comments().UpsertCached(ctx, commentsFromHTML(onTasks))
+}
+
+// reachMentioned fetches the tasks the cache lacks that a comment mentioning the user was written on, one request,
+// so the inbox shows a mention on a task outside the followed scopes: the write after this keeps only the comments of cached tasks.
+// The task is stamped like one reached by id, kept thirty days and re-read with the others.
+// A mention by id counts, and one of a group the user is a member of, the two group forms cannot be judged without the task,
+// so a cycle without such a mention costs nothing here.
+// A task Wrike does not answer, no access or recycled, drops its comment with the rest of the uncached ones,
+// and so does a fetch that fails for any other reason, the caller logs it and writes the step.
+// The next reads start ten minutes before the cursor and ask for it again until it leaves that overlap, one request a cycle, then no more.
+func reachMentioned(ctx context.Context, c Client, st *store.Store, log *slog.Logger, meID string, comments []wrike.Comment, now time.Time) error {
+	var mine []string
+	var ids []string
+	for _, cm := range comments {
+		keys := mentionKeys(cm)
+		if len(keys) == 0 || slices.Contains(ids, cm.TaskID) {
+			continue
+		}
+		if mine == nil {
+			groups, err := st.Contacts().GroupsOf(ctx, meID)
+			if err != nil {
+				return err
+			}
+			mine = []string{meID}
+			for _, g := range groups {
+				mine = append(mine, store.GroupMentionPrefix+g.FirstName)
+			}
+		}
+		if slices.ContainsFunc(keys, func(k string) bool { return slices.Contains(mine, k) }) {
+			ids = append(ids, cm.TaskID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	cached, err := st.Tasks().ByIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	ids = slices.DeleteFunc(ids, func(id string) bool {
+		return slices.ContainsFunc(cached, func(t store.Task) bool { return t.ID == id })
+	})
+	if len(ids) == 0 {
+		return nil
+	}
+	found, err := c.TasksByIDs(ctx, ids, reachFields)
+	switch {
+	case isNotFound(err):
+		found = nil
+	case err != nil && classify(err) == failPermanent:
+		log.Debug("mentioned tasks not answered", "tasks", len(ids), "error", err)
+		found = nil
+	case err != nil:
+		return err
+	}
+	found = live(found)
+	if len(found) == 0 {
+		return nil
+	}
+	return st.Tasks().UpsertReached(ctx, tasksFromWrike(found), rfc3339(now))
 }
 
 // pullTimelogChanges reads the time entries changed since the last pull, everyone's, and keeps those of cached tasks.

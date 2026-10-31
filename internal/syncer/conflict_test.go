@@ -67,3 +67,10 @@ func TestConflictHoldsABudgetEdit(t *testing.T) {
 		t.Errorf("effort changed: conflict = %v, %v", c, err)
 	}
 }
+
+// StripHTML decodes the entities itself, a second decode would read a description with a literal &lt; as one with <.
+func TestDescriptionTextDecodesOnce(t *testing.T) {
+	if got := descriptionText("<p>a &amp;lt; b</p>"); got != "a &lt; b" {
+		t.Errorf("descriptionText = %q, want the literal &lt; kept", got)
+	}
+}
