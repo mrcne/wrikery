@@ -221,7 +221,7 @@ Discarding a task update does not roll back the change already applied to the lo
 
 `@` opens the inbox: the comments other people wrote in the last thirty days on the tasks you follow in Wrike, and the comments that mention you, newest first.
 A row shows the task, the author and the comment on one line with the time at the end, `Fix auth retry loop  Ada Nowak: the staging run is green...  2 h ago`.
-A comment that mentions you, by name or through `@assignees` on a task you are assigned to, reads `Ada Nowak mentioned you: ` instead.
+A comment that mentions you, by name, through a user group you belong to or through `@assignees` on a task you are assigned to, reads `Ada Nowak mentioned you: ` instead.
 The row under the cursor shows the comment in full below it, up to three lines.
 A row you have not looked at yet starts with `*`, and the status bar counts those rows, `2 unread`, so a new comment is noticed without opening the screen.
 Leaving the screen, with esc, by opening a task or by quitting, marks the rows that were on screen as seen, and a row that reaches the cache later is unread whatever its date, an older comment of a task that was just assigned to you for example.
@@ -229,7 +229,7 @@ That marker is this machine's: Wrike's own inbox is not read and reading there d
 On a fresh cache the inbox starts with the first week of comments and older ones come in as their threads are read.
 Enter opens the task the way the changes screen does, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back.
 A mention of you on a task outside the spaces you follow is fetched on its own and stays cached for thirty days, like a task opened by its link.
-What the inbox cannot show: a comment on a task you follow that lives outside the spaces you follow, when it does not mention you, and a mention of a group you belong to.
+What the inbox cannot show: a comment on a task you follow that lives outside the spaces you follow, when it does not mention you, and a mention of a group that contains your group rather than you.
 Your own comments never show.
 
 ### Timesheet

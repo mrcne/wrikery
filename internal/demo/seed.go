@@ -28,6 +28,8 @@ var contacts = []store.Contact{
 	{ID: "KUAAAAD1", FirstName: "Dawid", LastName: "Mroz", Type: "Person", PrimaryEmail: "dawid@example.com"},
 	{ID: "KUAAAAE1", FirstName: "Ewa", LastName: "Zajac", Type: "Person", PrimaryEmail: "ewa@example.com"},
 	{ID: "KUAAAAF1", FirstName: "Filip", LastName: "Gone", Type: "Person", Deleted: true},
+	// A user group with Ada in it, so a comment that mentions the group reaches her inbox.
+	{ID: "KXAAAAG1", FirstName: "Platform team", Type: "Group", MemberIDs: []string{MeID, "KUAAAAB1"}},
 }
 
 var workflows = []store.Workflow{
@@ -227,6 +229,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		if err := st.Comments().ReplaceForTask(ctx, cm.TaskID, []store.Comment{cm}); err != nil {
 			return err
 		}
+	}
+	// A mention of Ada's group on a task she neither follows nor is on, the group alone brings it into the inbox.
+	clock(stamp(-1, 12))
+	if _, err := st.Comments().UpsertCached(ctx, []store.Comment{{ID: "IEAACMTI4", TaskID: tasks[7].ID, AuthorID: "KUAAAAD1",
+		Text: "@Platform team the build is green again, the retry change can go out.", CreatedDate: stamp(-1, 12), Mentions: []string{store.GroupMentionPrefix + "Platform team"}}}); err != nil {
+		return err
 	}
 	st.Now = func() time.Time { return now }
 	if err := st.SetMeta(ctx, store.MetaKeyInboxSeenTo, stamp(-1, 16)); err != nil {

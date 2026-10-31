@@ -24,16 +24,23 @@ type Comment struct {
 	CreatedDate time.Time `json:"createdDate"`
 }
 
-// Mentions lists who the comment mentions, in text order: the ids of the mentioned users,
-// and "@assignees" or "@followers" for the two group forms.
+// Mention is one anchor of a comment that names someone: the value of its rel and the text it shows without the leading @.
+// ID is a user's contact id, "@assignees" or "@followers" for the two group forms, or the form Wrike writes for a user group,
+// "GD~..." on the live account, which no read maps back to the group, so Name is what names the group.
+type Mention struct {
+	ID   string
+	Name string
+}
+
+// Mentions lists who the comment mentions, in text order.
 // A mention is an anchor with the class stream-user-id and the user id in rel,
 // `<a class="stream-user-id avatar" rel="KUAAAAAA">@Name</a>`, the group forms carry the group name in rel
 // (https://developers.wrike.com/docs/special-syntax).
-// The API answers the @ encoded as &#64;, in the text and in the rel of a group form, so the value is decoded here.
+// The API answers the @ encoded as &#64;, in the text and in the rel of a group form, so both are decoded here.
 // A rel with a comma or a space is no id and is left out: the value comes from whoever posted the comment,
 // and a caller keeps the list comma joined.
-func (c Comment) Mentions() []string {
-	var out []string
+func (c Comment) Mentions() []Mention {
+	var out []Mention
 	text := c.Text
 	for {
 		start := strings.IndexByte(text, '<')
@@ -61,7 +68,13 @@ func (c Comment) Mentions() []string {
 		if rel == "" || strings.ContainsAny(rel, ", \t\r\n") {
 			continue
 		}
-		out = append(out, rel)
+		// The anchor's text runs to its closing tag, or to the end when the markup never closes it.
+		inner := text
+		if close := strings.Index(strings.ToLower(text), "</a"); close >= 0 {
+			inner = text[:close]
+		}
+		shown := strings.TrimSpace(html.UnescapeString(inner))
+		out = append(out, Mention{ID: rel, Name: strings.TrimPrefix(shown, "@")})
 	}
 }
 

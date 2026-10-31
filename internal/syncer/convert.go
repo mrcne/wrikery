@@ -1,6 +1,7 @@
 package syncer
 
 import (
+	"strings"
 	"time"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -114,6 +115,7 @@ func contactsFromWrike(in []wrike.Contact) []store.Contact {
 			PrimaryEmail: c.PrimaryEmail,
 			Deleted:      c.Deleted,
 			Me:           c.Me,
+			MemberIDs:    c.MemberIDs,
 		}
 	}
 	return out
@@ -154,7 +156,27 @@ func commentFromWrike(c wrike.Comment) store.Comment {
 func commentFromHTML(c wrike.Comment) store.Comment {
 	out := commentFromWrike(c)
 	out.Text = store.CommentText(c.Text)
-	out.Mentions = c.Mentions()
+	out.Mentions = mentionKeys(c)
+	return out
+}
+
+// mentionKeys is the comment's mention list as the store keeps it: a user by id, the two group forms as they are,
+// and a user group by the name the comment showed, because the id Wrike writes for a group maps to nothing any read answers
+// (checked on the live account, a mention posted with the group's contact id comes back rewritten to that form).
+// A group name with a comma would break the comma joined list and is left out.
+func mentionKeys(c wrike.Comment) []string {
+	var out []string
+	for _, m := range c.Mentions() {
+		switch {
+		case strings.HasPrefix(m.ID, "GD~"):
+			if m.Name == "" || strings.Contains(m.Name, ",") {
+				continue
+			}
+			out = append(out, store.GroupMentionPrefix+m.Name)
+		default:
+			out = append(out, m.ID)
+		}
+	}
 	return out
 }
 

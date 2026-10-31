@@ -124,14 +124,30 @@ func pullCommentWindow(ctx context.Context, c Client, st *store.Store, log *slog
 // reachMentioned fetches the tasks the cache lacks that a comment mentioning the user was written on, one request,
 // so the inbox shows a mention on a task outside the followed scopes: the write after this keeps only the comments of cached tasks.
 // The task is stamped like one reached by id, kept thirty days and re-read with the others.
-// Only a mention by id counts, the group forms cannot be judged without the task, so a cycle without such a mention costs nothing here.
+// A mention by id counts, and one of a group the user is a member of, the two group forms cannot be judged without the task,
+// so a cycle without such a mention costs nothing here.
 // A task Wrike does not answer, no access or recycled, drops its comment with the rest of the uncached ones,
 // and so does a fetch that fails for any other reason, the caller logs it and writes the step.
 // The next reads start ten minutes before the cursor and ask for it again until it leaves that overlap, one request a cycle, then no more.
 func reachMentioned(ctx context.Context, c Client, st *store.Store, log *slog.Logger, meID string, comments []wrike.Comment, now time.Time) error {
+	var mine []string
 	var ids []string
 	for _, cm := range comments {
-		if slices.Contains(cm.Mentions(), meID) && !slices.Contains(ids, cm.TaskID) {
+		keys := mentionKeys(cm)
+		if len(keys) == 0 || slices.Contains(ids, cm.TaskID) {
+			continue
+		}
+		if mine == nil {
+			groups, err := st.Contacts().GroupsOf(ctx, meID)
+			if err != nil {
+				return err
+			}
+			mine = []string{meID}
+			for _, g := range groups {
+				mine = append(mine, store.GroupMentionPrefix+g.FirstName)
+			}
+		}
+		if slices.ContainsFunc(keys, func(k string) bool { return slices.Contains(mine, k) }) {
 			ids = append(ids, cm.TaskID)
 		}
 	}

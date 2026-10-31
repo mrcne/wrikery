@@ -1,9 +1,11 @@
 package syncer
 
 import (
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/mrcne/wrikery/internal/store"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
@@ -58,5 +60,23 @@ func TestFolderAndWorkflowFromWrike(t *testing.T) {
 	}}})
 	if len(ws) != 1 || len(ws[0].CustomStatuses) != 2 || ws[0].CustomStatuses[0].Name != "New" {
 		t.Errorf("workflows = %+v, slice order must survive", ws)
+	}
+}
+
+func TestContactsFromWrikeKeepTheGroupMembers(t *testing.T) {
+	got := contactsFromWrike([]wrike.Contact{{ID: "G1", FirstName: "QA", Type: "Group", MemberIDs: []string{"U1", "U2"}}, {ID: "U1", FirstName: "Ada"}})
+	if !slices.Equal(got[0].MemberIDs, []string{"U1", "U2"}) || got[1].MemberIDs != nil {
+		t.Errorf("contacts = %+v, want the members on the group alone", got)
+	}
+}
+
+// A user keeps its id, the two group forms stay as they are, a user group is kept by the name the comment showed,
+// since the id Wrike writes for it maps to nothing, and a name with a comma would break the list.
+func TestMentionKeys(t *testing.T) {
+	cm := wrike.Comment{Text: `<a class="stream-user-id avatar" rel="U1">&#64;Ada</a> <a class="stream-user-id avatar quasi-contact" rel="&#64;assignees">&#64;assignees</a> ` +
+		`<a class="stream-user-id avatar highlighted" rel="GD~0MjIRGbS9t">&#64;My Team</a> <a class="stream-user-id avatar" rel="GD~x">&#64;Sales, EMEA</a>`}
+	want := []string{"U1", "@assignees", store.GroupMentionPrefix + "My Team"}
+	if got := mentionKeys(cm); !slices.Equal(got, want) {
+		t.Errorf("mentionKeys = %v, want %v", got, want)
 	}
 }

@@ -132,10 +132,13 @@ func (c commentRepo) ListForTask(ctx context.Context, taskID string) ([]Comment,
 	return out, rows.Err()
 }
 
-// inboxMentioned says the comment mentions the user: by id, or through @assignees on a task the user is responsible for.
+// inboxMentioned says the comment mentions the user: by id, through a group the user is a member of, named as the comment showed it,
+// or through @assignees on a task the user is responsible for.
 // @followers adds nothing, a follower reads every comment of the task through the follow flag.
 // The list is matched with its separators on both sides, so an id never matches inside another.
 const inboxMentioned = `(instr(',' || c.mentions || ',', ',' || ?1 || ',') > 0
+	OR EXISTS (SELECT 1 FROM group_members gm JOIN contacts g ON g.id = gm.group_id
+		WHERE gm.contact_id = ?1 AND instr(',' || c.mentions || ',', ',` + GroupMentionPrefix + `' || g.first_name || ',') > 0)
 	OR (instr(',' || c.mentions || ',', ',@assignees,') > 0
 		AND EXISTS (SELECT 1 FROM task_responsibles r WHERE r.task_id = t.id AND r.contact_id = ?1)))`
 

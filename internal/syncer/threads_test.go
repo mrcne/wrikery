@@ -668,14 +668,50 @@ func TestReadThreadStoresTheMentions(t *testing.T) {
 	seedTask(t, st, "T1", "never read")
 	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
 		return []wrike.Comment{{ID: "C1", TaskID: taskID, AuthorID: "U2", CreatedDate: time.Now(),
-			Text: `<a class="stream-user-id avatar" rel="U1">&#64;Ada</a> it&#39;s ready<br />second line`}}, nil
+			Text: `<a class="stream-user-id avatar" rel="U1">&#64;Ada</a> it&#39;s ready<br />second line <a class="stream-user-id avatar highlighted" rel="GD~0MjIRGbS9t">&#64;My Team</a>`}}, nil
 	}}
 	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
 	if read, err := e.FetchThread(ctx, "T1"); err != nil || !read {
 		t.Fatalf("FetchThread = %v, %v", read, err)
 	}
 	got, _ := st.Comments().ListForTask(ctx, "T1")
-	if len(got) != 1 || got[0].Text != "@Ada it's ready\nsecond line" || !slices.Equal(got[0].Mentions, []string{"U1"}) {
-		t.Errorf("comments = %+v, want the text with the entities decoded and the line break kept, and the mention", got)
+	if len(got) != 1 || got[0].Text != "@Ada it's ready\nsecond line @My Team" || !slices.Equal(got[0].Mentions, []string{"U1", store.GroupMentionPrefix + "My Team"}) {
+		t.Errorf("comments = %+v, want the text with the entities decoded and the line break kept, the user by id and the group by name", got)
+	}
+}
+
+// A mention of a group the user is in fetches the task like a mention of the user, a group the user is not in does not.
+func TestPullCommentsFetchesTheTaskOfAMentionOfTheUsersGroup(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Contacts().ReplaceAll(ctx, []store.Contact{
+		{ID: "U1", FirstName: "Ada", Type: "Person"},
+		{ID: "G1", FirstName: "QA", Type: "Group", MemberIDs: []string{"U1"}},
+		{ID: "G2", FirstName: "Ops", Type: "Group", MemberIDs: []string{"U2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	group := func(name string) string {
+		return `<a class="stream-user-id avatar highlighted" rel="GD~x">&#64;` + name + `</a>`
+	}
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		return []wrike.Comment{
+			{ID: "C1", TaskID: "T9", AuthorID: "U2", Text: group("QA") + " please", CreatedDate: now.Add(-time.Hour)},
+			{ID: "C2", TaskID: "T8", AuthorID: "U2", Text: group("Ops") + " please", CreatedDate: now.Add(-time.Hour)},
+		}, nil
+	}, tasksByIDs: func(ids, fields []string) ([]wrike.Task, error) {
+		return []wrike.Task{outsideTask("T9", "outside")}, nil
+	}}
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil {
+		t.Fatal(err)
+	}
+	calls := fc.callLog()
+	fetches := slices.DeleteFunc(slices.Clone(calls), func(c string) bool { return !strings.HasPrefix(c, "TasksByIDs") })
+	if !slices.Equal(fetches, []string{"TasksByIDs T9"}) {
+		t.Errorf("calls = %v, want one fetch of T9 alone", calls)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T9"); len(got) != 1 || !slices.Equal(got[0].Mentions, []string{store.GroupMentionPrefix + "QA"}) {
+		t.Errorf("comments of T9 = %+v, want C1 with the group by name", got)
 	}
 }

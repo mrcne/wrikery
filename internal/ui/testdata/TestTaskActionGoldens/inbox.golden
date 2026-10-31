@@ -8,8 +8,8 @@
 |    Refactor rate limit test  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday              |
 |    Write tests for search ranking  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday        |
 |    Bump dependencies  Bartek Lis: Reproduced on staging, logs attached in the thread.  yesterday                     |
+|    Investigate flaky CI job  Dawid Mroz mentioned you: @Platform team the build is green again, the ret...  yesterday|
 |    Document rate limit test  Ewa Zajac: Leaving the old flag in place until the mobile build ships.  yesterday       |
-|                                                                                                                      |
 |                                                                                                                      |
 |                                                                                                                      |
 |                                                                                                                      |

@@ -76,6 +76,7 @@ Most of the mapping is direct, so only three parts need explaining:
   The subtasks of a task are the tasks that name it in task_supertasks, nothing is kept on the parent, because adding a subtask on Wrike leaves the parent's updatedDate alone and a list on the parent would go stale.
   A task also carries whether the user follows it, the flag the inbox reads.
 - comments keep the text as the thread shows it, the users the comment mentions, a list of ids with `@assignees` and `@followers` for the group forms, read from the anchors of the HTML form before the text is stripped, and when the row entered the cache, set once and kept by every later write of the row.
+  A user group in that list is kept by its name as the comment showed it, `@group:Name`, because Wrike writes a group mention with an id of its own form that no read maps back to the group (checked on the live account, a mention posted with the group's contact id comes back rewritten), and group_members holds the members of each group, with the contacts.
   An index on the creation date bounds the inbox query to its window, a year of comments on a large account is hundreds of thousands of rows.
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
@@ -123,7 +124,8 @@ Only a mention by id counts there, a group form cannot be judged without the tas
 The follow flag comes with every task: the scope pulls ask for `followerIds`, which brings `followedByMe` with it, the query refuses `followedByMe` as a field name of its own, and the reads by id and the write answers carry both unasked (checked on the live account).
 A name added to the set of fields the pulls ask for makes the next cycle pull every followed scope from the start once, the way a new column does, so a cache built before the field has it on every task after one full pull.
 Following a task moves its updatedDate and unfollowing does not (checked on the live account), so a task the user stopped following keeps the flag until it changes for another reason.
-The inbox is one query over the comments of the last thirty days joined with their task: the comments of other people on followed tasks, and the ones whose mention list names the user or `@assignees` on a task the user is responsible for, with a count of the rows after the seen marker for the status bar.
+The inbox is one query over the comments of the last thirty days joined with their task: the comments of other people on followed tasks, and the ones whose mention list names the user, a group the user is a member of by its name, or `@assignees` on a task the user is responsible for, with a count of the rows after the seen marker for the status bar.
+Membership is what the contacts read answers for the group, whether a parent group's list covers the members of its child groups is not checked.
 Any other failure is logged as well and the cycle goes on: the comments read keeps the end of the last step that completed and the time entry read, one request, keeps its cursor as it was, so the next cycle asks what is still missing.
 The reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.

@@ -109,7 +109,13 @@ type Contact struct {
 	PrimaryEmail string
 	Deleted      bool
 	Me           bool
+	MemberIDs    []string // the members of a contact of type Group, nil for a person
 }
+
+// GroupMentionPrefix marks a group in a comment's mention list, followed by the group's name as the comment showed it.
+// Wrike writes a group mention with an id of its own form that no read maps back to the group (checked on the live account),
+// so the name is what the inbox matches against the groups the user is in.
+const GroupMentionPrefix = "@group:"
 
 type Workflow struct {
 	ID             string

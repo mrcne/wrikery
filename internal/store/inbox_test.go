@@ -121,3 +121,33 @@ func TestInboxAnswersNothingWithoutAUser(t *testing.T) {
 		t.Errorf("InboxUnread without a user = %d, %v, want 0", n, err)
 	}
 }
+
+// A mention of a group the user is in is a mention of the user, the comment's list holds the group's name as the comment showed it.
+func TestInboxCountsAMentionOfAGroupTheUserIsIn(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Contacts().ReplaceAll(ctx, []Contact{
+		{ID: "U1", FirstName: "Ada", Type: "Person"},
+		{ID: "G1", FirstName: "QA", Type: "Group", MemberIDs: []string{"U1"}},
+		{ID: "G2", FirstName: "Ops", Type: "Group", MemberIDs: []string{"U2"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "not followed")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Comments().UpsertCached(ctx, []Comment{
+		{ID: "C1", TaskID: "T1", AuthorID: "U2", Text: "@QA please", CreatedDate: "2026-09-09T10:00:00Z", Mentions: []string{GroupMentionPrefix + "QA"}},
+		{ID: "C2", TaskID: "T1", AuthorID: "U2", Text: "@Ops please", CreatedDate: "2026-09-09T11:00:00Z", Mentions: []string{GroupMentionPrefix + "Ops"}},
+		{ID: "C3", TaskID: "T1", AuthorID: "U2", Text: "@Sales please", CreatedDate: "2026-09-09T12:00:00Z", Mentions: []string{GroupMentionPrefix + "Sales"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Comments().Inbox(ctx, "U1", "2026-08-10T00:00:00Z", 200)
+	if err != nil || len(rows) != 1 || rows[0].ID != "C1" || !rows[0].Mentioned {
+		t.Errorf("inbox = %+v, %v, want the mention of the user's group alone, marked as a mention", rows, err)
+	}
+	if n, _ := st.Comments().InboxUnread(ctx, "U1", "2026-08-10T00:00:00Z", ""); n != 1 {
+		t.Errorf("unread = %d, want 1", n)
+	}
+}
