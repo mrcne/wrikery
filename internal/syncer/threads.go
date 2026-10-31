@@ -71,7 +71,9 @@ func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logg
 				break
 			}
 			if a.After(from) {
-				if werr := st.SetMeta(ctx, store.MetaKeyCommentsPulledTo, rfc3339(a)); werr != nil {
+				// The steps before this one are complete whatever stopped it, a quit included,
+				// so the cursor is written past a cancellation, the way a send that reached Wrike is completed past one.
+				if werr := st.SetMeta(context.WithoutCancel(ctx), store.MetaKeyCommentsPulledTo, rfc3339(a)); werr != nil {
 					return changed > 0, werr
 				}
 			}
@@ -205,6 +207,8 @@ func readThread(ctx context.Context, c Client, st *store.Store, log *slog.Logger
 // With no thread read to say the task exists, a 404 here drops the task the way one on the thread does.
 // A task in the recycle bin still answers 200 on every endpoint (checked on the live account),
 // so the drop is for an id Wrike has forgotten and the sweep is what removes a recycled task.
+// A refusal has no exit here, there is no stamp to move: the request and its warning repeat every cycle while the task is in the opened window,
+// as the whole read did before, and a task the user can open rarely refuses its dependencies.
 func readDependencies(ctx context.Context, c Client, st *store.Store, log *slog.Logger, task store.Task) ([]EntityKind, error) {
 	switch _, err := refreshDependencies(ctx, c, st, task.ID); {
 	case err == nil:
@@ -250,6 +254,7 @@ func readEach(ctx context.Context, st *store.Store, ids []string, read func(stor
 // readOpened reads every cycle the tasks the user opened in the last window, limit at most, whether or not they changed.
 // A task without a stamp is read whole, the thread with the dependencies, which stamps it:
 // that is the backstop of a fetch that failed on the rest or on enter, and costs nothing once the fetch went through.
+// One Wrike refuses stays unstamped and is read every cycle of the window, with its warning, and the detail says not synced yet, which is true.
 // A stamped task is read for its dependencies alone, one request instead of three, see readDependencies.
 func readOpened(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
 	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, rfc3339(time.Now().Add(-window)), limit)

@@ -108,10 +108,12 @@ Each read keeps a cursor in the meta table and starts ten minutes before it, for
 The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
 The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
 Both reads keep only the rows of cached tasks, the comments of folders are dropped too, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
-Any other failure is logged as well and the cycle goes on with the cursor as it was: the reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
+Any other failure is logged as well and the cycle goes on: the comments read keeps the end of the last step that completed and the time entry read, one request, keeps its cursor as it was, so the next cycle asks what is still missing.
+The reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.
 Those come with the per task read of a thread, the comments and the time entries of one task, which stamps the task with the updatedDate it had when the read started.
 A new, an edited and a deleted comment each move the task's updatedDate (checked on the live account), and a change to a time entry is taken to do the same, its write that account refuses.
+If it does not, a deleted entry of another person on a task read before stays until the task changes for another reason, the new and the changed ones still come with the account wide read.
 So a cycle reads again the comments and time entries of the stamped tasks whose updatedDate passed the stamp, fifty at most, a set bounded by the tasks read before and not by the cache, the dependencies stay out since a change to them moves no updatedDate.
 The stamp is Wrike's clock on purpose: a change made while the read ran, or a local clock ahead of Wrike's, still shows as a later date and is read again.
 A stamped task whose read Wrike refuses takes its updatedDate as the stamp and leaves the list until it changes again, or it would cost a request and a warning every cycle.
@@ -121,7 +123,8 @@ The migration that added the stamp set it from the time of the open for the task
 Every cycle also reads the tasks the user opened in the last seven days, fifty at most, whether or not they changed.
 One whose thread was never read is read whole, the thread with the dependencies, which stamps it and repairs an ask that failed.
 A stamped one is read for its dependencies alone, one request, because adding or removing a dependency on Wrike moves the updatedDate of neither task, so neither the poll nor the stale list would see the change.
-A 404 on that read drops the task like one on a thread read, which is for an id Wrike has forgotten: a task in the recycle bin answers 200 on every endpoint (checked on the live account), the pull and the sweep are what decide it is gone.
+A 404 on that read is an id Wrike has forgotten and drops the task, as on a thread read, while a task in the recycle bin answers 200 on every endpoint (checked on the live account) and is the pull's and the sweep's to drop, like any task no scope lists.
+The batch read of missing edges below treats the same 404 differently, because a scope pull listed its task in the same cycle.
 The task's own dependencies endpoint answers every edge of the task with both ends, so one read also takes a removed edge off the other end and adds a new one to it.
 At the end of a cycle the engine reads the dependencies of the tasks that list an edge the cache does not have yet, two hundred tasks at most per cycle, so a first pull of a large plan catches up over a few cycles.
 A read that Wrike refuses forgets that task's dependency ids rather than the task, the pull and the sweep are what decide a task exists, and the ids come back with the task's next pull.
@@ -175,7 +178,7 @@ A created task has no id until Wrike answers, so the store gives it a local one,
 Until then the row shows the first Active status of the default task workflow of the folder's space, which the sync stores with the space, so the row keeps its place when the answer lands.
 Writes queued on that task name the local id and are not sent until the create has landed.
 The completion then swaps the local row for the server's and points the comments, time entries and queued writes at the real id, in one transaction.
-The deletion sweep and the thread refresh never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for its comments and get a 404.
+The deletion sweep and the per task reads never see a local id: the first would prune the task as one Wrike no longer lists, the second would ask Wrike for the comments of an id it cannot parse, a 400 invalid_request (checked on the live account), and log the refusal every cycle.
 
 Offline mode, the `--offline` flag or the `offline` key of the config file, starts no engine and lets no command drain.
 The interface takes no host and asks for no fetch, and a command queues its write without reading the credentials.

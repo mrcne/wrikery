@@ -457,7 +457,8 @@ func TestPullCommentsReportsWhatItWroteBeforeAFailure(t *testing.T) {
 	}
 }
 
-// A stamped task the poll lists as changed has its thread read again in the same cycle.
+// A stamped task the poll lists as changed has its thread read again in the same cycle,
+// and when the user opened it lately as well, each endpoint is asked once: the dependencies by the opened read, the thread by the stale one.
 func TestCycleReadsAgainTheThreadOfAChangedStampedTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -466,6 +467,9 @@ func TestCycleReadsAgainTheThreadOfAChangedStampedTask(t *testing.T) {
 	}
 	seedTask(t, st, "T1", "read before")
 	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-02T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().MarkOpened(ctx, "T1", rfc3339(time.Now())); err != nil {
 		t.Fatal(err)
 	}
 	fc := &fakeClient{
@@ -482,5 +486,84 @@ func TestCycleReadsAgainTheThreadOfAChangedStampedTask(t *testing.T) {
 	}
 	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].Text != "edited on the server" {
 		t.Errorf("comments = %+v, want the thread read again after the change", got)
+	}
+	calls := fc.callLog()
+	for _, want := range []string{"TaskComments T1", "TaskTimelogs T1", "TaskDependencies T1"} {
+		if n := countCalls(calls, want); n != 1 {
+			t.Errorf("%s asked %d times in the cycle, want once: %v", want, n, calls)
+		}
+	}
+}
+
+func countCalls(calls []string, want string) int {
+	n := 0
+	for _, c := range calls {
+		if c == want {
+			n++
+		}
+	}
+	return n
+}
+
+// A step read as two halves is complete only when both are, so a failed second half keeps the cursor at the step's start, not at the middle.
+func TestPullCommentsKeepsTheCursorAtTheStartOfAStepWhoseHalfFailed(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "cached")
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	if err := st.SetMeta(ctx, store.MetaKeyCommentsPulledTo, rfc3339(now.Add(-10*24*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	// Step one answers one comment, step two fills the limit and splits, its first half answers, its second half fails.
+	calls := 0
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		calls++
+		switch calls {
+		case 2:
+			full := make([]wrike.Comment, commentLimit)
+			for i := range full {
+				full[i] = wrike.Comment{ID: fmt.Sprintf("F%d", i), TaskID: "T1", CreatedDate: p.CreatedFrom}
+			}
+			return full, nil
+		case 4:
+			return nil, &wrike.APIError{StatusCode: 500, Code: "server_error"}
+		}
+		return []wrike.Comment{{ID: "C" + strconv.Itoa(calls), TaskID: "T1", CreatedDate: p.CreatedFrom}}, nil
+	}}
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now)
+	if err == nil || !changed || calls != 4 {
+		t.Fatalf("pullComments = %v, %v after %d calls, want the error with the change after the failed half", changed, err, calls)
+	}
+	stepEnd := rfc3339(now.Add(-3*24*time.Hour - pullOverlap))
+	if v, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); v != stepEnd {
+		t.Errorf("cursor = %q, want the start of the split step %q", v, stepEnd)
+	}
+}
+
+// A quit in the middle of a long catch up keeps the steps that completed, the cursor write outlives the cancellation.
+func TestPullCommentsKeepsTheCompletedStepsOnACancellation(t *testing.T) {
+	st := newTestStore(t)
+	seedTask(t, st, "T1", "cached")
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	if err := st.SetMeta(context.Background(), store.MetaKeyCommentsPulledTo, rfc3339(now.Add(-10*24*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		calls++
+		if calls == 2 {
+			cancel()
+			return nil, context.Canceled
+		}
+		return []wrike.Comment{{ID: "C1", TaskID: "T1", CreatedDate: p.CreatedFrom}}, nil
+	}}
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pullComments = %v, want the cancellation answered", err)
+	}
+	stepEnd := rfc3339(now.Add(-3*24*time.Hour - pullOverlap))
+	if v, _ := st.GetMeta(context.Background(), store.MetaKeyCommentsPulledTo); v != stepEnd {
+		t.Errorf("cursor = %q, want the completed step kept %q", v, stepEnd)
 	}
 }

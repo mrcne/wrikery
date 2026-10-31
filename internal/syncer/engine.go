@@ -470,8 +470,9 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 
 	// The whole account's new comments and changed time entries, two requests, before the per task reads below.
-	// They only add data, so a failure is logged and the cycle goes on with the cursor as it was, the next cycle asks the same range again:
-	// the first run's seven day read is the heaviest request a cycle sends, and a Wrike that times out on it must not hold the rest.
+	// They only add data, so a failure is logged and the cycle goes on: the comments read keeps the end of the last step that completed
+	// and the time entry read, one request, keeps its cursor as it was, so the next cycle asks what is still missing.
+	// The first run's seven day read is the heaviest request a cycle sends, and a Wrike that times out on it must not hold the rest.
 	// What a failed read wrote before it failed is announced all the same.
 	changedComments, err := pullComments(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
 	if err != nil {
@@ -502,7 +503,7 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
 	}
 	// After the opened tasks: one without a stamp was read whole and stamped there, so the stale list cannot hold it,
-	// and a stamped one got its dependencies there and its thread here, each read once.
+	// and a stamped one that changed got its dependencies there and its thread here, each read once.
 	stale, err := rereadStale(ctx, e.client, e.st, e.log, e.cfg.ThreadLimit)
 	if err != nil {
 		return err
