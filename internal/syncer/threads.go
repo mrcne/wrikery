@@ -49,7 +49,8 @@ func pullStart(ctx context.Context, st *store.Store, key string, window time.Dur
 
 // pullComments reads the comments created since the last pull in steps the API takes and keeps those of cached tasks.
 // A rejection Wrike will not take back, a 400 or a 403, must not fail every cycle: it is logged and the cursor still moves,
-// so the next cycle asks a small fresh range instead of the same one again. Any other failure fails the cycle and leaves the cursor.
+// so the next cycle asks a small fresh range instead of the same one again.
+// Any other failure is answered as it is, with the cursor at the end of the last step that completed, so those steps are not read again.
 func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, now time.Time) (bool, error) {
 	from, err := pullStart(ctx, st, store.MetaKeyCommentsPulledTo, window, now)
 	if err != nil {
@@ -65,11 +66,16 @@ func pullComments(ctx context.Context, c Client, st *store.Store, log *slog.Logg
 		// What a failed step wrote before it failed is in the cache, the caller must hear about it.
 		changed += n
 		if err != nil {
-			if classify(err) != failPermanent {
-				return changed > 0, err
+			if classify(err) == failPermanent {
+				log.Warn("comments read rejected", "error", err)
+				break
 			}
-			log.Warn("comments read rejected", "error", err)
-			break
+			if a.After(from) {
+				if werr := st.SetMeta(ctx, store.MetaKeyCommentsPulledTo, rfc3339(a)); werr != nil {
+					return changed > 0, werr
+				}
+			}
+			return changed > 0, err
 		}
 		a = b
 	}
@@ -96,7 +102,7 @@ func pullCommentWindow(ctx context.Context, c Client, st *store.Store, from, to 
 		return first + second, err
 	}
 	// A comment without a task is a folder's, the client has no place for it.
-	onTasks := comments[:0:0]
+	onTasks := make([]wrike.Comment, 0, len(comments))
 	for _, cm := range comments {
 		if cm.TaskID != "" {
 			onTasks = append(onTasks, cm)
@@ -193,9 +199,32 @@ func readThread(ctx context.Context, c Client, st *store.Store, log *slog.Logger
 	return touched, nil
 }
 
-// readThreads reads the given tasks one by one and unions what they touched, a gone task is dropped and the rest go on.
+// readDependencies is the per task read of an opened task whose thread is stamped: the dependencies alone, with the outcomes of readThread.
+// The thread needs no read, the account wide pulls and rereadStale keep a stamped thread current,
+// but adding or removing a dependency moves the updatedDate of neither task (checked on the live account), so neither of them can show that change.
+// With no thread read to say the task exists, a 404 here drops the task the way one on the thread does.
+// A task in the recycle bin still answers 200 on every endpoint (checked on the live account),
+// so the drop is for an id Wrike has forgotten and the sweep is what removes a recycled task.
+func readDependencies(ctx context.Context, c Client, st *store.Store, log *slog.Logger, task store.Task) ([]EntityKind, error) {
+	switch _, err := refreshDependencies(ctx, c, st, task.ID); {
+	case err == nil:
+		return []EntityKind{KindDependencies}, nil
+	case isNotFound(err):
+		if err := st.Tasks().Delete(ctx, task.ID); err != nil {
+			return nil, err
+		}
+		return []EntityKind{KindTasks}, ErrNoSuchTask
+	case classify(err) == failPermanent:
+		log.Warn("dependency read rejected", "task", task.ID, "error", err)
+		return nil, nil
+	default:
+		return nil, err
+	}
+}
+
+// readEach reads the given tasks one by one and unions what they touched, a gone task is dropped and the rest go on.
 // A task that left the cache between the listing and the read is skipped.
-func readThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, ids []string, deps bool) ([]EntityKind, error) {
+func readEach(ctx context.Context, st *store.Store, ids []string, read func(store.Task) ([]EntityKind, error)) ([]EntityKind, error) {
 	var touched []EntityKind
 	for _, id := range ids {
 		task, err := st.Tasks().Get(ctx, id)
@@ -205,7 +234,7 @@ func readThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logge
 		if err != nil {
 			return nil, err
 		}
-		kinds, err := readThread(ctx, c, st, log, task, deps)
+		kinds, err := read(task)
 		if err != nil && !errors.Is(err, ErrNoSuchTask) {
 			return nil, err
 		}
@@ -218,9 +247,26 @@ func readThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logge
 	return touched, nil
 }
 
+// readOpened reads every cycle the tasks the user opened in the last window, limit at most, whether or not they changed.
+// A task without a stamp is read whole, the thread with the dependencies, which stamps it:
+// that is the backstop of a fetch that failed on the rest or on enter, and costs nothing once the fetch went through.
+// A stamped task is read for its dependencies alone, one request instead of three, see readDependencies.
+func readOpened(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
+	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, rfc3339(time.Now().Add(-window)), limit)
+	if err != nil {
+		return nil, err
+	}
+	return readEach(ctx, st, ids, func(task store.Task) ([]EntityKind, error) {
+		if task.ThreadReadAt == "" {
+			return readThread(ctx, c, st, log, task, true)
+		}
+		return readDependencies(ctx, c, st, log, task)
+	})
+}
+
 // rereadStale reads again the threads of stamped tasks that changed since their stamp, up to limit, and reports what it touched.
-// A new or a deleted comment moves the task's updatedDate (checked on the live account), an edited one is taken to do the same,
-// the edit answered 403 on the account checked, and so is a change to a time entry, whose write that account refuses.
+// A new, an edited and a deleted comment each move the task's updatedDate (checked on the live account),
+// and a change to a time entry is taken to do the same, its write the account checked refuses.
 // So a stamped task the poll listed may have an edited or deleted comment or entry, which the account wide reads cannot show.
 // The set is bounded by the tasks read before, the ones somebody looked at, not by the cache,
 // and a task changed for another reason costs one read too, the price of one rule.
@@ -230,7 +276,9 @@ func rereadStale(ctx context.Context, c Client, st *store.Store, log *slog.Logge
 	if err != nil {
 		return nil, err
 	}
-	return readThreads(ctx, c, st, log, ids, false)
+	return readEach(ctx, st, ids, func(task store.Task) ([]EntityKind, error) {
+		return readThread(ctx, c, st, log, task, false)
+	})
 }
 
 // FetchThread reads the thread of a task the cache never read, for the cursor resting on the task, enter and task show,

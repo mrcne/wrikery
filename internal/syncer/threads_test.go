@@ -407,7 +407,8 @@ func TestCycleGoesOnWhenAnAccountWideReadFails(t *testing.T) {
 	}
 }
 
-// Rows a step wrote before a later step failed are in the cache, the interface must hear about them in this cycle.
+// Rows a step wrote before a later step failed are in the cache, the interface must hear about them in this cycle,
+// and the cursor moves past the completed steps so the next cycle does not read them again.
 func TestPullCommentsReportsWhatItWroteBeforeAFailure(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
@@ -430,8 +431,10 @@ func TestPullCommentsReportsWhatItWroteBeforeAFailure(t *testing.T) {
 	if err == nil || !changed {
 		t.Errorf("pullComments = %v, %v, want the change reported with the error", changed, err)
 	}
-	if v, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); v != cursor {
-		t.Errorf("cursor = %q, want it kept at %q for the next cycle", v, cursor)
+	// The first step is complete, the next cycle starts after it instead of reading it again as no change.
+	stepEnd := rfc3339(now.Add(-3*24*time.Hour - pullOverlap))
+	if v, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); v != stepEnd {
+		t.Errorf("cursor = %q, want the end of the completed step %q", v, stepEnd)
 	}
 	// Through the cycle, the change reaches the interface as an event even though the read failed.
 	e := New(fc, st, Config{PollInterval: time.Hour}, slog.New(slog.DiscardHandler))

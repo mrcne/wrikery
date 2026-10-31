@@ -494,14 +494,15 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
 	}
 
-	touched, err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
+	touched, err := readOpened(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
 	if err != nil {
 		return err
 	}
 	if len(touched) > 0 {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
 	}
-	// After the opened tasks, which are stamped by now, so a task in both sets is read once.
+	// After the opened tasks: one without a stamp was read whole and stamped there, so the stale list cannot hold it,
+	// and a stamped one got its dependencies there and its thread here, each read once.
 	stale, err := rereadStale(ctx, e.client, e.st, e.log, e.cfg.ThreadLimit)
 	if err != nil {
 		return err

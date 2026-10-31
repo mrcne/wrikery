@@ -117,7 +117,7 @@ func TestPullDependenciesReturnsATransientError(t *testing.T) {
 	}
 }
 
-func TestRefreshThreadsReplacesTheDependenciesOfAnOpenedTask(t *testing.T) {
+func TestReadOpenedReplacesTheDependenciesOfAnOpenedTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTaskWithDependency(t, st, "T1", "X")
@@ -129,7 +129,7 @@ func TestRefreshThreadsReplacesTheDependenciesOfAnOpenedTask(t *testing.T) {
 	}
 	// Wrike dropped the edge. Neither task's updatedDate moves for that, so only this read can notice.
 	fc := &fakeClient{taskDependencies: func(taskID string) ([]wrike.Dependency, error) { return nil, nil }}
-	if _, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+	if _, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
 		t.Fatal(err)
 	}
 	deps, err := st.Dependencies().ListForTask(ctx, "T1")
@@ -141,7 +141,7 @@ func TestRefreshThreadsReplacesTheDependenciesOfAnOpenedTask(t *testing.T) {
 	}
 }
 
-func TestRefreshThreadsKeepsTheThreadWhenTheDependencyReadFails(t *testing.T) {
+func TestReadOpenedKeepsTheThreadWhenTheDependencyReadFails(t *testing.T) {
 	for _, status := range []int{404, 403} {
 		st := newTestStore(t)
 		ctx := context.Background()
@@ -157,7 +157,7 @@ func TestRefreshThreadsKeepsTheThreadWhenTheDependencyReadFails(t *testing.T) {
 				return nil, &wrike.APIError{StatusCode: status}
 			},
 		}
-		touched, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
+		touched, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
 		if err != nil {
 			t.Fatalf("status %d: %v", status, err)
 		}

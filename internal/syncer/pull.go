@@ -179,18 +179,6 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 	return err
 }
 
-// refreshThreads reads comments, timelogs and dependencies for recently opened tasks again every cycle and reports which caches it touched.
-// The account wide pulls and rereadStale cover a changed thread, but adding or removing a dependency moves neither task's updatedDate,
-// see refreshDependencies, so an opened task is read whether or not it changed.
-func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Logger, window time.Duration, limit int) ([]EntityKind, error) {
-	since := rfc3339(time.Now().Add(-window))
-	ids, err := st.Tasks().RecentlyOpenedIDs(ctx, since, limit)
-	if err != nil {
-		return nil, err
-	}
-	return readThreads(ctx, c, st, log, ids, true)
-}
-
 // pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
 // The page size is the documented maximum (https://developers.wrike.com/api/v4/timelogs/),
 // so the window is usually one request.
@@ -234,7 +222,7 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, task store.Ta
 
 // refreshDependencies replaces the task's dependency list with what Wrike holds now and returns it.
 // Adding or removing a dependency moves neither task's updatedDate (checked on the live account),
-// so the poll never brings such a change and only this read, part of the thread refresh of an opened task, notices it.
+// so the poll never brings such a change and only this read, which runs every cycle for an opened task, see readOpened, notices it.
 func refreshDependencies(ctx context.Context, c Client, st *store.Store, id string) ([]store.Dependency, error) {
 	deps, err := c.TaskDependencies(ctx, id)
 	if err != nil {
