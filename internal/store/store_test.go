@@ -473,3 +473,20 @@ func TestInboxMigrationReadsTheMonthAgainOnAnExistingCache(t *testing.T) {
 		})
 	}
 }
+
+func TestReaderConnectionsKeepASmallPageCache(t *testing.T) {
+	st := newTestStore(t)
+	for name, db := range map[string]*sql.DB{"reader": st.reader, "writer": st.writer} {
+		var pages int
+		if err := db.QueryRow(`PRAGMA cache_size`).Scan(&pages); err != nil {
+			t.Fatal(err)
+		}
+		want := -2000
+		if name == "reader" {
+			want = -500
+		}
+		if pages != want {
+			t.Errorf("%s cache_size = %d, want %d", name, pages, want)
+		}
+	}
+}
