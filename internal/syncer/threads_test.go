@@ -215,11 +215,16 @@ func TestFetchThreadReadsANeverReadThreadOnce(t *testing.T) {
 	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
 		return []wrike.Comment{{ID: "C-" + taskID, TaskID: taskID, AuthorID: "U2", Text: "hi", CreatedDate: time.Now()}}, nil
 	}}
+	queued, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := store.LocalID(queued)
 	e := newReachEngine(t, fc, st, slog.New(slog.DiscardHandler))
 	for _, tc := range []struct {
 		id   string
 		want bool
-	}{{"T1", true}, {"T1", false}, {"T2", false}, {"local:4", false}} {
+	}{{"T1", true}, {"T1", false}, {"T2", false}, {local, false}} {
 		read, err := e.FetchThread(ctx, tc.id)
 		if err != nil || read != tc.want {
 			t.Errorf("FetchThread(%s) = %v, %v, want %v", tc.id, read, err, tc.want)
@@ -229,13 +234,14 @@ func TestFetchThreadReadsANeverReadThreadOnce(t *testing.T) {
 	if n := strings.Count(strings.Join(calls, "\n"), "TaskComments T1"); n != 1 {
 		t.Errorf("T1 read %d times, want once: %v", n, calls)
 	}
-	for _, id := range []string{"T2", "local:4"} {
+	for _, id := range []string{"T2", local} {
 		if slices.Contains(calls, "TaskComments "+id) {
 			t.Errorf("%s was read: %v", id, calls)
 		}
 	}
-	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt == "" {
-		t.Error("T1 must carry the stamp after the read")
+	// The stamp is the task's own updated date, Wrike's clock, so a change that lands during or right after the read looks stale.
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt != got.UpdatedDate || got.UpdatedDate == "" {
+		t.Errorf("T1 stamp = %q, want its updated date %q", got.ThreadReadAt, got.UpdatedDate)
 	}
 	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 {
 		t.Errorf("comments of T1 = %+v", got)
@@ -319,12 +325,132 @@ func TestRereadStaleReadsChangedStampedTasksOnly(t *testing.T) {
 	if !slices.Contains(calls, "TaskComments T1") || slices.Contains(calls, "TaskComments T2") || slices.Contains(calls, "TaskComments T3") {
 		t.Errorf("calls = %v, want T1 alone: changed since its stamp", calls)
 	}
-	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt <= got.UpdatedDate {
-		t.Errorf("T1 stamp %q must be later than its change %q after the read", got.ThreadReadAt, got.UpdatedDate)
+	// A dependency change moves no updated date, so the stale re-read has no reason to read them.
+	if slices.Contains(calls, "TaskDependencies T1") {
+		t.Errorf("calls = %v, the dependencies were read for a change of the thread", calls)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt != got.UpdatedDate {
+		t.Errorf("T1 stamp %q must be its updated date %q after the read", got.ThreadReadAt, got.UpdatedDate)
 	}
 	fc.calls = nil
 	if touched, err := rereadStale(ctx, fc, st, slog.New(slog.DiscardHandler), 50); err != nil || len(touched) != 0 || len(fc.callLog()) != 0 {
 		t.Errorf("a second pass = %v, %v, calls %v, want nothing to read", touched, err, fc.callLog())
+	}
+	// A change one second after the read, a comment edited while the read ran, is a later updated date and reads again.
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "T1", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-03T12:00:01Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := st.Tasks().StaleThreadIDs(ctx, 50); !slices.Contains(ids, "T1") {
+		t.Errorf("stale = %v, want T1 after a change past its stamp", ids)
+	}
+}
+
+// A stamped task whose read Wrike refuses for good must leave the stale list, or it costs a request and a warning every cycle
+// and, fifty of them, keeps every other stale task from being read.
+func TestRereadStaleSettlesARefusedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "T1", Status: "Active", CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-03T12:00:00Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-03T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{taskComments: func(taskID string) ([]wrike.Comment, error) {
+		return nil, &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}
+	}}
+	if touched, err := rereadStale(ctx, fc, st, slog.New(slog.DiscardHandler), 50); err != nil || len(touched) != 0 {
+		t.Fatalf("rereadStale = %v, %v, want nothing touched and no error", touched, err)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt != "2026-09-03T12:00:00Z" {
+		t.Errorf("T1 stamp after the refusal = %q, want its updated date so it is not asked again", got.ThreadReadAt)
+	}
+	fc.calls = nil
+	if _, err := rereadStale(ctx, fc, st, slog.New(slog.DiscardHandler), 50); err != nil || len(fc.callLog()) != 0 {
+		t.Errorf("a second pass still read: %v, %v", fc.callLog(), err)
+	}
+}
+
+// The account wide reads only add data, a failure of one must not hold the per task reads, the reach and the dependencies of the cycle.
+func TestCycleGoesOnWhenAnAccountWideReadFails(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "opened")
+	if err := st.Tasks().MarkOpened(ctx, "T1", rfc3339(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{
+		comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+			return nil, &wrike.APIError{StatusCode: 504, Code: "gateway_timeout"}
+		},
+		timelogs: func(p wrike.TimelogParams) (wrike.TimelogsPage, error) {
+			if !p.UpdatedFrom.IsZero() {
+				return wrike.TimelogsPage{}, &wrike.APIError{StatusCode: 500, Code: "server_error"}
+			}
+			return wrike.TimelogsPage{}, nil
+		},
+		taskComments: func(taskID string) ([]wrike.Comment, error) {
+			return []wrike.Comment{{ID: "C1", TaskID: taskID, AuthorID: "U2", Text: "read all the same", CreatedDate: time.Now()}}, nil
+		},
+	}
+	e := New(fc, st, Config{PollInterval: time.Hour}, slog.New(slog.DiscardHandler))
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatalf("the cycle failed on the account wide read: %v", err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 {
+		t.Errorf("comments of the opened task = %+v, want the per task read to have run", got)
+	}
+	for _, key := range []string{store.MetaKeyCommentsPulledTo, store.MetaKeyTimelogChangesPulledTo} {
+		if v, err := st.GetMeta(ctx, key); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s = %q, %v, want no cursor so the next cycle asks the same range again", key, v, err)
+		}
+	}
+}
+
+// Rows a step wrote before a later step failed are in the cache, the interface must hear about them in this cycle.
+func TestPullCommentsReportsWhatItWroteBeforeAFailure(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "cached")
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	cursor := rfc3339(now.Add(-10 * 24 * time.Hour))
+	if err := st.SetMeta(ctx, store.MetaKeyCommentsPulledTo, cursor); err != nil {
+		t.Fatal(err)
+	}
+	// Every first step answers one new comment, every second step fails, so each pull writes and then fails.
+	calls := 0
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		calls++
+		if calls%2 == 1 {
+			return []wrike.Comment{{ID: fmt.Sprintf("C%d", calls), TaskID: "T1", AuthorID: "U2", Text: "first step", CreatedDate: p.CreatedFrom}}, nil
+		}
+		return nil, &wrike.APIError{StatusCode: 500, Code: "server_error"}
+	}}
+	changed, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, now)
+	if err == nil || !changed {
+		t.Errorf("pullComments = %v, %v, want the change reported with the error", changed, err)
+	}
+	if v, _ := st.GetMeta(ctx, store.MetaKeyCommentsPulledTo); v != cursor {
+		t.Errorf("cursor = %q, want it kept at %q for the next cycle", v, cursor)
+	}
+	// Through the cycle, the change reaches the interface as an event even though the read failed.
+	e := New(fc, st, Config{PollInterval: time.Hour}, slog.New(slog.DiscardHandler))
+	if _, err := e.Once(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	heard := false
+	for done := false; !done; {
+		select {
+		case ev := <-e.Events():
+			if ev.Kind == EventStoreChanged && slices.Contains(ev.Entities, KindComments) {
+				heard = true
+			}
+		default:
+			done = true
+		}
+	}
+	if !heard {
+		t.Error("no comments event after a cycle whose comments read wrote rows and then failed")
 	}
 }
 

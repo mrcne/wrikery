@@ -470,16 +470,25 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	}
 
 	// The whole account's new comments and changed time entries, two requests, before the per task reads below.
+	// They only add data, so a failure is logged and the cycle goes on with the cursor as it was, the next cycle asks the same range again:
+	// the first run's seven day read is the heaviest request a cycle sends, and a Wrike that times out on it must not hold the rest.
+	// What a failed read wrote before it failed is announced all the same.
 	changedComments, err := pullComments(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return err
+		}
+		e.log.Warn("comments read failed, the cycle goes on", "error", err)
 	}
 	if changedComments {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindComments}})
 	}
 	changedEntries, err := pullTimelogChanges(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
 	if err != nil {
-		return err
+		if ctx.Err() != nil {
+			return err
+		}
+		e.log.Warn("time entry changes read failed, the cycle goes on", "error", err)
 	}
 	if changedEntries {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})

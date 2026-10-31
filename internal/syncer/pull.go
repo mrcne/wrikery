@@ -188,7 +188,7 @@ func refreshThreads(ctx context.Context, c Client, st *store.Store, log *slog.Lo
 	if err != nil {
 		return nil, err
 	}
-	return readThreads(ctx, c, st, log, ids)
+	return readThreads(ctx, c, st, log, ids, true)
 }
 
 // pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
@@ -211,24 +211,25 @@ func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string,
 	return changed, nil
 }
 
-func refreshThread(ctx context.Context, c Client, st *store.Store, id string) error {
-	comments, err := c.TaskComments(ctx, id)
+// refreshThread replaces the task's comments and time entries and stamps the task with the updated date it had when the read started.
+// The stamp is Wrike's clock on purpose: rereadStale compares it with the updated date the next poll brings,
+// so a change made while the read ran, or a local clock ahead of Wrike's, still shows as a later date and is read again.
+func refreshThread(ctx context.Context, c Client, st *store.Store, task store.Task) error {
+	comments, err := c.TaskComments(ctx, task.ID)
 	if err != nil {
 		return err
 	}
-	if err := st.Comments().ReplaceForTask(ctx, id, commentsFromWrike(comments)); err != nil {
+	if err := st.Comments().ReplaceForTask(ctx, task.ID, commentsFromWrike(comments)); err != nil {
 		return err
 	}
-	logs, err := c.TaskTimelogs(ctx, id)
+	logs, err := c.TaskTimelogs(ctx, task.ID)
 	if err != nil {
 		return err
 	}
-	if err := st.Timelogs().ReplaceForTask(ctx, id, timelogsFromWrike(logs)); err != nil {
+	if err := st.Timelogs().ReplaceForTask(ctx, task.ID, timelogsFromWrike(logs)); err != nil {
 		return err
 	}
-	// The stamp says the thread is as Wrike had it at this moment: the detail tells a never read thread by its absence,
-	// and rereadStale reads the thread again once the task's updatedDate passes it.
-	return st.Tasks().MarkThreadRead(ctx, id, rfc3339(time.Now()))
+	return st.Tasks().MarkThreadRead(ctx, task.ID, task.UpdatedDate)
 }
 
 // refreshDependencies replaces the task's dependency list with what Wrike holds now and returns it.

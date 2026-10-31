@@ -39,14 +39,8 @@ func permalinkFor(number string) string { return "https://www.wrike.com/open.htm
 // A 400 about the request itself, a field the call refuses for example, is not about the task and travels up as it is.
 // Before the first cycle compared the account of a credential no sign in checked, it fetches nothing, see ErrAccountUnchecked.
 func (e *Engine) Reach(ctx context.Context, ref store.TaskRef) (store.Task, error) {
-	if !e.homeOK.Load() {
-		record, err := e.st.Home(ctx)
-		if err != nil {
-			return store.Task{}, err
-		}
-		if record.AccountID == "" || e.cfg.CheckHome {
-			return store.Task{}, ErrAccountUnchecked
-		}
+	if err := e.unchecked(ctx); err != nil {
+		return store.Task{}, err
 	}
 	var found []wrike.Task
 	var err error
@@ -73,6 +67,22 @@ func (e *Engine) Reach(ctx context.Context, ref store.TaskRef) (store.Task, erro
 	}
 	e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
 	return e.st.Tasks().Get(ctx, found[0].ID)
+}
+
+// unchecked is ErrAccountUnchecked while no cycle has compared the credential's account with the cache's record,
+// a cache without a record or a credential from the environment, the two states Reach and FetchThread must not write in.
+func (e *Engine) unchecked(ctx context.Context) error {
+	if e.homeOK.Load() {
+		return nil
+	}
+	record, err := e.st.Home(ctx)
+	if err != nil {
+		return err
+	}
+	if record.AccountID == "" || e.cfg.CheckHome {
+		return ErrAccountUnchecked
+	}
+	return nil
 }
 
 // isMalformedID is the 400 for an id Wrike cannot parse, "Invalid Task ID" with the code invalid_request

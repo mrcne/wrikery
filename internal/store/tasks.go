@@ -363,22 +363,10 @@ func (t taskRepo) MarkThreadRead(ctx context.Context, id, at string) error {
 func (t taskRepo) StaleThreadIDs(ctx context.Context, limit int) ([]string, error) {
 	// Both columns hold RFC 3339 in UTC, so the string compare is a time compare.
 	// A local task has no thread on the server yet, see RecentlyOpenedIDs.
-	rows, err := t.r.QueryContext(ctx, `
+	// The condition names thread_read_at IS NOT NULL as the partial index does, so the walk stays off the unstamped tasks.
+	return t.stringColumn(ctx, `
 		SELECT id FROM tasks WHERE thread_read_at IS NOT NULL AND updated_date > thread_read_at AND id NOT LIKE ?
 		ORDER BY updated_date DESC LIMIT ?`, LocalIDPrefix+"%", limit)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
 }
 
 // UpsertReached stamps only the rows it creates.
