@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -202,7 +203,11 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
-		st, _, cleanup, err := openDemoStore(time.Now())
+		extra, err := demoSize()
+		if err != nil {
+			return err
+		}
+		st, _, cleanup, err := openDemoStore(time.Now(), extra)
 		if err != nil {
 			return err
 		}
@@ -429,6 +434,23 @@ func (c *cmdAuth) host(ctx context.Context) (string, error) {
 // tokenFromEnv says whether WRIKERY_TOKEN overrides the stored sign in, the way Tokens.Load reads it.
 func tokenFromEnv() bool {
 	return strings.TrimSpace(os.Getenv(auth.EnvToken)) != ""
+}
+
+// envDemoTasks asks the demo for that many generated tasks on top of its sample data, to see the interface at the size of a large account.
+const envDemoTasks = "WRIKERY_DEMO_TASKS"
+
+// demoSize is the number of generated tasks the environment asks the demo for, zero when it asks for none.
+// A value that is not a count is an error, a measurement run on a silent zero measures the wrong thing.
+func demoSize() (int, error) {
+	value := strings.TrimSpace(os.Getenv(envDemoTasks))
+	if value == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("%s: %q is not a number of tasks", envDemoTasks, value)
+	}
+	return n, nil
 }
 
 // resolveTheme turns the auto theme into dark or light.

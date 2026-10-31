@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func TestOpenDemoStoreSeedsAndCleansUp(t *testing.T) {
-	st, dir, cleanup, err := openDemoStore(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC))
+	st, dir, cleanup, err := openDemoStore(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,5 +24,24 @@ func TestOpenDemoStoreSeedsAndCleansUp(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("demo dir still exists: %v", err)
+	}
+}
+
+func TestOpenDemoStoreExtendsWhenAsked(t *testing.T) {
+	st, _, cleanup, err := openDemoStore(time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	followed, err := st.Scopes().Followed(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(followed))
+	for _, sc := range followed {
+		ids = append(ids, sc.ID)
+	}
+	if !slices.Contains(ids, demo.SpaceWork) {
+		t.Errorf("followed scopes = %v, want the generated space among them", ids)
 	}
 }

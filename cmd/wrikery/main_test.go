@@ -254,3 +254,18 @@ func TestCommandHelpSkipsTheConfigAndTheStore(t *testing.T) {
 		t.Errorf("help created the data directory, stat err %v", err)
 	}
 }
+
+func TestDemoSizeReadsTheEnvironment(t *testing.T) {
+	for value, want := range map[string]int{"": 0, "200": 200} {
+		t.Setenv(envDemoTasks, value)
+		if got, err := demoSize(); err != nil || got != want {
+			t.Errorf("%s=%q: size = %d, %v, want %d", envDemoTasks, value, got, err, want)
+		}
+	}
+	for _, value := range []string{"x", "-1", "1.5"} {
+		t.Setenv(envDemoTasks, value)
+		if _, err := demoSize(); err == nil || !strings.Contains(err.Error(), envDemoTasks) {
+			t.Errorf("%s=%q: err = %v, want one naming the variable", envDemoTasks, value, err)
+		}
+	}
+}

@@ -59,6 +59,11 @@ var statusCycle = []struct{ id, group string }{
 	{"IEAAST17", "Cancelled"},
 }
 
+var spaces = []store.Space{
+	{ID: SpacePlatform, Title: "Platform", AccessType: "Private", DefaultTaskWorkflowID: "IEAAWF02"},
+	{ID: SpaceMobile, Title: "Mobile", AccessType: "Public", DefaultTaskWorkflowID: "IEAAWF01"},
+}
+
 var folders = []store.Folder{
 	{ID: SpacePlatform, Title: "Platform", Scope: "WsFolder", Space: true, ChildIDs: []string{ProjectAPI, "IEAAWEB1", "IEAADSGN", "IEAAINFR"}},
 	{ID: ProjectAPI, Title: "API", Scope: "WsFolder", Project: &store.Project{Status: "Green", CustomStatusID: "IEAAST12"}},
@@ -110,10 +115,7 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err := st.Workflows().ReplaceAll(ctx, workflows); err != nil {
 		return err
 	}
-	if err := st.Spaces().ReplaceAll(ctx, []store.Space{
-		{ID: SpacePlatform, Title: "Platform", AccessType: "Private", DefaultTaskWorkflowID: "IEAAWF02"},
-		{ID: SpaceMobile, Title: "Mobile", AccessType: "Public", DefaultTaskWorkflowID: "IEAAWF01"},
-	}); err != nil {
+	if err := st.Spaces().ReplaceAll(ctx, spaces); err != nil {
 		return err
 	}
 	if err := st.Folders().ReplaceTree(ctx, folders); err != nil {
