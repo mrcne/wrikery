@@ -107,10 +107,15 @@ func TestEndToEndSync(t *testing.T) {
 		writeJSON(w, `{"kind":"dependencies","data":[]}`)
 	})
 	mux.HandleFunc("/timelogs", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("me") != "true" {
-			t.Errorf("account wide timelog query me = %q", r.URL.Query().Get("me"))
+		// The user's own entries by tracked window, or everyone's changed entries by updated window, nothing else.
+		q := r.URL.Query()
+		if q.Get("me") != "true" && !q.Has("updatedDate") {
+			t.Errorf("account wide timelog query = %q, want me=true or an updatedDate window", r.URL.RawQuery)
 		}
 		writeJSON(w, `{"kind":"timelogs","data":[]}`)
+	})
+	mux.HandleFunc("/comments", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"kind":"comments","data":[]}`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()

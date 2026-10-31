@@ -514,6 +514,10 @@ func (o outboxRepo) EnqueueTaskCreate(ctx context.Context, folderID string, p Ta
 	if err := upsertTasksTx(ctx, tx, []Task{local}, "", false); err != nil {
 		return 0, err
 	}
+	// Wrike has nothing on the task yet, so its thread is as synced as it gets and nothing asks for it.
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET thread_read_at = ? WHERE id = ?`, now, local.ID); err != nil {
+		return 0, err
+	}
 	return id, tx.Commit()
 }
 
@@ -865,7 +869,9 @@ func (o outboxRepo) CompleteTaskCreate(ctx context.Context, id int64, real Task)
 		}
 	}
 	// The user may be looking at the task, the thread refresh must keep fetching its comments after the swap.
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET last_opened_at = (SELECT last_opened_at FROM tasks WHERE id = ?) WHERE id = ?`, localID, real.ID); err != nil {
+	// Wrike had nothing on the task before the create, so its thread is as synced as it gets, as of the task's own updated date,
+	// the clock the stale list compares the stamp with.
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET last_opened_at = (SELECT last_opened_at FROM tasks WHERE id = ?), thread_read_at = NULLIF(?, '') WHERE id = ?`, localID, real.UpdatedDate, real.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, localID); err != nil {

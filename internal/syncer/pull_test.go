@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
@@ -227,7 +228,7 @@ func TestSweepAbortsOnPartialUnion(t *testing.T) {
 	}
 }
 
-func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
+func TestReadOpenedReadsAnUnstampedTaskWholeAndDropsGone(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	seedTask(t, st, "T1", "alive")
@@ -254,7 +255,7 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 				UpdatedDate: time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)}}, nil
 		},
 	}
-	if _, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+	if _, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,6 +266,9 @@ func TestRefreshThreadsReplacesAndDeletesGone(t *testing.T) {
 	logs, err := st.Timelogs().ListForTask(ctx, "T1")
 	if err != nil || len(logs) != 1 {
 		t.Fatalf("timelogs = %+v, %v", logs, err)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt == "" {
+		t.Error("T1 must carry the thread stamp after the refresh")
 	}
 	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
 		t.Error("T2 must be deleted after the 404")
@@ -413,7 +417,7 @@ func TestPullReferenceSurvivesASpaceWithoutTheWorkflowsEndpoint(t *testing.T) {
 	}
 }
 
-func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
+func TestReadOpenedSkipsRejectedTaskAndDropsGone(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -440,7 +444,7 @@ func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
 			return nil, nil
 		},
 	}
-	touched, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
+	touched, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
 	if err != nil {
 		t.Fatalf("one rejected thread must not fail the refresh: %v", err)
 	}
@@ -455,6 +459,80 @@ func TestRefreshThreadsSkipsRejectedTaskAndDropsGone(t *testing.T) {
 	}
 	if comments, err := st.Comments().ListForTask(ctx, "T3"); err != nil || len(comments) != 1 {
 		t.Errorf("comments for T3 = %+v, %v, the task after the rejected one must still refresh", comments, err)
+	}
+}
+
+// Once a thread is stamped the account wide reads and the stale re-read keep it current,
+// so an opened task costs one request a cycle, the dependencies, whose change moves no updatedDate.
+func TestReadOpenedReadsOnlyTheDependenciesOfAStampedTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "read before")
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-01T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Tasks().MarkOpened(ctx, "T1", rfc3339(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{taskDependencies: func(taskID string) ([]wrike.Dependency, error) {
+		return []wrike.Dependency{wedge("X", taskID, "T9")}, nil
+	}}
+	touched, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls := fc.callLog(); !slices.Equal(calls, []string{"TaskDependencies T1"}) {
+		t.Errorf("calls = %v, want the dependencies alone", calls)
+	}
+	if !slices.Equal(touched, []EntityKind{KindDependencies}) {
+		t.Errorf("touched = %v, want the dependencies alone", touched)
+	}
+	if deps, err := st.Dependencies().ListForTask(ctx, "T1"); err != nil || len(deps) != 1 {
+		t.Errorf("deps = %+v, %v, want the edge written", deps, err)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.ThreadReadAt != "2026-09-01T10:00:00Z" {
+		t.Errorf("stamp = %q, a dependency read must not move it", got.ThreadReadAt)
+	}
+}
+
+// With no thread read to say the task exists, the dependency read of a stamped task carries the outcomes of a thread read.
+func TestReadOpenedDependencyOutcomesOnAStampedTask(t *testing.T) {
+	cases := []struct {
+		status  int
+		gone    bool
+		wantErr bool
+	}{
+		{status: 404, gone: true},
+		{status: 403},
+		{status: 503, wantErr: true},
+	}
+	for _, tc := range cases {
+		st := newTestStore(t)
+		ctx := context.Background()
+		seedTask(t, st, "T1", "read before")
+		if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-01T10:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Tasks().MarkOpened(ctx, "T1", rfc3339(time.Now())); err != nil {
+			t.Fatal(err)
+		}
+		fc := &fakeClient{taskDependencies: func(string) ([]wrike.Dependency, error) {
+			return nil, &wrike.APIError{StatusCode: tc.status}
+		}}
+		touched, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("status %d: err = %v, want an error %v", tc.status, err, tc.wantErr)
+		}
+		_, getErr := st.Tasks().Get(ctx, "T1")
+		if gone := errors.Is(getErr, store.ErrNotFound); gone != tc.gone {
+			t.Errorf("status %d: task gone = %v, want %v", tc.status, gone, tc.gone)
+		}
+		if tc.gone && !slices.Contains(touched, KindTasks) {
+			t.Errorf("status %d: touched = %v, want the dropped task announced", tc.status, touched)
+		}
+		if !tc.gone && len(touched) != 0 {
+			t.Errorf("status %d: touched = %v, want nothing announced", tc.status, touched)
+		}
 	}
 }
 
@@ -479,7 +557,7 @@ func TestSweepKeepsAnUnconfirmedTask(t *testing.T) {
 	}
 }
 
-func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
+func TestReadOpenedSkipsAnUnconfirmedTask(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", store.TaskCreatePayload{Title: "new"})
@@ -492,7 +570,7 @@ func TestRefreshThreadsSkipsAnUnconfirmedTask(t *testing.T) {
 	}
 
 	fc := &fakeClient{}
-	if _, err := refreshThreads(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
+	if _, err := readOpened(ctx, fc, st, slog.New(slog.DiscardHandler), 7*24*time.Hour, 50); err != nil {
 		t.Fatal(err)
 	}
 	if log := fc.callLog(); len(log) != 0 {

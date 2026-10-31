@@ -363,6 +363,58 @@ func (m Model) markOpened(id string) tea.Cmd {
 	}
 }
 
+// threadReadTimeout bounds the read: three requests with the client's own retries,
+// and a Wrike that does not answer must not hold the goroutine, a later rest or open asks again.
+const threadReadTimeout = 20 * time.Second
+
+// threadRest is how long the cursor stays on a never read task before its thread is asked for,
+// long enough that walking a list with j fires nothing, short enough that a reader does not wait.
+const threadRest = time.Second
+
+// restOnThread starts the rest timer when the detail of a never read task lands, see threadRestMsg.
+func (m Model) restOnThread(task store.Task) tea.Cmd {
+	if task.ThreadReadAt != "" || m.threadAsked == task.ID || m.opts.Hooks.FetchThread == nil {
+		return nil
+	}
+	id := task.ID
+	return tea.Tick(threadRest, func(time.Time) tea.Msg { return threadRestMsg{id: id} })
+}
+
+// askThread asks for a never read thread once per selection: the rest and enter both come here,
+// and a reload of the same task, the engine's event after a poll, must not ask again.
+// A task whose detail is still to load, a pick from the search or a jump, is asked for when the load lands.
+// The mark is set only when a request goes out, a state that sends nothing, offline or the account question, leaves the task for a later ask.
+func (m *Model) askThread(id string) tea.Cmd {
+	if m.detail.task.ID != id {
+		m.threadWanted = id
+		return nil
+	}
+	if m.detail.task.ThreadReadAt != "" || m.threadAsked == id {
+		return nil
+	}
+	cmd := m.fetchThread(id)
+	if cmd != nil {
+		m.threadAsked = id
+	}
+	return cmd
+}
+
+// fetchThread asks the engine for a never read thread through the hook, the way reach does for a task, and reports the outcome.
+// Nothing on screen waits for it: the engine's event reloads the detail when the read lands,
+// and a failure clears the mark so a later rest or enter asks again.
+func (m Model) fetchThread(id string) tea.Cmd {
+	hook, offline, waiting := m.opts.Hooks.FetchThread, m.opts.Offline, m.status.state == "another_account"
+	if hook == nil || offline || waiting {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), threadReadTimeout)
+		defer cancel()
+		_, err := hook(ctx, id)
+		return threadFetchedMsg{id: id, err: err}
+	}
+}
+
 // loadNotes reads the task's entries for the note field of the log time box, see earlierNotes.
 // The notes only feed the hint, so a failed read is logged and the box works without them.
 func (m Model) loadNotes(taskID, current string) tea.Cmd {

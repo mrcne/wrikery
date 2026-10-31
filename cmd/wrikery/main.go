@@ -368,8 +368,9 @@ func signedInWith(s auth.Session, firstRun bool) string {
 	return ui.SignedInWithToken
 }
 
-// cmdAuth is the sign in of a command. It reads the credentials once, on the first command that sends,
-// so a list or a show never touches the keychain.
+// cmdAuth is the sign in of a command. It reads the credentials once, on the first command that talks to Wrike:
+// a write, the fetch of a task the cache lacks or the read of a thread it never had.
+// A list, or a show of a task whose thread the cache has, never touches the keychain.
 type cmdAuth struct {
 	tokens  auth.Tokens
 	cfg     config.Config

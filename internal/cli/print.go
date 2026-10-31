@@ -59,8 +59,14 @@ type taskDetailJSON struct {
 	Subtasks            []subtaskJSON    `json:"subtasks"`
 	Predecessors        []dependencyJSON `json:"predecessors"`
 	Successors          []dependencyJSON `json:"successors"`
-	Comments            []commentJSON    `json:"comments"`
+	// ThreadSynced is false while the cache never read the task's comments and time entries: the command was offline,
+	// or the read failed and stderr said why. A sync does not read it, task show online does.
+	ThreadSynced bool          `json:"thread_synced"`
+	Comments     []commentJSON `json:"comments"`
 }
+
+// threadSynced says whether the cache read the task's thread, a queued task is stamped when it is queued.
+func threadSynced(t store.Task) bool { return t.ThreadReadAt != "" }
 
 // relatedJSON names a task the cache may not hold, the title is empty then and the id is all there is.
 type relatedJSON struct {
@@ -329,9 +335,14 @@ func printTaskShow(ctx context.Context, env Env, t store.Task, comments []store.
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintln(w, body)
 	}
-	if len(comments) > 0 {
+	// A thread never read is said so on the header, the comments under it are the ones the account wide pull brought.
+	if len(comments) > 0 || !threadSynced(t) {
 		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, label.Render("comments"))
+		header := label.Render("comments")
+		if !threadSynced(t) {
+			header += "  " + dim.Render("not synced yet")
+		}
+		_, _ = fmt.Fprintln(w, header)
 	}
 	accent := lipgloss.NewStyle().Foreground(th.Accent)
 	for _, c := range comments {

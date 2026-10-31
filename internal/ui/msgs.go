@@ -18,6 +18,15 @@ type ScopesLostMsg struct{}
 
 type errMsg struct{ err error }
 
+// threadRestMsg is the tick after threadRest, carrying the task the cursor was on when it started.
+type threadRestMsg struct{ id string }
+
+// threadFetchedMsg is the outcome of a thread fetch, the error when it failed.
+type threadFetchedMsg struct {
+	id  string
+	err error
+}
+
 // toastMsg reports the result of work the update loop handed to a command, such as a clipboard write.
 // The root turns it into a status bar toast.
 type toastMsg struct {

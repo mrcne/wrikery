@@ -170,6 +170,12 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 
 	b.WriteString(divider(th, fmt.Sprintf("Comments (%d)", len(d.comments)), width) + "\n")
+	// A thread never read shows what the account wide pull brought, which can be nothing, so the reader is told under both dividers.
+	// A queued task is stamped when it is queued, Wrike has nothing on it yet.
+	unsynced := d.task.ThreadReadAt == ""
+	if unsynced {
+		b.WriteString(muted.Render("not synced yet") + "\n")
+	}
 	for _, c := range d.comments {
 		who := bold.Render(contactName(c.AuthorID, ref))
 		// A queued comment carries the local clock, not the server's, so it is marked instead of dated.
@@ -182,6 +188,9 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(stableWidth(c.Text)) + "\n")
 	}
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
+	if unsynced {
+		b.WriteString(muted.Render("not synced yet") + "\n")
+	}
 	for _, l := range d.logs {
 		line := fmt.Sprintf("%s  %s  %s", shortDate(l.TrackedDate), stableWidth(contactName(l.UserID, ref)), hoursText(l.Hours))
 		if l.Comment != "" {

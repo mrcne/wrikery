@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -806,5 +807,71 @@ func TestUpsertKeepsTheEffortWhenNotToldAndReplacesTheValues(t *testing.T) {
 	}
 	if fresh, _ := st.Tasks().Get(ctx, "T2"); fresh.Effort != nil {
 		t.Errorf("a task never read with the effort has %+v", fresh.Effort)
+	}
+}
+
+func TestMarkThreadReadStampsTheTask(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Tasks().Get(ctx, "T1")
+	if got.ThreadReadAt != "" {
+		t.Fatalf("a fresh task carries %q, want no stamp", got.ThreadReadAt)
+	}
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-03T10:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Tasks().Get(ctx, "T1")
+	if got.ThreadReadAt != "2026-09-03T10:00:00Z" {
+		t.Errorf("ThreadReadAt = %q", got.ThreadReadAt)
+	}
+	// A pull of the task keeps the stamp like the other local columns.
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a renamed")}); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := st.Tasks().ByIDs(ctx, []string{"T1"}); err != nil || len(list) != 1 || list[0].ThreadReadAt != "2026-09-03T10:00:00Z" {
+		t.Errorf("after a pull ByIDs = %+v, %v, want the stamp kept", list, err)
+	}
+	// An empty stamp clears the read, and a cleared task is never read, not stale.
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", ""); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = st.Tasks().Get(ctx, "T1")
+	if got.ThreadReadAt != "" {
+		t.Errorf("ThreadReadAt after a clear = %q", got.ThreadReadAt)
+	}
+	if ids, _ := st.Tasks().StaleThreadIDs(ctx, 10); len(ids) != 0 {
+		t.Errorf("a cleared task is listed as stale: %v", ids)
+	}
+}
+
+func TestStaleThreadIDsListsOnlyStampedTasksThatChanged(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	// T1 changed after its stamp, T2 changed before it, T3 was never read, T5 changed later than T1, local:4 is a queued create.
+	tasks := []Task{makeTask("T1", "a"), makeTask("T2", "b"), makeTask("T3", "c"), makeTask("T5", "e"), makeTask(LocalIDPrefix+"4", "d")}
+	tasks[0].UpdatedDate, tasks[1].UpdatedDate, tasks[2].UpdatedDate, tasks[3].UpdatedDate, tasks[4].UpdatedDate = "2026-09-03T12:00:00Z", "2026-09-03T09:00:00Z", "2026-09-03T12:00:00Z", "2026-09-03T13:00:00Z", "2026-09-03T12:00:00Z"
+	if err := st.Tasks().Upsert(ctx, tasks); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"T1", "T2", "T5", LocalIDPrefix + "4"} {
+		if err := st.Tasks().MarkThreadRead(ctx, id, "2026-09-03T10:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := st.Tasks().StaleThreadIDs(ctx, 10)
+	if err != nil || len(ids) != 2 || ids[0] != "T5" || ids[1] != "T1" {
+		t.Errorf("StaleThreadIDs = %v, %v, want [T5 T1], the latest change first", ids, err)
+	}
+	if ids, err := st.Tasks().StaleThreadIDs(ctx, 1); err != nil || len(ids) != 1 || ids[0] != "T5" {
+		t.Errorf("with a limit of 1 = %v, %v", ids, err)
+	}
+	if err := st.Tasks().MarkThreadRead(ctx, "T1", "2026-09-03T12:30:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := st.Tasks().StaleThreadIDs(ctx, 10); slices.Contains(ids, "T1") {
+		t.Errorf("T1 listed after a read past its change: %v", ids)
 	}
 }

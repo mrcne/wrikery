@@ -23,6 +23,8 @@ func TimelogWindow(now time.Time) (from, to string) {
 type TimelogRepo interface {
 	Upsert(ctx context.Context, logs []Timelog) error
 	ReplaceForTask(ctx context.Context, taskID string, logs []Timelog) error
+	// UpsertCached writes the entries whose task the cache has, skips the rest and counts the rows that changed.
+	UpsertCached(ctx context.Context, logs []Timelog) (int, error)
 	ListForTask(ctx context.Context, taskID string) ([]Timelog, error)
 	Get(ctx context.Context, id string) (Timelog, error)
 	ListForUser(ctx context.Context, userID, from, to string) ([]Timelog, error)
@@ -66,6 +68,42 @@ func (t timelogRepo) Upsert(ctx context.Context, logs []Timelog) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// The entries of a task the cache lacks are left out on purpose, the table has no foreign key to catch them,
+// and an entry of another person on an unfollowed task would otherwise stay for good.
+// The WHERE on the update counts only an entry Wrike changed, it moves the updated date on every change,
+// so the overlap of two reads does not make the interface read the detail again after every poll.
+func (t timelogRepo) UpsertCached(ctx context.Context, logs []Timelog) (int, error) {
+	tx, err := t.w.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	changed := 0
+	for _, l := range logs {
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO timelogs (id, task_id, user_id, category_id, tracked_date, comment,
+				hours, lock_status, approval_status, created_date, updated_date)
+			SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM tasks WHERE id = ?)
+			ON CONFLICT(id) DO UPDATE SET task_id = excluded.task_id, user_id = excluded.user_id,
+				category_id = excluded.category_id, tracked_date = excluded.tracked_date,
+				comment = excluded.comment, hours = excluded.hours,
+				lock_status = excluded.lock_status, approval_status = excluded.approval_status,
+				created_date = excluded.created_date, updated_date = excluded.updated_date
+			WHERE excluded.updated_date IS NOT updated_date`,
+			l.ID, l.TaskID, l.UserID, l.CategoryID, l.TrackedDate, l.Comment,
+			l.Hours, l.LockStatus, l.ApprovalStatus, l.CreatedDate, l.UpdatedDate, l.TaskID)
+		if err != nil {
+			return 0, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		changed += int(n)
+	}
+	return changed, tx.Commit()
 }
 
 func (t timelogRepo) ReplaceForTask(ctx context.Context, taskID string, logs []Timelog) error {

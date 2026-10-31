@@ -20,6 +20,11 @@ type TaskRepo interface {
 	// MarkOpened records the open and renews the reach stamp of a reached task, a pulled task gets none.
 	MarkOpened(ctx context.Context, id, openedAt string) error
 	RecentlyOpenedIDs(ctx context.Context, since string, limit int) ([]string, error)
+	// MarkThreadRead records a per task read of the thread, the detail tells a thread never read by the empty stamp.
+	MarkThreadRead(ctx context.Context, id, at string) error
+	// StaleThreadIDs lists up to limit stamped tasks whose updated date is later than the stamp, the latest change first.
+	// A change to the thread moves the task's updated date, so these are the threads to read again, a set bounded by the tasks read before.
+	StaleThreadIDs(ctx context.Context, limit int) ([]string, error)
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
@@ -191,7 +196,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	row := t.r.QueryRowContext(ctx, `
 		SELECT id, title, description, description_plain, status, custom_status_id,
 		       importance, permalink, dates_type, dates_duration, dates_start,
-		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), attachment_count,
+		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), COALESCE(thread_read_at, ''), attachment_count,
 		       effort_mode, effort_minutes
 		FROM tasks WHERE id = ?`, id)
 	var task Task
@@ -200,7 +205,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	err := row.Scan(&task.ID, &task.Title, &task.Description, &task.DescriptionPlain,
 		&task.Status, &task.CustomStatusID, &task.Importance, &task.Permalink,
 		&dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-		&task.LastOpenedAt, &task.AttachmentCount, &eMode, &eMinutes)
+		&task.LastOpenedAt, &task.ThreadReadAt, &task.AttachmentCount, &eMode, &eMinutes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -349,6 +354,21 @@ func (t taskRepo) MarkOpened(ctx context.Context, id, openedAt string) error {
 	return nil
 }
 
+// An empty stamp clears the read, as NULL, so StaleThreadIDs does not take the task for one read before anything.
+func (t taskRepo) MarkThreadRead(ctx context.Context, id, at string) error {
+	_, err := t.w.ExecContext(ctx, `UPDATE tasks SET thread_read_at = NULLIF(?, '') WHERE id = ?`, at, id)
+	return err
+}
+
+func (t taskRepo) StaleThreadIDs(ctx context.Context, limit int) ([]string, error) {
+	// Both columns hold RFC 3339 in UTC, so the string compare is a time compare.
+	// A local task has no thread on the server yet, see RecentlyOpenedIDs.
+	// The condition names thread_read_at IS NOT NULL as the partial index does, so the walk stays off the unstamped tasks.
+	return t.stringColumn(ctx, `
+		SELECT id FROM tasks WHERE thread_read_at IS NOT NULL AND updated_date > thread_read_at AND id NOT LIKE ?
+		ORDER BY updated_date DESC LIMIT ?`, LocalIDPrefix+"%", limit)
+}
+
 // UpsertReached stamps only the rows it creates.
 // The callers decide that a task is not cached before the request, and a scope pull can land in between,
 // so a row that is already there is a task a scope lists, or a reached one with a stamp of its own, and keeps what it has.
@@ -439,7 +459,7 @@ func (t taskRepo) Search(ctx context.Context, query string, limit int) ([]Task, 
 // The list queries skip the description columns on purpose: a folder can hold thousands of tasks and the list never shows them.
 const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importance, t.permalink,
 	t.dates_type, t.dates_duration, t.dates_start, t.dates_due, t.created_date, t.updated_date,
-	COALESCE(t.last_opened_at, ''),
+	COALESCE(t.last_opened_at, ''), COALESCE(t.thread_read_at, ''),
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), ''),
 	COALESCE((SELECT GROUP_CONCAT(folder_id) FROM task_parents p WHERE p.task_id = t.id), '')`
 
@@ -556,7 +576,7 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 		var resp, parents string
 		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
 			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-			&task.LastOpenedAt, &resp, &parents); err != nil {
+			&task.LastOpenedAt, &task.ThreadReadAt, &resp, &parents); err != nil {
 			return nil, err
 		}
 		if dType.Valid {

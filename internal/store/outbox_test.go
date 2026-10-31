@@ -936,3 +936,20 @@ func TestDiscardPassesABudgetBeforeOn(t *testing.T) {
 		t.Errorf("the second effort edit remembers %s, want 600", row.Before)
 	}
 }
+
+// A queued task has no thread on the server yet, so its row is stamped at once and nothing asks Wrike for it.
+func TestEnqueueTaskCreateStampsTheLocalTasksThread(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	id, err := st.Outbox().EnqueueTaskCreate(ctx, "F1", TaskCreatePayload{Title: "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Tasks().Get(ctx, LocalID(id))
+	if err != nil || got.ThreadReadAt == "" {
+		t.Errorf("local task = %+v, %v, want the thread stamp", got, err)
+	}
+	if ids, _ := st.Tasks().StaleThreadIDs(ctx, 10); len(ids) != 0 {
+		t.Errorf("a queued task is listed as stale: %v", ids)
+	}
+}

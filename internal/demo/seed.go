@@ -181,6 +181,12 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err := st.Tasks().Upsert(ctx, tasks); err != nil {
 		return err
 	}
+	// The demo shows no unsynced thread, every task there is as the seed made it.
+	for _, t := range tasks {
+		if err := st.Tasks().MarkThreadRead(ctx, t.ID, now.UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
 	if err := st.Dependencies().ReplaceForTask(ctx, tasks[0].ID, []store.Dependency{
 		{ID: "IEAADEP01", PredecessorID: tasks[12].ID, SuccessorID: tasks[0].ID, RelationType: "FinishToStart", LagMinutes: 960},
 		{ID: "IEAADEP02", PredecessorID: tasks[0].ID, SuccessorID: tasks[18].ID, RelationType: "StartToStart"},

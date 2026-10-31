@@ -20,6 +20,7 @@ type Task struct {
 	CreatedDate      string
 	UpdatedDate      string
 	LastOpenedAt     string // empty when never opened, local bookeeping
+	ThreadReadAt     string // the last per task read of the comments and time entries, empty when never read, local bookkeeping
 }
 
 type TaskDates struct {
@@ -204,3 +205,10 @@ const MetaKeyPullFields = "pull_fields"
 // MetaKeyTimelogFrom is the first day of the TimelogWindow the last timelog pull covered, an ISO date.
 // The timesheet marks weeks before it as not synced, an empty value means no pull has run yet.
 const MetaKeyTimelogFrom = "timelog_window_from"
+
+// MetaKeyCommentsPulledTo and MetaKeyTimelogChangesPulledTo are the end of the last account wide window
+// the comments pull and the time entry changes pull asked for, RFC 3339 on this machine's clock, empty before the first pull.
+const (
+	MetaKeyCommentsPulledTo       = "comments_pulled_to"
+	MetaKeyTimelogChangesPulledTo = "timelog_changes_pulled_to"
+)

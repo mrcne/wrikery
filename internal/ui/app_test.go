@@ -3,6 +3,7 @@ package ui_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -1788,4 +1789,91 @@ func TestDetailShowsTheBudgetOfTheDemoTask(t *testing.T) {
 	press(tm, "/", "fix auth retry", "enter")
 	waitFor(t, tm, "#1200000")
 	waitFor(t, tm, "3h of 20h, 17h left")
+}
+
+// A never read thread is asked for when the cursor rests on its task, not while it walks past, and once per selection.
+func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
+	st := seededStore(t)
+	ctx := context.Background()
+	tasks, err := st.Tasks().ListForResponsible(ctx, demo.MeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unread := tasks[1]
+	if err := st.Tasks().MarkThreadRead(ctx, unread.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var asked []string
+	o := testOptions(st)
+	o.Hooks.FetchThread = func(ctx context.Context, id string) (bool, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked = append(asked, id)
+		// The second ask fails, the one the return to the task sends.
+		if len(asked) == 2 {
+			return false, errors.New("no answer")
+		}
+		return true, nil
+	}
+	calls := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), asked...)
+	}
+	waitCalls := func(want int, within time.Duration) {
+		t.Helper()
+		deadline := time.Now().Add(within)
+		for len(calls()) < want {
+			if time.Now().After(deadline) {
+				t.Fatalf("asked = %v, want %d calls", calls(), want)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		if got := calls(); len(got) != want {
+			t.Fatalf("asked = %v, want %d calls", got, want)
+		}
+	}
+	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(160, 40))
+	waitFor(t, tm, "Tasks: My tasks")
+
+	// Walking past within the second asks nothing.
+	from := mark(t, tm)
+	press(tm, "j")
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
+	press(tm, "j")
+	time.Sleep(1300 * time.Millisecond)
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("walking past asked %v", got)
+	}
+
+	// Resting on it asks once.
+	from = mark(t, tm)
+	press(tm, "k")
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
+	waitCalls(1, 3*time.Second)
+	// A reload of the same task, the engine's event after a poll, does not ask again.
+	tm.Send(ui.StoreChangedMsg{Entities: []string{"comments"}})
+	time.Sleep(1300 * time.Millisecond)
+	waitCalls(1, 0)
+
+	// Away and back asks again, and this time the hook fails.
+	// Two presses inside one frame leave the screen as it was and draw nothing, so the move away is waited for first.
+	from = mark(t, tm)
+	press(tm, "j")
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, tasks[2].Permalink))
+	from = mark(t, tm)
+	press(tm, "k")
+	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
+	waitCalls(2, 3*time.Second)
+
+	// After a failure the same selection asks again on enter, no reselect needed, and the rest that follows adds nothing.
+	// The wait is the generous one of the other phases, a race run on a slow runner must not fail on the timing alone.
+	press(tm, "enter")
+	waitCalls(3, 3*time.Second)
+	time.Sleep(1300 * time.Millisecond)
+	waitCalls(3, 0)
+	if got := calls(); got[0] != unread.ID || got[1] != unread.ID || got[2] != unread.ID {
+		t.Errorf("asked = %v, want the unread task each time", got)
+	}
 }

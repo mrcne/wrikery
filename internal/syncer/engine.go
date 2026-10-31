@@ -63,8 +63,8 @@ func (c Config) withDefaults() Config {
 // Engine keeps the store and the API in step from one goroutine.
 // The mutable fields below the channels are owned by whichever of Run, Once or Drain is running.
 // Once and Drain are for an engine whose Run is not running, the two never overlap on one engine.
-// Reach is the one exception: it runs on the caller's goroutine while Run runs,
-// so it may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
+// Reach and FetchThread are the exceptions: they run on the caller's goroutine while Run runs,
+// so they may touch only client, st, cfg, log and events, which New sets and nothing changes after, and homeOK, an atomic.
 type Engine struct {
 	client Client
 	effort *effortReads // the wrapper around client when PullEffort is set, nil otherwise, a refresh the user asked for resets it
@@ -469,12 +469,47 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
 	}
 
-	touched, err := refreshThreads(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
+	// The whole account's new comments and changed time entries, two requests, before the per task reads below.
+	// They only add data, so a failure is logged and the cycle goes on: the comments read keeps the end of the last step that completed
+	// and the time entry read, one request, keeps its cursor as it was, so the next cycle asks what is still missing.
+	// The first run's seven day read is the heaviest request a cycle sends, and a Wrike that times out on it must not hold the rest.
+	// What a failed read wrote before it failed is announced all the same.
+	changedComments, err := pullComments(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
+	if err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		e.log.Warn("comments read failed, the cycle goes on", "error", err)
+	}
+	if changedComments {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindComments}})
+	}
+	changedEntries, err := pullTimelogChanges(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, time.Now())
+	if err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		e.log.Warn("time entry changes read failed, the cycle goes on", "error", err)
+	}
+	if changedEntries {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTimelogs}})
+	}
+
+	touched, err := readOpened(ctx, e.client, e.st, e.log, e.cfg.ThreadWindow, e.cfg.ThreadLimit)
 	if err != nil {
 		return err
 	}
 	if len(touched) > 0 {
 		e.emit(Event{Kind: EventStoreChanged, Entities: touched})
+	}
+	// After the opened tasks: one without a stamp was read whole and stamped there, so the stale list cannot hold it,
+	// and a stamped one that changed got its dependencies there and its thread here, each read once.
+	stale, err := rereadStale(ctx, e.client, e.st, e.log, e.cfg.ThreadLimit)
+	if err != nil {
+		return err
+	}
+	if len(stale) > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: stale})
 	}
 
 	// The tasks behind the time entries and the relations, then a re-read of the reached tasks no scope poll covers:

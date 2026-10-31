@@ -263,19 +263,105 @@ const outsideTaskJSON = `{"kind":"tasks","data":[{"id":"MAAAAAEPXpuV","title":"O
 func outsideWrike(t *testing.T) http.Handler {
 	t.Helper()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/tasks/MAAAAAEPXpuV" || r.URL.Query().Get("fields") != `["attachmentCount"]` {
-			t.Errorf("request = %s %s, want the task by id with the count field alone", r.URL.Path, r.URL.RawQuery)
+		// The fetched task has no thread in the cache, so task show reads it right after the fetch.
+		switch r.URL.Path {
+		case "/tasks/MAAAAAEPXpuV/comments":
+			_, _ = w.Write([]byte(`{"kind":"comments","data":[]}`))
+		case "/tasks/MAAAAAEPXpuV/timelogs":
+			_, _ = w.Write([]byte(`{"kind":"timelogs","data":[]}`))
+		case "/tasks/MAAAAAEPXpuV/dependencies":
+			_, _ = w.Write([]byte(`{"kind":"dependencies","data":[]}`))
+		default:
+			if r.URL.Path != "/tasks/MAAAAAEPXpuV" || r.URL.Query().Get("fields") != `["attachmentCount"]` {
+				t.Errorf("request = %s %s, want the task by id with the count field alone", r.URL.Path, r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(outsideTaskJSON))
 		}
-		_, _ = w.Write([]byte(outsideTaskJSON))
 	})
+}
+
+// threadWrike answers the three per task reads of TASK1 with one comment and nothing else.
+func threadWrike(t *testing.T) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tasks/TASK1/comments":
+			_, _ = w.Write([]byte(`{"kind":"comments","data":[{"id":"C9","authorId":"U2","taskId":"TASK1","text":"posted while nobody looked","createdDate":"2026-10-02T09:00:00Z"}]}`))
+		case "/tasks/TASK1/timelogs":
+			_, _ = w.Write([]byte(`{"kind":"timelogs","data":[]}`))
+		case "/tasks/TASK1/dependencies":
+			_, _ = w.Write([]byte(`{"kind":"dependencies","data":[]}`))
+		default:
+			t.Errorf("request = %s %s, want the thread of TASK1 alone", r.Method, r.URL.Path)
+		}
+	})
+}
+
+func TestTaskShowReadsAThreadTheCacheNeverHad(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = withNetwork(t, env, threadWrike(t))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "posted while nobody looked") || strings.Contains(out.String(), "not synced") {
+		t.Errorf("out:\n%s", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", errOut.String())
+	}
+	if got, _ := env.Store.Tasks().Get(context.Background(), "TASK1"); got.ThreadReadAt == "" {
+		t.Error("the task must carry the stamp after the read")
+	}
+}
+
+func TestTaskShowOfflineSaysTheThreadIsNotSynced(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = noNetwork(t, env)
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "comments  not synced yet") || errOut.Len() != 0 {
+		t.Errorf("out:\n%s\nstderr: %q", out.String(), errOut.String())
+	}
+	out.Reset()
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1", "--json"}); code != exitOK {
+		t.Fatalf("json code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), `"thread_synced": false`) {
+		t.Errorf("json:\n%s", out.String())
+	}
+}
+
+func TestTaskShowWithASyncedThreadReadsNothing(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("request = %s %s, a synced thread must read nothing", r.Method, r.URL.Path)
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1", "--json"}); code != exitOK {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(out.String(), `"thread_synced": true`) || strings.Contains(out.String(), "not synced") {
+		t.Errorf("json:\n%s", out.String())
+	}
 }
 
 func TestTaskShowFetchesAnUncachedTask(t *testing.T) {
 	env, out, errOut := testEnv(t)
 	seedBoard(t, env.Store)
 	env = withNetwork(t, env, outsideWrike(t))
+	// The fetch and the thread read that follows it share one sign in and one engine.
+	signedIn, inner := 0, env.SignedIn
+	env.SignedIn = func() (bool, error) { signedIn++; return inner() }
 	if code := Run(context.Background(), env, []string{"task", "show", "MAAAAAEPXpuV"}); code != exitOK {
 		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if signedIn != 1 {
+		t.Errorf("the sign in was read %d times, want once", signedIn)
 	}
 	if !strings.Contains(out.String(), "Outside the scopes") {
 		t.Errorf("out:\n%s", out.String())
@@ -365,5 +451,40 @@ func TestTaskShowOfAnUncachedIdInOfflineModeSaysSo(t *testing.T) {
 	}
 	if want := `no task "MAAAAAEPXpuV" in the cache, offline mode`; !strings.Contains(errOut.String(), want) {
 		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}
+
+func TestTaskShowFailsWhenTheThreadReadFindsTheTaskGone(t *testing.T) {
+	env, _, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"errorDescription":"Task not found or access denied","error":"resource_not_found"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitError {
+		t.Fatalf("code = %d, want a failure for a task gone from Wrike", code)
+	}
+	if !strings.Contains(errOut.String(), `no task "TASK1" on Wrike, or no access`) {
+		t.Errorf("stderr:\n%s", errOut.String())
+	}
+	if _, err := env.Store.Tasks().Get(context.Background(), "TASK1"); err == nil {
+		t.Error("the task is still in the cache after the 404")
+	}
+}
+
+func TestTaskShowSaysWhenTheThreadReadWasRefused(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	unstamp(t, env.Store, "TASK1")
+	env = withNetwork(t, env, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errorDescription":"Access forbidden","error":"access_forbidden"}`))
+	}))
+	if code := Run(context.Background(), env, []string{"task", "show", "TASK1"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "comments  not synced yet") || !strings.Contains(errOut.String(), "wrikery: comments not synced:") {
+		t.Errorf("out:\n%s\nstderr: %q, want the note on both", out.String(), errOut.String())
 	}
 }
