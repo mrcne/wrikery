@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/runes"
 	"golang.org/x/text/transform"
@@ -10,8 +11,8 @@ import (
 )
 
 // titleFolder folds titles with one transformer chain.
-// A lookup folds every title of the cache, and the chain costs more to build than to run,
-// six times the time and seventeen times the bytes of folding a title with it at sixty thousand tasks.
+// A lookup folds every title of the cache, and building the chain took six times the time
+// and seventeen times the bytes of a fold with it.
 type titleFolder struct {
 	chain transform.Transformer
 }
@@ -23,6 +24,14 @@ func newTitleFolder() titleFolder {
 // fold lowercases s and strips combining marks.
 // transform.String resets the chain first, so a fold never sees the state the one before left, see https://pkg.go.dev/golang.org/x/text/transform#String.
 func (f titleFolder) fold(s string) string {
+	ascii := true
+	for i := 0; i < len(s) && ascii; i++ {
+		ascii = s[i] < utf8.RuneSelf
+	}
+	if ascii {
+		// ASCII has no combining marks and decomposes to itself, the lowercase is the whole fold and most titles take this way.
+		return strings.ToLower(s)
+	}
 	out, _, err := transform.String(f.chain, strings.ToLower(s))
 	if err != nil {
 		// The chain only fails on a broken transformer, the lowercased input is returned unfolded.

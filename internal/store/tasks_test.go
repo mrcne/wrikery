@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -293,6 +294,59 @@ func TestListForResponsible(t *testing.T) {
 		if task.ID == "theirs" {
 			t.Error("theirs listed")
 		}
+	}
+}
+
+func TestFindByTitleListsTheMatchesInTheListOrder(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Folders().ReplaceTree(ctx, []Folder{{ID: "F1", Title: "Folder"}}); err != nil {
+		t.Fatal(err)
+	}
+	var tasks []Task
+	for i, c := range []struct{ status, due, updated string }{
+		{"Completed", "2026-09-01", "2026-09-09T00:00:00Z"},
+		{"Active", "", "2026-09-08T00:00:00Z"},
+		{"Active", "2026-09-05", "2026-09-01T00:00:00Z"},
+		{"Active", "2026-09-05", "2026-09-07T00:00:00Z"},
+		{"Cancelled", "", "2026-09-06T00:00:00Z"},
+		{"Active", "2026-09-02", "2026-09-02T00:00:00Z"},
+		{"Deferred", "", "2026-09-03T00:00:00Z"},
+	} {
+		task := Task{ID: fmt.Sprintf("T%d", i), Title: fmt.Sprintf("Task %d", i), Status: c.status, ParentIDs: []string{"F1"}, UpdatedDate: c.updated}
+		if c.due != "" {
+			task.Dates = &TaskDates{Type: "Planned", Due: c.due}
+		}
+		tasks = append(tasks, task)
+	}
+	tasks = append(tasks, Task{ID: "other", Title: "Something else", Status: "Active", ParentIDs: []string{"F1"}, UpdatedDate: "2026-09-10T00:00:00Z"})
+	if err := st.Tasks().Upsert(ctx, tasks); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := st.Tasks().ListInFolder(ctx, "F1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, task := range listed {
+		if task.ID != "other" {
+			want = append(want, task.ID)
+		}
+	}
+	ids := func(found []Task) []string {
+		var out []string
+		for _, task := range found {
+			out = append(out, task.ID)
+		}
+		return out
+	}
+	found, err := st.Tasks().FindByTitle(ctx, "task", 100)
+	if err != nil || !reflect.DeepEqual(ids(found), want) {
+		t.Errorf("FindByTitle = %v, %v, want the list order %v", ids(found), err, want)
+	}
+	found, err = st.Tasks().FindByTitle(ctx, "task", 3)
+	if err != nil || !reflect.DeepEqual(ids(found), want[:3]) {
+		t.Errorf("FindByTitle with a limit of 3 = %v, %v, want %v", ids(found), err, want[:3])
 	}
 }
 

@@ -77,6 +77,16 @@ func BenchmarkQueries(b *testing.B) {
 			}
 		}
 	})
+	// A command names one task, so the usual lookup has one hit and reads every title.
+	b.Run("FindByTitleUnique", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			rows, err := st.Tasks().FindByTitle(ctx, "error codes 9999", 3)
+			if err != nil || len(rows) != 1 {
+				b.Fatal(err, len(rows))
+			}
+		}
+	})
 	b.Run("Search", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {

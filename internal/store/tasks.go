@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -473,6 +474,9 @@ const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled')
 
 // A task in two folders of the tree has two task_parents rows and the IN keeps it once.
 // A join with DISTINCT over the row did the same and was half of the query's time at five thousand rows.
+// The CROSS JOIN makes SQLite walk the tree's folders and read their rows through the folder index,
+// left to itself it scanned every task_parents row of the cache for each list.
+// At sixty thousand tasks that is a fifth of the time for a folder or a project and a tenth more for a space of all sixty thousand.
 func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
 	return t.list(ctx, `
 		WITH RECURSIVE tree(id) AS (
@@ -481,7 +485,7 @@ func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, er
 			SELECT fc.child_id FROM folder_children fc JOIN tree ON fc.parent_id = tree.id
 		)
 		SELECT `+taskListColumns+` FROM tasks t
-		WHERE t.id IN (SELECT tp.task_id FROM task_parents tp JOIN tree ON tree.id = tp.folder_id)
+		WHERE t.id IN (SELECT tp.task_id FROM tree CROSS JOIN task_parents tp ON tp.folder_id = tree.id)
 		`+taskListOrder, folderID)
 }
 
@@ -525,33 +529,49 @@ func (t taskRepo) CountOpenForResponsible(ctx context.Context, contactID string)
 
 // FindByTitle is the lookup behind a title fragment on the command line.
 // It is a plain substring on the folded title, the search index would match descriptions too.
-// The whole table is read, the cache holds a few thousand tasks at most.
+// Every title is read and folded, and a second query puts the matches in the list order.
+// Each column of each row costs a call into the driver, so the scan reads two, and sorting the whole table before the first row was most of a lookup at sixty thousand tasks.
 func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
 	folder := newTitleFolder()
 	want := folder.fold(fragment)
 	// A fragment of only combining marks folds to empty, which every title contains.
-	if want == "" {
+	if want == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := t.r.QueryContext(ctx, `SELECT t.id, t.title FROM tasks t `+taskListOrder)
+	rows, err := t.r.QueryContext(ctx, `SELECT rowid, title FROM tasks`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var ids []string
-	for rows.Next() && len(ids) < limit {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
+	var matched []int64
+	for rows.Next() {
+		var rowid int64
+		var title string
+		if err := rows.Scan(&rowid, &title); err != nil {
 			return nil, err
 		}
 		if strings.Contains(folder.fold(title), want) {
-			ids = append(ids, id)
+			matched = append(matched, rowid)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	_ = rows.Close()
+	if len(matched) == 0 {
+		return nil, nil
+	}
+	// One JSON array and not a parameter per match, a short fragment can match every task and SQLite caps the parameters of a statement.
+	list, err := json.Marshal(matched)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := t.stringColumn(ctx, `
+		SELECT t.id FROM tasks t WHERE t.rowid IN (SELECT value FROM json_each(?))
+		`+taskListOrder+` LIMIT ?`, string(list), limit)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Task, 0, len(ids))
 	for _, id := range ids {
 		task, err := t.Get(ctx, id)
