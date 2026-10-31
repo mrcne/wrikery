@@ -25,6 +25,7 @@ func taskFromWrike(t wrike.Task) store.Task {
 		SuperTaskIDs:    t.SuperTaskIDs,
 		DependencyIDs:   t.DependencyIDs,
 		AttachmentCount: t.AttachmentCount,
+		FollowedByMe:    t.FollowedByMe,
 		CreatedDate:     rfc3339(t.CreatedDate),
 		UpdatedDate:     rfc3339(t.UpdatedDate),
 	}
@@ -137,6 +138,8 @@ func workflowsFromWrike(in []wrike.Workflow) []store.Workflow {
 	return out
 }
 
+// commentFromWrike converts the answer to a post, plain text as sent (checked on the live account).
+// The reads answer HTML and go through commentFromHTML, a strip of this plain answer would eat the rest after a <.
 func commentFromWrike(c wrike.Comment) store.Comment {
 	return store.Comment{
 		ID:          c.ID,
@@ -147,10 +150,18 @@ func commentFromWrike(c wrike.Comment) store.Comment {
 	}
 }
 
-func commentsFromWrike(in []wrike.Comment) []store.Comment {
+// commentFromHTML converts a read comment: the mentions are read from the anchors before the text is reduced to what the thread shows.
+func commentFromHTML(c wrike.Comment) store.Comment {
+	out := commentFromWrike(c)
+	out.Text = store.CommentText(c.Text)
+	out.Mentions = c.Mentions()
+	return out
+}
+
+func commentsFromHTML(in []wrike.Comment) []store.Comment {
 	out := make([]store.Comment, len(in))
 	for i, c := range in {
-		out[i] = commentFromWrike(c)
+		out[i] = commentFromHTML(c)
 	}
 	return out
 }

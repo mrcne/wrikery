@@ -14,6 +14,7 @@ type Task struct {
 	SuperTaskIDs     []string // the tasks this one is a subtask of
 	DependencyIDs    []string // the edges this task is an end of, see Dependency
 	AttachmentCount  int
+	FollowedByMe     bool               // the pulls ask for it, every read by id and every write's answer carry it
 	Dates            *TaskDates         // nil when the task has no dates block
 	CustomFields     []CustomFieldValue // the task's custom field values, nil when it has none
 	Effort           *TaskEffort        // the Effort field, nil until a read asked for it, see the upsert
@@ -133,6 +134,8 @@ type Comment struct {
 	AuthorID    string
 	Text        string
 	CreatedDate string
+	Mentions    []string // who the comment mentions: user ids and the group forms @assignees and @followers, nil for nobody
+	ArrivedAt   string   // when the row first entered this cache, local bookkeeping, the inbox marks a row against it and not against its creation date
 }
 
 type Timelog struct {
@@ -212,3 +215,9 @@ const (
 	MetaKeyCommentsPulledTo       = "comments_pulled_to"
 	MetaKeyTimelogChangesPulledTo = "timelog_changes_pulled_to"
 )
+
+// MetaKeyInboxSeenTo is the arrival stamp of the newest inbox row the user had on screen, empty for none.
+// Arrival and not creation, because comments do not enter the cache in creation order: a task cached late,
+// or a thread read on an open, brings comments older than what was seen already, and those must still show as unread.
+// The stamp is this machine's clock on both sides, so a skew against Wrike's clock plays no part.
+const MetaKeyInboxSeenTo = "inbox_seen_to"

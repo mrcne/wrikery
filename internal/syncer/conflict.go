@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -191,6 +190,7 @@ func fieldByID(defs []store.CustomField, id string) store.CustomField {
 }
 
 // descriptionText is a description reduced to its words: the tags dropped, every entity decoded and the white space collapsed.
+// StripHTML decodes the entities itself, a second decode would read a literal &lt; in the text as a <.
 func descriptionText(s string) string {
-	return strings.Join(strings.Fields(html.UnescapeString(store.StripHTML(s))), " ")
+	return strings.Join(strings.Fields(store.StripHTML(s)), " ")
 }

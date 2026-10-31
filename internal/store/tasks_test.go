@@ -875,3 +875,28 @@ func TestStaleThreadIDsListsOnlyStampedTasksThatChanged(t *testing.T) {
 		t.Errorf("T1 listed after a read past its change: %v", ids)
 	}
 }
+
+func TestFollowFlagRoundTrips(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	followed := makeTask("T1", "followed")
+	followed.FollowedByMe = true
+	if err := st.Tasks().Upsert(ctx, []Task{followed, makeTask("T2", "not followed")}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Tasks().Get(ctx, "T1")
+	other, _ := st.Tasks().Get(ctx, "T2")
+	if !got.FollowedByMe || other.FollowedByMe {
+		t.Errorf("Get: followed = %v, %v, want true and false", got.FollowedByMe, other.FollowedByMe)
+	}
+	if list, _ := st.Tasks().ByIDs(ctx, []string{"T1", "T2"}); len(list) != 2 || !list[0].FollowedByMe || list[1].FollowedByMe {
+		t.Errorf("ByIDs: %+v, want the flag on T1 alone", list)
+	}
+	// The user stopped following, the next read carries false and the flag goes.
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "followed")}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Tasks().Get(ctx, "T1"); got.FollowedByMe {
+		t.Errorf("the flag must follow the last read")
+	}
+}

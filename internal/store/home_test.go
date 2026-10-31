@@ -187,6 +187,30 @@ func TestMoveHomeKeepsTheEntriesLoggedOffline(t *testing.T) {
 	}
 }
 
+func TestMoveHomeToAnotherPersonForgetsTheInboxMarker(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.AdoptHome(ctx, Home{AccountID: "ACC1", AccountName: "Acme", Host: "www.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetMeta(ctx, MetaKeyInboxSeenTo, "2026-09-09T12:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	// The same person on another data center keeps what they have read.
+	if err := st.MoveHome(ctx, Home{AccountID: "ACC1", AccountName: "Acme", Host: "app-eu.wrike.com", ContactID: "U1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.GetMeta(ctx, MetaKeyInboxSeenTo); err != nil || got != "2026-09-09T12:00:00Z" {
+		t.Errorf("marker after a data center move = %q, %v, want kept", got, err)
+	}
+	if err := st.MoveHome(ctx, Home{AccountID: "ACC1", AccountName: "Acme", Host: "app-eu.wrike.com", ContactID: "U2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetMeta(ctx, MetaKeyInboxSeenTo); !errors.Is(err, ErrNotFound) {
+		t.Errorf("marker after a move to another person: %v, want gone, their comments are not what the old person read", err)
+	}
+}
+
 func TestHomeNameFallsBackToTheIdAndThenToAnotherAccount(t *testing.T) {
 	for h, want := range map[Home]string{
 		{AccountID: "ACC1", AccountName: "Acme"}: "Acme",

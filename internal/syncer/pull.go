@@ -14,7 +14,8 @@ import (
 
 // The task search returns these only when asked.
 // customFields is asked for on every account: a plan without the feature answers the tasks without the key, no error (checked on the live account).
-var pullFields = []string{"description", "responsibleIds", "parentIds", "superTaskIds", "dependencyIds", "attachmentCount", "customFields"}
+// followerIds brings followedByMe with it, the name the inbox reads, which the search refuses as a field of its own (checked on the live account).
+var pullFields = []string{"description", "responsibleIds", "parentIds", "superTaskIds", "dependencyIds", "attachmentCount", "customFields", "followerIds"}
 
 // dependencyBatch caps the edge reads of one cycle, a first pull of a large plan spreads them over a few cycles.
 const dependencyBatch = 200
@@ -207,7 +208,7 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, task store.Ta
 	if err != nil {
 		return err
 	}
-	if err := st.Comments().ReplaceForTask(ctx, task.ID, commentsFromWrike(comments)); err != nil {
+	if err := st.Comments().ReplaceForTask(ctx, task.ID, commentsFromHTML(comments)); err != nil {
 		return err
 	}
 	logs, err := c.TaskTimelogs(ctx, task.ID)

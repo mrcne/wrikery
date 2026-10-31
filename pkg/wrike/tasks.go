@@ -39,6 +39,9 @@ type Task struct {
 	// Effort comes only when effortAllocation is asked for, so nil means the read did not ask, not that the task has none.
 	CustomFields []CustomFieldValue `json:"customFields"`
 	Effort       *TaskEffort        `json:"effortAllocation"`
+	// FollowedByMe comes with a query when followerIds is asked for, the query refuses followedByMe as a field name,
+	// and with every read by id and every write's answer without being asked (checked on the live account).
+	FollowedByMe bool `json:"followedByMe"`
 }
 
 // TaskDates keeps start and due as the API's zone-less strings.

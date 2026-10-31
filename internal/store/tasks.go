@@ -83,9 +83,9 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, reachedAt stri
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO tasks (id, title, description, description_plain, status,
 				custom_status_id, importance, permalink, dates_type, dates_duration,
-				dates_start, dates_due, created_date, updated_date, attachment_count, reached_at,
+				dates_start, dates_due, created_date, updated_date, attachment_count, followed_by_me, reached_at,
 				effort_mode, effort_minutes)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				title = excluded.title, description = excluded.description,
 				description_plain = excluded.description_plain, status = excluded.status,
@@ -94,12 +94,13 @@ func upsertTasksTx(ctx context.Context, tx *sql.Tx, tasks []Task, reachedAt stri
 				dates_duration = excluded.dates_duration, dates_start = excluded.dates_start,
 				dates_due = excluded.dates_due, created_date = excluded.created_date,
 				updated_date = excluded.updated_date, attachment_count = excluded.attachment_count,
+				followed_by_me = excluded.followed_by_me,
 				reached_at = CASE WHEN ? THEN NULL ELSE reached_at END,
 				effort_mode = COALESCE(excluded.effort_mode, effort_mode),
 				effort_minutes = COALESCE(excluded.effort_minutes, effort_minutes)`,
 			t.ID, t.Title, t.Description, StripHTML(t.Description), t.Status,
 			t.CustomStatusID, t.Importance, t.Permalink, dType, dDur,
-			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, reachedAt, eMode, eMinutes, clearStamp); err != nil {
+			dStart, dDue, t.CreatedDate, t.UpdatedDate, t.AttachmentCount, t.FollowedByMe, reachedAt, eMode, eMinutes, clearStamp); err != nil {
 			return err
 		}
 		// The values come with every read that can carry them, so a task without the key has none and the rows go.
@@ -197,7 +198,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 		SELECT id, title, description, description_plain, status, custom_status_id,
 		       importance, permalink, dates_type, dates_duration, dates_start,
 		       dates_due, created_date, updated_date, COALESCE(last_opened_at, ''), COALESCE(thread_read_at, ''), attachment_count,
-		       effort_mode, effort_minutes
+		       followed_by_me, effort_mode, effort_minutes
 		FROM tasks WHERE id = ?`, id)
 	var task Task
 	var dType, dStart, dDue, eMode sql.NullString
@@ -205,7 +206,7 @@ func (t taskRepo) Get(ctx context.Context, id string) (Task, error) {
 	err := row.Scan(&task.ID, &task.Title, &task.Description, &task.DescriptionPlain,
 		&task.Status, &task.CustomStatusID, &task.Importance, &task.Permalink,
 		&dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-		&task.LastOpenedAt, &task.ThreadReadAt, &task.AttachmentCount, &eMode, &eMinutes)
+		&task.LastOpenedAt, &task.ThreadReadAt, &task.AttachmentCount, &task.FollowedByMe, &eMode, &eMinutes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, ErrNotFound
 	}
@@ -459,7 +460,7 @@ func (t taskRepo) Search(ctx context.Context, query string, limit int) ([]Task, 
 // The list queries skip the description columns on purpose: a folder can hold thousands of tasks and the list never shows them.
 const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importance, t.permalink,
 	t.dates_type, t.dates_duration, t.dates_start, t.dates_due, t.created_date, t.updated_date,
-	COALESCE(t.last_opened_at, ''), COALESCE(t.thread_read_at, ''),
+	COALESCE(t.last_opened_at, ''), COALESCE(t.thread_read_at, ''), t.followed_by_me,
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), ''),
 	COALESCE((SELECT GROUP_CONCAT(folder_id) FROM task_parents p WHERE p.task_id = t.id), '')`
 
@@ -576,7 +577,7 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 		var resp, parents string
 		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
 			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
-			&task.LastOpenedAt, &task.ThreadReadAt, &resp, &parents); err != nil {
+			&task.LastOpenedAt, &task.ThreadReadAt, &task.FollowedByMe, &resp, &parents); err != nil {
 			return nil, err
 		}
 		if dType.Valid {

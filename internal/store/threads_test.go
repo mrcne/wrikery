@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
+	"time"
 )
 
 func TestCommentReplaceKeepsLocalRows(t *testing.T) {
@@ -14,7 +16,7 @@ func TestCommentReplaceKeepsLocalRows(t *testing.T) {
 	}
 
 	server := []Comment{
-		{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "old", CreatedDate: "2026-09-01T10:00:00Z"},
+		{ID: "C1", TaskID: "T1", AuthorID: "U1", Text: "old", CreatedDate: "2026-09-01T10:00:00Z", Mentions: []string{"U2", "@assignees"}},
 		{ID: "C2", TaskID: "T1", AuthorID: "U2", Text: "stale", CreatedDate: "2026-09-01T11:00:00Z"},
 	}
 	if err := st.Comments().ReplaceForTask(ctx, "T1", server); err != nil {
@@ -37,6 +39,32 @@ func TestCommentReplaceKeepsLocalRows(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ID != "C1" || got[1].ID != "local:7" {
 		t.Fatalf("comments = %+v, want [C1 local:7] by created date", got)
+	}
+	if !slices.Equal(got[0].Mentions, []string{"U2", "@assignees"}) || got[1].Mentions != nil {
+		t.Errorf("mentions = %v, %v, want the list on C1 and none on the local row", got[0].Mentions, got[1].Mentions)
+	}
+}
+
+func TestCommentUpsertCountsAMentionsChange(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	cm := Comment{ID: "C1", TaskID: "T1", AuthorID: "U2", Text: "hello", CreatedDate: "2026-09-01T10:00:00Z"}
+	if n, err := st.Comments().UpsertCached(ctx, []Comment{cm}); err != nil || n != 1 {
+		t.Fatalf("first upsert = %d, %v, want 1", n, err)
+	}
+	if n, err := st.Comments().UpsertCached(ctx, []Comment{cm}); err != nil || n != 0 {
+		t.Fatalf("same row again = %d, %v, want 0", n, err)
+	}
+	// A thread read before the mentions were kept learns them on the next read, once.
+	cm.Mentions = []string{"U1"}
+	if n, err := st.Comments().UpsertCached(ctx, []Comment{cm}); err != nil || n != 1 {
+		t.Fatalf("mentions change = %d, %v, want 1", n, err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || !slices.Equal(got[0].Mentions, []string{"U1"}) {
+		t.Errorf("comments = %+v, want the mention kept", got)
 	}
 }
 
@@ -146,5 +174,49 @@ func TestUpsertCachedKeepsOnlyCachedTasksAndCountsChanges(t *testing.T) {
 	}
 	if got, _ := st.Timelogs().ListForTask(ctx, "T9"); len(got) != 0 {
 		t.Errorf("an entry of an unknown task was written: %+v", got)
+	}
+}
+
+// The arrival stamp is the inbox's clock: set when a row first enters the cache, kept by every later write of the row,
+// so a thread read again does not make its comments unread again.
+func TestCommentWritesKeepTheArrivalOfARowSeenBefore(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []Task{makeTask("T1", "a")}); err != nil {
+		t.Fatal(err)
+	}
+	clock := func(s string) { st.Now = func() time.Time { tm, _ := time.Parse(time.RFC3339, s); return tm } }
+	c1 := Comment{ID: "C1", TaskID: "T1", AuthorID: "U2", Text: "first", CreatedDate: "2026-09-01T10:00:00Z"}
+	clock("2026-09-03T09:00:00Z")
+	if _, err := st.Comments().UpsertCached(ctx, []Comment{c1}); err != nil {
+		t.Fatal(err)
+	}
+	c1.Text = "first, edited"
+	clock("2026-09-03T10:00:00Z")
+	if _, err := st.Comments().UpsertCached(ctx, []Comment{c1}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].ArrivedAt != "2026-09-03T09:00:00Z" || got[0].Text != "first, edited" {
+		t.Errorf("after the second upsert = %+v, want the text changed and the arrival kept", got)
+	}
+	// An optimistic row, kept by the replace like before.
+	if _, err := st.writer.Exec(`INSERT INTO comments (id, task_id, author_id, text, created_date) VALUES ('local:7', 'T1', 'U1', 'queued', '2026-09-03T09:30:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	c2 := Comment{ID: "C2", TaskID: "T1", AuthorID: "U2", Text: "second", CreatedDate: "2026-09-02T10:00:00Z"}
+	clock("2026-09-03T11:00:00Z")
+	if err := st.Comments().ReplaceForTask(ctx, "T1", []Comment{c1, c2}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Comments().ListForTask(ctx, "T1")
+	if len(got) != 3 || got[0].ID != "C1" || got[0].ArrivedAt != "2026-09-03T09:00:00Z" || got[1].ID != "C2" || got[1].ArrivedAt != "2026-09-03T11:00:00Z" || got[2].ID != "local:7" {
+		t.Fatalf("after the replace = %+v, want C1 with its old arrival, C2 stamped now and the local row kept", got)
+	}
+	// A comment deleted on Wrike leaves with the next replace.
+	if err := st.Comments().ReplaceForTask(ctx, "T1", []Comment{c2}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 2 || got[0].ID != "C2" || got[1].ID != "local:7" {
+		t.Errorf("after the delete = %+v, want C2 and the local row", got)
 	}
 }

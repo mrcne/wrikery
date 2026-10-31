@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 )
 
 func TestOpenCreatesFileAndAppliesMigrations(t *testing.T) {
@@ -394,5 +395,81 @@ func TestThreadReadBackfillFollowsTheOpen(t *testing.T) {
 	never, _ := st.Tasks().Get(ctx, "T2")
 	if opened.ThreadReadAt != "2026-09-03T10:00:00Z" || never.ThreadReadAt != "" {
 		t.Errorf("stamps = %q, %q, want the opened task stamped from its open and the other empty", opened.ThreadReadAt, never.ThreadReadAt)
+	}
+}
+
+// A cache from before the inbox reads the month of comments again, so the rows carry their mentions,
+// a fresh cache keeps the first run's own window. The rows read before count as arrived when they were written.
+// The arrival column has a migration of its own because a cache ran the first inbox migration before the column was designed.
+func TestInboxMigrationReadsTheMonthAgainOnAnExistingCache(t *testing.T) {
+	for _, existing := range []bool{true, false} {
+		t.Run(map[bool]string{true: "existing cache", false: "fresh cache"}[existing], func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "old.db")
+			db, err := sql.Open("sqlite", "file:"+path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY)`); err != nil {
+				t.Fatal(err)
+			}
+			names, err := fs.Glob(migrationFS, "migrations/*.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				if name >= "migrations/0018_inbox_arrival.sql" {
+					break
+				}
+				body, err := migrationFS.ReadFile(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(string(body)); err != nil {
+					t.Fatalf("applying %s: %v", name, err)
+				}
+				if _, err := db.Exec(`INSERT INTO schema_migrations (name) VALUES (?)`, name); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if existing {
+				if _, err := db.Exec(`INSERT INTO tasks (id, title) VALUES ('T1', 'cached')`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`INSERT INTO comments (id, task_id, author_id, text, created_date) VALUES ('C1', 'T1', 'U2', 'old', '2026-09-01T10:00:00Z')`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`INSERT INTO meta (key, value) VALUES ('comments_pulled_to', '2026-10-01T00:00:00Z'), ('timelog_changes_pulled_to', '2026-10-01T00:00:00Z')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			st, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = st.Close() }()
+			ctx := context.Background()
+			cursor, err := st.GetMeta(ctx, MetaKeyCommentsPulledTo)
+			if !existing {
+				if !errors.Is(err, ErrNotFound) {
+					t.Errorf("a fresh cache got a comments cursor %q, %v", cursor, err)
+				}
+				return
+			}
+			at, perr := time.Parse(time.RFC3339, cursor)
+			if err != nil || perr != nil || time.Since(at) < 27*24*time.Hour || time.Since(at) > 29*24*time.Hour {
+				t.Errorf("comments cursor = %q, %v, want four windows back so the next cycle reads the month again", cursor, err)
+			}
+			if got, err := st.GetMeta(ctx, MetaKeyTimelogChangesPulledTo); err != nil || got != "2026-10-01T00:00:00Z" {
+				t.Errorf("timelog cursor = %q, %v, want kept", got, err)
+			}
+			if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].ArrivedAt != "2026-09-01T10:00:00Z" {
+				t.Errorf("comments = %+v, want the arrival backfilled from the creation date", got)
+			}
+		})
 	}
 }
