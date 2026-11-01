@@ -1,5 +1,7 @@
 # Wrikery
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/mrcne/wrikery/badge)](https://scorecard.dev/viewer/?uri=github.com/mrcne/wrikery)
+
 An unofficial terminal client (TUI/CLI) for Wrike.
 Browse tasks, read descriptions, add comments, change statuses, log time and check your timesheet without leaving the terminal.
 It keeps a local copy of what you follow, so browsing and search are instant and reading works offline.
