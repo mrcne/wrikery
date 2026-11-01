@@ -40,9 +40,9 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	// Each reader connection keeps a page cache of 500 KiB instead of SQLite's default of 2000 KiB.
-	// At sixty thousand tasks the interface held five to ten megabytes more with the default,
-	// and the smaller cache changed no query time, the operating system's page cache serves the same pages.
-	// The writer keeps the default, a spill in the middle of a page upsert would cost more than the memory.
+	// At sixty thousand tasks the default adds five to ten megabytes to the interface,
+	// and the smaller cache costs no measurable query time, the operating system's page cache serves the same pages.
+	// The writer keeps the default, a spill in the middle of a page upsert costs more than the memory.
 	reader, err := sql.Open("sqlite", "file:"+path+pragmas+"&_pragma=cache_size(-500)")
 	if err != nil {
 		_ = writer.Close()

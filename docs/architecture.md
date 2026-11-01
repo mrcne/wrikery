@@ -86,8 +86,8 @@ Most of the mapping is direct, so only three parts need explaining:
 
 The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.
 Each reader connection keeps a page cache of 500 KiB.
-With SQLite's default of 2000 KiB the interface held five to ten megabytes more at sixty thousand tasks, and the smaller cache cost nothing measurable in query time, the operating system's page cache serves the same pages.
-The writer keeps the default, a spill in the middle of a page upsert would cost more than the memory.
+SQLite's default of 2000 KiB adds five to ten megabytes to the interface at sixty thousand tasks, and the smaller cache costs nothing measurable in query time, the operating system's page cache serves the same pages.
+The writer keeps the default, a spill in the middle of a page upsert costs more than the memory.
 
 Timestamps are stored as UTC text in RFC3339 format.
 Task start and due dates and the tracked date on a timelog keep the strings without a time zone that the API returns.

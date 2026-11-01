@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -467,16 +466,18 @@ const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importan
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), ''),
 	COALESCE((SELECT GROUP_CONCAT(folder_id) FROM task_parents p WHERE p.task_id = t.id), '')`
 
+// doneStatuses are the status groups of a finished task, the list order and the sidebar's count read the same ones.
+const doneStatuses = `('Completed', 'Cancelled')`
+
 // Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
 // NULLIF covers a database written before the empty due date became a NULL, where the column still holds an empty string.
-const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
+const taskListOrder = `ORDER BY CASE WHEN t.status IN ` + doneStatuses + ` THEN 1 ELSE 0 END,
 	NULLIF(t.dates_due, '') IS NULL, NULLIF(t.dates_due, ''), t.updated_date DESC`
 
-// A task in two folders of the tree has two task_parents rows and the IN keeps it once.
-// A join with DISTINCT over the row did the same and was half of the query's time at five thousand rows.
+// A task in two folders of the tree has two task_parents rows, the IN keeps its id once without the sort of whole rows a DISTINCT needs.
 // The CROSS JOIN makes SQLite walk the tree's folders and read their rows through the folder index,
-// left to itself it scanned every task_parents row of the cache for each list.
-// At sixty thousand tasks that is a fifth of the time for a folder or a project and a tenth more for a space of all sixty thousand.
+// the planner's own choice scans every task_parents row of the cache for each list,
+// five times the time for a folder or a project at sixty thousand tasks, while a space that holds all of them lists a tenth faster that way.
 func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
 	return t.list(ctx, `
 		WITH RECURSIVE tree(id) AS (
@@ -516,59 +517,26 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 		WHERE tr.contact_id = ? `+taskListOrder, contactID)
 }
 
-// A count and not the list: the sidebar is read again on every sync cycle that changed a task,
-// and the list of a person with thousands of tasks cost a hundred milliseconds and sixteen megabytes each time.
+// A count, the sidebar reads it on every sync cycle that changed a task, and the tasks of one person can run into thousands.
 func (t taskRepo) CountOpenForResponsible(ctx context.Context, contactID string) (int, error) {
 	var n int
 	err := t.r.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM tasks t
 		JOIN task_responsibles tr ON tr.task_id = t.id
-		WHERE tr.contact_id = ? AND t.status NOT IN ('Completed', 'Cancelled')`, contactID).Scan(&n)
+		WHERE tr.contact_id = ? AND t.status NOT IN `+doneStatuses, contactID).Scan(&n)
 	return n, err
 }
 
 // FindByTitle is the lookup behind a title fragment on the command line.
 // It is a plain substring on the folded title, the search index would match descriptions too.
-// Every title is read and folded, and a second query puts the matches in the list order.
-// Each column of each row costs a call into the driver, so the scan reads two, and sorting the whole table before the first row was most of a lookup at sixty thousand tasks.
+// SQLite folds each title through title_contains, so the list order and the limit apply to the matches alone.
 func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
-	folder := newTitleFolder()
-	want := folder.fold(fragment)
-	// A fragment of only combining marks folds to empty, which every title contains.
+	want := FoldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains, and SQLite reads a negative limit as none.
 	if want == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := t.r.QueryContext(ctx, `SELECT rowid, title FROM tasks`)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var matched []int64
-	for rows.Next() {
-		var rowid int64
-		var title string
-		if err := rows.Scan(&rowid, &title); err != nil {
-			return nil, err
-		}
-		if strings.Contains(folder.fold(title), want) {
-			matched = append(matched, rowid)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	_ = rows.Close()
-	if len(matched) == 0 {
-		return nil, nil
-	}
-	// One JSON array and not a parameter per match, a short fragment can match every task and SQLite caps the parameters of a statement.
-	list, err := json.Marshal(matched)
-	if err != nil {
-		return nil, err
-	}
-	ids, err := t.stringColumn(ctx, `
-		SELECT t.id FROM tasks t WHERE t.rowid IN (SELECT value FROM json_each(?))
-		`+taskListOrder+` LIMIT ?`, string(list), limit)
+	ids, err := t.stringColumn(ctx, `SELECT t.id FROM tasks t WHERE title_contains(t.title, ?) `+taskListOrder+` LIMIT ?`, want, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -605,7 +573,7 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 	}
 	defer func() { _ = rows.Close() }()
 	var out []Task
-	// One row value for the whole scan: a fresh one per row escaped to the heap through Scan, an allocation of the struct for every row of a long list.
+	// One row value for the whole scan, a value declared inside the loop escapes to the heap through Scan and costs an allocation for every row of a long list.
 	var task Task
 	var dType, dStart, dDue sql.NullString
 	var dDur sql.NullInt64

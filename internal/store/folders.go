@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 )
 
 type FolderRepo interface {
@@ -140,26 +139,23 @@ func (f folderRepo) Children(ctx context.Context, parentID string) ([]Folder, er
 
 // FindByTitle is the lookup behind a folder fragment on the command line, folded like the task lookup.
 func (f folderRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Folder, error) {
-	folder := newTitleFolder()
-	want := folder.fold(fragment)
-	// A fragment of only combining marks folds to empty, which every title contains.
-	if want == "" {
+	want := FoldTitle(fragment)
+	// A fragment of only combining marks folds to empty, which every title contains, and SQLite reads a negative limit as none.
+	if want == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := f.r.QueryContext(ctx, `SELECT id, title FROM folders ORDER BY title`)
+	rows, err := f.r.QueryContext(ctx, `SELECT id FROM folders WHERE title_contains(title, ?) ORDER BY title LIMIT ?`, want, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	var ids []string
-	for rows.Next() && len(ids) < limit {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		if strings.Contains(folder.fold(title), want) {
-			ids = append(ids, id)
-		}
+		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
