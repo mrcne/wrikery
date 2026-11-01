@@ -78,6 +78,7 @@ Most of the mapping is direct, so only three parts need explaining:
 - comments keep the text as the thread shows it, the users the comment mentions, a list of ids with `@assignees` and `@followers` for the group forms, read from the anchors of the HTML form before the text is stripped, and when the row entered the cache, set once and kept by every later write of the row.
   A user group in that list is kept by its name as the comment showed it, `@group:Name`, because Wrike writes a group mention with an id of its own form that no read maps back to the group (checked on the live account, a mention posted with the group's contact id comes back rewritten), and group_members holds the members of each group, with the contacts.
   An index on the creation date bounds the inbox query to its window, a year of comments on a large account is hundreds of thousands of rows.
+  An index on the arrival time lets the unread count, read again after every sync cycle that changed a comment, walk only the rows that arrived after the seen marker.
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them

@@ -178,10 +178,14 @@ func (c commentRepo) InboxUnread(ctx context.Context, meID, since, seenTo string
 	if meID == "" {
 		return 0, nil
 	}
+	// The count walks the arrival index from the later of the marker and the window's start, a comment arrives after it was written,
+	// so a row of the window cannot have arrived before the window began, and with a recent marker the walk covers the few rows since.
+	// The creation index would read the whole window on every sync cycle, a month of comments, and SQLite without statistics
+	// cannot tell the two ranges apart, so the index is named.
 	var n int
 	err := c.r.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM comments c JOIN tasks t ON t.id = c.task_id
-		WHERE `+inboxWhere+` AND c.arrived_at > ?3`, meID, since, seenTo).Scan(&n)
+		SELECT COUNT(*) FROM comments c INDEXED BY idx_comments_arrived JOIN tasks t ON t.id = c.task_id
+		WHERE `+inboxWhere+` AND c.arrived_at > ?3`, meID, since, max(seenTo, since)).Scan(&n)
 	return n, err
 }
 
