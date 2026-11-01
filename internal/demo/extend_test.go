@@ -140,3 +140,20 @@ func TestExtendWithZeroChangesNothing(t *testing.T) {
 		t.Errorf("spaces = %d, %v, want the seed's 2", len(spaces), err)
 	}
 }
+
+func TestExtendKeepsTheDueDateAfterTheStart(t *testing.T) {
+	st, now := seededForExtend(t)
+	ctx := context.Background()
+	if err := Extend(ctx, st, now, 200); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.Tasks().ListInFolder(ctx, SpaceWork)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range rows {
+		if d := task.Dates; d != nil && d.Due < d.Start {
+			t.Errorf("%s is due %s before its start %s", task.ID, d.Due, d.Start)
+		}
+	}
+}

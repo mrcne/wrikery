@@ -122,7 +122,8 @@ func Extend(ctx context.Context, st *store.Store, now time.Time, n int) error {
 			t.ResponsibleIDs = []string{generated(i)}
 		}
 		if i%2 == 0 {
-			t.Dates = &store.TaskDates{Type: "Planned", Start: day(-(i % 30)), Due: day((i % 40) - 10)}
+			// Due after the start like the seed's tasks, Wrike refuses the other way round.
+			t.Dates = &store.TaskDates{Type: "Planned", Start: day(-(i % 30)), Due: day(-(i % 30) + 1 + i%40)}
 		}
 		batch = append(batch, t)
 		if i%5 == 0 {

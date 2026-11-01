@@ -65,7 +65,8 @@ func userTempDir() (string, error) {
 }
 
 // demoSocketPath is where a demo listens: beside the real database, in the user's own data directory,
-// one fixed name since a demo's own data directory is a throwaway nobody can find.
+// one fixed name since a demo's own data directory is a throwaway nobody can find,
+// with the real socket's fallback under /tmp for a data directory too long for a socket path.
 func demoSocketPath(p config.Paths) string {
 	return socketIn(p, "-demo")
 }

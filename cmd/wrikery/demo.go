@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -38,4 +39,23 @@ func openDemoStore(now time.Time, extra int) (*store.Store, string, func(), erro
 		_ = os.RemoveAll(dir)
 	}
 	return st, dir, cleanup, nil
+}
+
+// startDemo opens the demo's store and starts the profile when one is asked for.
+// The profile starts first, so the CPU profile covers the seeding,
+// and a directory it cannot write is reported before the seconds a large demo takes to seed.
+func startDemo(now time.Time) (*store.Store, func(), func() error, error) {
+	extra, err := demoSize()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stop, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	st, _, cleanup, err := openDemoStore(now, extra)
+	if err != nil {
+		return nil, nil, nil, errors.Join(err, stop())
+	}
+	return st, cleanup, stop, nil
 }

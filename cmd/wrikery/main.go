@@ -203,11 +203,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
-		extra, err := demoSize()
-		if err != nil {
-			return err
-		}
-		st, _, cleanup, err := openDemoStore(time.Now(), extra)
+		st, cleanup, stop, err := startDemo(time.Now())
 		if err != nil {
 			return err
 		}
@@ -215,10 +211,6 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		if cfg.Budget.Source == "" {
 			// The demo's own field shows the time line without a config file, a configured source stays so a user sees their setting against the demo.
 			cfg.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
-		}
-		stop, err := startProfile(os.Getenv(envProfile))
-		if err != nil {
-			return err
 		}
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,

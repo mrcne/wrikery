@@ -175,8 +175,8 @@ func taskRow(ctx context.Context, env Env, t store.Task, ref *refData) taskJSON 
 	return row
 }
 
-// printJSON writes the document straight to the output.
-// MarshalIndent and a string of it held a list of thousands of rows three times over before a byte went out.
+// printJSON writes the document through an encoder, which holds it twice, compact and indented, before the one write.
+// MarshalIndent and the string made of its result held it three times, a difference of megabytes for a list of thousands of rows.
 func printJSON(env Env, v any) int {
 	enc := json.NewEncoder(env.Stdout)
 	enc.SetIndent("", "  ")

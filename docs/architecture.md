@@ -86,7 +86,7 @@ Most of the mapping is direct, so only three parts need explaining:
 
 The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.
 Each reader connection keeps a page cache of 500 KiB.
-SQLite's default of 2000 KiB held about ten megabytes of pages across the four readers at sixty thousand tasks and cost nothing measurable in query time, the operating system's page cache serves the same pages.
+With SQLite's default of 2000 KiB the interface held five to ten megabytes more at sixty thousand tasks, and the smaller cache cost nothing measurable in query time, the operating system's page cache serves the same pages.
 The writer keeps the default, a spill in the middle of a page upsert would cost more than the memory.
 
 Timestamps are stored as UTC text in RFC3339 format.
@@ -343,4 +343,5 @@ The heap profile is written at exit with the last screen's model still reachable
 The profile of a demo run includes the seeding.
 `WRIKERY_DEMO_TASKS=60000 wrikery --demo` seeds that many generated tasks on top of the sample data, a third space with sixty projects of five folders and one folder of five thousand tasks, every tenth task the user's and two comments on every fifth, to see the interface at the size of a large account.
 `go test ./internal/store -run xxx -bench Queries -benchmem` runs the reads the interface and the commands make over a store extended with ten thousand generated tasks, one sub-benchmark per query, the before and after of a query change.
-The resident memory of the interface is read from the process while it runs, `/proc/PID/status` on Linux or `ps -o rss` on macOS, with the keys sent through a pty, and bubbletea answers the terminal's background color and cursor position queries before it draws.
+The resident memory of the interface is read from the process while it runs, `/proc/PID/status` on Linux or `ps -o rss` on macOS, with the keys sent through a pty.
+The interface asks the terminal for its background color and the cursor position at start, and a script on the other end of the pty has to answer both.
