@@ -254,3 +254,35 @@ func TestCommandHelpSkipsTheConfigAndTheStore(t *testing.T) {
 		t.Errorf("help created the data directory, stat err %v", err)
 	}
 }
+
+func TestDemoSizeReadsTheEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		tasks, comments         string
+		wantTasks, wantComments int
+	}{
+		{"", "", 0, 0},
+		{"200", "", 200, 0},
+		{"200", "15", 200, 15},
+	} {
+		t.Setenv(envDemoTasks, tc.tasks)
+		t.Setenv(envDemoComments, tc.comments)
+		if tasks, comments, err := demoSize(); err != nil || tasks != tc.wantTasks || comments != tc.wantComments {
+			t.Errorf("%q tasks, %q comments: size = %d, %d, %v, want %d, %d", tc.tasks, tc.comments, tasks, comments, err, tc.wantTasks, tc.wantComments)
+		}
+	}
+	for _, tc := range []struct{ tasks, comments, names string }{
+		{"x", "", envDemoTasks},
+		{"-1", "", envDemoTasks},
+		{"1.5", "", envDemoTasks},
+		{"200", "x", envDemoComments},
+		{"200", "-3", envDemoComments},
+		// The comments go on the generated tasks, without them there is nothing to put them on.
+		{"", "15", envDemoTasks},
+	} {
+		t.Setenv(envDemoTasks, tc.tasks)
+		t.Setenv(envDemoComments, tc.comments)
+		if _, _, err := demoSize(); err == nil || !strings.Contains(err.Error(), tc.names) {
+			t.Errorf("%q tasks, %q comments: err = %v, want one naming %s", tc.tasks, tc.comments, err, tc.names)
+		}
+	}
+}

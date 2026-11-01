@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -175,13 +176,25 @@ func taskRow(ctx context.Context, env Env, t store.Task, ref *refData) taskJSON 
 	return row
 }
 
+// printJSON encodes straight into the output, so the document is held only by the encoder, compact and indented.
+// Only a value that cannot be encoded fails the command.
+// A failed write changes nothing, like every other print of the commands:
+// the code of a write command says what happened to the write, and an agent that reads a 1 retries, a create would land twice.
 func printJSON(env Env, v any) int {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
+	enc := json.NewEncoder(uncheckedWriter{env.Stdout})
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
 		return fail(env, err)
 	}
-	_, _ = fmt.Fprintln(env.Stdout, string(b))
 	return exitOK
+}
+
+// uncheckedWriter passes the bytes on and drops a write error, see printJSON.
+type uncheckedWriter struct{ w io.Writer }
+
+func (u uncheckedWriter) Write(p []byte) (int, error) {
+	_, _ = u.w.Write(p)
+	return len(p), nil
 }
 
 // printTaskList writes one row per task. On a terminal a dim header and a count line frame the rows,

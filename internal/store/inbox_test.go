@@ -102,6 +102,40 @@ func TestInboxUnreadCountsTheArrivalsAfterTheMarker(t *testing.T) {
 	}
 }
 
+// The count keeps to the window whatever the marker: none, one older than the window, or one inside it,
+// and an old comment a late thread read brought in stays out however late it arrived.
+func TestInboxUnreadKeepsToTheWindowWhateverTheMarker(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	followed := makeTask("T1", "followed")
+	followed.FollowedByMe = true
+	if err := st.Tasks().Upsert(ctx, []Task{followed}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ id, created, arrived string }{
+		{"OLD", "2026-07-01T10:00:00Z", "2026-09-09T14:00:00Z"},
+		{"IN", "2026-09-01T10:00:00Z", "2026-09-01T12:00:00Z"},
+		{"NEW", "2026-09-09T10:00:00Z", "2026-09-09T13:00:00Z"},
+	} {
+		at, _ := time.Parse(time.RFC3339, c.arrived)
+		st.Now = func() time.Time { return at }
+		if _, err := st.Comments().UpsertCached(ctx, []Comment{{ID: c.id, TaskID: "T1", AuthorID: "U2", Text: c.id, CreatedDate: c.created}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	since := "2026-08-10T00:00:00Z"
+	for marker, want := range map[string]int{
+		"":                     2,
+		"2026-08-01T00:00:00Z": 2,
+		"2026-09-05T00:00:00Z": 1,
+		"2026-09-09T13:00:00Z": 0,
+	} {
+		if n, err := st.Comments().InboxUnread(ctx, "U1", since, marker); err != nil || n != want {
+			t.Errorf("marker %q: unread = %d, %v, want %d", marker, n, err, want)
+		}
+	}
+}
+
 // Without a user nothing is addressed to anyone, the mention match must not fall through to an empty id.
 func TestInboxAnswersNothingWithoutAUser(t *testing.T) {
 	st := newTestStore(t)

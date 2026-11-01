@@ -59,6 +59,11 @@ var statusCycle = []struct{ id, group string }{
 	{"IEAAST17", "Cancelled"},
 }
 
+var spaces = []store.Space{
+	{ID: SpacePlatform, Title: "Platform", AccessType: "Private", DefaultTaskWorkflowID: "IEAAWF02"},
+	{ID: SpaceMobile, Title: "Mobile", AccessType: "Public", DefaultTaskWorkflowID: "IEAAWF01"},
+}
+
 var folders = []store.Folder{
 	{ID: SpacePlatform, Title: "Platform", Scope: "WsFolder", Space: true, ChildIDs: []string{ProjectAPI, "IEAAWEB1", "IEAADSGN", "IEAAINFR"}},
 	{ID: ProjectAPI, Title: "API", Scope: "WsFolder", Project: &store.Project{Status: "Green", CustomStatusID: "IEAAST12"}},
@@ -87,14 +92,21 @@ var descriptions = []string{
 	``,
 }
 
-// Seed fills an empty store. Seeding twice appends more outbox rows, so it is for a fresh store only.
-// Everything derives from now except the rows the store stamps itself (optimistic outbox rows, last sync times), which carry the real time.
-func Seed(ctx context.Context, st *store.Store, now time.Time) error {
-	day := func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
-	stamp := func(offset, hour int) string {
+// clocks gives the two ways a fixture date is written, relative to now:
+// day is a day offset as the API writes a date, stamp a day offset and an hour as a UTC timestamp.
+func clocks(now time.Time) (day func(offset int) string, stamp func(offset, hour int) string) {
+	day = func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
+	stamp = func(offset, hour int) string {
 		d := now.AddDate(0, 0, offset)
 		return time.Date(d.Year(), d.Month(), d.Day(), hour, 0, 0, 0, time.UTC).Format(time.RFC3339)
 	}
+	return day, stamp
+}
+
+// Seed fills an empty store. Seeding twice appends more outbox rows, so it is for a fresh store only.
+// Everything derives from now except the rows the store stamps itself (optimistic outbox rows, last sync times), which carry the real time.
+func Seed(ctx context.Context, st *store.Store, now time.Time) error {
+	day, stamp := clocks(now)
 
 	if err := st.SetMeta(ctx, store.MetaKeyMe, MeID); err != nil {
 		return err
@@ -110,10 +122,7 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 	if err := st.Workflows().ReplaceAll(ctx, workflows); err != nil {
 		return err
 	}
-	if err := st.Spaces().ReplaceAll(ctx, []store.Space{
-		{ID: SpacePlatform, Title: "Platform", AccessType: "Private", DefaultTaskWorkflowID: "IEAAWF02"},
-		{ID: SpaceMobile, Title: "Mobile", AccessType: "Public", DefaultTaskWorkflowID: "IEAAWF01"},
-	}); err != nil {
+	if err := st.Spaces().ReplaceAll(ctx, spaces); err != nil {
 		return err
 	}
 	if err := st.Folders().ReplaceTree(ctx, folders); err != nil {

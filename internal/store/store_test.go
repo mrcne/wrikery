@@ -473,3 +473,19 @@ func TestInboxMigrationReadsTheMonthAgainOnAnExistingCache(t *testing.T) {
 		})
 	}
 }
+
+// The decision Open makes for memory: the readers keep a smaller page cache than the writer, whatever the two sizes are.
+func TestReaderConnectionsKeepASmallerPageCacheThanTheWriter(t *testing.T) {
+	st := newTestStore(t)
+	kib := func(db *sql.DB) int {
+		var size int
+		if err := db.QueryRow(`PRAGMA cache_size`).Scan(&size); err != nil {
+			t.Fatal(err)
+		}
+		// A negative cache_size is in KiB, which is how both handles set it.
+		return -size
+	}
+	if r, w := kib(st.reader), kib(st.writer); r <= 0 || r >= w {
+		t.Errorf("reader page cache %d KiB, writer %d KiB, want the reader's smaller", r, w)
+	}
+}

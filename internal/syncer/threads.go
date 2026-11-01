@@ -24,10 +24,18 @@ const (
 	// pullCatchUp caps a gap at this many windows.
 	// A cache nobody used for a month is caught up by the per task reads of the tasks that get opened, not by a day of requests.
 	pullCatchUp = 4
-	// commentLimit is the documented default of the read, sent so the split rule compares against a known number.
-	commentLimit = 1000
-	// splitFloor is the window taken as it is even when it fills the limit, a thousand comments in one hour is not a real account.
+	// commentLimit is what the read asks for, five times its documented default of 1000.
+	// The read takes a larger limit (checked on the live account, 1050 comments in one answer),
+	// so the shortest range the pull splits to, an hour, is read whole even when it holds more than a thousand.
+	commentLimit = 5000
+	// splitAt is the answer that sends a range back in halves, the documented default and not the limit asked for:
+	// how far a larger limit goes is not documented, and a split costs a request where a cut answer loses comments.
+	splitAt = 1000
+	// splitFloor is the range taken as it is even when it answers splitAt or more.
 	splitFloor = time.Hour
+	// threadCap is the most comments the per task read answers, it takes no limit and has no paging,
+	// and a full answer leaves comments out, among the newest as well (checked on the live account with a thread of 1050).
+	threadCap = 1000
 )
 
 // pullStart is where an account wide read begins: ten minutes before its cursor, the thread window back on the first run,
@@ -94,7 +102,7 @@ func pullCommentWindow(ctx context.Context, c Client, st *store.Store, log *slog
 	if err != nil {
 		return 0, err
 	}
-	if len(comments) >= commentLimit && to.Sub(from) > splitFloor {
+	if len(comments) >= splitAt && to.Sub(from) > splitFloor {
 		mid := from.Add(to.Sub(from) / 2)
 		first, err := pullCommentWindow(ctx, c, st, log, meID, from, mid, now)
 		if err != nil {

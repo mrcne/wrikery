@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -173,7 +174,18 @@ func setup(configPath string) (config.Paths, config.Config, error) {
 	return paths, cfg, nil
 }
 
-func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bool) error {
+func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bool) (err error) {
+	// The profile starts first, so it covers the store's open with its migrations and a demo's seeding.
+	stopProfile, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		return err
+	}
+	// The final model stays reachable until the heap profile is written, so the profile shows what the last screen held.
+	var final tea.Model
+	defer func() {
+		err = errors.Join(err, stopProfile())
+		runtime.KeepAlive(final)
+	}()
 	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -202,7 +214,14 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
-		st, _, cleanup, err := openDemoStore(time.Now())
+		tasks, comments, err := demoSize()
+		if err != nil {
+			return err
+		}
+		// ctrl+c before the interface draws stops the seeding of a large demo, and its directory goes with it.
+		seeding, stopSeeding := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		st, _, cleanup, err := openDemoStore(seeding, time.Now(), tasks, comments)
+		stopSeeding()
 		if err != nil {
 			return err
 		}
@@ -218,7 +237,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
 			defer func() { _ = l.Close() }()
 		}
-		_, err = p.Run()
+		final, err = p.Run()
 		return err
 	}
 
@@ -262,7 +281,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
 		}()
 	}
-	_, err = a.prog.Run()
+	final, err = a.prog.Run()
 	a.shutdown()
 	return err
 }
@@ -293,6 +312,18 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		// open the store or read the token, and a broken config file must not stop it.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
+	// The profile starts before the store opens, so it covers the migrations a large cache may run.
+	stopProfile, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		return 1
+	}
+	defer func() {
+		// A profile that could not be written is reported and leaves the code alone, the code says what happened to the command's work.
+		if err := stopProfile(); err != nil {
+			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		}
+	}()
 	if o.noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -410,6 +441,39 @@ func (c *cmdAuth) host(ctx context.Context) (string, error) {
 // tokenFromEnv says whether WRIKERY_TOKEN overrides the stored sign in, the way Tokens.Load reads it.
 func tokenFromEnv() bool {
 	return strings.TrimSpace(os.Getenv(auth.EnvToken)) != ""
+}
+
+// envDemoTasks asks the demo for that many generated tasks on top of its sample data, to see the interface at the size of a large account.
+const envDemoTasks = "WRIKERY_DEMO_TASKS"
+
+// envDemoComments gives each generated task that many comments over three years, and every thousandth one a hundred times as many.
+const envDemoComments = "WRIKERY_DEMO_COMMENTS"
+
+// demoSize is the number of generated tasks and of comments per task the environment asks the demo for, zero when it asks for none.
+// A value that is not a count is an error, a measurement run on a silent zero measures the wrong thing,
+// and so are comments without tasks, they go on the generated tasks.
+func demoSize() (tasks, comments int, err error) {
+	count := func(name string) (int, error) {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%s: %q is not a number", name, value)
+		}
+		return n, nil
+	}
+	if tasks, err = count(envDemoTasks); err != nil {
+		return 0, 0, err
+	}
+	if comments, err = count(envDemoComments); err != nil {
+		return 0, 0, err
+	}
+	if comments > 0 && tasks == 0 {
+		return 0, 0, fmt.Errorf("%s puts comments on the generated tasks, set %s as well", envDemoComments, envDemoTasks)
+	}
+	return tasks, comments, nil
 }
 
 // resolveTheme turns the auto theme into dark or light.

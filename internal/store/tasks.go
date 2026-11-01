@@ -28,6 +28,8 @@ type TaskRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]Task, error)
 	ListInFolder(ctx context.Context, folderID string) ([]Task, error)
 	ListForResponsible(ctx context.Context, contactID string) ([]Task, error)
+	// CountOpenForResponsible is how many of a person's tasks are neither completed nor cancelled, the number next to My tasks in the sidebar.
+	CountOpenForResponsible(ctx context.Context, contactID string) (int, error)
 	// Subtasks lists the tasks that name the given one as a super task, in list order.
 	Subtasks(ctx context.Context, superID string) ([]Task, error)
 	// ByIDs returns the cached tasks among the ids in list order, an unknown id is left out.
@@ -464,11 +466,18 @@ const taskListColumns = `t.id, t.title, t.status, t.custom_status_id, t.importan
 	COALESCE((SELECT GROUP_CONCAT(contact_id) FROM task_responsibles r WHERE r.task_id = t.id), ''),
 	COALESCE((SELECT GROUP_CONCAT(folder_id) FROM task_parents p WHERE p.task_id = t.id), '')`
 
+// doneStatuses are the status groups of a finished task, the list order and the sidebar's count read the same ones.
+const doneStatuses = `('Completed', 'Cancelled')`
+
 // Open tasks first, then by due date with undated tasks after dated ones, newest change first inside a day.
 // NULLIF covers a database written before the empty due date became a NULL, where the column still holds an empty string.
-const taskListOrder = `ORDER BY CASE WHEN t.status IN ('Completed', 'Cancelled') THEN 1 ELSE 0 END,
+const taskListOrder = `ORDER BY CASE WHEN t.status IN ` + doneStatuses + ` THEN 1 ELSE 0 END,
 	NULLIF(t.dates_due, '') IS NULL, NULLIF(t.dates_due, ''), t.updated_date DESC`
 
+// A task in two folders of the tree has two task_parents rows, the IN keeps its id once without the sort of whole rows a DISTINCT needs.
+// The CROSS JOIN makes SQLite walk the tree's folders and read their rows through the folder index,
+// the planner's own choice scans every task_parents row of the cache for each list,
+// five times the time for a folder or a project at sixty thousand tasks, while a space that holds all of them lists a tenth faster that way.
 func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, error) {
 	return t.list(ctx, `
 		WITH RECURSIVE tree(id) AS (
@@ -476,9 +485,8 @@ func (t taskRepo) ListInFolder(ctx context.Context, folderID string) ([]Task, er
 			UNION
 			SELECT fc.child_id FROM folder_children fc JOIN tree ON fc.parent_id = tree.id
 		)
-		SELECT DISTINCT `+taskListColumns+` FROM tasks t
-		JOIN task_parents tp ON tp.task_id = t.id
-		JOIN tree ON tree.id = tp.folder_id
+		SELECT `+taskListColumns+` FROM tasks t
+		WHERE t.id IN (SELECT tp.task_id FROM tree CROSS JOIN task_parents tp ON tp.folder_id = tree.id)
 		`+taskListOrder, folderID)
 }
 
@@ -509,34 +517,29 @@ func (t taskRepo) ListForResponsible(ctx context.Context, contactID string) ([]T
 		WHERE tr.contact_id = ? `+taskListOrder, contactID)
 }
 
+// A count, the sidebar reads it on every sync cycle that changed a task, and the tasks of one person can run into thousands.
+func (t taskRepo) CountOpenForResponsible(ctx context.Context, contactID string) (int, error) {
+	var n int
+	err := t.r.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM tasks t
+		JOIN task_responsibles tr ON tr.task_id = t.id
+		WHERE tr.contact_id = ? AND t.status NOT IN `+doneStatuses, contactID).Scan(&n)
+	return n, err
+}
+
 // FindByTitle is the lookup behind a title fragment on the command line.
 // It is a plain substring on the folded title, the search index would match descriptions too.
-// The whole table is read, the cache holds a few thousand tasks at most.
+// SQLite folds each title through title_contains, so the list order and the limit apply to the matches alone.
 func (t taskRepo) FindByTitle(ctx context.Context, fragment string, limit int) ([]Task, error) {
 	want := FoldTitle(fragment)
-	// A fragment of only combining marks folds to empty, which every title contains.
-	if want == "" {
+	// A fragment of only combining marks folds to empty, which every title contains, and SQLite reads a negative limit as none.
+	if want == "" || limit <= 0 {
 		return nil, nil
 	}
-	rows, err := t.r.QueryContext(ctx, `SELECT t.id, t.title FROM tasks t `+taskListOrder)
+	ids, err := t.stringColumn(ctx, `SELECT t.id FROM tasks t WHERE title_contains(t.title, ?) `+taskListOrder+` LIMIT ?`, want, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var ids []string
-	for rows.Next() && len(ids) < limit {
-		var id, title string
-		if err := rows.Scan(&id, &title); err != nil {
-			return nil, err
-		}
-		if strings.Contains(FoldTitle(title), want) {
-			ids = append(ids, id)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	_ = rows.Close()
 	out := make([]Task, 0, len(ids))
 	for _, id := range ids {
 		task, err := t.Get(ctx, id)
@@ -570,11 +573,13 @@ func (t taskRepo) list(ctx context.Context, query string, args ...any) ([]Task, 
 	}
 	defer func() { _ = rows.Close() }()
 	var out []Task
+	// One row value for the whole scan, a value declared inside the loop escapes to the heap through Scan and costs an allocation for every row of a long list.
+	var task Task
+	var dType, dStart, dDue sql.NullString
+	var dDur sql.NullInt64
+	var resp, parents string
 	for rows.Next() {
-		var task Task
-		var dType, dStart, dDue sql.NullString
-		var dDur sql.NullInt64
-		var resp, parents string
+		task = Task{}
 		if err := rows.Scan(&task.ID, &task.Title, &task.Status, &task.CustomStatusID, &task.Importance,
 			&task.Permalink, &dType, &dDur, &dStart, &dDue, &task.CreatedDate, &task.UpdatedDate,
 			&task.LastOpenedAt, &task.ThreadReadAt, &task.FollowedByMe, &resp, &parents); err != nil {

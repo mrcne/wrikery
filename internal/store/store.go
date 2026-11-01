@@ -39,7 +39,11 @@ func Open(path string) (*Store, error) {
 		_ = writer.Close()
 		return nil, err
 	}
-	reader, err := sql.Open("sqlite", "file:"+path+pragmas)
+	// Each reader connection keeps a page cache of 500 KiB instead of SQLite's default of 2000 KiB.
+	// At sixty thousand tasks the default adds five to ten megabytes to the interface,
+	// and the smaller cache costs no measurable query time, the operating system's page cache serves the same pages.
+	// The writer keeps the default, a spill in the middle of a page upsert costs more than the memory.
+	reader, err := sql.Open("sqlite", "file:"+path+pragmas+"&_pragma=cache_size(-500)")
 	if err != nil {
 		_ = writer.Close()
 		return nil, err

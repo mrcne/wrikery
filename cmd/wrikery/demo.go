@@ -10,8 +10,9 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-// openDemoStore seeds a throwaway database. The directory goes away with cleanup, so a demo run leaves nothing behind.
-func openDemoStore(now time.Time) (*store.Store, string, func(), error) {
+// openDemoStore seeds a throwaway database, with generated tasks and their comments on top when asked for.
+// The directory goes away with cleanup, so a demo run leaves nothing behind.
+func openDemoStore(ctx context.Context, now time.Time, tasks, comments int) (*store.Store, string, func(), error) {
 	dir, err := os.MkdirTemp("", "wrikery-demo-*")
 	if err != nil {
 		return nil, "", nil, err
@@ -22,7 +23,17 @@ func openDemoStore(now time.Time) (*store.Store, string, func(), error) {
 		return nil, "", nil, err
 	}
 	st.Source = store.SourceTUI
-	if err := demo.Seed(context.Background(), st, now); err != nil {
+	if err := demo.Seed(ctx, st, now); err != nil {
+		_ = st.Close()
+		_ = os.RemoveAll(dir)
+		return nil, "", nil, err
+	}
+	if err := demo.Extend(ctx, st, now, tasks); err != nil {
+		_ = st.Close()
+		_ = os.RemoveAll(dir)
+		return nil, "", nil, err
+	}
+	if err := demo.ExtendThreads(ctx, st, now, tasks, comments); err != nil {
 		_ = st.Close()
 		_ = os.RemoveAll(dir)
 		return nil, "", nil, err

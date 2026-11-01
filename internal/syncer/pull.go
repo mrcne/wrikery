@@ -201,6 +201,8 @@ func pullMyTimelogs(ctx context.Context, c Client, st *store.Store, meID string,
 }
 
 // refreshThread replaces the task's comments and time entries and stamps the task with the updated date it had when the read started.
+// An answer of threadCap comments is not the whole thread, it is stored over what the cache holds and drops nothing,
+// so a comment it left out stays, and the account wide pull keeps bringing the new ones. A deleted comment of such a thread stays too.
 // The stamp is Wrike's clock on purpose: rereadStale compares it with the updated date the next poll brings,
 // so a change made while the read ran, or a local clock ahead of Wrike's, still shows as a later date and is read again.
 func refreshThread(ctx context.Context, c Client, st *store.Store, task store.Task) error {
@@ -208,7 +210,11 @@ func refreshThread(ctx context.Context, c Client, st *store.Store, task store.Ta
 	if err != nil {
 		return err
 	}
-	if err := st.Comments().ReplaceForTask(ctx, task.ID, commentsFromHTML(comments)); err != nil {
+	if len(comments) >= threadCap {
+		if _, err := st.Comments().UpsertCached(ctx, commentsFromHTML(comments)); err != nil {
+			return err
+		}
+	} else if err := st.Comments().ReplaceForTask(ctx, task.ID, commentsFromHTML(comments)); err != nil {
 		return err
 	}
 	logs, err := c.TaskTimelogs(ctx, task.ID)

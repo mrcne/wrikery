@@ -100,10 +100,10 @@ func TestFinishAsksBeforeStoringOnAnotherHost(t *testing.T) {
 	if a.current() == nil {
 		t.Error("no engine after the yes")
 	}
-	h, _ := a.st.Home(context.Background())
-	pending, _ := a.st.SwitchPending(context.Background())
-	if h.Host != wrike.EUHost || !pending {
-		t.Errorf("record = %+v, check pending %v, want the EU host and the queue check due", h, pending)
+	// The host moves in the transaction that sets the queue check due, the store tests pin the flag.
+	// The flag itself is not read here, the engine the yes started clears it on its first drain, sometimes before this line.
+	if h, _ := a.st.Home(context.Background()); h.Host != wrike.EUHost {
+		t.Errorf("record = %+v, want the EU host", h)
 	}
 }
 

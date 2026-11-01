@@ -78,6 +78,7 @@ Most of the mapping is direct, so only three parts need explaining:
 - comments keep the text as the thread shows it, the users the comment mentions, a list of ids with `@assignees` and `@followers` for the group forms, read from the anchors of the HTML form before the text is stripped, and when the row entered the cache, set once and kept by every later write of the row.
   A user group in that list is kept by its name as the comment showed it, `@group:Name`, because Wrike writes a group mention with an id of its own form that no read maps back to the group (checked on the live account, a mention posted with the group's contact id comes back rewritten), and group_members holds the members of each group, with the contacts.
   An index on the creation date bounds the inbox query to its window, a year of comments on a large account is hundreds of thousands of rows.
+  An index on the arrival time lets the unread count, read again after every sync cycle that changed a comment, walk only the rows that arrived after the seen marker.
 - dependencies holds one row per edge between two tasks, predecessor, successor, relation type and lag, and either end can be a task outside the cache
 - folders keep the project fields inline, with folder_children for the tree
 - workflows keep custom_statuses in the order the API returns them
@@ -85,6 +86,9 @@ Most of the mapping is direct, so only three parts need explaining:
   The Effort field sits in two columns of tasks and is kept when a write carries no Effort field, because the API answers it only when asked and the answer to an edit would otherwise wipe what the pull read.
 
 The list queries fold both join tables into the row, so the list can be grouped by person or by folder without a second query.
+Each reader connection keeps a page cache of 500 KiB.
+SQLite's default of 2000 KiB adds five to ten megabytes to the interface at sixty thousand tasks, and the smaller cache costs nothing measurable in query time, the operating system's page cache serves the same pages.
+The writer keeps the default, a spill in the middle of a page upsert costs more than the memory.
 
 Timestamps are stored as UTC text in RFC3339 format.
 Task start and due dates and the tracked date on a timelog keep the strings without a time zone that the API returns.
@@ -113,7 +117,8 @@ The task search also lists subtasks, including those with no folder of their own
 Comments and time entries come from two account wide reads every cycle, the comments created and the time entries changed since the last cycle, two requests whatever the size of the cache.
 Each read keeps a cursor in the meta table and starts ten minutes before it, for the skew between Wrike's clock and this machine's, the writes are idempotent and a row read twice counts as no change.
 The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
-The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
+The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that answers the documented default limit of 1000 is read again as two halves down to an hour, the read has no paging and no documented order.
+It is asked for 5000, the read takes a limit above its default (checked on the live account, 1050 comments in one answer), so the hour the halving stops at is read whole even with more than a thousand comments in it.
 Both reads keep only the rows of cached tasks, the comments of folders are dropped too, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
 The comment reads, this one and the per task one, ask for the HTML form of a comment, because a mention is an anchor in it, `<a class="stream-user-id avatar" rel="KUAAAAAA">@Name</a>`, and the plain form the API can answer instead keeps only the name (https://developers.wrike.com/docs/special-syntax, checked on the live account).
 The text is reduced to what the thread shows before it is stored, with a `<br>` kept as a line break the way the plain form kept it, and the mentions are kept beside it.
@@ -130,6 +135,9 @@ Any other failure is logged as well and the cycle goes on: the comments read kee
 The reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.
 Those come with the per task read of a thread, the comments and the time entries of one task, which stamps the task with the updatedDate it had when the read started.
+That read answers at most 1000 comments of a task, takes no limit and has no paging, and a full answer leaves comments out, among the newest as well (checked on the live account with a thread of 1050).
+A full answer is therefore stored over what the cache holds and drops nothing, so the comments the account wide read brought stay, and a comment deleted on Wrike stays in such a thread too.
+A thread that had more than 1000 comments before its first read starts with the 1000 Wrike answers.
 A new, an edited and a deleted comment each move the task's updatedDate (checked on the live account), and a change to a time entry is taken to do the same, its write that account refuses.
 If it does not, a deleted entry of another person on a task read before stays until the task changes for another reason, the new and the changed ones still come with the account wide read.
 So a cycle reads again the comments and time entries of the stamped tasks whose updatedDate passed the stamp, fifty at most, a set bounded by the tasks read before and not by the cache, the dependencies stay out since a change to them moves no updatedDate.
@@ -322,3 +330,29 @@ Releases are single static binaries for Linux and macOS on amd64 and arm64.
 `make cross` builds all four.
 A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, each with the manual page inside, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`, which installs the manual as well.
 CI validates the goreleaser config on every push, the release workflow itself runs only on a tag.
+
+## Measuring
+
+Where the resident memory goes, read from the process on Linux with the interface under a pty, on the demo's own sixty tasks and at sixty thousand generated ones:
+
+- the binary's mapped text, about 20 MB of a 37 MB file, clean pages the kernel shares and drops at will, the floor `wrikery --version` shows at 24 MB
+- the Go heap in use, 4 to 6 MB on a small cache, almost all tables the packages build at init, and 9 to 11 MB with a list of six thousand rows on screen, a task copy per row
+- the heap the runtime has freed and not yet returned, 10 to 20 MB after a large list, returned within seconds
+- the garbage collector's metadata and the goroutine stacks, about 5 MB
+- SQLite's page caches, about 1 MB on a small cache and 3 to 8 MB at sixty thousand tasks
+
+A small account runs at 36 to 42 MB resident, a cache of sixty thousand tasks at 48 to 58 MB with a list of thousands of rows on screen, and a command that lists five thousand rows peaks at 35 MB, 49 MB with `--json`.
+
+`WRIKERY_PROFILE=DIR` makes a run write `cpu.pprof` and `heap.pprof` into the directory, the interface and the commands alike, for `go tool pprof`.
+The CPU profile starts before the store opens, so it covers the migrations and a demo's seeding.
+The heap profile is written at exit.
+The interface keeps the last screen's model reachable until then, so the default view shows what that screen held.
+A command has released everything by then, its allocations are read with `go tool pprof -sample_index=alloc_space`.
+`WRIKERY_DEMO_TASKS=60000 wrikery --demo` seeds that many generated tasks on top of the sample data, a third space with sixty projects of five folders and one folder of five thousand tasks, every tenth task the user's and two comments on every fifth, to see the interface at the size of a large account.
+`WRIKERY_DEMO_COMMENTS=15` with it gives each generated task fifteen comments spread over three years and every thousandth task a hundred times as many, a long history of discussions.
+Ctrl+c during the seeding stops it and removes the demo's directory.
+`go test ./internal/store -run xxx -bench Queries -benchmem` runs the reads the interface and the commands make over a store extended with ten thousand generated tasks, one sub-benchmark per query, the before and after of a query change.
+`-bench Comments` in the same package runs the comment reads and writes over two hundred thousand comments with ten threads of two thousand, the inbox, its unread count, a long thread read and refreshed, and one step of the account wide pull.
+`go test ./internal/ui -run xxx -bench ThreadLayout` lays out the detail pane with a thread of 15, 200 and 2000 comments, and `go test ./internal/syncer -run xxx -bench PullComments` reads a busy week of comments, more than one answer holds.
+The resident memory of the interface is read from the process while it runs, `/proc/PID/status` on Linux or `ps -o rss` on macOS, with the keys sent through a pty.
+The interface asks the terminal for its background color and the cursor position at start, and a script on the other end of the pty has to answer both.

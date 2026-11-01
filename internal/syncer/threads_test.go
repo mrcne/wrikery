@@ -33,7 +33,7 @@ func TestPullCommentsWritesCachedTasksAndMovesTheCursor(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("pullComments = %v, %v, want a change", changed, err)
 	}
-	if len(asked) != 1 || !asked[0].CreatedFrom.Equal(now.Add(-7*24*time.Hour)) || !asked[0].CreatedTo.Equal(now) || asked[0].Limit != 1000 {
+	if len(asked) != 1 || !asked[0].CreatedFrom.Equal(now.Add(-7*24*time.Hour)) || !asked[0].CreatedTo.Equal(now) || asked[0].Limit != 5000 {
 		t.Errorf("asked = %+v, want one read of the thread window up to now with the limit", asked)
 	}
 	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].ID != "C1" {
@@ -713,5 +713,89 @@ func TestPullCommentsFetchesTheTaskOfAMentionOfTheUsersGroup(t *testing.T) {
 	}
 	if got, _ := st.Comments().ListForTask(ctx, "T9"); len(got) != 1 || !slices.Equal(got[0].Mentions, []string{store.GroupMentionPrefix + "QA"}) {
 		t.Errorf("comments of T9 = %+v, want C1 with the group by name", got)
+	}
+}
+
+// The per task read answers at most a thousand comments, with no paging and no limit it takes,
+// and a full answer can leave out comments among the newest (checked on the live account),
+// so a thread refresh with a full answer adds what it brings and drops nothing the cache holds.
+func TestReadThreadKeepsWhatAFullAnswerLeavesOut(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a long discussion")
+	if _, err := st.Comments().UpsertCached(ctx, []store.Comment{{ID: "NEWEST", TaskID: "T1", AuthorID: "U2", Text: "the newest", CreatedDate: "2026-09-10T12:00:00Z"}}); err != nil {
+		t.Fatal(err)
+	}
+	full := make([]wrike.Comment, threadCap)
+	for i := range full {
+		full[i] = wrike.Comment{ID: fmt.Sprintf("C%04d", i), TaskID: "T1", AuthorID: "U2", Text: "older", CreatedDate: time.Date(2026, 9, 1, 0, i, 0, 0, time.UTC)}
+	}
+	fc := &fakeClient{taskComments: func(string) ([]wrike.Comment, error) { return full, nil }}
+	task, err := st.Tasks().Get(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refreshThread(ctx, fc, st, task); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.Comments().ListForTask(ctx, "T1")
+	if len(got) != threadCap+1 || !slices.ContainsFunc(got, func(c store.Comment) bool { return c.ID == "NEWEST" }) {
+		t.Errorf("the thread holds %d comments, want the %d of the answer and the newest the answer left out", len(got), threadCap+1)
+	}
+}
+
+// An answer below the cap is the whole thread, a comment deleted on Wrike goes from the cache.
+func TestReadThreadDropsWhatAShortAnswerLeavesOut(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "a short discussion")
+	if _, err := st.Comments().UpsertCached(ctx, []store.Comment{
+		{ID: "KEPT", TaskID: "T1", AuthorID: "U2", Text: "still there", CreatedDate: "2026-09-10T11:00:00Z"},
+		{ID: "DELETED", TaskID: "T1", AuthorID: "U2", Text: "deleted on Wrike", CreatedDate: "2026-09-10T12:00:00Z"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{taskComments: func(string) ([]wrike.Comment, error) {
+		return []wrike.Comment{{ID: "KEPT", TaskID: "T1", AuthorID: "U2", Text: "still there", CreatedDate: time.Date(2026, 9, 10, 11, 0, 0, 0, time.UTC)}}, nil
+	}}
+	task, err := st.Tasks().Get(ctx, "T1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refreshThread(ctx, fc, st, task); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1 || got[0].ID != "KEPT" {
+		t.Errorf("thread = %+v, want the deleted comment gone", got)
+	}
+}
+
+// The account wide read takes a limit above its documented default of a thousand (checked on the live account),
+// so an hour with more comments than that, the shortest range the pull splits to, is read whole.
+func TestPullCommentsReadsABusyHourWhole(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	seedTask(t, st, "T1", "cached")
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	if err := st.SetMeta(ctx, store.MetaKeyCommentsPulledTo, rfc3339(now.Add(-30*time.Minute))); err != nil {
+		t.Fatal(err)
+	}
+	var asked []wrike.CommentParams
+	fc := &fakeClient{comments: func(p wrike.CommentParams) ([]wrike.Comment, error) {
+		asked = append(asked, p)
+		out := make([]wrike.Comment, min(1500, p.Limit))
+		for i := range out {
+			out[i] = wrike.Comment{ID: fmt.Sprintf("B%04d", i), TaskID: "T1", AuthorID: "U2", Text: "busy", CreatedDate: p.CreatedFrom.Add(time.Duration(i) * time.Second)}
+		}
+		return out, nil
+	}}
+	if _, err := pullComments(ctx, fc, st, slog.New(slog.DiscardHandler), "U1", 7*24*time.Hour, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 {
+		t.Errorf("reads = %d, want one, the range is shorter than the split floor", len(asked))
+	}
+	if got, _ := st.Comments().ListForTask(ctx, "T1"); len(got) != 1500 {
+		t.Errorf("stored %d comments of a busy hour, want all 1500", len(got))
 	}
 }
