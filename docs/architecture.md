@@ -117,7 +117,8 @@ The task search also lists subtasks, including those with no folder of their own
 Comments and time entries come from two account wide reads every cycle, the comments created and the time entries changed since the last cycle, two requests whatever the size of the cache.
 Each read keeps a cursor in the meta table and starts ten minutes before it, for the skew between Wrike's clock and this machine's, the writes are idempotent and a row read twice counts as no change.
 The first run reads the thread window back, seven days, and a gap longer than four windows is cut to four, a cache nobody used for a month is caught up by the per task reads below.
-The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that fills the limit of 1000 is read again as two halves, the read has no paging and no documented order.
+The comments read takes a window of at most seven days (https://developers.wrike.com/api/v4/comments/, checked on the live account), so a gap is read in steps, and a step that answers the documented default limit of 1000 is read again as two halves down to an hour, the read has no paging and no documented order.
+It is asked for 5000, the read takes a limit above its default (checked on the live account, 1050 comments in one answer), so the hour the halving stops at is read whole even with more than a thousand comments in it.
 Both reads keep only the rows of cached tasks, the comments of folders are dropped too, and a 400 or 403 is logged and still moves the cursor, so a range Wrike refuses is not asked again every cycle.
 The comment reads, this one and the per task one, ask for the HTML form of a comment, because a mention is an anchor in it, `<a class="stream-user-id avatar" rel="KUAAAAAA">@Name</a>`, and the plain form the API can answer instead keeps only the name (https://developers.wrike.com/docs/special-syntax, checked on the live account).
 The text is reduced to what the thread shows before it is stored, with a `<br>` kept as a line break the way the plain form kept it, and the mentions are kept beside it.
@@ -134,6 +135,9 @@ Any other failure is logged as well and the cycle goes on: the comments read kee
 The reads only add data, and a Wrike that times out on the first run's seven day read must not hold the per task reads behind it.
 What the two reads cannot show is an edit or a deletion, a deleted row is not in the answer.
 Those come with the per task read of a thread, the comments and the time entries of one task, which stamps the task with the updatedDate it had when the read started.
+That read answers at most 1000 comments of a task, takes no limit and has no paging, and a full answer leaves comments out, among the newest as well (checked on the live account with a thread of 1050).
+A full answer is therefore stored over what the cache holds and drops nothing, so the comments the account wide read brought stay, and a comment deleted on Wrike stays in such a thread too.
+A thread that had more than 1000 comments before its first read starts with the 1000 Wrike answers.
 A new, an edited and a deleted comment each move the task's updatedDate (checked on the live account), and a change to a time entry is taken to do the same, its write that account refuses.
 If it does not, a deleted entry of another person on a task read before stays until the task changes for another reason, the new and the changed ones still come with the account wide read.
 So a cycle reads again the comments and time entries of the stamped tasks whose updatedDate passed the stamp, fifty at most, a set bounded by the tasks read before and not by the cache, the dependencies stay out since a change to them moves no updatedDate.

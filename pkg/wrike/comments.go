@@ -146,6 +146,8 @@ func instantRange(start, end time.Time) string {
 // TaskComments lists the comments on a task, in the HTML form.
 // Both reads take the HTML form on purpose: a mention is an anchor in it (see Mentions),
 // and the plain form the API can answer instead keeps only the name, which is not a mention.
+// Wrike answers at most 1000 comments of a task, with no paging, and refuses a limit (checked on the live account),
+// so an answer of 1000 may be missing comments, the newest included.
 func (c *Client) TaskComments(ctx context.Context, taskID string) ([]Comment, error) {
 	if taskID == "" {
 		return nil, errors.New("wrike: task id is required")
