@@ -13,15 +13,42 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Tag}} -X main.commit={{.ShortCommit}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     # files replaces goreleaser's default list, so the two the archive always carried are named again.
-    files: [LICENSE, README.md, man/wrikery.1]
+    files:
+      - src: LICENSE
+        info:
+          mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info:
+          mtime: "{{ .CommitDate }}"
+      - src: man/wrikery.1
+        info:
+          mtime: "{{ .CommitDate }}"
+    # The commit date on every file, so the archive does not change with the time of the build.
+    builds_info:
+      mtime: "{{ .CommitDate }}"
 
 checksum:
   name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+# Only the checksum file is signed, the archives are covered by their hashes in it.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, "--bundle=${signature}", "${artifact}", "--yes"]
+    artifacts: checksum
+
+release:
+  footer: |
+    How to check these files: https://github.com/mrcne/wrikery/blob/{{ .Tag }}/SECURITY.md#checking-a-release
 
 homebrew_casks:
   - repository:
