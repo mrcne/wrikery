@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mrcne/wrikery/internal/store"
 )
 
 func profileFiles(t *testing.T, dir string) []string {
@@ -86,5 +89,33 @@ func TestRunCommandHelpWritesNoProfile(t *testing.T) {
 	}
 	if got := profileFiles(t, dir); len(got) != 0 {
 		t.Errorf("help wrote profiles: %v", got)
+	}
+}
+
+// The code of a command says what happened to its work, a profile it could not write is a debug switch's failure and goes to stderr only.
+func TestRunCommandKeepsItsCodeWhenTheProfileCannotBeWritten(t *testing.T) {
+	home := isolate(t)
+	dbDir := filepath.Join(home, "data", "wrikery")
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(dbDir, "wrike.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetMeta(context.Background(), store.MetaKeyMe, "KUME"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	dir := t.TempDir()
+	// A directory where the heap profile goes makes the stop fail after the command has done its work.
+	if err := os.Mkdir(filepath.Join(dir, "heap.pprof"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envProfile, dir)
+	fs, o := rootFlags()
+	o.noColor = true
+	if code := runCommand([]string{"task", "list"}, fs, o); code != 0 {
+		t.Errorf("code = %d, want 0, the list was printed", code)
 	}
 }

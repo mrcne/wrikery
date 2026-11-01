@@ -364,11 +364,9 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		Stderr:       os.Stderr,
 		GlobalFlags:  global,
 	}, args)
+	// A profile that could not be written is reported and leaves the code alone, the code says what happened to the command's work.
 	if err := stopProfile(); err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
-		if code == 0 {
-			code = 1
-		}
 	}
 	return code
 }
