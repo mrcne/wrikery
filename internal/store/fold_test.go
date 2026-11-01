@@ -25,6 +25,9 @@ func TestFoldTitleBuildsNoChainForEachCall(t *testing.T) {
 	if n := testing.AllocsPerRun(100, func() { FoldTitle("Fix auth retry loop 1234") }); n > 1 {
 		t.Errorf("folding an ASCII title allocates %v times, want at most the lowercased copy", n)
 	}
+	if raceEnabled {
+		t.Skip("the race detector drops pooled chains, a fold builds a new one every few calls")
+	}
 	r := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
