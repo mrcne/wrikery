@@ -214,13 +214,13 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
-		extra, err := demoSize()
+		tasks, comments, err := demoSize()
 		if err != nil {
 			return err
 		}
 		// ctrl+c before the interface draws stops the seeding of a large demo, and its directory goes with it.
 		seeding, stopSeeding := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		st, _, cleanup, err := openDemoStore(seeding, time.Now(), extra)
+		st, _, cleanup, err := openDemoStore(seeding, time.Now(), tasks, comments)
 		stopSeeding()
 		if err != nil {
 			return err
@@ -446,18 +446,34 @@ func tokenFromEnv() bool {
 // envDemoTasks asks the demo for that many generated tasks on top of its sample data, to see the interface at the size of a large account.
 const envDemoTasks = "WRIKERY_DEMO_TASKS"
 
-// demoSize is the number of generated tasks the environment asks the demo for, zero when it asks for none.
-// A value that is not a count is an error, a measurement run on a silent zero measures the wrong thing.
-func demoSize() (int, error) {
-	value := strings.TrimSpace(os.Getenv(envDemoTasks))
-	if value == "" {
-		return 0, nil
+// envDemoComments gives each generated task that many comments over three years, and every thousandth one a hundred times as many.
+const envDemoComments = "WRIKERY_DEMO_COMMENTS"
+
+// demoSize is the number of generated tasks and of comments per task the environment asks the demo for, zero when it asks for none.
+// A value that is not a count is an error, a measurement run on a silent zero measures the wrong thing,
+// and so are comments without tasks, they go on the generated tasks.
+func demoSize() (tasks, comments int, err error) {
+	count := func(name string) (int, error) {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%s: %q is not a number", name, value)
+		}
+		return n, nil
 	}
-	n, err := strconv.Atoi(value)
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("%s: %q is not a number of tasks", envDemoTasks, value)
+	if tasks, err = count(envDemoTasks); err != nil {
+		return 0, 0, err
 	}
-	return n, nil
+	if comments, err = count(envDemoComments); err != nil {
+		return 0, 0, err
+	}
+	if comments > 0 && tasks == 0 {
+		return 0, 0, fmt.Errorf("%s puts comments on the generated tasks, set %s as well", envDemoComments, envDemoTasks)
+	}
+	return tasks, comments, nil
 }
 
 // resolveTheme turns the auto theme into dark or light.

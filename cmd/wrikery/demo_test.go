@@ -13,7 +13,7 @@ import (
 )
 
 func TestOpenDemoStoreSeedsAndCleansUp(t *testing.T) {
-	st, dir, cleanup, err := openDemoStore(context.Background(), time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 0)
+	st, dir, cleanup, err := openDemoStore(context.Background(), time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestOpenDemoStoreSeedsAndCleansUp(t *testing.T) {
 }
 
 func TestOpenDemoStoreExtendsWhenAsked(t *testing.T) {
-	st, _, cleanup, err := openDemoStore(context.Background(), time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 20)
+	st, _, cleanup, err := openDemoStore(context.Background(), time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 20, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +44,9 @@ func TestOpenDemoStoreExtendsWhenAsked(t *testing.T) {
 	if !slices.Contains(ids, demo.SpaceWork) {
 		t.Errorf("followed scopes = %v, want the generated space among them", ids)
 	}
+	if got, err := st.Comments().ListForTask(context.Background(), "IEAAGEN000001"); err != nil || len(got) != 2 {
+		t.Errorf("a generated task has %d comments, %v, want the 2 asked for", len(got), err)
+	}
 }
 
 func TestOpenDemoStoreStopsAndCleansUpWhenCanceled(t *testing.T) {
@@ -51,7 +54,7 @@ func TestOpenDemoStoreStopsAndCleansUpWhenCanceled(t *testing.T) {
 	t.Setenv("TMPDIR", tmp)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, _, err := openDemoStore(ctx, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 100); !errors.Is(err, context.Canceled) {
+	if _, _, _, err := openDemoStore(ctx, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 100, 0); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want the cancellation", err)
 	}
 	if left, _ := os.ReadDir(tmp); len(left) != 0 {

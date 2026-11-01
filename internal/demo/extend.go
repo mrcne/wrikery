@@ -30,7 +30,8 @@ var longDescription = "<p>" + strings.Repeat("A longer description with a few se
 // Every tenth task is the user's and followed, the others are on generated people, every second one has dates,
 // the descriptions cycle the sample ones with the long one every seventh,
 // and every fifth task has two comments by other people, dated over the last four hundred days so that a few fall into the inbox window.
-// The comments go in with the store clock two days back, below the seed's seen marker, so they count as seen and the status bar keeps the seed's count.
+// The comments go in with the store clock two days back, below the seed's seen marker, so they count as seen and the status bar keeps the seed's count,
+// and they were written three days back at the least, so none arrives before it was written.
 // The tasks are not marked thread read, no repo call stamps that in bulk and the demo has no engine that reads the stale list,
 // so their detail says the thread was not read yet.
 // It is for a store Seed just filled, and once, a second call repeats the ids.
@@ -126,7 +127,7 @@ func Extend(ctx context.Context, st *store.Store, now time.Time, n int) error {
 		if i%5 == 0 {
 			for j := range 2 {
 				comments = append(comments, store.Comment{ID: fmt.Sprintf("IEAAGENC%06d%d", i, j), TaskID: t.ID, AuthorID: generated(i + j + 1),
-					Text: "A comment on the task, a sentence or two the way a thread reads.", CreatedDate: stamp(-(i%400)-1, 10+j)})
+					Text: "A comment on the task, a sentence or two the way a thread reads.", CreatedDate: stamp(-(i%400)-3, 10+j)})
 			}
 		}
 		if len(batch) == extendBatch {

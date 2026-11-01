@@ -344,7 +344,10 @@ The heap profile is written at exit.
 The interface keeps the last screen's model reachable until then, so the default view shows what that screen held.
 A command has released everything by then, its allocations are read with `go tool pprof -sample_index=alloc_space`.
 `WRIKERY_DEMO_TASKS=60000 wrikery --demo` seeds that many generated tasks on top of the sample data, a third space with sixty projects of five folders and one folder of five thousand tasks, every tenth task the user's and two comments on every fifth, to see the interface at the size of a large account.
+`WRIKERY_DEMO_COMMENTS=15` with it gives each generated task fifteen comments spread over three years and every thousandth task a hundred times as many, a long history of discussions.
 Ctrl+c during the seeding stops it and removes the demo's directory.
 `go test ./internal/store -run xxx -bench Queries -benchmem` runs the reads the interface and the commands make over a store extended with ten thousand generated tasks, one sub-benchmark per query, the before and after of a query change.
+`-bench Comments` in the same package runs the comment reads and writes over two hundred thousand comments with ten threads of two thousand, the inbox, its unread count, a long thread read and refreshed, and one step of the account wide pull.
+`go test ./internal/ui -run xxx -bench ThreadLayout` lays out the detail pane with a thread of 15, 200 and 2000 comments, and `go test ./internal/syncer -run xxx -bench PullComments` reads a busy week of comments, more than one answer holds.
 The resident memory of the interface is read from the process while it runs, `/proc/PID/status` on Linux or `ps -o rss` on macOS, with the keys sent through a pty.
 The interface asks the terminal for its background color and the cursor position at start, and a script on the other end of the pty has to answer both.

@@ -331,6 +331,7 @@ A command never asks: with a token in `WRIKERY_TOKEN` of another account it refu
 `wrikery --demo` runs on built in sample data, no token and no network, to try the interface.
 The demo has one custom field, a Duration called Budget, with a value on a few tasks, and uses it as the budget source when the config names none, so the time line and the budget row show without a config file.
 `WRIKERY_DEMO_TASKS=60000` in the environment adds that many generated tasks in a third space, to see the interface at the size of a large account, seeded on every start, so the start takes some seconds.
+`WRIKERY_DEMO_COMMENTS=15` next to it gives each of those tasks fifteen comments over three years and a few of them long discussions, a million comments take about a minute to seed.
 
 ### Config
 

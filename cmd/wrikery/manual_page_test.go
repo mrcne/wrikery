@@ -116,6 +116,8 @@ A command that waits for a window, code --wait, works the same way.`},
 go tool pprof reads them, a command's allocations with -sample_index=alloc_space.`},
 	{tag: "WRIKERY_DEMO_TASKS", text: `A number of generated tasks --demo adds to its sample data, to see the interface at the size of a large account.
 They are seeded on every start, sixty thousand take some seconds.`},
+	{tag: "WRIKERY_DEMO_COMMENTS", text: `A number of comments each generated task gets, spread over three years, with every thousandth task a hundred times as many.
+It needs WRIKERY_DEMO_TASKS.`},
 }
 
 var files = []entry{
