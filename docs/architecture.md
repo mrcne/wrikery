@@ -328,8 +328,10 @@ CI runs golangci-lint and the tests on Linux and macOS through GitHub Actions, w
 The same job checks that go.mod and go.sum are tidy, and two more jobs run the tests under the race detector with cgo on and run govulncheck.
 Releases are single static binaries for Linux and macOS on amd64 and arm64.
 `make cross` builds all four.
-A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, each with the manual page inside, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`, which installs the manual as well.
-CI validates the goreleaser config on every push, the release workflow itself runs only on a tag.
+A pushed `v*` tag runs goreleaser through GitHub Actions: it builds the four archives, each with the manual page inside, an SPDX SBOM per archive and `checksums.txt` with a keyless Sigstore signature, publishes the GitHub release and pushes a Homebrew cask to `mrcne/homebrew-tap`, which installs the manual as well.
+Before it publishes, the workflow rebuilds the linux/amd64 binary with a plain `go build` and stops if the bytes differ, and after the release a separate job attests every file in the checksum file with build provenance.
+The same workflow runs without a tag from the Actions tab, as a dry run that publishes nothing.
+CI validates the goreleaser config on every push, the release workflow itself runs only on a tag or by hand.
 
 ## Measuring
 

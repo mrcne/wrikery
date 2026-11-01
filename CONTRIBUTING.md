@@ -9,6 +9,7 @@ Read [docs/overview.md](docs/overview.md) for what the app does and does not do 
 `make check` runs both, and CI runs the same on Linux and macOS, plus a race run, a tidy check and govulncheck.
 golangci-lint is not part of the module, install the pinned version once with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3`.
 `./wrikery --demo` runs the app on built in sample data with no Wrike account, which is the fastest way to look at a UI change.
+The release workflow runs from the Actions tab without a tag, as a dry run that exercises everything but the release notes, which is how a change to it is tested.
 
 ## Changes
 
