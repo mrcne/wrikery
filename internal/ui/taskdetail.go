@@ -29,9 +29,21 @@ type taskDetailModel struct {
 	rendered     string
 	renderKey    string
 	renderedFrom string // the description the render came from, compared instead of copied into the key
+	drawn        map[string]drawnComment
+	content      string // what the viewport holds, a layout that builds the same text leaves it alone
 	vp           viewport.Model
 	keys         KeyMap
 	loaded       bool
+}
+
+// drawnComment is a comment as the pane drew it last, by comment id, with what the drawing depends on.
+// Toasts, sync events and resizes lay the pane out again with the same thread,
+// and wrapping every comment of a long discussion each time costs tens of milliseconds on the interface's own loop.
+// The theme is not in it, it is resolved once at start.
+type drawnComment struct {
+	who, when, text string
+	width           int
+	out             string
 }
 
 func (d *taskDetailModel) set(msg taskLoadedMsg) {
@@ -60,7 +72,8 @@ func (d taskDetailModel) title() string {
 func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string, offline bool) {
 	d.vp.Width, d.vp.Height = width, height
 	if !d.loaded || width <= 0 {
-		d.vp.SetContent(lipgloss.NewStyle().Foreground(th.Muted).Render("Select a task."))
+		d.content = lipgloss.NewStyle().Foreground(th.Muted).Render("Select a task.")
+		d.vp.SetContent(d.content)
 		return
 	}
 	if th.ASCII {
@@ -176,17 +189,27 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	if unsynced {
 		b.WriteString(muted.Render("not synced yet") + "\n")
 	}
+	drawn := make(map[string]drawnComment, len(d.comments))
 	for _, c := range d.comments {
-		who := bold.Render(contactName(c.AuthorID, ref))
-		// A queued comment carries the local clock, not the server's, so it is marked instead of dated.
-		if store.IsLocalID(c.ID) {
-			who += " " + sending
-		} else {
-			who += muted.Render(", " + relTime(c.CreatedDate, now))
+		who := contactName(c.AuthorID, ref)
+		body := func() string {
+			return lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(stableWidth(c.Text)) + "\n"
 		}
-		b.WriteString(who + "\n")
-		b.WriteString(lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(stableWidth(c.Text)) + "\n")
+		// A queued comment carries the local clock, not the server's, so it is marked instead of dated,
+		// and drawn every time, the mark follows the offline mode and such comments are few.
+		if store.IsLocalID(c.ID) {
+			b.WriteString(bold.Render(who) + " " + sending + "\n" + body())
+			continue
+		}
+		when := relTime(c.CreatedDate, now)
+		dc, ok := d.drawn[c.ID]
+		if !ok || dc.who != who || dc.when != when || dc.text != c.Text || dc.width != width {
+			dc = drawnComment{who: who, when: when, text: c.Text, width: width, out: bold.Render(who) + muted.Render(", "+when) + "\n" + body()}
+		}
+		drawn[c.ID] = dc
+		b.WriteString(dc.out)
 	}
+	d.drawn = drawn
 	b.WriteString("\n" + divider(th, fmt.Sprintf("Time (%d)", len(d.logs)), width) + "\n")
 	if unsynced {
 		b.WriteString(muted.Render("not synced yet") + "\n")
@@ -207,7 +230,11 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		// The lines after the first are indented, at the left edge they would read as a second entry without a date.
 		b.WriteString(strings.ReplaceAll(style.Width(width-2).Render(line), "\n", "\n  ") + "\n")
 	}
-	d.vp.SetContent(b.String())
+	// SetContent measures the width of every line, ten thousand of them for a long thread, so the same text is not set again.
+	if content := b.String(); content != d.content {
+		d.content = content
+		d.vp.SetContent(content)
+	}
 }
 
 func (d taskDetailModel) Update(msg tea.KeyMsg) (taskDetailModel, tea.Cmd) {
