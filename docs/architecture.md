@@ -339,9 +339,12 @@ Where the resident memory goes, read from the process on Linux with the interfac
 A small account runs at 36 to 42 MB resident, a cache of sixty thousand tasks at 48 to 58 MB with a list of thousands of rows on screen, and a command that lists five thousand rows peaks at 35 MB, 49 MB with `--json`.
 
 `WRIKERY_PROFILE=DIR` makes a run write `cpu.pprof` and `heap.pprof` into the directory, the interface and the commands alike, for `go tool pprof`.
-The heap profile is written at exit with the last screen's model still reachable, so it shows what that screen held.
-The profile of a demo run includes the seeding.
+The CPU profile starts before the store opens, so it covers the migrations and a demo's seeding.
+The heap profile is written at exit.
+The interface keeps the last screen's model reachable until then, so the default view shows what that screen held.
+A command has released everything by then, its allocations are read with `go tool pprof -sample_index=alloc_space`.
 `WRIKERY_DEMO_TASKS=60000 wrikery --demo` seeds that many generated tasks on top of the sample data, a third space with sixty projects of five folders and one folder of five thousand tasks, every tenth task the user's and two comments on every fifth, to see the interface at the size of a large account.
+Ctrl+c during the seeding stops it and removes the demo's directory.
 `go test ./internal/store -run xxx -bench Queries -benchmem` runs the reads the interface and the commands make over a store extended with ten thousand generated tasks, one sub-benchmark per query, the before and after of a query change.
 The resident memory of the interface is read from the process while it runs, `/proc/PID/status` on Linux or `ps -o rss` on macOS, with the keys sent through a pty.
 The interface asks the terminal for its background color and the cursor position at start, and a script on the other end of the pty has to answer both.

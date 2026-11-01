@@ -92,14 +92,21 @@ var descriptions = []string{
 	``,
 }
 
-// Seed fills an empty store. Seeding twice appends more outbox rows, so it is for a fresh store only.
-// Everything derives from now except the rows the store stamps itself (optimistic outbox rows, last sync times), which carry the real time.
-func Seed(ctx context.Context, st *store.Store, now time.Time) error {
-	day := func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
-	stamp := func(offset, hour int) string {
+// clocks gives the two ways a fixture date is written, relative to now:
+// day is a day offset as the API writes a date, stamp a day offset and an hour as a UTC timestamp.
+func clocks(now time.Time) (day func(offset int) string, stamp func(offset, hour int) string) {
+	day = func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
+	stamp = func(offset, hour int) string {
 		d := now.AddDate(0, 0, offset)
 		return time.Date(d.Year(), d.Month(), d.Day(), hour, 0, 0, 0, time.UTC).Format(time.RFC3339)
 	}
+	return day, stamp
+}
+
+// Seed fills an empty store. Seeding twice appends more outbox rows, so it is for a fresh store only.
+// Everything derives from now except the rows the store stamps itself (optimistic outbox rows, last sync times), which carry the real time.
+func Seed(ctx context.Context, st *store.Store, now time.Time) error {
+	day, stamp := clocks(now)
 
 	if err := st.SetMeta(ctx, store.MetaKeyMe, MeID); err != nil {
 		return err

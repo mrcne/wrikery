@@ -174,7 +174,18 @@ func setup(configPath string) (config.Paths, config.Config, error) {
 	return paths, cfg, nil
 }
 
-func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bool) error {
+func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bool) (err error) {
+	// The profile starts first, so it covers the store's open with its migrations and a demo's seeding.
+	stopProfile, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		return err
+	}
+	// The final model stays reachable until the heap profile is written, so the profile shows what the last screen held.
+	var final tea.Model
+	defer func() {
+		err = errors.Join(err, stopProfile())
+		runtime.KeepAlive(final)
+	}()
 	if noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -203,7 +214,14 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	cfg.UI = resolveTheme(cfg.UI, true)
 
 	if demoMode {
-		st, cleanup, stop, err := startDemo(time.Now())
+		extra, err := demoSize()
+		if err != nil {
+			return err
+		}
+		// ctrl+c before the interface draws stops the seeding of a large demo, and its directory goes with it.
+		seeding, stopSeeding := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		st, _, cleanup, err := openDemoStore(seeding, time.Now(), extra)
+		stopSeeding()
 		if err != nil {
 			return err
 		}
@@ -219,7 +237,8 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
 			defer func() { _ = l.Close() }()
 		}
-		return runProgram(p, stop)
+		final, err = p.Run()
+		return err
 	}
 
 	st, err := store.Open(paths.DBFile)
@@ -239,10 +258,6 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	if offline && firstRun {
 		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
 		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
-	}
-	stop, err := startProfile(os.Getenv(envProfile))
-	if err != nil {
-		return err
 	}
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
@@ -266,7 +281,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
 		}()
 	}
-	err = runProgram(a.prog, stop)
+	final, err = a.prog.Run()
 	a.shutdown()
 	return err
 }
@@ -297,6 +312,18 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		// open the store or read the token, and a broken config file must not stop it.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
+	// The profile starts before the store opens, so it covers the migrations a large cache may run.
+	stopProfile, err := startProfile(os.Getenv(envProfile))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		return 1
+	}
+	defer func() {
+		// A profile that could not be written is reported and leaves the code alone, the code says what happened to the command's work.
+		if err := stopProfile(); err != nil {
+			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		}
+	}()
 	if o.noColor {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
@@ -341,12 +368,7 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 	// NotifyContext keeps catching signals until stop runs, so without this a second Ctrl-C would not end the process while a sent create is waited for.
 	go func() { <-ctx.Done(); stop() }()
 	creds := &cmdAuth{tokens: tokens, cfg: cfg, st: st, fromEnv: tokenFromEnv()}
-	stopProfile, err := startProfile(os.Getenv(envProfile))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
-		return 1
-	}
-	code := cli.Run(ctx, cli.Env{
+	return cli.Run(ctx, cli.Env{
 		Config:       cfg,
 		Store:        st,
 		SignedIn:     creds.signedIn,
@@ -364,11 +386,6 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		Stderr:       os.Stderr,
 		GlobalFlags:  global,
 	}, args)
-	// A profile that could not be written is reported and leaves the code alone, the code says what happened to the command's work.
-	if err := stopProfile(); err != nil {
-		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
-	}
-	return code
 }
 
 // signedInWith names the stored sign in for the settings screen and the re-auth notice.

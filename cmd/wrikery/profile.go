@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // envProfile names a directory the run writes its profiles into, a switch for measuring, see docs/architecture.md.
@@ -31,27 +29,20 @@ func startProfile(dir string) (func() error, error) {
 	}
 	return func() error {
 		pprof.StopCPUProfile()
-		cpuErr := cpu.Close()
-		heap, err := os.Create(filepath.Join(dir, "heap.pprof"))
-		if err != nil {
+		if err := errors.Join(cpu.Close(), writeHeapProfile(filepath.Join(dir, "heap.pprof"))); err != nil {
 			return fmt.Errorf("%s: %w", envProfile, err)
 		}
-		// The heap profile reports the state at the last collection, see https://pkg.go.dev/runtime/pprof#WriteHeapProfile,
-		// so one runs now, or the profile would show whatever the last cycle happened to leave.
-		runtime.GC()
-		if err := pprof.WriteHeapProfile(heap); err != nil {
-			_ = heap.Close()
-			return fmt.Errorf("%s: %w", envProfile, err)
-		}
-		return errors.Join(heap.Close(), cpuErr)
+		return nil
 	}, nil
 }
 
-// runProgram runs the interface and ends the profile with the final model still reachable,
-// so a heap profile written at exit shows what the last screen held and not an empty heap.
-func runProgram(p *tea.Program, stop func() error) error {
-	final, err := p.Run()
-	stopErr := stop()
-	runtime.KeepAlive(final)
-	return errors.Join(err, stopErr)
+func writeHeapProfile(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	// The heap profile reports the state at the last collection, see https://pkg.go.dev/runtime/pprof#WriteHeapProfile,
+	// so one runs now, or the profile would show whatever the last cycle happened to leave.
+	runtime.GC()
+	return errors.Join(pprof.WriteHeapProfile(f), f.Close())
 }

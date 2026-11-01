@@ -2,13 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"testing"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
+
+// skipWhileProfiling skips a test that starts a CPU profile when go test -cpuprofile runs one, the runtime allows one at a time.
+func skipWhileProfiling(t *testing.T) {
+	t.Helper()
+	if err := pprof.StartCPUProfile(io.Discard); err != nil {
+		t.Skip("a cpu profile is running already")
+	}
+	pprof.StopCPUProfile()
+}
 
 func profileFiles(t *testing.T, dir string) []string {
 	t.Helper()
@@ -30,6 +42,7 @@ func profileFiles(t *testing.T, dir string) []string {
 }
 
 func TestStartProfileWritesACPUAndAHeapProfileIntoTheDirectory(t *testing.T) {
+	skipWhileProfiling(t)
 	dir := t.TempDir()
 	stop, err := startProfile(dir)
 	if err != nil {
@@ -66,6 +79,7 @@ func TestStartProfileRefusesADirectoryItCannotWrite(t *testing.T) {
 }
 
 func TestRunCommandWritesTheProfilesWhenAsked(t *testing.T) {
+	skipWhileProfiling(t)
 	isolate(t)
 	dir := t.TempDir()
 	t.Setenv(envProfile, dir)
@@ -94,6 +108,7 @@ func TestRunCommandHelpWritesNoProfile(t *testing.T) {
 
 // The code of a command says what happened to its work, a profile it could not write is a debug switch's failure and goes to stderr only.
 func TestRunCommandKeepsItsCodeWhenTheProfileCannotBeWritten(t *testing.T) {
+	skipWhileProfiling(t)
 	home := isolate(t)
 	dbDir := filepath.Join(home, "data", "wrikery")
 	if err := os.MkdirAll(dbDir, 0o700); err != nil {
@@ -117,5 +132,29 @@ func TestRunCommandKeepsItsCodeWhenTheProfileCannotBeWritten(t *testing.T) {
 	o.noColor = true
 	if code := runCommand([]string{"task", "list"}, fs, o); code != 0 {
 		t.Errorf("code = %d, want 0, the list was printed", code)
+	}
+}
+
+func TestRunCommandStartsTheProfileBeforeTheStoreOpens(t *testing.T) {
+	home := isolate(t)
+	t.Setenv(envProfile, filepath.Join(t.TempDir(), "missing"))
+	fs, o := rootFlags()
+	o.noColor = true
+	if code := runCommand([]string{"task", "list"}, fs, o); code != 1 {
+		t.Errorf("code = %d, want 1 for a profile directory that cannot be written", code)
+	}
+	if _, err := os.Stat(filepath.Join(home, "data", "wrikery", "wrike.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the cache was opened before the profile started: %v", err)
+	}
+}
+
+func TestRunStartsTheProfileBeforeTheStoreOpens(t *testing.T) {
+	home := isolate(t)
+	t.Setenv(envProfile, filepath.Join(t.TempDir(), "missing"))
+	if err := run(false, false, "", true, nil); err == nil || !strings.Contains(err.Error(), envProfile) {
+		t.Errorf("err = %v, want one naming %s", err, envProfile)
+	}
+	if _, err := os.Stat(filepath.Join(home, "data", "wrikery", "wrike.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the cache was opened before the profile started: %v", err)
 	}
 }

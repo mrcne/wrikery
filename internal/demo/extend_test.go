@@ -141,10 +141,11 @@ func TestExtendWithZeroChangesNothing(t *testing.T) {
 	}
 }
 
-func TestExtendKeepsTheDueDateAfterTheStart(t *testing.T) {
+func TestExtendKeepsTheDatesInOrder(t *testing.T) {
 	st, now := seededForExtend(t)
 	ctx := context.Background()
-	if err := Extend(ctx, st, now, 200); err != nil {
+	// Past four hundred tasks the creation and the update cycles go out of step, so the check needs more than that.
+	if err := Extend(ctx, st, now, 500); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := st.Tasks().ListInFolder(ctx, SpaceWork)
@@ -154,6 +155,9 @@ func TestExtendKeepsTheDueDateAfterTheStart(t *testing.T) {
 	for _, task := range rows {
 		if d := task.Dates; d != nil && d.Due < d.Start {
 			t.Errorf("%s is due %s before its start %s", task.ID, d.Due, d.Start)
+		}
+		if task.UpdatedDate < task.CreatedDate {
+			t.Errorf("%s was updated %s before it was created %s", task.ID, task.UpdatedDate, task.CreatedDate)
 		}
 	}
 }

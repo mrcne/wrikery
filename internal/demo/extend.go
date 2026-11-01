@@ -38,11 +38,7 @@ func Extend(ctx context.Context, st *store.Store, now time.Time, n int) error {
 	if n < 1 {
 		return nil
 	}
-	day := func(offset int) string { return now.AddDate(0, 0, offset).Format("2006-01-02") }
-	stamp := func(offset, hour int) string {
-		d := now.AddDate(0, 0, offset)
-		return time.Date(d.Year(), d.Month(), d.Day(), hour, 0, 0, 0, time.UTC).Format(time.RFC3339)
-	}
+	day, stamp := clocks(now)
 
 	people := append([]store.Contact{}, contacts...)
 	for i := range extendPeople {
@@ -114,7 +110,8 @@ func Extend(ctx context.Context, st *store.Store, now time.Time, n int) error {
 			Permalink:      fmt.Sprintf("https://www.wrike.com/open.htm?id=%d", 2000000+i),
 			ParentIDs:      []string{folder},
 			CreatedDate:    stamp(-(i%400)-1, 9),
-			UpdatedDate:    stamp(-(i % 90), 8+i%9),
+			// At most ninety days back and never before the creation, the two cycles go out of step past four hundred tasks.
+			UpdatedDate: stamp(-min(i%90, i%400), 8+i%9),
 		}
 		if i%10 == 0 {
 			t.ResponsibleIDs, t.FollowedByMe = []string{MeID}, true
