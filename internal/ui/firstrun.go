@@ -221,6 +221,10 @@ func (f firstRunModel) handleRowKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 	case key.Matches(msg, f.keys.Up):
 		f.onRow = false
 		f.focus()
+	case key.Matches(msg, f.keys.Down):
+		// The row is the last thing in the box, and j must not fall through to the token field as a letter.
+	case f.verifying && (key.Matches(msg, f.keys.Right) || key.Matches(msg, f.keys.Left) || msg.Type == tea.KeySpace):
+		// The failure text names the host being checked, so the pick holds until the answer.
 	case key.Matches(msg, f.keys.Right), msg.Type == tea.KeySpace:
 		f.pick = (f.pick + 1) % (len(f.hosts) + 1)
 	case key.Matches(msg, f.keys.Left):

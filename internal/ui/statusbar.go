@@ -11,7 +11,7 @@ import (
 )
 
 type statusModel struct {
-	state      string // idle, syncing, offline, failed, auth_required, another_account, offline_mode when started offline on purpose or without a data center
+	state      string // idle, syncing, offline, failed, auth_required, another_account, offline_mode when started offline on purpose, no_data_center when a start found none
 	lastSynced time.Time
 	since      time.Time // when the current offline or failed stretch began
 	pending    int
@@ -62,6 +62,9 @@ func (s statusModel) leftText(th Theme, now time.Time) string {
 	case "offline_mode":
 		// Chosen, not a lost network, so it is muted and carries no time it began.
 		left.WriteString(muted.Render(th.Glyphs.Offline + " offline mode"))
+	case "no_data_center":
+		// Not chosen: the start found no data center, so it reads as a warning and names the key out, the toast with the reason is gone in three seconds.
+		left.WriteString(lipgloss.NewStyle().Foreground(th.Warn).Render(th.Glyphs.Offline + " offline, no data center found, R tries again"))
 	case "failed":
 		left.WriteString(lipgloss.NewStyle().Foreground(th.Error).Render(th.Glyphs.Failed + " sync failing since " + s.since.Format("15:04")))
 	case "auth_required":

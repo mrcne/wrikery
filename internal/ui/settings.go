@@ -102,6 +102,11 @@ func (s settingsModel) rows() []settingRow {
 	if s.moveConfirmed {
 		ask = "no"
 	}
+	hostNote := "the data center is set at the sign in, wrikery --logout and sign in again to change it, or set host in " + s.file
+	if s.cfg.Host != "" {
+		// A sign in checks the config host alone, so a new one would not change it.
+		hostNote = "host is set in " + s.file + ", change it there and start the app again"
+	}
 	var rows []settingRow
 	if s.signedIn != "" {
 		with := "a permanent token"
@@ -115,8 +120,7 @@ func (s settingsModel) rows() []settingRow {
 	return append(rows, []settingRow{
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
-		{group: "Sync", label: "Wrike host", value: host, key: "host",
-			msg: toastMsg{text: "the data center is set at the sign in, wrikery --logout and sign in again to change it, or set host in " + s.file}},
+		{group: "Sync", label: "Wrike host", value: host, key: "host", msg: toastMsg{text: hostNote}},
 		{group: "Sync", label: "Start offline", value: fmt.Sprint(s.cfg.Offline), key: "offline"},
 		{group: "Sync", label: "Budget", value: s.budget, key: "budget.source"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},

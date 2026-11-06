@@ -126,6 +126,28 @@ func TestFirstRunTypingOnTheDataCenterRowGoesToTheTokenField(t *testing.T) {
 	}
 }
 
+// j is the row's own key like k, h and l, a single stray letter must not land in the masked token field.
+func TestFirstRunJOnTheDataCenterRowIsNotTyped(t *testing.T) {
+	verified := make(chan string, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
+		verified <- token
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "detected automatically")
+	press(tm, "down", "j", "abc", "enter")
+	select {
+	case got := <-verified:
+		if got != "abc" {
+			t.Fatalf("verified %q, a j on the row reached the token field", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the typing after the j never reached the token field")
+	}
+}
+
 // With host in the config file the row shows it and takes no focus, down leaves the typing in the token field.
 func TestFirstRunDataCenterRowIsFixedByTheConfigHost(t *testing.T) {
 	verified := make(chan string, 1)

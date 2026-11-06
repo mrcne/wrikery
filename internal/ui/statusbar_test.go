@@ -31,6 +31,17 @@ func TestStatusBarShowsOfflineMode(t *testing.T) {
 	}
 }
 
+// A start that found no data center is not a chosen offline: the bar says what happened and what to press, for as long as it lasts.
+func TestStatusBarShowsTheMissingDataCenter(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	s := statusModel{state: "no_data_center", pending: 1}
+	out := s.View(th, 100, "", now)
+	if !strings.Contains(out, "offline, no data center found, R tries again  1 pending") {
+		t.Errorf("no data center bar = %q", out)
+	}
+}
+
 func TestStatusBarShowsStateCountsAndToast(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
