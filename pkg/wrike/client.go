@@ -194,7 +194,9 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return "", err
 		}
 		if serr := c.sleep(ctx, retryDelay(err, retries)); serr != nil {
-			return "", serr
+			// The deadline cut the backoff, the answer a reader needs is still the request's own, a refused connection or a 503,
+			// so both travel: errors.As finds the request error and errors.Is the context error.
+			return "", fmt.Errorf("%w (%w)", err, serr)
 		}
 		retries++
 	}

@@ -34,7 +34,8 @@ func (e *probeError) Error() string {
 	return strings.Join(parts, ", ")
 }
 
-// outcome is one host's answer in a few words, without the method, the path and the host the errors carry themselves.
+// outcome is one host's answer in a few words: an API answer by its status, a request error by its cause alone,
+// since the probe error names the host and the request error repeats it with the path.
 func outcome(err error) string {
 	var apiErr *wrike.APIError
 	if errors.As(err, &apiErr) {

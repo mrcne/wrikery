@@ -214,7 +214,8 @@ func (f firstRunModel) submitToken() (firstRunModel, tea.Cmd) {
 
 // handleRowKey is the data center row: up returns to the token field, left, right and space cycle the pick,
 // enter submits the token with it and tab keeps the switch to the browser box.
-// The field is blurred while the row has the focus, so a letter does nothing.
+// Text goes to the token field, which takes the focus back: a token pasted while the row has the focus must not vanish.
+// A paste arrives as one key of many runes, so h, l and k as single letters are the row's and a token starting with one is not.
 func (f firstRunModel) handleRowKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, f.keys.Up):
@@ -229,6 +230,12 @@ func (f firstRunModel) handleRowKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 	case msg.Type == tea.KeyTab && f.browser && !f.verifying:
 		f.useToken, f.onRow, f.errText = false, false, ""
 		f.focus()
+	case msg.Type == tea.KeyRunes:
+		f.onRow = false
+		f.focus()
+		var cmd tea.Cmd
+		f.input, cmd = f.input.Update(msg)
+		return f, cmd
 	}
 	return f, nil
 }

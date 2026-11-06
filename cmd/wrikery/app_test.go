@@ -181,9 +181,10 @@ func TestGoOnlineWithoutAHostGoesOfflineWhenNothingAnswers(t *testing.T) {
 	a.goOnline()
 	select {
 	case msg := <-got:
+		// The five second deadline cuts the client's retries short, the reason must still say what the host did.
 		off, ok := msg.(ui.WentOfflineMsg)
-		if !ok || !strings.Contains(off.Reason, "www.wrike.com: ") {
-			t.Fatalf("got %#v, want offline mode naming the hosts", msg)
+		if !ok || !strings.Contains(off.Reason, "www.wrike.com: dial tcp") || !strings.Contains(off.Reason, "connection refused") {
+			t.Fatalf("got %#v, want offline mode naming the hosts and their refusal", msg)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the interface was not told")

@@ -103,6 +103,29 @@ func TestFirstRunDataCenterRowCyclesAndSubmitsThePick(t *testing.T) {
 	waitFor(t, tm, "Hello Ada Nowak")
 }
 
+// A paste or a letter on the data center row goes to the token field, the pick stays, so a token pasted there is not lost.
+func TestFirstRunTypingOnTheDataCenterRowGoesToTheTokenField(t *testing.T) {
+	type call struct{ token, host string }
+	verified := make(chan call, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token, host string) (string, error) {
+		verified <- call{token, host}
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "detected automatically")
+	press(tm, "down", "space", "abc", "enter")
+	select {
+	case got := <-verified:
+		if got != (call{"abc", "www.wrike.com"}) {
+			t.Fatalf("verified %+v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the typing on the row never reached the token field")
+	}
+}
+
 // With host in the config file the row shows it and takes no focus, down leaves the typing in the token field.
 func TestFirstRunDataCenterRowIsFixedByTheConfigHost(t *testing.T) {
 	verified := make(chan string, 1)

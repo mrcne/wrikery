@@ -134,7 +134,7 @@ func TestWentOfflineMsgEntersOfflineModeWithTheReason(t *testing.T) {
 	if !m.opts.Offline || m.status.state != "offline_mode" {
 		t.Fatalf("offline = %v, state = %q, want offline mode", m.opts.Offline, m.status.state)
 	}
-	if want := "could not detect the Wrike data center: www.wrike.com: i/o timeout, R tries again"; !strings.Contains(m.status.toast, want) || !m.status.toastErr {
+	if want := "could not detect the Wrike data center, R tries again: www.wrike.com: i/o timeout"; !strings.Contains(m.status.toast, want) || !m.status.toastErr {
 		t.Errorf("toast = %q (error %v), want %q as an error", m.status.toast, m.status.toastErr, want)
 	}
 	after, _ := m.refresh()

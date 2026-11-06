@@ -254,7 +254,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.keys.Refresh.SetHelp("R", "go online")
 		m.status.state = "offline_mode"
 		m.syncPaneSizes()
-		return m, m.status.show("could not detect the Wrike data center: "+msg.Reason+", R tries again", true)
+		// The bar cuts a long toast at its tail, so the key comes before the reason, which names every host asked.
+		return m, m.status.show("could not detect the Wrike data center, R tries again: "+msg.Reason, true)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
 	case ScopesLostMsg:

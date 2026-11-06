@@ -228,7 +228,7 @@ func TestVerifyTokenNamesAPickedHostThatDoesNotAnswer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := a.verifyToken(ctx, "new-token", wrike.EUHost)
-	if err == nil || !strings.HasPrefix(err.Error(), "could not reach Wrike: app-eu.wrike.com: ") || strings.Contains(err.Error(), "www.wrike.com") {
+	if err == nil || !strings.HasPrefix(err.Error(), "could not reach Wrike: app-eu.wrike.com: dial tcp") || !strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "www.wrike.com") {
 		t.Fatalf("err = %v", err)
 	}
 }
