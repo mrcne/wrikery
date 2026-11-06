@@ -248,6 +248,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
+	case WentOfflineMsg:
+		// Offline mode as --offline starts it, see New, with the reason as the toast. R asks to go online and the hook probes again.
+		m.opts.Offline = true
+		m.keys.Refresh.SetHelp("R", "go online")
+		m.status.state = "offline_mode"
+		m.syncPaneSizes()
+		return m, m.status.show("could not detect the Wrike data center: "+msg.Reason+", R tries again", true)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
 	case ScopesLostMsg:

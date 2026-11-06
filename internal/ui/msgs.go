@@ -10,6 +10,9 @@ import (
 
 // Messages main sends from engine events. Strings mirror the syncer constants so this package does not import it.
 type SyncStateMsg struct{ State string }
+
+// WentOfflineMsg says a start found no data center and no engine runs: the interface goes into offline mode and R probes again.
+type WentOfflineMsg struct{ Reason string }
 type StoreChangedMsg struct{ Entities []string }
 type OutboxChangedMsg struct{ Pending, Failed int }
 

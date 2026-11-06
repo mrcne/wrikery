@@ -11,7 +11,7 @@ import (
 )
 
 type statusModel struct {
-	state      string // idle, syncing, offline, failed, auth_required, another_account, offline_mode when started offline on purpose
+	state      string // idle, syncing, offline, failed, auth_required, another_account, offline_mode when started offline on purpose or without a data center
 	lastSynced time.Time
 	since      time.Time // when the current offline or failed stretch began
 	pending    int

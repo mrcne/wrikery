@@ -170,11 +170,11 @@ func TestResolveHostPrefersTheSessionHost(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	session := auth.Session{AccessToken: "at", RefreshToken: "rt", Host: wrike.EUHost}
 	// No probe runs for a browser session, the token answer named the host, so no fake server is needed.
-	host, err := resolveHost(context.Background(), config.Config{}, st, session)
+	host, err := resolveHost(context.Background(), config.Config{}, st, session, nil)
 	if err != nil || host != wrike.EUHost {
 		t.Fatalf("host = %q, %v, want the session's host", host, err)
 	}
-	host, err = resolveHost(context.Background(), config.Config{Host: "x.wrike.com"}, st, session)
+	host, err = resolveHost(context.Background(), config.Config{Host: "x.wrike.com"}, st, session, nil)
 	if err != nil || host != "x.wrike.com" {
 		t.Fatalf("host = %q, %v, want the config to win", host, err)
 	}

@@ -272,14 +272,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	} else if !firstRun {
 		// The host may need the network, a probe of up to five seconds, so the engine starts beside the program
 		// and the interface draws at once. startEngine does nothing once the program has returned.
-		go func() {
-			host, err := a.engineHost(context.Background())
-			if err != nil {
-				slog.Warn("could not detect the Wrike data center", "error", err)
-				host = wrike.DefaultHost
-			}
-			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
-		}()
+		go a.goOnline()
 	}
 	final, err = a.prog.Run()
 	a.shutdown()

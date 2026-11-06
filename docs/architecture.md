@@ -41,8 +41,10 @@ A browser session is the OAuth 2.0 authorization code flow: `internal/auth` list
 The source renews the access token under five minutes before its expiry and after a 401, under a lock file beside the token file, and re-reads the stored session first, so a pair the other process renewed is adopted instead of a second refresh, which would leave one of them with a dead refresh token.
 The stored session is the authority: a renewal that finds nothing there, or a permanent token, stops, so an interface still open after a sign out never writes the session back.
 The refresh itself runs past the request's context, Wrike rotates the pair as it answers and a quit at that moment would lose the only live refresh token.
-Wrike serves accounts from more than one data center under a different host, so the first run with a token probes the known hosts and keeps the one that accepted the token in the store meta table.
+Wrike serves accounts from more than one data center under a different host, so the first run with a token probes the known hosts, all at once so a host that does not answer costs the others nothing, and keeps the one that accepted the token in the store meta table.
+A host the user picked on the sign in screen is probed alone and kept the same way.
 Later runs read that host back instead of probing again, a browser session carries its host, and the `host` config key overrides all of them when set.
+When nothing names a host and the probe fails at a start, no engine starts: an answer about the token opens the sign in screen, no answer puts the interface in offline mode with the reason, and `R` probes again.
 When arguments remain after the global flags, main hands them to `internal/cli` with the store, the config, the sign in check, the client constructor and the host resolver instead of starting the program.
 A command appends to the same log file and never rotates it, the interface does the rotation at its start.
 

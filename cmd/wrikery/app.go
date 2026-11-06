@@ -180,15 +180,30 @@ func (a *app) startOffline() {
 	}
 }
 
-// goOnline ends offline mode the way a start without it begins: the host first, then the engine on the stored session.
+// goOnline is the start of a session online, from main at a start without --offline and from R in offline mode:
+// the host first, then the engine on the stored session.
 // The interface calls it on a command goroutine, a host nobody stored yet costs the probe's five seconds there and not at the start.
+// A probe that fails starts no engine: an account answers 300 to every request on the host of another data center,
+// so an engine on a guessed host would fail every cycle until the next start. The interface is told instead, see startFailure.
 func (a *app) goOnline() {
 	host, err := a.engineHost(context.Background())
 	if err != nil {
 		slog.Warn("could not detect the Wrike data center", "error", err)
-		host = wrike.DefaultHost
+		a.prog.Send(startFailure(err))
+		return
 	}
 	a.startEngine(auth.NewSource(a.tokens, a.session, nil, userAgent()), host)
+}
+
+// startFailure is what the interface gets when no host was found at a start.
+// An answer about the token, a 401 or a 300 from every host, opens the sign in screen, where the data center can be picked.
+// Anything else, no answer, a rate limit or a server error, is offline mode with the reason, where R tries again.
+func startFailure(err error) tea.Msg {
+	var apiErr *wrike.APIError
+	if errors.Is(err, errNoDataCenter) || (errors.As(err, &apiErr) && apiErr.IsAuth()) {
+		return ui.SyncStateMsg{State: "auth_required"}
+	}
+	return ui.WentOfflineMsg{Reason: err.Error()}
 }
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
@@ -342,13 +357,13 @@ func (a *app) engineHost(ctx context.Context) (string, error) {
 // and the account check compares once Wrike answers.
 func hostFor(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session, fromEnv bool, hc *http.Client) (string, error) {
 	if !fromEnv || cfg.Host != "" {
-		return resolveHost(ctx, cfg, st, s)
+		return resolveHost(ctx, cfg, st, s, hc)
 	}
 	host, err := envHost(ctx, cfg, s.AccessToken, hc)
 	var apiErr *wrike.APIError
 	rejected := errors.As(err, &apiErr) && apiErr.IsAuth()
 	if err != nil && !rejected && !errors.Is(err, errNoDataCenter) {
-		return resolveHost(ctx, cfg, st, s)
+		return resolveHost(ctx, cfg, st, s, hc)
 	}
 	return host, err
 }
@@ -370,7 +385,7 @@ func envHost(ctx context.Context, cfg config.Config, token string, hc *http.Clie
 // and only when all are empty is the network touched, once, under a short deadline.
 // The app must open on the cache when offline, so the probe cannot have the client's full retry budget:
 // a GET retries a network failure three times with backoff on top of the 30s client timeout.
-func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session) (string, error) {
+func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, s auth.Session, hc *http.Client) (string, error) {
 	if cfg.Host != "" {
 		return cfg.Host, nil
 	}
@@ -382,7 +397,7 @@ func resolveHost(ctx context.Context, cfg config.Config, st *store.Store, s auth
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	host, _, err := probeHost(probeCtx, s.AccessToken, apiHosts, nil)
+	host, _, err := probeHost(probeCtx, s.AccessToken, apiHosts, hc)
 	if err != nil {
 		return "", err
 	}
