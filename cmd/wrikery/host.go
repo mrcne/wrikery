@@ -42,10 +42,15 @@ func outcome(err error) string {
 		switch {
 		case apiErr.IsWrongHost():
 			return "answered 300, another data center"
-		case apiErr.Description != "":
-			return fmt.Sprintf("http %d: %s", apiErr.StatusCode, apiErr.Description)
 		}
-		return fmt.Sprintf("http %d", apiErr.StatusCode)
+		s := fmt.Sprintf("http %d", apiErr.StatusCode)
+		if apiErr.Code != "" {
+			s += " " + apiErr.Code
+		}
+		if apiErr.Description != "" {
+			s += ": " + apiErr.Description
+		}
+		return s
 	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
@@ -60,8 +65,9 @@ func outcome(err error) string {
 // The hosts are asked at once because a host that does not answer, a firewall that drops it or a slow route,
 // must not cost the next host its turn: asked one after another, the first host's timeout was the whole probe.
 // A host from the wrong data center answers 300 to every request, see wrike.APIError.IsWrongHost.
-// When no host accepts the token the verdict waits for every answer: a 401 anywhere is about the token
-// (Wrike answers 300, not 401, to a valid token of another data center), 300 from every host is errNoDataCenter,
+// A 401 is returned as it arrives: Wrike answers 300, not 401, to a valid token of another data center,
+// so a 401 is about the token whatever the other hosts would say, and a host that hangs must not hold it back.
+// Otherwise the verdict waits for every answer: 300 from every host is errNoDataCenter,
 // and anything else is a probeError naming each host's answer.
 func probeHost(ctx context.Context, token string, hosts []string, hc *http.Client) (string, wrike.Contact, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -89,18 +95,16 @@ func probeHost(ctx context.Context, token string, hosts []string, hc *http.Clien
 		if a.err == nil {
 			return a.host, a.me, nil
 		}
+		var apiErr *wrike.APIError
+		if errors.As(a.err, &apiErr) && apiErr.IsAuth() {
+			return "", wrike.Contact{}, a.err
+		}
 		errs[a.host] = a.err
 	}
 	wrong := 0
 	for _, host := range hosts {
 		var apiErr *wrike.APIError
-		if !errors.As(errs[host], &apiErr) {
-			continue
-		}
-		if apiErr.IsAuth() {
-			return "", wrike.Contact{}, errs[host]
-		}
-		if apiErr.IsWrongHost() {
+		if errors.As(errs[host], &apiErr) && apiErr.IsWrongHost() {
 			wrong++
 		}
 	}

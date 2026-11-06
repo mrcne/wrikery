@@ -29,11 +29,16 @@ func classify(err error) failureClass {
 	if errors.Is(err, errCorruptRow) {
 		return failPermanent
 	}
+	// A context the engine or a command ended is no answer from Wrike, whatever request error travels with it:
+	// the client keeps the request's own error when the context cuts a retry backoff, and that cut is not the row's fault.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return failUnavailable
+	}
 	var apiErr *wrike.APIError
 	if !errors.As(err, &apiErr) {
-		// A url.Error from the http client and a context deadline are net errors, the request got no answer.
+		// A url.Error from the http client is a net error, the request got no answer.
 		var netErr net.Error
-		if errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		if errors.As(err, &netErr) {
 			return failUnavailable
 		}
 		// A malformed response. The engine cannot tell an answer garbled once from one this payload earns every time,

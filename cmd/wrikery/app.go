@@ -189,6 +189,8 @@ func (a *app) goOnline() {
 	host, err := a.engineHost(context.Background())
 	if err != nil {
 		slog.Warn("could not detect the Wrike data center", "error", err)
+		// No engine will run its first drain, so the rows a dead process left in flight come back the way an --offline start does it.
+		a.startOffline()
 		a.prog.Send(startFailure(err))
 		return
 	}

@@ -30,6 +30,8 @@ func TestClassify(t *testing.T) {
 		{"503", &wrike.APIError{StatusCode: 503}, failUnavailable},
 		{"504", &wrike.APIError{StatusCode: 504}, failUnavailable},
 		{"500", &wrike.APIError{StatusCode: 500, Code: "server_error"}, failTransient},
+		// The client keeps the request error when the context cuts a retry backoff, the cut is still the engine's and not the row's.
+		{"500 cut by the deadline", fmt.Errorf("%w (%w)", &wrike.APIError{StatusCode: 500, Code: "server_error"}, context.DeadlineExceeded), failUnavailable},
 		{"400", &wrike.APIError{StatusCode: 400, Code: "invalid_request"}, failPermanent},
 		{"403", &wrike.APIError{StatusCode: 403, Code: "access_forbidden"}, failPermanent},
 		{"404", &wrike.APIError{StatusCode: 404, Code: "resource_not_found"}, failPermanent},

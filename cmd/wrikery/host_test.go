@@ -97,7 +97,7 @@ func TestProbeHostTakesTheHostThatAnswersWhileAnotherHangs(t *testing.T) {
 }
 
 // Wrike answers 300, not 401, to a valid token of another data center, so a 401 anywhere is about the token,
-// whatever the other hosts say, and the verdict waits for them.
+// whatever the other hosts say, and nothing is learned by waiting for them.
 func TestProbeHostReportsTheTokenRejectedWhenOneHostAnswers401(t *testing.T) {
 	rejecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -108,12 +108,16 @@ func TestProbeHostReportsTheTokenRejectedWhenOneHostAnswers401(t *testing.T) {
 	defer hung.Close()
 
 	hc := &http.Client{Transport: hostRouter{srv1: rejecting, srv2: hung}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	start := time.Now()
 	_, _, err := probeHost(ctx, "tok", apiHosts, hc)
 	var apiErr *wrike.APIError
 	if !errors.As(err, &apiErr) || !apiErr.IsAuth() {
 		t.Fatalf("want an auth *APIError, got %v", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("the 401 took %s, the hanging host was waited for", time.Since(start))
 	}
 }
 
@@ -137,7 +141,8 @@ func TestProbeHostReturnsErrNoDataCenterWhenEveryHostAnswers300(t *testing.T) {
 // No acceptance and not every host answered 300: the error names each host with what it answered, in the order of the list.
 func TestProbeHostNamesEveryHostWhenNoneAccepts(t *testing.T) {
 	blocked := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "blocked by policy", http.StatusForbidden)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"access_forbidden","errorDescription":"blocked by policy"}`))
 	}))
 	defer blocked.Close()
 	eu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +157,7 @@ func TestProbeHostNamesEveryHostWhenNoneAccepts(t *testing.T) {
 		t.Fatalf("want the probe's own error, got %v", err)
 	}
 	text := err.Error()
-	for _, want := range []string{"www.wrike.com: http 403", "app-eu.wrike.com: answered 300, another data center", "app-us2.wrike.com: http 403"} {
+	for _, want := range []string{"www.wrike.com: http 403 access_forbidden: blocked by policy", "app-eu.wrike.com: answered 300, another data center", "app-us2.wrike.com: http 403 access_forbidden"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("error %q should contain %q", text, want)
 		}
