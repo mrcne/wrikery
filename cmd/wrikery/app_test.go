@@ -156,7 +156,7 @@ func TestStartFailureTellsTheTokenAnswersFromTheNetwork(t *testing.T) {
 			t.Errorf("startFailure(%v) = %#v, want the sign in screen", err, msg)
 		}
 	}
-	err := &probeError{hosts: []string{"x"}, errs: map[string]error{"x": errors.New("i/o timeout")}}
+	err := errors.New("x: i/o timeout")
 	off, ok := startFailure(err).(ui.WentOfflineMsg)
 	if !ok || !strings.Contains(off.Reason, "x: i/o timeout") {
 		t.Errorf("startFailure(%v) = %#v, want offline mode with the reason", err, startFailure(err))

@@ -198,14 +198,20 @@ func (a *app) goOnline() {
 }
 
 // startFailure is what the interface gets when no host was found at a start.
-// An answer about the token, a 401 or a 300 from every host, opens the sign in screen, where the data center can be picked.
+// An answer about the token opens the sign in screen, where the data center can be picked.
 // Anything else, no answer, a rate limit or a server error, is offline mode with the reason, where R tries again.
 func startFailure(err error) tea.Msg {
-	var apiErr *wrike.APIError
-	if errors.Is(err, errNoDataCenter) || (errors.As(err, &apiErr) && apiErr.IsAuth()) {
+	if aboutTheToken(err) {
 		return ui.SyncStateMsg{State: "auth_required"}
 	}
 	return ui.WentOfflineMsg{Reason: err.Error()}
+}
+
+// aboutTheToken is true for a probe answer that is about the token and not about the network:
+// a 401, or 300 from every host asked.
+func aboutTheToken(err error) bool {
+	var apiErr *wrike.APIError
+	return errors.Is(err, errNoDataCenter) || (errors.As(err, &apiErr) && apiErr.IsAuth())
 }
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
@@ -362,9 +368,7 @@ func hostFor(ctx context.Context, cfg config.Config, st *store.Store, s auth.Ses
 		return resolveHost(ctx, cfg, st, s, hc)
 	}
 	host, err := envHost(ctx, cfg, s.AccessToken, hc)
-	var apiErr *wrike.APIError
-	rejected := errors.As(err, &apiErr) && apiErr.IsAuth()
-	if err != nil && !rejected && !errors.Is(err, errNoDataCenter) {
+	if err != nil && !aboutTheToken(err) {
 		return resolveHost(ctx, cfg, st, s, hc)
 	}
 	return host, err

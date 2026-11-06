@@ -11,31 +11,16 @@ import (
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
-// apiHosts are the hosts probeHost tries when the config leaves host unset.
-// The order decides only the order of the hosts in a probeError.
+// apiHosts are the hosts probeHost tries when the config leaves host unset,
+// in the order the sign in screen's row offers them and the probe's error text names them.
 var apiHosts = []string{wrike.DefaultHost, wrike.EUHost, wrike.US2Host}
 
 // errNoDataCenter is returned when every host in the list answered 300,
 // so the token belongs to none of the data centers this build knows about.
 var errNoDataCenter = errors.New("no Wrike data center accepted this token")
 
-// probeError is the probe's answer when no host accepted the token and not every host answered 300:
-// each host with what it answered, so a reader sees which host did not answer and which one said the account is elsewhere.
-type probeError struct {
-	hosts []string
-	errs  map[string]error
-}
-
-func (e *probeError) Error() string {
-	parts := make([]string, 0, len(e.hosts))
-	for _, host := range e.hosts {
-		parts = append(parts, host+": "+outcome(e.errs[host]))
-	}
-	return strings.Join(parts, ", ")
-}
-
 // outcome is one host's answer in a few words: an API answer by its status, a request error by its cause alone,
-// since the probe error names the host and the request error repeats it with the path.
+// since the probe's error text names the host and the request error repeats it with the path.
 func outcome(err error) string {
 	var apiErr *wrike.APIError
 	if errors.As(err, &apiErr) {
@@ -68,7 +53,8 @@ func outcome(err error) string {
 // A 401 is returned as it arrives: Wrike answers 300, not 401, to a valid token of another data center,
 // so a 401 is about the token whatever the other hosts would say, and a host that hangs must not hold it back.
 // Otherwise the verdict waits for every answer: 300 from every host is errNoDataCenter,
-// and anything else is a probeError naming each host's answer.
+// and anything else is an error naming each host with what it answered,
+// so a reader sees which host did not answer and which one said the account is elsewhere.
 func probeHost(ctx context.Context, token string, hosts []string, hc *http.Client) (string, wrike.Contact, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -111,5 +97,9 @@ func probeHost(ctx context.Context, token string, hosts []string, hc *http.Clien
 	if wrong == len(hosts) {
 		return "", wrike.Contact{}, errNoDataCenter
 	}
-	return "", wrike.Contact{}, &probeError{hosts: hosts, errs: errs}
+	parts := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		parts = append(parts, host+": "+outcome(errs[host]))
+	}
+	return "", wrike.Contact{}, errors.New(strings.Join(parts, ", "))
 }

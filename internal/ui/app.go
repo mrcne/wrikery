@@ -40,7 +40,8 @@ type Hooks struct {
 	// FetchThread reads the task's comments and time entries when the cache never read them, see the engine.
 	// Nil in the demo.
 	FetchThread func(ctx context.Context, id string) (bool, error)
-	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
+	// GoOnline ends offline mode: it resolves the host and starts the sync engine the way a start without --offline does,
+	// and when no host is found it sends SyncStateMsg auth_required or WentOfflineMsg instead of an engine.
 	GoOnline func()
 	// SwitchHome reads the account of the current credential again for R in the another account state:
 	// the box to ask, or nil when the account matches the cache again.
