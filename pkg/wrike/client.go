@@ -14,12 +14,14 @@ import (
 	"time"
 )
 
-// DefaultHost and EUHost are the two hosts Wrike serves API traffic from.
+// DefaultHost, EUHost and US2Host are the three hosts Wrike serves API traffic from,
+// the servers the API reference lists at https://developers.wrike.com/api/v4/account/ .
 // Which one accepts a token depends on the data center the account lives in, see https://developers.wrike.com/docs/faq:
 // "The web host for API endpoints differ depending on the datacenter that contains user's data".
 const (
 	DefaultHost = "www.wrike.com"
 	EUHost      = "app-eu.wrike.com"
+	US2Host     = "app-us2.wrike.com"
 )
 
 // BaseURL builds the API v4 base URL for a host, such as DefaultHost or EUHost.
