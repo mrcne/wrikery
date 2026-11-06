@@ -347,7 +347,8 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title and the branch name `Y` copies leaves the prefix out too.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 The `[oauth]` table names an API app for the browser sign in: `client_id`, `redirect_uri`, which is `http://localhost:8731/callback` unless the app was registered with another address, and `client_secret`, which the first run asks for when it is not in the file.
-`host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
+`host` is empty by default, which means the app detects the Wrike data center at the sign in, or takes the one picked there.
+Set it to `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com` to force one instead, the sign in then checks that host alone.
 The `[budget]` table names where a task's time budget lives, since Wrike has no single place for it.
 `source = "effort"` reads the Effort field of the task, the time budget of the task view and the Workload chart on the plans that have it.
 `source = "field"` reads a custom field named by `field`, its exact title or its id: a Duration field holds the budget in minutes, a Numeric field in hours, and the field can belong to the account or to a space, in which case the task's own space decides which one is read.
