@@ -60,6 +60,22 @@ func TestSettingsEnterOpensThePickerOnTheFollowedRowAndNamesTheKeyOnAFileRow(t *
 	}
 }
 
+// The data center is set at the sign in, so enter on the host row says where to change it instead of naming a key to edit.
+func TestSettingsEnterOnTheHostRowSaysTheSignInSetsIt(t *testing.T) {
+	s := testSettings()
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if len(msgs) != 1 {
+		t.Fatalf("enter on the host row sent %#v", msgs)
+	}
+	toast, ok := msgs[0].(toastMsg)
+	if !ok || !strings.Contains(toast.text, "wrikery --logout") || !strings.Contains(toast.text, "/home/ada/.config/wrikery/config.toml") {
+		t.Errorf("enter on the host row should say a new sign in or the config key changes it, got %#v", msgs[0])
+	}
+}
+
 // The rows show what the file holds next to its key, so the user can read a row and know what to write.
 func TestSettingsRowsShowTheFileValuesNotTheResolvedOnes(t *testing.T) {
 	s := testSettings()

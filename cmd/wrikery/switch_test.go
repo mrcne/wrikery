@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func switchApp(t *testing.T) (*app, auth.Tokens) {
 
 func TestFinishAsksBeforeStoringOnAnotherHost(t *testing.T) {
 	a, tk := switchApp(t)
-	_, err := a.verifyToken(context.Background(), "new-token")
+	_, err := a.verifyToken(context.Background(), "new-token", "")
 	var sw *ui.SwitchNeeded
 	if !errors.As(err, &sw) {
 		t.Fatalf("verifyToken = %v, want the question", err)
@@ -111,7 +112,7 @@ func TestFinishAsksBeforeStoringOnAnotherHost(t *testing.T) {
 func TestConfirmRunsAfterTheSignInContextEnded(t *testing.T) {
 	a, tk := switchApp(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := a.verifyToken(ctx, "new-token")
+	_, err := a.verifyToken(ctx, "new-token", "")
 	cancel()
 	var sw *ui.SwitchNeeded
 	if !errors.As(err, &sw) {
@@ -196,10 +197,38 @@ func TestASignInReadsThePersonOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	meReads.Store(0)
-	if _, err := a.verifyToken(context.Background(), "new-token"); err != nil {
+	if _, err := a.verifyToken(context.Background(), "new-token", ""); err != nil {
 		t.Fatal(err)
 	}
 	if n := meReads.Load(); n != 1 {
 		t.Errorf("the person was read %d times on the EU host, want once", n)
+	}
+}
+
+// A picked data center is probed alone, and the answer names it when it does not hold the account.
+func TestVerifyTokenProbesThePickedHostAlone(t *testing.T) {
+	a, _ := switchApp(t)
+	_, err := a.verifyToken(context.Background(), "new-token", wrike.DefaultHost)
+	if err == nil || err.Error() != "www.wrike.com does not serve this account, pick another data center" {
+		t.Fatalf("err = %v", err)
+	}
+	// The EU pick reaches the moved account, the switch box is the answer because the cache remembers the US host.
+	var sw *ui.SwitchNeeded
+	if _, err := a.verifyToken(context.Background(), "new-token", wrike.EUHost); !errors.As(err, &sw) {
+		t.Fatalf("err = %v, want the switch box", err)
+	}
+}
+
+// A picked host nobody can reach is reported as unreachable, not as the wrong data center, and the other hosts stay out of it.
+func TestVerifyTokenNamesAPickedHostThatDoesNotAnswer(t *testing.T) {
+	a, _ := switchApp(t)
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	a.hc = &http.Client{Transport: hostRouter{srv1: down, srv2: down}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := a.verifyToken(ctx, "new-token", wrike.EUHost)
+	if err == nil || !strings.HasPrefix(err.Error(), "could not reach Wrike: app-eu.wrike.com: ") || strings.Contains(err.Error(), "www.wrike.com") {
+		t.Fatalf("err = %v", err)
 	}
 }

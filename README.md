@@ -29,7 +29,7 @@ With Go 1.26 or newer installed, `go install github.com/mrcne/wrikery/cmd/wriker
 
 `wrikery` asks for a Wrike API token, a permanent access token created in the Wrike App Console with Get token, and keeps it in the system keychain.
 With an API app named in the config it signs in through the browser instead, with short lived tokens it renews on its own, see [docs/overview.md](docs/overview.md).
-Accounts hosted in the EU data center are detected automatically.
+The data center is detected from the token, or picked on the sign in screen.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
 `wrikery --demo` runs on built in sample data instead, with no token and no network, to look around first.
 

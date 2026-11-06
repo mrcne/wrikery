@@ -285,6 +285,7 @@ The app reads the file when it starts and never writes it, so enter on one of th
 ### First run
 
 Paste a Wrike API token. The app checks it and stores it in the system keychain.
+The data center is detected from the token, or picked on the same screen from the three Wrike hosts, once, at the sign in.
 When the config names an API app registered in Wrike, the first step offers a sign in through the browser instead, with the token one key away.
 The browser opens Wrike's sign in page, the user allows the app, and Wrike sends the browser back to a local port the app listens on.
 The address can also be opened by hand, and the one the browser lands on pasted into the box, for a terminal on another machine.
@@ -315,6 +316,7 @@ The steps, in the order they happen:
    Work as usual, the changes wait in the queue.
 2. After the move, run `wrikery --logout`, then `wrikery --offline=false`, the first run needs Wrike.
 3. Sign in with a new permanent token or through the browser.
+   The data center can be picked on the sign in screen when the detection does not reach the new one.
    wrikery names the old and the new data center with the queued writes and asks whether this is the new home of the cache.
    `y` checks the queue against the new account, sends it there oldest first, and builds the cache again from the new account.
    A write whose task, folder or time entry the new account does not have, or whose task has a title the cache never knew, is held on the changes screen for `r` or `x`.

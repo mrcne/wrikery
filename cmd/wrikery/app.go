@@ -193,12 +193,15 @@ func (a *app) goOnline() {
 
 // verifyToken is the first run and the re-auth path: check the token against /contacts?me=true,
 // keep it, then (re)start the engine with it.
-// A configured host is probed alone, an empty one tries every known data center.
+// A configured host is probed alone, then the host picked on the screen, and an empty one tries every known data center.
 // The answer is remembered in the store so later runs do not probe again.
-func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
+func (a *app) verifyToken(ctx context.Context, token, picked string) (string, error) {
 	hosts := apiHosts
-	if a.cfg.Host != "" {
+	switch {
+	case a.cfg.Host != "":
 		hosts = []string{a.cfg.Host}
+	case picked != "":
+		hosts = []string{picked}
 	}
 	host, me, err := probeHost(ctx, token, hosts, a.hc)
 	if err != nil {
@@ -208,6 +211,8 @@ func (a *app) verifyToken(ctx context.Context, token string) (string, error) {
 			return "", errors.New("token rejected by Wrike")
 		case errors.Is(err, errNoDataCenter) && a.cfg.Host != "":
 			return "", fmt.Errorf("host %s from the config file does not serve this account", a.cfg.Host)
+		case errors.Is(err, errNoDataCenter) && picked != "":
+			return "", fmt.Errorf("%s does not serve this account, pick another data center", picked)
 		case errors.Is(err, errNoDataCenter):
 			return "", errors.New("no Wrike data center accepted this token, set host in the config file")
 		default:

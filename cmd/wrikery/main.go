@@ -262,7 +262,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
-		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
+		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()

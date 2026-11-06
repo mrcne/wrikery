@@ -34,6 +34,10 @@ type firstRunModel struct {
 	browser    bool   // the config names an API app and main gave the hook, so the browser sign in is offered
 	needSecret bool   // the config has no secret, a field asks for it
 	clientID   string
+	hosts      []string        // the data centers the row offers, Options.DataCenters
+	configHost string          // host from the config file, it fixes the row
+	onRow      bool            // the data center row has the focus instead of the token field
+	pick       int             // 0 is detection, else the index into hosts plus one
 	useToken   bool            // the token field is in view instead of the browser box, tab flips it
 	input      textinput.Model // the permanent token
 	secret     textinput.Model
@@ -77,6 +81,8 @@ func (f *firstRunModel) focus() {
 	f.secret.Blur()
 	f.paste.Blur()
 	switch {
+	case f.onRow:
+		// The row has the focus, no field does.
 	case !f.browser || f.useToken:
 		f.input.Focus()
 	case f.signIn != nil:
@@ -143,19 +149,23 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 		if f.browser && !f.useToken {
 			return f.handleBrowserKey(msg)
 		}
+		if f.onRow {
+			return f.handleRowKey(msg)
+		}
 		// Tab and not a letter, a token may contain any letter.
 		if msg.Type == tea.KeyTab && f.browser && !f.verifying {
 			f.useToken, f.errText = false, ""
 			f.focus()
 			return f, nil
 		}
+		// Down and not j for the same reason, and not during a check: the next keys of someone still typing stay in the field.
+		if msg.Type == tea.KeyDown && f.configHost == "" && len(f.hosts) > 0 && !f.verifying {
+			f.onRow = true
+			f.focus()
+			return f, nil
+		}
 		if msg.Type == tea.KeyEnter {
-			token := strings.TrimSpace(f.input.Value())
-			if token == "" || f.verifying {
-				return f, nil
-			}
-			f.verifying, f.errText = true, ""
-			return f, tea.Batch(intent(firstRunSubmitTokenMsg{token: token}), f.spinner.Tick)
+			return f.submitToken()
 		}
 		var cmd tea.Cmd
 		f.input, cmd = f.input.Update(msg)
@@ -190,6 +200,56 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 		}
 	}
 	return f, nil
+}
+
+// submitToken sends the token with the picked data center, from the field or from the row, nothing while a check runs or the field is empty.
+func (f firstRunModel) submitToken() (firstRunModel, tea.Cmd) {
+	token := strings.TrimSpace(f.input.Value())
+	if token == "" || f.verifying {
+		return f, nil
+	}
+	f.verifying, f.errText = true, ""
+	return f, tea.Batch(intent(firstRunSubmitTokenMsg{token: token, host: f.pickedHost()}), f.spinner.Tick)
+}
+
+// handleRowKey is the data center row: up returns to the token field, left, right and space cycle the pick,
+// enter submits the token with it and tab keeps the switch to the browser box.
+// The field is blurred while the row has the focus, so a letter does nothing.
+func (f firstRunModel) handleRowKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
+	switch {
+	case key.Matches(msg, f.keys.Up):
+		f.onRow = false
+		f.focus()
+	case key.Matches(msg, f.keys.Right), msg.Type == tea.KeySpace:
+		f.pick = (f.pick + 1) % (len(f.hosts) + 1)
+	case key.Matches(msg, f.keys.Left):
+		f.pick = (f.pick + len(f.hosts)) % (len(f.hosts) + 1)
+	case msg.Type == tea.KeyEnter:
+		return f.submitToken()
+	case msg.Type == tea.KeyTab && f.browser && !f.verifying:
+		f.useToken, f.onRow, f.errText = false, false, ""
+		f.focus()
+	}
+	return f, nil
+}
+
+// pickedHost is what the hook gets: empty for detection, and empty with a config host as well, the config wins in the hook anyway.
+func (f firstRunModel) pickedHost() string {
+	if f.configHost != "" || f.pick == 0 {
+		return ""
+	}
+	return f.hosts[f.pick-1]
+}
+
+// linkHost is the host of the App Console link: the config host, the pick, or the default host while the data center is detected.
+func (f firstRunModel) linkHost() string {
+	switch {
+	case f.configHost != "":
+		return f.configHost
+	case f.pick > 0:
+		return f.hosts[f.pick-1]
+	}
+	return "www.wrike.com"
 }
 
 // handleBrowserKey is the browser box: the secret and enter before the attempt, the paste field and esc while the browser is out.
@@ -362,8 +422,9 @@ func (f firstRunModel) viewSignIn(body *strings.Builder, th Theme, muted lipglos
 	default:
 		body.WriteString("Paste a permanent access token.\n")
 		body.WriteString(muted.Render("Create one in the Wrike App Console (Get token). Wrike shows it once.") + "\n")
-		body.WriteString(muted.Render("https://www.wrike.com/appconsole.htm?#/api") + "\n\n")
+		body.WriteString(muted.Render("https://"+f.linkHost()+"/appconsole.htm?#/api") + "\n\n")
 		body.WriteString(f.input.View() + "\n\n")
+		f.viewDataCenterRow(body, th, muted)
 		switch {
 		case f.verifying:
 			body.WriteString(f.spinner.View() + " checking the token")
@@ -375,4 +436,27 @@ func (f firstRunModel) viewSignIn(body *strings.Builder, th Theme, muted lipglos
 			body.WriteString(muted.Render("enter to continue"))
 		}
 	}
+}
+
+// viewDataCenterRow draws the row under the token field: the pick, or the config host that fixes it, and the keys that move it.
+func (f firstRunModel) viewDataCenterRow(body *strings.Builder, th Theme, muted lipgloss.Style) {
+	value := "detected automatically"
+	switch {
+	case f.configHost != "":
+		value = f.configHost + "   " + muted.Render("host in the config file")
+	case f.pick > 0:
+		value = f.hosts[f.pick-1]
+	}
+	cursor := "  "
+	if f.onRow {
+		cursor = lipgloss.NewStyle().Foreground(th.Accent).Bold(true).Render(th.Glyphs.Cursor + " ")
+	}
+	body.WriteString(cursor + "Data center   " + value + "\n")
+	switch {
+	case f.onRow:
+		body.WriteString(muted.Render("  left and right to change, up for the token") + "\n")
+	case f.configHost == "" && len(f.hosts) > 0:
+		body.WriteString(muted.Render("  down to pick one") + "\n")
+	}
+	body.WriteString("\n")
 }

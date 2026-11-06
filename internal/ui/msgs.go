@@ -151,7 +151,7 @@ type openConfirmMsg struct {
 }
 
 // Intents from the first run child. The root turns them into commands.
-type firstRunSubmitTokenMsg struct{ token string }
+type firstRunSubmitTokenMsg struct{ token, host string } // host is the picked data center, empty to detect it
 type firstRunStartSignInMsg struct {
 	attempt int
 	secret  string

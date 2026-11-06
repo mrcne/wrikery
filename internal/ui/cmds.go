@@ -749,7 +749,7 @@ func waitSignIn(attempt int, result <-chan SignInResult) tea.Cmd {
 	}
 }
 
-func (m Model) verifyToken(token string) tea.Cmd {
+func (m Model) verifyToken(token, host string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {
 		if verify == nil {
@@ -757,7 +757,7 @@ func (m Model) verifyToken(token string) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		name, err := verify(ctx, token)
+		name, err := verify(ctx, token, host)
 		return tokenVerifiedMsg{name: name, err: err}
 	}
 }

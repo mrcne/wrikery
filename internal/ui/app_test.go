@@ -51,6 +51,8 @@ func testOptions(st *store.Store) ui.Options {
 		ConfigFile: "/home/ada/.config/wrikery/config.toml",
 		Now:        func() time.Time { return fixedNow },
 		Hooks:      ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}},
+		// The hosts main's probe knows, the sign in screen offers them.
+		DataCenters: []string{"www.wrike.com", "app-eu.wrike.com", "app-us2.wrike.com"},
 	}
 }
 
@@ -79,6 +81,10 @@ func press(tm *teatest.TestModel, keys ...string) {
 			tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
 		case "space":
 			tm.Send(tea.KeyMsg{Type: tea.KeySpace})
+		case "down":
+			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+		case "up":
+			tm.Send(tea.KeyMsg{Type: tea.KeyUp})
 		case "ctrl+f":
 			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlF})
 		case "ctrl+p":
@@ -418,7 +424,7 @@ func TestSignInMeetingAnotherAccountOpensTheBox(t *testing.T) {
 	var confirmed atomic.Int32
 	opts := testOptions(st)
 	opts.Demo, opts.FirstRun = false, true
-	opts.Hooks.VerifyToken = func(_ context.Context, token string) (string, error) {
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
 		return "", &ui.SwitchNeeded{From: "Acme on www.wrike.com", To: "Acme on app-eu.wrike.com", Pending: 5, Failed: 2,
 			DBFile:  "/home/ada/.local/share/wrikery/wrike.db",
 			Confirm: func() (string, error) { confirmed.Add(1); return "Ada Nowak", nil }}
