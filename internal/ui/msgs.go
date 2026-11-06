@@ -10,6 +10,9 @@ import (
 
 // Messages main sends from engine events. Strings mirror the syncer constants so this package does not import it.
 type SyncStateMsg struct{ State string }
+
+// WentOfflineMsg says a start found no data center and no engine runs: the interface goes into offline mode and R probes again.
+type WentOfflineMsg struct{ Reason string }
 type StoreChangedMsg struct{ Entities []string }
 type OutboxChangedMsg struct{ Pending, Failed int }
 
@@ -151,7 +154,7 @@ type openConfirmMsg struct {
 }
 
 // Intents from the first run child. The root turns them into commands.
-type firstRunSubmitTokenMsg struct{ token string }
+type firstRunSubmitTokenMsg struct{ token, host string } // host is the picked data center, empty to detect it
 type firstRunStartSignInMsg struct {
 	attempt int
 	secret  string

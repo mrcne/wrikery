@@ -262,7 +262,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
-		FirstRun: firstRun, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
+		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()
@@ -272,14 +272,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	} else if !firstRun {
 		// The host may need the network, a probe of up to five seconds, so the engine starts beside the program
 		// and the interface draws at once. startEngine does nothing once the program has returned.
-		go func() {
-			host, err := a.engineHost(context.Background())
-			if err != nil {
-				slog.Warn("could not detect the Wrike data center", "error", err)
-				host = wrike.DefaultHost
-			}
-			a.startEngine(auth.NewSource(tokens, session, nil, userAgent()), host)
-		}()
+		go a.goOnline()
 	}
 	final, err = a.prog.Run()
 	a.shutdown()

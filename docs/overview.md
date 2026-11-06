@@ -285,6 +285,7 @@ The app reads the file when it starts and never writes it, so enter on one of th
 ### First run
 
 Paste a Wrike API token. The app checks it and stores it in the system keychain.
+The data center is detected from the token, or picked on the same screen from the three Wrike hosts, once, at the sign in.
 When the config names an API app registered in Wrike, the first step offers a sign in through the browser instead, with the token one key away.
 The browser opens Wrike's sign in page, the user allows the app, and Wrike sends the browser back to a local port the app listens on.
 The address can also be opened by hand, and the one the browser lands on pasted into the box, for a terminal on another machine.
@@ -315,6 +316,7 @@ The steps, in the order they happen:
    Work as usual, the changes wait in the queue.
 2. After the move, run `wrikery --logout`, then `wrikery --offline=false`, the first run needs Wrike.
 3. Sign in with a new permanent token or through the browser.
+   The data center can be picked on the sign in screen when the detection does not reach the new one.
    wrikery names the old and the new data center with the queued writes and asks whether this is the new home of the cache.
    `y` checks the queue against the new account, sends it there oldest first, and builds the cache again from the new account.
    A write whose task, folder or time entry the new account does not have, or whose task has a title the cache never knew, is held on the changes screen for `r` or `x`.
@@ -345,7 +347,8 @@ The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight
 `hide_prefixes` lists title prefixes the rows and cards leave out, for example `["(MX)"]` for a project code every task starts with, the detail pane keeps the full title and the branch name `Y` copies leaves the prefix out too.
 `branch_template` builds the branch name that `Y` copies, default `{id}-{slug}`: `{id}` is the task's permalink number and `{slug}` is its title lowercased and cut down to hyphen separated words.
 The `[oauth]` table names an API app for the browser sign in: `client_id`, `redirect_uri`, which is `http://localhost:8731/callback` unless the app was registered with another address, and `client_secret`, which the first run asks for when it is not in the file.
-`host` is empty by default, which means the app detects the Wrike data center on first run, set it to `app-eu.wrike.com` to force the EU data center instead.
+`host` is empty by default, which means the app detects the Wrike data center at the sign in, or takes the one picked there.
+Set it to `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com` to force one instead, the sign in then checks that host alone.
 The `[budget]` table names where a task's time budget lives, since Wrike has no single place for it.
 `source = "effort"` reads the Effort field of the task, the time budget of the task view and the Workload chart on the plans that have it.
 `source = "field"` reads a custom field named by `field`, its exact title or its id: a Duration field holds the budget in minutes, a Numeric field in hours, and the field can belong to the account or to a space, in which case the task's own space decides which one is read.

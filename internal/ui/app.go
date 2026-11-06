@@ -24,9 +24,10 @@ import (
 // Hooks are the few things the UI needs from outside the store.
 // Any of them may be nil, the UI then reports it instead of failing.
 type Hooks struct {
-	Refresh     func()
-	WakeOutbox  func()
-	VerifyToken func(ctx context.Context, token string) (string, error)
+	Refresh    func()
+	WakeOutbox func()
+	// VerifyToken checks a pasted token: host is the data center picked on the screen, empty when it is to be detected.
+	VerifyToken func(ctx context.Context, token, host string) (string, error)
 	// SignIn starts a browser sign in with the secret typed on the screen, empty when the config has it.
 	// Nil when the config names no API app, the first run then offers the token alone.
 	SignIn  func(secret string) (SignIn, error)
@@ -39,7 +40,8 @@ type Hooks struct {
 	// FetchThread reads the task's comments and time entries when the cache never read them, see the engine.
 	// Nil in the demo.
 	FetchThread func(ctx context.Context, id string) (bool, error)
-	// GoOnline ends offline mode: it starts the sync engine the way a start without --offline does.
+	// GoOnline ends offline mode: it resolves the host and starts the sync engine the way a start without --offline does,
+	// and when no host is found it sends SyncStateMsg auth_required or WentOfflineMsg instead of an engine.
 	GoOnline func()
 	// SwitchHome reads the account of the current credential again for R in the another account state:
 	// the box to ask, or nil when the account matches the cache again.
@@ -92,8 +94,10 @@ type Options struct {
 	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
 	Demo         bool
 	// Offline starts the interface in offline mode: no engine runs until R and a yes go online through Hooks.GoOnline.
-	Offline      bool
-	FirstRun     bool
+	Offline  bool
+	FirstRun bool
+	// DataCenters are the Wrike hosts the sign in screen offers next to the detection, in the order shown.
+	DataCenters  []string
 	SignedInWith string // SignedInWithToken or SignedInWithBrowser, empty on a first run and in the demo
 	SignedInApp  string // the client id of a stored browser session, for the settings screen
 	Now          func() time.Time
@@ -201,7 +205,9 @@ func (m Model) browserSignIn() bool {
 
 func (m Model) newFirstRun(notice string) firstRunModel {
 	oauth := m.opts.Config.OAuth
-	return newFirstRun(stepSignIn, notice, m.keys, m.browserSignIn(), oauth.ClientSecret == "", oauth.ClientID)
+	f := newFirstRun(stepSignIn, notice, m.keys, m.browserSignIn(), oauth.ClientSecret == "", oauth.ClientID)
+	f.hosts, f.configHost = m.opts.DataCenters, m.opts.Config.Host
+	return f
 }
 
 // panes is the pane order of the current shape, what tab cycles through and the layout slides over.
@@ -243,6 +249,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
+	case WentOfflineMsg:
+		// Offline mode as --offline starts it, see New, under a state of its own: the bar says what happened and what to press
+		// for as long as it lasts, the toast carries the reason, which names every host asked.
+		m.opts.Offline = true
+		m.keys.Refresh.SetHelp("R", "go online")
+		m.status.state = "no_data_center"
+		m.syncPaneSizes()
+		return m, m.status.show("could not detect the Wrike data center: "+msg.Reason, true)
 	case StoreChangedMsg:
 		return m, m.reload(msg.Entities)
 	case ScopesLostMsg:
@@ -410,7 +424,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncPaneSizes()
 		return m, m.status.show("that task is no longer in the cache", true)
 	case firstRunSubmitTokenMsg:
-		return m, m.verifyToken(msg.token)
+		return m, m.verifyToken(msg.token, msg.host)
 	case firstRunStartSignInMsg:
 		return m, m.startSignIn(msg.attempt, msg.secret)
 	case firstRunCopyAddressMsg:

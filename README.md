@@ -29,7 +29,7 @@ With Go 1.26 or newer installed, `go install github.com/mrcne/wrikery/cmd/wriker
 
 `wrikery` asks for a Wrike API token, a permanent access token created in the Wrike App Console with Get token, and keeps it in the system keychain.
 With an API app named in the config it signs in through the browser instead, with short lived tokens it renews on its own, see [docs/overview.md](docs/overview.md).
-Accounts hosted in the EU data center are detected automatically.
+The data center is detected from the token, or picked on the sign in screen.
 Then pick the spaces and projects to follow from a checklist and watch the first sync run.
 `wrikery --demo` runs on built in sample data instead, with no token and no network, to look around first.
 
@@ -117,7 +117,7 @@ Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 The config file is `~/.config/wrikery/config.toml`, `--config PATH` reads another one.
 `poll_interval` sets how often the app checks Wrike for changes and `log_level` how much it logs.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, `ascii` for plain drawing characters, and `branch_template` for the branch name `Y` copies.
-`host` names the Wrike data center, for example `app-eu.wrike.com`, when the automatic detection is not wanted.
+`host` names the Wrike data center, `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com`, when neither the detection nor the pick at the sign in is wanted.
 
 ## Docs
 

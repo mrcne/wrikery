@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
+	"github.com/mrcne/wrikery/internal/ui"
 	"github.com/mrcne/wrikery/pkg/wrike"
 )
 
@@ -130,6 +132,82 @@ func TestOfflineStartPutsTheRowsInFlightBack(t *testing.T) {
 	}
 	a := &app{st: st, lock: filepath.Join(t.TempDir(), "sync.lock")}
 	a.startOffline()
+	if row, err := st.Outbox().Get(ctx, id); err != nil || row.State != store.StatePending {
+		t.Errorf("row = %+v, %v, want it back in the queue", row, err)
+	}
+}
+
+// recorder is a program model that hands every message to the test, the window size ones aside.
+type recorder struct{ got chan tea.Msg }
+
+func (r recorder) Init() tea.Cmd { return nil }
+func (r recorder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(tea.WindowSizeMsg); !ok {
+		r.got <- msg
+	}
+	return r, nil
+}
+func (r recorder) View() string { return "" }
+
+// An answer about the token opens the sign in screen, no answer is offline mode with the reason.
+func TestStartFailureTellsTheTokenAnswersFromTheNetwork(t *testing.T) {
+	for _, err := range []error{&wrike.APIError{StatusCode: http.StatusUnauthorized}, errNoDataCenter} {
+		if msg := startFailure(err); msg != (ui.SyncStateMsg{State: "auth_required"}) {
+			t.Errorf("startFailure(%v) = %#v, want the sign in screen", err, msg)
+		}
+	}
+	err := errors.New("x: i/o timeout")
+	off, ok := startFailure(err).(ui.WentOfflineMsg)
+	if !ok || !strings.Contains(off.Reason, "x: i/o timeout") {
+		t.Errorf("startFailure(%v) = %#v, want offline mode with the reason", err, startFailure(err))
+	}
+}
+
+// Nothing stored and no acceptance: the interface goes offline with the reason, no engine runs,
+// and the rows a dead process left in flight go back to the queue, as at an --offline start.
+func TestGoOnlineWithoutAHostGoesOfflineWhenNothingAnswers(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "nohost.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "a", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.Outbox().EnqueueComment(ctx, "T1", "U1", "stranded")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Outbox().MarkInflight(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	// A proxy's answer, not retried, so the test does not wait out the probe's deadline.
+	blocked := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"access_forbidden","errorDescription":"blocked by policy"}`))
+	}))
+	t.Cleanup(blocked.Close)
+	got := make(chan tea.Msg, 4)
+	a := &app{cfg: config.Config{PollInterval: time.Minute}, st: st, lock: filepath.Join(t.TempDir(), "sync.lock"),
+		prog:    tea.NewProgram(recorder{got}, tea.WithInput(nil), tea.WithoutRenderer()),
+		session: auth.Session{AccessToken: "tok"}, hc: &http.Client{Transport: hostRouter{srv1: blocked, srv2: blocked}}}
+	go func() { _, _ = a.prog.Run() }()
+	t.Cleanup(func() { a.shutdown(); a.prog.Kill() })
+
+	a.goOnline()
+	select {
+	case msg := <-got:
+		off, ok := msg.(ui.WentOfflineMsg)
+		if !ok || !strings.Contains(off.Reason, "www.wrike.com: http 403 access_forbidden: blocked by policy") {
+			t.Fatalf("got %#v, want offline mode naming the hosts and their answer", msg)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the interface was not told")
+	}
+	if a.current() != nil {
+		t.Fatal("an engine started on a host nobody found")
+	}
 	if row, err := st.Outbox().Get(ctx, id); err != nil || row.State != store.StatePending {
 		t.Errorf("row = %+v, %v, want it back in the queue", row, err)
 	}

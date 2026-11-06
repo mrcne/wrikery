@@ -25,6 +25,7 @@ type settingRow struct {
 
 // settingsModel is the settings screen: what the app owns and can change, the followed scopes and the sidebar pane, next to what the config file owns.
 // The file rows are read only, the app never writes the file, so enter on one names the key to edit.
+// The host row is neither: the data center is set once, at the sign in, so enter on it says where it is changed.
 type settingsModel struct {
 	cfg           config.Config
 	theme         string // ui.theme as the file has it, cfg.UI.Theme is what auto resolved to
@@ -101,6 +102,11 @@ func (s settingsModel) rows() []settingRow {
 	if s.moveConfirmed {
 		ask = "no"
 	}
+	hostNote := "the data center is set at the sign in, wrikery --logout and sign in again to change it, or set host in " + s.file
+	if s.cfg.Host != "" {
+		// A sign in checks the config host alone, so a new one would not change it.
+		hostNote = "host is set in " + s.file + ", change it there and start the app again"
+	}
 	var rows []settingRow
 	if s.signedIn != "" {
 		with := "a permanent token"
@@ -114,7 +120,7 @@ func (s settingsModel) rows() []settingRow {
 	return append(rows, []settingRow{
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds())), key: "poll_interval"},
-		{group: "Sync", label: "Wrike host", value: host, key: "host"},
+		{group: "Sync", label: "Wrike host", value: host, key: "host", msg: toastMsg{text: hostNote}},
 		{group: "Sync", label: "Start offline", value: fmt.Sprint(s.cfg.Offline), key: "offline"},
 		{group: "Sync", label: "Budget", value: s.budget, key: "budget.source"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},

@@ -31,7 +31,7 @@ func TestFirstRunFlow(t *testing.T) {
 	opts := testOptions(st)
 	opts.Demo = false
 	opts.FirstRun = true
-	opts.Hooks.VerifyToken = func(_ context.Context, token string) (string, error) {
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
@@ -82,6 +82,118 @@ func TestFirstRunFlow(t *testing.T) {
 	_ = finalView(t, tm)
 }
 
+// The row under the token field picks the data center, and the pick reaches the hook with the token.
+func TestFirstRunDataCenterRowCyclesAndSubmitsThePick(t *testing.T) {
+	type call struct{ token, host string }
+	verified := make(chan call, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token, host string) (string, error) {
+		verified <- call{token, host}
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "detected automatically")
+	press(tm, "down", "space", "space")
+	waitFor(t, tm, "https://app-eu.wrike.com/appconsole.htm?#/api")
+	press(tm, "up", "abc", "enter")
+	if got := <-verified; got != (call{"abc", "app-eu.wrike.com"}) {
+		t.Fatalf("verified %+v", got)
+	}
+	waitFor(t, tm, "Hello Ada Nowak")
+}
+
+// A paste or a letter on the data center row goes to the token field, the pick stays, so a token pasted there is not lost.
+func TestFirstRunTypingOnTheDataCenterRowGoesToTheTokenField(t *testing.T) {
+	type call struct{ token, host string }
+	verified := make(chan call, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token, host string) (string, error) {
+		verified <- call{token, host}
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "detected automatically")
+	press(tm, "down", "space", "abc", "enter")
+	select {
+	case got := <-verified:
+		if got != (call{"abc", "www.wrike.com"}) {
+			t.Fatalf("verified %+v", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the typing on the row never reached the token field")
+	}
+}
+
+// j is the row's own key like k, h and l, a single stray letter must not land in the masked token field.
+func TestFirstRunJOnTheDataCenterRowIsNotTyped(t *testing.T) {
+	verified := make(chan string, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
+		verified <- token
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "detected automatically")
+	press(tm, "down", "j", "abc", "enter")
+	select {
+	case got := <-verified:
+		if got != "abc" {
+			t.Fatalf("verified %q, a j on the row reached the token field", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the typing after the j never reached the token field")
+	}
+}
+
+// With host in the config file the row shows it and takes no focus, down leaves the typing in the token field.
+func TestFirstRunDataCenterRowIsFixedByTheConfigHost(t *testing.T) {
+	verified := make(chan string, 1)
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	opts.Config.Host = "app-eu.wrike.com"
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
+		verified <- token
+		return "Ada Nowak", nil
+	}
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "host in the config file")
+	waitFor(t, tm, "https://app-eu.wrike.com/appconsole.htm?#/api")
+	press(tm, "down", "abc", "enter")
+	if got := <-verified; got != "abc" {
+		t.Fatalf("verified %q, down took the typing away from the token field", got)
+	}
+}
+
+// The re-auth screen is the same box, so the row is there after a 401 or a 300 from the engine.
+func TestReauthScreenShowsTheDataCenterRow(t *testing.T) {
+	opts := testOptions(seededStore(t))
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	waitFor(t, tm, "Tasks")
+	tm.Send(ui.SyncStateMsg{State: "auth_required"})
+	waitFor(t, tm, "detected automatically")
+	if err := tm.Quit(); err != nil {
+		t.Fatal(err)
+	}
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
+// The box clips lines wider than its inner width, so the row and its hints have to fit the 72 column box.
+func TestFirstRunDataCenterRowFitsTheBox(t *testing.T) {
+	opts := testOptions(freshStore(t))
+	opts.Demo, opts.FirstRun = false, true
+	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(76, 30))
+	waitFor(t, tm, "down to pick one")
+	press(tm, "down")
+	waitFor(t, tm, "left and right to change, up for the token")
+	if err := tm.Quit(); err != nil {
+		t.Fatal(err)
+	}
+	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
+}
+
 // The box clips each body line, so an instruction wider than the inner width silently loses its tail.
 func TestFirstRunKeepsALongTokenWhole(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "fresh.db"))
@@ -96,7 +208,7 @@ func TestFirstRunKeepsALongTokenWhole(t *testing.T) {
 	opts := testOptions(st)
 	opts.Demo = false
 	opts.FirstRun = true
-	opts.Hooks.VerifyToken = func(_ context.Context, got string) (string, error) {
+	opts.Hooks.VerifyToken = func(_ context.Context, got, _ string) (string, error) {
 		verified <- got
 		return "Ada Nowak", nil
 	}
@@ -131,7 +243,7 @@ func TestFirstRunShowsTheTokenLink(t *testing.T) {
 func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	st := seededStore(t)
 	opts := testOptions(st)
-	opts.Hooks.VerifyToken = func(context.Context, string) (string, error) { return "Ada Nowak", nil }
+	opts.Hooks.VerifyToken = func(context.Context, string, string) (string, error) { return "Ada Nowak", nil }
 	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
@@ -288,7 +400,7 @@ func TestFirstRunBrowserNeedsTheSecret(t *testing.T) {
 func TestFirstRunTabSwitchesToTheTokenField(t *testing.T) {
 	opts, _, _, _ := browserOptions(t, freshStore(t), "s3cret")
 	verified := make(chan string, 1)
-	opts.Hooks.VerifyToken = func(_ context.Context, token string) (string, error) {
+	opts.Hooks.VerifyToken = func(_ context.Context, token, _ string) (string, error) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
@@ -356,7 +468,7 @@ func TestFirstRunPickerStartsFromTheFollowedSet(t *testing.T) {
 	opts := testOptions(st)
 	opts.Demo = false
 	opts.FirstRun = true
-	opts.Hooks.VerifyToken = func(context.Context, string) (string, error) { return "Ada Nowak", nil }
+	opts.Hooks.VerifyToken = func(context.Context, string, string) (string, error) { return "Ada Nowak", nil }
 	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
 	waitFor(t, tm, "Paste a permanent access token")
 	press(tm, "abc", "enter")

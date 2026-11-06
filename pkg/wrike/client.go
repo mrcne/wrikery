@@ -14,12 +14,14 @@ import (
 	"time"
 )
 
-// DefaultHost and EUHost are the two hosts Wrike serves API traffic from.
+// DefaultHost, EUHost and US2Host are the three hosts Wrike serves API traffic from,
+// the servers the API reference lists at https://developers.wrike.com/api/v4/account/ .
 // Which one accepts a token depends on the data center the account lives in, see https://developers.wrike.com/docs/faq:
 // "The web host for API endpoints differ depending on the datacenter that contains user's data".
 const (
 	DefaultHost = "www.wrike.com"
 	EUHost      = "app-eu.wrike.com"
+	US2Host     = "app-us2.wrike.com"
 )
 
 // BaseURL builds the API v4 base URL for a host, such as DefaultHost or EUHost.
@@ -192,7 +194,9 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			return "", err
 		}
 		if serr := c.sleep(ctx, retryDelay(err, retries)); serr != nil {
-			return "", serr
+			// The deadline cut the backoff, the answer a reader needs is still the request's own, a refused connection or a 503,
+			// so both travel: errors.As finds the request error and errors.Is the context error.
+			return "", fmt.Errorf("%w (%w)", err, serr)
 		}
 		retries++
 	}

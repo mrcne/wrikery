@@ -124,3 +124,21 @@ func TestAFailedTryReadsQueuedInOfflineMode(t *testing.T) {
 		t.Errorf("online = %q, want retrying", got)
 	}
 }
+
+// A start that could not find the data center lands in offline mode with the reason, and R offers to try again.
+func TestWentOfflineMsgEntersOfflineModeWithTheReason(t *testing.T) {
+	m := New(rootTestOptions(t))
+	m.width, m.height = 120, 40
+	next, _ := m.Update(WentOfflineMsg{Reason: "www.wrike.com: i/o timeout"})
+	m = next.(Model)
+	if !m.opts.Offline || m.status.state != "no_data_center" {
+		t.Fatalf("offline = %v, state = %q, want offline mode with the data center state", m.opts.Offline, m.status.state)
+	}
+	if want := "could not detect the Wrike data center: www.wrike.com: i/o timeout"; !strings.Contains(m.status.toast, want) || !m.status.toastErr {
+		t.Errorf("toast = %q (error %v), want %q as an error", m.status.toast, m.status.toastErr, want)
+	}
+	after, _ := m.refresh()
+	if d, ok := after.dialog.(confirmDialog); !ok || !strings.HasPrefix(d.prompt, "Go online?") {
+		t.Errorf("R gave %#v, want the go online confirm", after.dialog)
+	}
+}
