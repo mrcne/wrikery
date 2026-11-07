@@ -94,10 +94,11 @@ type Options struct {
 	Hooks   Hooks
 	Config  config.Config
 	// ConfigFile is shown on the settings screen, Hooks.SetConfig writes it.
-	ConfigFile   string
-	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
-	AutoTheme    string // what auto resolves to on this terminal, dark or light, for a theme saved on the settings screen
-	Demo         bool
+	ConfigFile string
+	// AutoTheme is what ui.theme = "auto" resolves to on this terminal, dark or light.
+	// Empty when the start did not ask the terminal because the file named a theme, auto picked on the settings screen then waits for the next start.
+	AutoTheme string
+	Demo      bool
 	// Offline starts the interface in offline mode: no engine runs until R and a yes go online through Hooks.GoOnline.
 	Offline  bool
 	FirstRun bool
@@ -179,11 +180,12 @@ func New(o Options) Model {
 	m.changes.keys = m.keys
 	m.inbox.keys = m.keys
 	m.timesheet.keys = m.keys
-	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
+	m.settings = newSettings(o.Config, o.Config.UI.Theme, o.ConfigFile, m.keys)
 	m.settings.setSignedIn(o.SignedInWith, o.SignedInApp)
 	m.settings.editable = o.Hooks.SetConfig != nil
 	m.board.keys = m.keys
-	m.applyHelpGlyphs()
+	// The config comes as the file has it, the same way a save hands it back, and one place turns it into the theme on screen.
+	m.applyConfig(o.Config)
 	m.status.demo = o.Demo
 	if o.Demo {
 		m.status.state = "idle"
@@ -210,12 +212,16 @@ func (m *Model) applyHelpGlyphs() {
 	}
 }
 
-// applyConfig takes a saved config over: the theme and the glyphs, the hidden prefixes of the sidebar, the list and the board, and the settings rows.
+// applyConfig takes the config over, at the start and after a save: the theme and the glyphs, the hidden prefixes of the sidebar, the list and the board, and the settings rows.
 // A theme set to auto resolves to what the start detected, the render path never asks the terminal.
+// When the start did not ask, the file named a theme then, the colors on screen stay as they are until the next start.
 func (m *Model) applyConfig(cfg config.Config) {
 	theme := cfg.UI.Theme
 	if theme == "auto" {
 		cfg.UI.Theme = m.opts.AutoTheme
+		if cfg.UI.Theme == "" {
+			cfg.UI.Theme = m.opts.Config.UI.Theme
+		}
 	}
 	m.opts.Config = cfg
 	m.theme = NewTheme(cfg.UI)
@@ -288,6 +294,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.key {
 		case "offline":
 			text += ", read at the next start"
+		case "ui.theme":
+			if msg.cfg.UI.Theme == "auto" && m.opts.AutoTheme == "" {
+				text += ", auto applies at the next start"
+			}
 		case "poll_interval":
 			// Only an engine between cycles restarts its wait with the new interval, offline mode, a backoff and a sign in wait do not.
 			if m.status.state == "" || m.status.state == "idle" || m.status.state == "syncing" {

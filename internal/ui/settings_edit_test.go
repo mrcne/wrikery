@@ -19,7 +19,7 @@ func editModel(t *testing.T, hook func(key string, value any) (config.Config, er
 	t.Helper()
 	opts := rootTestOptions(t)
 	opts.Hooks.SetConfig = hook
-	opts.AutoTheme, opts.ThemeSetting = "light", "dark"
+	opts.AutoTheme = "light"
 	opts.Config = config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true, BranchTemplate: "{id}-{slug}"}}
 	m := New(opts)
 	m.width, m.height = 120, 40
@@ -238,5 +238,37 @@ func TestSavingLaysThePanesOutAgain(t *testing.T) {
 	m = saveThrough(m, cmd)
 	if m.list.height == 0 {
 		t.Error("the panes were not laid out again after the save")
+	}
+}
+
+// The interface gets the config as the file has it and resolves auto itself from what the start detected.
+func TestNewResolvesAutoFromTheOptions(t *testing.T) {
+	opts := rootTestOptions(t)
+	opts.Config.UI.Theme, opts.AutoTheme = "auto", "light"
+	m := New(opts)
+	if m.theme.mode != "light" || m.opts.Config.UI.Theme != "light" {
+		t.Errorf("theme mode %q, config theme %q, want the detected light in both", m.theme.mode, m.opts.Config.UI.Theme)
+	}
+	rows := m.settings.rows()
+	i := slices.IndexFunc(rows, func(r settingRow) bool { return r.label == "Theme" })
+	if rows[i].value != "auto, light now" {
+		t.Errorf("Theme row = %q, want auto, light now", rows[i].value)
+	}
+}
+
+// A start with a fixed theme never asked the terminal, so auto picked later keeps the current colors until the next start and says so.
+func TestSavingAutoWithoutADetectedBackgroundWaitsForTheNextStart(t *testing.T) {
+	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "auto", ASCII: true}}))
+	m.opts.AutoTheme = ""
+	m.settings = rowAt(t, m.settings, "Theme")
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyLeft})
+	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = saveThrough(m, cmd)
+	if m.theme.mode != "dark" || m.settings.theme != "auto" {
+		t.Errorf("theme mode %q, settings theme %q, want the dark colors kept and auto on the row", m.theme.mode, m.settings.theme)
+	}
+	if !strings.Contains(m.status.toast, "auto applies at the next start") {
+		t.Errorf("toast = %q", m.status.toast)
 	}
 }

@@ -63,14 +63,17 @@ func TestSetConfigReturnsTheLoaderError(t *testing.T) {
 	}
 }
 
-// The running config keeps ui.theme as the file has it, only the interface gets the resolved copy, so the Theme row still says auto after another key is saved.
-func TestUIConfigResolvesAutoOnACopy(t *testing.T) {
-	cfg := config.Config{UI: config.UIConfig{Theme: "auto"}}
-	got := uiConfig(cfg, "light")
-	if got.UI.Theme != "light" || cfg.UI.Theme != "auto" {
-		t.Errorf("uiConfig gave %q and left %q, want light on the copy and auto on the original", got.UI.Theme, cfg.UI.Theme)
+// A key the running app has no case for is in the file but not in the app, the error says so instead of a "saved" that reverts on screen.
+func TestSetConfigRefusesAKeyTheRunningAppDoesNotApply(t *testing.T) {
+	a := &app{cfg: config.Config{PollInterval: time.Minute, LogLevel: "info"}, configFile: filepath.Join(t.TempDir(), "config.toml"), logLevel: new(slog.LevelVar)}
+	_, err := a.setConfig("host", "app-eu.wrike.com")
+	if err == nil || !strings.Contains(err.Error(), "start the app again") {
+		t.Fatalf("setConfig(host) = %v, want an error that names the next start", err)
 	}
-	if got := uiConfig(config.Config{UI: config.UIConfig{Theme: "dark"}}, "light"); got.UI.Theme != "dark" {
-		t.Errorf("a theme that is not auto changed to %q", got.UI.Theme)
+	if a.cfg.Host != "" {
+		t.Errorf("the host was applied to the running config: %q", a.cfg.Host)
+	}
+	if got, _ := os.ReadFile(a.configFile); !strings.Contains(string(got), "host = \"app-eu.wrike.com\"") {
+		t.Errorf("file = %q, want the host line written", got)
 	}
 }

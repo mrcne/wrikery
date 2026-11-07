@@ -286,6 +286,7 @@ The hidden prefixes are typed separated by commas, a prefix may hold a space.
 The file keeps its comments and its other lines, only the key's line is replaced, or added to its table.
 A value the app would refuse at the next start, a poll interval below ten seconds for example, is refused on the screen with the reason and the file is not changed.
 The theme, the accent, the glyphs, the hidden prefixes and the branch template apply at once, the poll interval reaches the sync engine and the next check follows it, the log level changes the log at once, and `offline` is read at the next start.
+A theme set to auto takes the background the start detected, or keeps the current colors until the next start when the start had a fixed theme.
 The host row and the budget row stay read only, enter says why: the data center is set at the sign in, and the budget is two keys with a sync behind them.
 The demo edits nothing, its rows name the key and the file instead.
 

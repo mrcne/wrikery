@@ -69,7 +69,7 @@ type app struct {
 
 // startEngine holds the lock for its whole body, the stop of the old engine included.
 // verifyToken runs on a UI command goroutine, so without that a token arriving during shutdown could start an engine against a closing store.
-// Waiting under the lock is safe because only startEngine and shutdown ever take it, and neither runs while holding an engine.
+// Waiting under the lock is safe because every other holder, current, switchHome, config and setConfig, lets go at once and none of them runs while holding an engine.
 func (a *app) startEngine(src wrike.TokenSource, host string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -126,8 +126,18 @@ func (a *app) setConfig(key string, value any) (config.Config, error) {
 		a.cfg.UI.HidePrefixes = cfg.UI.HidePrefixes
 	case "ui.branch_template":
 		a.cfg.UI.BranchTemplate = cfg.UI.BranchTemplate
+	default:
+		// The file has the key, the running app has no case for it, and a "saved" with the old value back on screen would be a lie.
+		return config.Config{}, fmt.Errorf("%s is saved in the file, the running app does not apply it, start the app again", key)
 	}
 	return a.cfg, nil
+}
+
+// config is the running config for a reader on another goroutine, setConfig writes it under the same lock.
+func (a *app) config() config.Config {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg
 }
 
 // shutdown stops the engine for good, so a token verified after the program returned does not start another one.
@@ -396,7 +406,7 @@ func (a *app) switchHome() (*ui.SwitchNeeded, error) {
 
 // engineHost is the host the engine talks to, see hostFor.
 func (a *app) engineHost(ctx context.Context) (string, error) {
-	return hostFor(ctx, a.cfg, a.st, a.session, a.tokenFromEnv, a.hc)
+	return hostFor(ctx, a.config(), a.st, a.session, a.tokenFromEnv, a.hc)
 }
 
 // hostFor is the remembered chain of resolveHost, or for WRIKERY_TOKEN a probe:
