@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
 )
 
@@ -210,4 +211,22 @@ type ControlMsg struct {
 type ControlReply struct {
 	Text string
 	Err  error
+}
+
+// setConfigMsg is enter on an open row of the settings screen: the key and the value typed the way the config package takes it.
+type setConfigMsg struct {
+	key   string
+	value any
+}
+
+// configSavedMsg is the hook's answer: the running config with the key applied, the interface takes it over.
+type configSavedMsg struct {
+	key string
+	cfg config.Config
+}
+
+// configSaveFailedMsg carries the loader's refusal or the write error, the row stays open with the typed value.
+type configSaveFailedMsg struct {
+	key string
+	err error
 }

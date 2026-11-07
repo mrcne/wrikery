@@ -46,6 +46,10 @@ type Hooks struct {
 	// SwitchHome reads the account of the current credential again for R in the another account state:
 	// the box to ask, or nil when the account matches the cache again.
 	SwitchHome func() (*SwitchNeeded, error)
+	// SetConfig writes one key to the config file and applies what the interface cannot, the poll interval and the log level.
+	// It returns the running config with the key applied, the interface takes it over.
+	// Nil in the demo, the file rows of the settings screen are then read only.
+	SetConfig func(key string, value any) (config.Config, error)
 }
 
 // ErrNoSuchTask is what Hooks.Reach returns for a task Wrike does not list for this user, gone or never shared.
@@ -89,9 +93,10 @@ type Options struct {
 	Store   *store.Store
 	Hooks   Hooks
 	Config  config.Config
-	// ConfigFile is shown on the settings screen, the app reads it and never writes it.
+	// ConfigFile is shown on the settings screen, Hooks.SetConfig writes it.
 	ConfigFile   string
 	ThemeSetting string // ui.theme as the config file has it, Config.UI.Theme holds what auto resolved to
+	AutoTheme    string // what auto resolves to on this terminal, dark or light, for a theme saved on the settings screen
 	Demo         bool
 	// Offline starts the interface in offline mode: no engine runs until R and a yes go online through Hooks.GoOnline.
 	Offline  bool
@@ -176,12 +181,9 @@ func New(o Options) Model {
 	m.timesheet.keys = m.keys
 	m.settings = newSettings(o.Config, o.ThemeSetting, o.ConfigFile, m.keys)
 	m.settings.setSignedIn(o.SignedInWith, o.SignedInApp)
+	m.settings.editable = o.Hooks.SetConfig != nil
 	m.board.keys = m.keys
-	if m.theme.ASCII {
-		// bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
-		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
-		m.help.Ellipsis = "..."
-	}
+	m.applyHelpGlyphs()
 	m.status.demo = o.Demo
 	if o.Demo {
 		m.status.state = "idle"
@@ -196,6 +198,33 @@ func New(o Options) Model {
 		m.firstRun = m.newFirstRun("")
 	}
 	return m
+}
+
+// applyHelpGlyphs follows the theme: bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
+func (m *Model) applyHelpGlyphs() {
+	plain := help.New()
+	m.help.ShortSeparator, m.help.FullSeparator, m.help.Ellipsis = plain.ShortSeparator, plain.FullSeparator, plain.Ellipsis
+	if m.theme.ASCII {
+		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
+		m.help.Ellipsis = "..."
+	}
+}
+
+// applyConfig takes a saved config over: the theme and the glyphs, the hidden prefixes of the sidebar, the list and the board, and the settings rows.
+// A theme set to auto resolves to what the start detected, the render path never asks the terminal.
+func (m *Model) applyConfig(cfg config.Config) {
+	theme := cfg.UI.Theme
+	if theme == "auto" {
+		cfg.UI.Theme = m.opts.AutoTheme
+	}
+	m.opts.Config = cfg
+	m.theme = NewTheme(cfg.UI)
+	m.applyHelpGlyphs()
+	m.sidebar.setHidePrefixes(m.theme.HidePrefixes)
+	m.settings.setConfig(cfg, theme)
+	if m.shape == shapeBoard {
+		m.board.fit(&m.list, m.theme.HidePrefixes)
+	}
 }
 
 // browserSignIn is true when the sign in screen offers the browser: the config names an app and main gave the hook.
@@ -249,6 +278,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
+	case setConfigMsg:
+		return m, m.saveConfig(msg.key, msg.value)
+	case configSavedMsg:
+		m.applyConfig(msg.cfg)
+		m.settings = m.settings.endEdit()
+		text := msg.key + " saved"
+		switch msg.key {
+		case "offline":
+			text += ", read at the next start"
+		case "poll_interval":
+			text += fmt.Sprintf(", next check in %ds", int(msg.cfg.PollInterval.Seconds()))
+		}
+		return m, m.status.show(text, false)
+	case configSaveFailedMsg:
+		return m, m.status.show(msg.err.Error(), true)
 	case WentOfflineMsg:
 		// Offline mode as --offline starts it, see New, under a state of its own: the bar says what happened and what to press
 		// for as long as it lasts, the toast carries the reason, which names every host asked.
@@ -1219,6 +1263,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sidebar.filtering {
 		return m, m.updateSidebar(msg)
 	}
+	if m.screen == screenSettings && m.settings.editing {
+		// An open row owns every key: the letters bound to quit and the screens type into its field, esc closes the row and not the screen.
+		var cmd tea.Cmd
+		m.settings, cmd = m.settings.Update(msg)
+		return m, cmd
+	}
 	if m.screen == screenChanges || m.screen == screenInbox || m.screen == screenTimesheet || m.screen == screenSettings {
 		// Only the keys that make sense with no task on screen fall through:
 		// everything else would otherwise reach whatever task the main screen had last selected,
@@ -1838,7 +1888,10 @@ func (m Model) hintBindings() []key.Binding {
 		return append(keys, m.keys.Back)
 	}
 	if m.screen == screenSettings {
-		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.Enter, m.keys.Back}
+		if m.settings.editing {
+			return m.settings.editBindings()
+		}
+		return []key.Binding{m.keys.Down, m.keys.Up, m.keys.EditRow, m.keys.Back}
 	}
 	base := []key.Binding{m.keys.NextPane, m.keys.Search, m.keys.Help, m.keys.Quit}
 	if m.sidebarHidden {

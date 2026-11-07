@@ -749,6 +749,21 @@ func waitSignIn(attempt int, result <-chan SignInResult) tea.Cmd {
 	}
 }
 
+// saveConfig hands one key to the hook that writes the config file, the answer comes back as configSavedMsg or configSaveFailedMsg.
+func (m Model) saveConfig(key string, value any) tea.Cmd {
+	set := m.opts.Hooks.SetConfig
+	return func() tea.Msg {
+		if set == nil {
+			return configSaveFailedMsg{key: key, err: errors.New("the config file cannot be written from here")}
+		}
+		cfg, err := set(key, value)
+		if err != nil {
+			return configSaveFailedMsg{key: key, err: err}
+		}
+		return configSavedMsg{key: key, cfg: cfg}
+	}
+}
+
 func (m Model) verifyToken(token, host string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {
