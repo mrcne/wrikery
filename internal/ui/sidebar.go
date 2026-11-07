@@ -78,16 +78,24 @@ func newSidebar(keys KeyMap, hide []string) sidebarModel {
 // setTree replaces the nodes, and the pins when the load carried them, with one rebuild for both.
 // Expansion state and the selection are kept across the reload by the path of ids down to the node,
 // a folder with two parents is a node under each and only the one the user opened stays open.
+// A folder moved under another parent has a new path, and so has everything under it,
+// so a node whose path is new takes the state of its id when the id had one node before.
 // The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
 func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 	chain := s.ancestry()
 	expanded := map[string]bool{}
+	byID := map[string]bool{}
+	count := map[string]int{}
 	for i, key := range pathKeys(s.nodes) {
 		expanded[key] = s.nodes[i].expanded
+		byID[s.nodes[i].id] = s.nodes[i].expanded
+		count[s.nodes[i].id]++
 	}
 	for i, key := range pathKeys(nodes) {
 		if was, ok := expanded[key]; ok {
 			nodes[i].expanded = was
+		} else if count[nodes[i].id] == 1 {
+			nodes[i].expanded = byID[nodes[i].id]
 		}
 	}
 	s.nodes = nodes
@@ -167,10 +175,9 @@ func (s *sidebarModel) reveal(id string) bool {
 	if idx < 0 {
 		return false
 	}
-	for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
-		s.nodes[p].expanded = true
+	if len(s.openPath(idx)) > 0 {
+		s.rebuild()
 	}
-	s.rebuild()
 	if !s.selectByID(id) && s.query() != "" {
 		s.clearFilter()
 	}
@@ -237,10 +244,24 @@ func (s sidebarModel) nodeUnder(id string, parents []string) int {
 	return first
 }
 
+// openPath expands the collapsed parents of a node and names the ones it opened, so a caller can close them again.
+func (s *sidebarModel) openPath(idx int) []int {
+	var opened []int
+	for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
+		if !s.nodes[p].expanded {
+			s.nodes[p].expanded = true
+			opened = append(opened, p)
+		}
+	}
+	return opened
+}
+
 // reselect puts the cursor back on the node selected before a rebuild, else on its nearest ancestor still in the tree, and reports which.
-// A node still in the tree but behind a collapsed parent gets the way to it opened, a reload must not move the cursor
-// off a folder the user is in, the list and the detail pane would follow.
-// One hidden by the pinned view or the filter is left alone, the view hides it on purpose, and the cursor goes to the parent.
+// A node still in the tree but behind a collapsed parent gets the way to it opened,
+// a reload must not move the cursor off a folder the user is in, the list and the detail pane would follow.
+// One hidden by the pinned view or the filter is left alone, the view hides it on purpose, and the parents opened for it are closed again.
+// The cursor then goes to another row of the same folder when the view draws one, a folder with two parents is a row under each,
+// else to the parent.
 // With none of them left it keeps the cursor at the same height clamped to the rows that are left,
 // so a vanished row does not throw the selection to the top.
 func (s *sidebarModel) reselect(chain []string) bool {
@@ -252,11 +273,17 @@ func (s *sidebarModel) reselect(chain []string) bool {
 		if s.selectNode(idx) {
 			return true
 		}
-		for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
-			s.nodes[p].expanded = true
+		if opened := s.openPath(idx); len(opened) > 0 {
+			s.rebuild()
+			if s.selectNode(idx) {
+				return true
+			}
+			for _, p := range opened {
+				s.nodes[p].expanded = false
+			}
+			s.rebuild()
 		}
-		s.rebuild()
-		if s.selectNode(idx) {
+		if s.selectByID(id) {
 			return true
 		}
 	}
