@@ -115,6 +115,7 @@ Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 ## Config
 
 The config file is `~/.config/wrikery/config.toml`, `--config PATH` reads another one.
+Most keys can also be changed on the settings screen, the file keeps its comments.
 `poll_interval` sets how often the app checks Wrike for changes and `log_level` how much it logs.
 The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, `ascii` for plain drawing characters, and `branch_template` for the branch name `Y` copies.
 `host` names the Wrike data center, `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com`, when neither the detection nor the pick at the sign in is wanted.

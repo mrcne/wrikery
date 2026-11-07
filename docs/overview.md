@@ -280,7 +280,13 @@ The Sidebar row says whether the pane is shown or hidden, enter flips it, the sa
 The Account row names the sign in, a permanent token or the browser with the app's client id.
 The Budget row says where the budget comes from as the cache sees it: not set, the Effort field, with a note when the account has none, or the custom field with its type, with a note when the field is missing or of a type that cannot hold hours.
 The other rows show the values the config file sets, the poll interval, the host, the theme and the rest of the `[ui]` table, with the key each one has in the file.
-The app reads the file when it starts and never writes it, so enter on one of these rows names the key and the file instead of editing anything.
+Enter on one of them opens the value in place: a text field for the poll interval, the accent, the hidden prefixes and the branch template, a choice picked with left and right for the theme, the glyphs, the log level and `offline`.
+Enter saves it to the config file, esc puts the old value back.
+The file keeps its comments and its other lines, only the key's line is replaced, or added to its table.
+A value the app would refuse at the next start, a poll interval below ten seconds for example, is refused on the screen with the reason and the file is not changed.
+The theme, the accent, the glyphs, the hidden prefixes and the branch template apply at once, the poll interval reaches the sync engine and the next check follows it, the log level changes the log at once, and `offline` is read at the next start.
+The host row and the budget row stay read only, enter says why: the data center is set at the sign in, and the budget is two keys with a sync behind them.
+The demo edits nothing, its rows name the key and the file instead.
 
 ### First run
 
@@ -339,6 +345,7 @@ The demo has one custom field, a Duration called Budget, with a value on a few t
 
 The config file lives at `~/.config/wrikery/config.toml`.
 `--config PATH` reads another file instead.
+The settings screen edits most of these keys in place and keeps the rest of the file as it is, see Settings.
 `--no-color` gives plain output without colors, and so does `NO_COLOR` in the environment.
 `--offline` starts without syncing and `offline = true` does it on every start, see Offline mode.
 `log_level` sets how much the app logs: debug, info, warn or error.
