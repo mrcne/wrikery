@@ -77,7 +77,7 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		// The pin changes reveal may have queued are written before the reply, on the model that is returned.
 		n, _ := m.sidebar.current()
 		closing := m.leaveScreen()
-		m.screen, m.selectedNode = screenMain, n
+		m.screen, m.selectedNode, m.unasked = screenMain, n, false
 		m.focus = paneList
 		if m.shape == shapeBoard {
 			m.focus = paneBoard

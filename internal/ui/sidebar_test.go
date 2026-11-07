@@ -592,3 +592,143 @@ func TestSidebarSetSizeKeepsTheCursorOnScreen(t *testing.T) {
 		t.Errorf("cursor %d is outside the window at offset %d with %d rows", s.cursor, s.offset, rows)
 	}
 }
+
+// A folder can be moved under another parent on Wrike between two syncs.
+// The reload finds the selected folder under a collapsed parent and opens the way to it,
+// a fallback to the parent would reload the list and the pane under the user.
+func TestTreeReplacementOpensTheWayToTheSelectedNode(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(sampleNodes(), nil)
+	if !s.selectByID("P1") {
+		t.Fatal("API should be visible under the expanded Platform")
+	}
+	// API moved under Infra, which is collapsed.
+	s.setTree([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe, count: 12},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2}, expanded: true},
+		{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3, 4}},
+		{id: "P1", title: "API", kind: nodeProject, depth: 2, statusGroup: "Active"},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+		{id: "S2", title: "Mobile", kind: nodeSpace, children: []int{6}},
+		{id: "P2", title: "Android app", kind: nodeProject, depth: 1, statusGroup: "Active"},
+		{id: "F9", title: "Archive", kind: nodeFolder},
+	}, nil)
+	if n, _ := s.current(); n.id != "P1" {
+		t.Errorf("cursor on %s after API moved under the collapsed Infra, want API", n.id)
+	}
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "P1", "F2", "S2", "F9"}) {
+		t.Errorf("visible = %v, want Infra opened", got)
+	}
+}
+
+// A folder with two parents is a node under each. The one opened before a reload is the one open after it,
+// not whichever node of the id comes last in the tree.
+func TestTreeReplacementKeepsTheOpenedRowOfAFolderWithTwoParents(t *testing.T) {
+	twoParents := func() []treeNode {
+		return []treeNode{
+			{id: "me", title: "My tasks", kind: nodeMe},
+			{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2, 4}, expanded: true},
+			{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3}},
+			{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+			{id: "F3", title: "Shared", kind: nodeFolder, depth: 1, children: []int{5}},
+			{id: "F1", title: "Infra", kind: nodeFolder, depth: 2, children: []int{6}},
+			{id: "F2", title: "On-call", kind: nodeFolder, depth: 3},
+		}
+	}
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(twoParents(), nil)
+	s.selectByID("F1")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2", "F3"}) {
+		t.Fatalf("visible after opening Infra under Platform = %v", got)
+	}
+	s.setTree(twoParents(), nil)
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2", "F3"}) {
+		t.Errorf("visible after the reload = %v, want the same rows", got)
+	}
+	if n, _ := s.current(); n.id != "F1" || s.visible[s.cursor] != 2 {
+		t.Errorf("cursor on %s at node %d, want Infra under Platform", n.id, s.visible[s.cursor])
+	}
+}
+
+// twoOnCallNodes is Platform with On-call under both Infra and Shared, Platform open and the two folders collapsed.
+func twoOnCallNodes() []treeNode {
+	return []treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2, 4}, expanded: true},
+		{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3}},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+		{id: "F3", title: "Shared", kind: nodeFolder, depth: 1, children: []int{5}},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+	}
+}
+
+// The pinned view hides the row the cursor was on, under Infra, but still draws On-call under the pinned Shared.
+// The cursor goes to that row, the same folder, and not to Platform, whose list is the whole space.
+func TestPinnedViewKeepsTheCursorOnTheOtherRowOfAFolder(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(twoOnCallNodes(), &pinState{ids: []string{"F3"}})
+	s.selectByID("F3")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s.selectByID("F1")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s.selectByID("F2")
+	if s.visible[s.cursor] != 3 {
+		t.Fatalf("cursor on node %d, want On-call under Infra", s.visible[s.cursor])
+	}
+	s, _ = s.Update(typed("P"))
+	if n, _ := s.current(); n.id != "F2" || s.visible[s.cursor] != 5 {
+		t.Errorf("cursor on %s at node %d, want On-call under Shared", n.id, s.visible[s.cursor])
+	}
+}
+
+// A reload opens the parents of the selected node only when that puts the node back on screen.
+// A node the pinned view hides stays hidden, and its parents stay as they were, the user never opened them.
+func TestReselectLeavesTheParentsOfAHiddenNodeClosed(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2, 4}},
+		{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3}},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+		{id: "F3", title: "Shared", kind: nodeFolder, depth: 1, children: []int{5}},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+		{id: "S2", title: "Mobile", kind: nodeSpace},
+	}, &pinState{ids: []string{"F2", "S2"}, only: true})
+	s.selectByID("F2")
+	// Unpinning On-call takes Platform and everything under it out of the view, Mobile stays as the one pin.
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S2"}) {
+		t.Fatalf("visible after the unpin = %v, want My tasks and Mobile", got)
+	}
+	s, _ = s.Update(typed("P"))
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "S2"}) {
+		t.Errorf("visible with the pinned view off = %v, want Platform still collapsed", got)
+	}
+}
+
+// A folder moved under another parent on Wrike has a new path of ids, so do the folders under it.
+// It stays open when it was open before, there is only one folder of that id to take the state from.
+func TestTreeReplacementKeepsAMovedFolderOpen(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(twoOnCallNodes(), nil)
+	s.selectByID("F3")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s.selectByID("F1")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	// Infra moved under Shared, with On-call still under it.
+	s.setTree([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2}, expanded: true},
+		{id: "F3", title: "Shared", kind: nodeFolder, depth: 1, children: []int{3, 5}},
+		{id: "F1", title: "Infra", kind: nodeFolder, depth: 2, children: []int{4}},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 3},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+	}, nil)
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F3", "F1", "F2", "F2"}) {
+		t.Errorf("visible after the move = %v, want Infra open under Shared", got)
+	}
+	if n, _ := s.current(); n.id != "F1" {
+		t.Errorf("cursor on %s, want Infra", n.id)
+	}
+}

@@ -65,6 +65,7 @@ type scopesLoadedMsg struct{ scopes []store.Scope }
 type treeLoadedMsg struct {
 	nodes []treeNode
 	pins  *pinState // nil keeps the pins the sidebar has
+	asked bool      // the user changed the followed set, a move the new tree makes is theirs
 }
 type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
 type focusMsg struct{ pane pane }            // intent: move focus
