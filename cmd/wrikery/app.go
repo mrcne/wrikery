@@ -54,6 +54,9 @@ type app struct {
 	// hc and loginTokenURL are set by the tests, which route every host to a fake server. Nil and empty otherwise.
 	hc            *http.Client
 	loginTokenURL string
+	// configFile and logLevel are what a save on the settings screen writes and sets, see setConfig.
+	configFile string
+	logLevel   *slog.LevelVar
 
 	mu     sync.Mutex
 	closed bool
@@ -66,7 +69,7 @@ type app struct {
 
 // startEngine holds the lock for its whole body, the stop of the old engine included.
 // verifyToken runs on a UI command goroutine, so without that a token arriving during shutdown could start an engine against a closing store.
-// Waiting under the lock is safe because only startEngine and shutdown ever take it, and neither runs while holding an engine.
+// Waiting under the lock is safe because every other holder, current, switchHome, config and setConfig, lets go at once and none of them runs while holding an engine.
 func (a *app) startEngine(src wrike.TokenSource, host string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -88,6 +91,53 @@ func (a *app) startEngine(src wrike.TokenSource, host string) {
 			slog.Error("sync engine stopped", "error", err)
 		}
 	}()
+}
+
+// setConfig is Hooks.SetConfig: the key goes to the file, then into the running config, and to the engine or the logger when they read it.
+// Only the edited key is taken over.
+// A host or an API app changed by hand in the file since the start waits for the next start, a host reaches an engine through the sign in check alone.
+func (a *app) setConfig(key string, value any) (config.Config, error) {
+	cfg, err := config.Set(a.configFile, key, value)
+	if err != nil {
+		return config.Config{}, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch key {
+	case "poll_interval":
+		a.cfg.PollInterval = cfg.PollInterval
+		if a.engine != nil {
+			a.engine.SetPollInterval(cfg.PollInterval)
+		}
+	case "offline":
+		a.cfg.Offline = cfg.Offline
+	case "log_level":
+		a.cfg.LogLevel = cfg.LogLevel
+		if a.logLevel != nil {
+			a.logLevel.Set(cfg.SlogLevel())
+		}
+	case "ui.theme":
+		a.cfg.UI.Theme = cfg.UI.Theme
+	case "ui.accent":
+		a.cfg.UI.Accent = cfg.UI.Accent
+	case "ui.ascii":
+		a.cfg.UI.ASCII = cfg.UI.ASCII
+	case "ui.hide_prefixes":
+		a.cfg.UI.HidePrefixes = cfg.UI.HidePrefixes
+	case "ui.branch_template":
+		a.cfg.UI.BranchTemplate = cfg.UI.BranchTemplate
+	default:
+		// The file has the key, the running app has no case for it, and a "saved" with the old value back on screen would be a lie.
+		return config.Config{}, fmt.Errorf("%s is saved in the file, the running app does not apply it, start the app again", key)
+	}
+	return a.cfg, nil
+}
+
+// config is the running config for a reader on another goroutine, setConfig writes it under the same lock.
+func (a *app) config() config.Config {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg
 }
 
 // shutdown stops the engine for good, so a token verified after the program returned does not start another one.
@@ -134,6 +184,7 @@ func (a *app) hooks() ui.Hooks {
 			}
 		},
 		VerifyToken: a.verifyToken,
+		SetConfig:   a.setConfig,
 		GoOnline:    a.goOnline,
 		SwitchHome:  a.switchHome,
 		OpenURL:     openURL,
@@ -355,7 +406,7 @@ func (a *app) switchHome() (*ui.SwitchNeeded, error) {
 
 // engineHost is the host the engine talks to, see hostFor.
 func (a *app) engineHost(ctx context.Context) (string, error) {
-	return hostFor(ctx, a.cfg, a.st, a.session, a.tokenFromEnv, a.hc)
+	return hostFor(ctx, a.config(), a.st, a.session, a.tokenFromEnv, a.hc)
 }
 
 // hostFor is the remembered chain of resolveHost, or for WRIKERY_TOKEN a probe:

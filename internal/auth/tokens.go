@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/zalando/go-keyring"
+
+	"github.com/mrcne/wrikery/internal/atomicfile"
 )
 
 const (
@@ -151,26 +153,8 @@ func write(account, file, value string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	// A command in another process reads the file without the lock, so it must never see half of it:
-	// the value goes into a temporary file, mode 0600 from CreateTemp, that is renamed over the old one.
-	tmp, err := os.CreateTemp(dir, filepath.Base(file)+".*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.WriteString(value + "\n"); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), file); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	// A command in another process reads the file without the lock, so it must never see half of it.
+	return atomicfile.Write(file, []byte(value+"\n"), 0o600)
 }
 
 // remove takes one kind out of the keychain and off the disk, a missing item or file is fine.

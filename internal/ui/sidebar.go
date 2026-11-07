@@ -64,6 +64,8 @@ type pinChange struct {
 	on bool
 }
 
+func (s *sidebarModel) setHidePrefixes(hide []string) { s.hide = hide }
+
 func newSidebar(keys KeyMap, hide []string) sidebarModel {
 	in := textinput.New()
 	in.Prompt = "/"

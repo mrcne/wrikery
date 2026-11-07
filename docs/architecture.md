@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into six parts with strict boundaries, plus two small packages, the config and the lock file helper:
+The code is split into six parts with strict boundaries, plus three small packages, the config, the lock file helper and the atomic file writer:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
@@ -28,8 +28,9 @@ The code is split into six parts with strict boundaries, plus two small packages
 - `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
   It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
-- `internal/config` loads the TOML config file and resolves the paths listed at the end.
+- `internal/config` loads the TOML config file, edits one key of it for the settings screen, and resolves the paths listed at the end.
 - `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
+- `internal/atomicfile` writes a file through a temporary one that is synced and renamed into place, the config file and the token file go through it.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
@@ -305,7 +306,11 @@ The rows the store creates on its own, queued writes and their optimistic cache 
 The app follows the XDG base directory convention on both macOS and Linux , because the audience is developers who expect `~/.config`.
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` override the defaults.
 
-- config: `~/.config/wrikery/config.toml`
+- config: `~/.config/wrikery/config.toml`, read at start and edited one key at a time from the settings screen.
+  The key's line is replaced, or added to its table, and every other line stays as it is, so the comments survive.
+  The new text is checked by the loader before anything is written, then written through a temporary file that is synced and renamed over the config, so a crash leaves the old file or the new one and never an empty one.
+  A key written in a form the line edit cannot handle, twice, as a dotted key, in an inline table, over several lines or under an array of tables, is refused and named for a change by hand.
+  A symbolic link is followed, the target is written and the link stays.
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
 - logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`, two instances at once share the name and the first one's later lines end up in the `.1` file.
   A demo run writes `demo.log` in the same directory and rotates nothing.

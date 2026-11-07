@@ -11,6 +11,7 @@ type KeyMap struct {
 	DayLeft, DayRight, WeekPrev, WeekNext, ThisWeek, Add, Edit, Delete                                                            key.Binding
 	Board, GroupBy, PrevGroup, NextGroup, StatusPrev, StatusNext, ColPrev, ColNext                                                key.Binding
 	FilterBox, ClearFilter, FilterHelp                                                                                            key.Binding
+	EditRow, Pick, CancelEdit                                                                                                     key.Binding // the settings screen's rows
 }
 
 func b(help, desc string, keys ...string) key.Binding {
@@ -31,6 +32,7 @@ func defaultKeyMap() KeyMap {
 		ToggleDone: b("z", "show completed", "z"), Pin: b("space", "pin / unpin", " "), Pinned: b("P", "pinned only", "P"),
 		Board: b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
 		FilterBox: b("f", "filter box", "f"), ClearFilter: b("F", "clear filter", "F"),
+		EditRow: b("enter", "open or edit the row", "enter"), Pick: b("h", "pick a value on an open row", "h", "l", "left", "right"), CancelEdit: b("esc", "cancel an edit", "esc"),
 		// The help overlay shows the two on one row, the list column is the tallest and a 24 row terminal has no room for another.
 		FilterHelp: b("f F", "filter box, F clears it", "f", "F"),
 		PrevGroup:  b("{", "previous group", "{"), NextGroup: b("}", "next group", "}"),
@@ -79,7 +81,7 @@ func (k KeyMap) timesheet() []key.Binding {
 }
 
 func (k KeyMap) settings() []key.Binding {
-	return []key.Binding{k.Down, k.Up, k.Enter}
+	return []key.Binding{k.Down, k.Up, k.EditRow, k.Pick, k.CancelEdit}
 }
 
 func (k KeyMap) changes() []key.Binding {

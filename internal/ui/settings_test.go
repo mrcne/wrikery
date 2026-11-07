@@ -20,6 +20,7 @@ func testSettings() settingsModel {
 		UI:           config.UIConfig{Theme: "dark", ASCII: true, BranchTemplate: "{id}-{slug}", HidePrefixes: []string{"(MX)"}},
 	}
 	s := newSettings(cfg, "dark", "/home/ada/.config/wrikery/config.toml", defaultKeyMap())
+	s.editable = true
 	s.setScopes([]store.Scope{
 		{ID: store.ScopeKindMe, Kind: store.ScopeKindMe, Title: "My tasks", Followed: true},
 		{ID: "MOB", Kind: store.ScopeKindSpace, Title: "Mobile", Followed: true},
@@ -42,14 +43,20 @@ func TestSettingsScreenShowsTheFollowedScopesAndTheFileValues(t *testing.T) {
 	}
 }
 
-func TestSettingsEnterOpensThePickerOnTheFollowedRowAndNamesTheKeyOnAFileRow(t *testing.T) {
+func TestSettingsEnterOpensThePickerOnTheFollowedRow(t *testing.T) {
 	s := testSettings()
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{openScopesMsg{}}) {
 		t.Errorf("enter on the followed row sent %#v", msgs)
 	}
+}
+
+// Without a hook that writes the file, the demo, a file row still names its key and the file.
+func TestSettingsEnterOnAFileRowNamesTheKeyWhenNothingCanWriteTheFile(t *testing.T) {
+	s := testSettings()
+	s.editable = false
 	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter on a file row sent %#v", msgs)
@@ -180,5 +187,244 @@ func TestSettingsRowNamesTheBudgetSource(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("rows lack the Budget row: %+v", s.rows())
+	}
+}
+
+// rowAt moves the cursor to the row with the label.
+func rowAt(t *testing.T, s settingsModel, label string) settingsModel {
+	t.Helper()
+	i := slices.IndexFunc(s.rows(), func(r settingRow) bool { return r.label == label })
+	if i < 0 {
+		t.Fatalf("no row %q in %+v", label, s.rows())
+	}
+	s.cursor = i
+	return s
+}
+
+func withText(s settingsModel, text string) settingsModel {
+	s.input.SetValue(text)
+	return s
+}
+
+func TestSettingsEnterOnATextRowOpensAFieldWithTheValue(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !s.editing || s.input.Value() != "90s" {
+		t.Fatalf("editing = %v, field = %q, want the row's value in a field", s.editing, s.input.Value())
+	}
+	if view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 100, 30); !strings.Contains(view, "enter saves, esc cancels") {
+		t.Errorf("the edited row should say how to leave:\n%s", view)
+	}
+}
+
+func TestSettingsEnterSavesTheTypedDuration(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "poll_interval", value: "2m"}}) {
+		t.Errorf("enter sent %#v, want the key and the typed duration", msgs)
+	}
+}
+
+func TestSettingsBareDigitsAreSeconds(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := withText(s, "90").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "poll_interval", value: "90s"}}) {
+		t.Errorf("enter sent %#v, want 90s", msgs)
+	}
+}
+
+func TestSettingsRefusesTextThatIsNotADuration(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := withText(s, "soon").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	want := []tea.Msg{toastMsg{text: "poll_interval needs a duration such as 60s or 2m", isErr: true}}
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, want) {
+		t.Errorf("enter sent %#v, want the duration toast", msgs)
+	}
+	if !s.editing {
+		t.Error("a refused value should leave the row in edit mode")
+	}
+}
+
+func TestSettingsEscRestoresTheValue(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if s.editing || cmd != nil {
+		t.Errorf("esc left editing = %v, cmd = %v", s.editing, cmd)
+	}
+	if rows := s.rows(); rows[s.cursor].value != "90s" {
+		t.Errorf("row value after esc = %q, want 90s", rows[s.cursor].value)
+	}
+}
+
+func TestSettingsChoiceRowCyclesAndWraps(t *testing.T) {
+	s := rowAt(t, testSettings(), "Theme")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	step := func(k tea.KeyMsg, want string) {
+		t.Helper()
+		s, _ = s.Update(k)
+		if got := s.choices[s.choice]; got != want {
+			t.Errorf("after %v the choice is %q, want %q", k, got, want)
+		}
+	}
+	if got := s.choices[s.choice]; got != "dark" {
+		t.Fatalf("the edit opens on %q, want the file's dark", got)
+	}
+	step(tea.KeyMsg{Type: tea.KeyRight}, "light")
+	step(tea.KeyMsg{Type: tea.KeyRight}, "auto")
+	step(tea.KeyMsg{Type: tea.KeyRight}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyLeft}, "auto")
+	step(tea.KeyMsg{Type: tea.KeySpace}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")}, "light")
+	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyRight}, "light")
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.theme", value: "light"}}) {
+		t.Errorf("enter sent %#v", msgs)
+	}
+}
+
+// A prefix may hold a space, "(MX) Backend:" is one prefix, so the row shows and takes the list separated by commas.
+func TestSettingsPrefixesAreTypedWithCommas(t *testing.T) {
+	s := testSettings()
+	s.cfg.UI.HidePrefixes = []string{"(MX) Backend:", "(TX)"}
+	s = rowAt(t, s, "Hidden title prefixes")
+	if rows := s.rows(); rows[s.cursor].value != "(MX) Backend:, (TX)" {
+		t.Fatalf("the row shows %q, want the prefixes separated by commas", rows[s.cursor].value)
+	}
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if s.input.Value() != "(MX) Backend:, (TX)" {
+		t.Fatalf("the field starts with %q", s.input.Value())
+	}
+	_, cmd := withText(s, "(MX) Backend:,(AX) , (TX)").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	want := []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{"(MX) Backend:", "(AX)", "(TX)"}}}
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, want) {
+		t.Errorf("enter sent %#v, want the three prefixes trimmed", msgs)
+	}
+	_, cmd = withText(s, "").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{}}}) {
+		t.Errorf("an empty field sent %#v, want an empty list", msgs)
+	}
+}
+
+// At 80 columns the open choice row still shows the value being picked, the long hint is for the bar.
+func TestSettingsChoiceRowShowsItsValueOnANarrowTerminal(t *testing.T) {
+	s := rowAt(t, testSettings(), "Log level")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 78, 30)
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Log level") {
+			if !strings.Contains(line, "info") {
+				t.Errorf("the open row hides its value at 78 columns:\n%s", line)
+			}
+			return
+		}
+	}
+	t.Fatalf("no Log level row:\n%s", view)
+}
+
+// Enter on a row left as it was writes nothing: no file rewrite, no poll wait restarted.
+func TestSettingsEnterOnAnUnchangedRowSavesNothing(t *testing.T) {
+	s := rowAt(t, testSettings(), "Theme")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || s.editing {
+		t.Errorf("enter on the unchanged theme sent %#v, editing %v", msgs, s.editing)
+	}
+	s = rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || s.editing {
+		t.Errorf("enter on the unchanged poll interval sent %#v, editing %v", msgs, s.editing)
+	}
+}
+
+// The field's cursor blinks like every other field's, which needs the command Focus hands back.
+func TestSettingsOpeningATextRowStartsTheCursor(t *testing.T) {
+	s := rowAt(t, testSettings(), "Accent")
+	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Error("opening a text row returned no command for the cursor")
+	}
+	s = rowAt(t, testSettings(), "Theme")
+	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Error("opening a choice row returned a command, there is no cursor to start")
+	}
+}
+
+func TestSettingsBoolRowsAreChoices(t *testing.T) {
+	s := rowAt(t, testSettings(), "ASCII glyphs")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := s.choices[s.choice]; got != "true" {
+		t.Fatalf("the glyph edit opens on %q, want true", got)
+	}
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.ascii", value: false}}) {
+		t.Errorf("enter sent %#v, want ui.ascii false", msgs)
+	}
+	s = rowAt(t, testSettings(), "Start offline")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	_, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "offline", value: true}}) {
+		t.Errorf("enter sent %#v, want offline true", msgs)
+	}
+}
+
+// The data center is set at the sign in and the budget is two keys with a sync behind them, both rows keep their toasts.
+func TestSettingsHostAndBudgetRowsStayReadOnly(t *testing.T) {
+	s := rowAt(t, testSettings(), "Wrike host")
+	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	if toast, ok := msgs[0].(toastMsg); len(msgs) != 1 || !ok || !strings.Contains(toast.text, "--logout") || s.editing {
+		t.Errorf("enter on the host row: %#v, editing %v", msgs, s.editing)
+	}
+	s = rowAt(t, testSettings(), "Budget")
+	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs = collect(cmd)
+	if toast, ok := msgs[0].(toastMsg); len(msgs) != 1 || !ok || !strings.Contains(toast.text, "budget.source") || s.editing {
+		t.Errorf("enter on the budget row: %#v, editing %v", msgs, s.editing)
+	}
+}
+
+func TestSettingsFooterSaysEnterEdits(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	s := testSettings()
+	if view := s.View(th, 100, 30); !strings.Contains(view, "enter on a row edits it.") {
+		t.Errorf("the footer should say enter edits:\n%s", view)
+	}
+	s.editable = false
+	if view := s.View(th, 100, 30); !strings.Contains(view, "read when the app starts.") {
+		t.Errorf("without the hook the footer should say the file is read at start:\n%s", view)
+	}
+}
+
+// On a narrow terminal the field takes the room the row has, so the cursor and the end of a long value stay on screen.
+func TestSettingsFieldFitsTheRowOnANarrowTerminal(t *testing.T) {
+	s := testSettings()
+	s.cfg.UI.HidePrefixes = []string{"(MX)", "(TX)", "(AX)", "(BX)", "(CX)", "(DX)", "(EX)", "(FX)", "(GX)"}
+	s = rowAt(t, s, "Hidden title prefixes")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 80, 30); !strings.Contains(view, "(GX)") {
+		t.Errorf("the end of the field, where the cursor is, is off screen at 80 columns:\n%s", view)
+	}
+}
+
+// Two enters in a row must not start two writes of the file, the second waits for the first answer.
+func TestSettingsSecondEnterWhileSavingSendsNothing(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); len(msgs) != 1 {
+		t.Fatalf("the first enter sent %#v", msgs)
+	}
+	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || !s.editing {
+		t.Errorf("the second enter sent %#v with editing %v, want nothing while the save runs", msgs, s.editing)
 	}
 }

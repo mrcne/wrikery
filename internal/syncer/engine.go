@@ -78,6 +78,9 @@ type Engine struct {
 	events  chan Event
 	refresh chan struct{}
 	wake    chan struct{}
+	// pollInterval is the poll wait in nanoseconds, set once from the config and again by SetPollInterval, which rearm wakes the wait for.
+	pollInterval atomic.Int64
+	rearm        chan struct{}
 
 	state         SyncState
 	meID          string
@@ -104,8 +107,10 @@ func New(c Client, st *store.Store, cfg Config, log *slog.Logger) *Engine {
 		unreached: map[string]bool{},
 		refresh:   make(chan struct{}, 1),
 		wake:      make(chan struct{}, 1),
+		rearm:     make(chan struct{}, 1),
 		state:     StateIdle,
 	}
+	e.pollInterval.Store(int64(e.cfg.PollInterval))
 	if cfg.PullEffort {
 		r := newEffortReads(context.Background(), c, st, log)
 		// The interface reads the meta row with the reference data, this event makes it read again.
@@ -123,6 +128,19 @@ func (e *Engine) Refresh() {
 	e.refreshAsked.Store(true)
 	select {
 	case e.refresh <- struct{}{}:
+	default:
+	}
+}
+
+// SetPollInterval changes the wait between polls, the settings screen saves a new one while the engine runs.
+// A poll wait in progress restarts with the new interval measured from the call, so a shorter one shows at once and a longer one does not fire the old timer.
+// A backoff wait after a failed cycle is left alone, it paces the retries and the new interval applies once a cycle succeeds.
+func (e *Engine) SetPollInterval(d time.Duration) {
+	if e.pollInterval.Swap(int64(d)) == int64(d) {
+		return // a save of the same value, the wait in progress keeps its end
+	}
+	select {
+	case e.rearm <- struct{}{}:
 	default:
 	}
 }
@@ -237,7 +255,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			return ctx.Err()
 		case err == nil:
 			e.failures = 0
-			wait = e.cfg.PollInterval
+			wait = time.Duration(e.pollInterval.Load())
 		case state == StateAuthRequired || state == StateAnotherAccount:
 			e.failures = 0
 		default:
@@ -256,13 +274,34 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 			continue
 		}
+		if err := e.wait(ctx, wait, err == nil, &manual); err != nil {
+			return err
+		}
+	}
+}
+
+// wait sleeps until the timer, a refresh, a wake or the end of the program.
+// A new poll interval restarts a poll wait from now, polling says whether this is one, a backoff wait ignores it.
+func (e *Engine) wait(ctx context.Context, d time.Duration, polling bool, manual *bool) error {
+	timer := time.NewTimer(d)
+	defer func() { timer.Stop() }() // the timer is replaced on a rearm, so the stop reads the variable late
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(wait):
+		case <-timer.C:
+			return nil
 		case <-e.refresh:
-			manual = true
+			*manual = true
+			return nil
 		case <-e.wake:
+			return nil
+		case <-e.rearm:
+			if !polling {
+				continue
+			}
+			timer.Stop()
+			timer = time.NewTimer(time.Duration(e.pollInterval.Load()))
 		}
 	}
 }

@@ -308,3 +308,16 @@ func TestDetailSaysWhenTheThreadIsNotSyncedYet(t *testing.T) {
 		}
 	}
 }
+
+// The settings screen changes the theme and the glyphs while the app runs, so the cached description render follows the mode.
+func TestDetailRendersTheDescriptionAgainWhenTheModeChanges(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	d := taskDetailModel{keys: defaultKeyMap()}
+	d.set(taskLoadedMsg{task: store.Task{ID: "T1", Title: "List", UpdatedDate: "2026-09-03T10:00:00Z", Description: "<ul><li>one</li><li>two</li></ul>"}})
+	d.layout(NewTheme(config.UIConfig{Theme: "dark"}), refData{}, now, 60, 30, "dark", false)
+	unicode := d.rendered
+	d.layout(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), refData{}, now, 60, 30, "dark", false)
+	if d.rendered == unicode {
+		t.Errorf("the description kept its unicode render after the glyphs changed:\n%s", d.rendered)
+	}
+}

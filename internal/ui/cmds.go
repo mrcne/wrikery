@@ -749,6 +749,18 @@ func waitSignIn(attempt int, result <-chan SignInResult) tea.Cmd {
 	}
 }
 
+// saveConfig hands one key to the hook that writes the config file, the answer comes back as configSavedMsg or configSaveFailedMsg.
+func (m Model) saveConfig(key string, value any) tea.Cmd {
+	set := m.opts.Hooks.SetConfig // never nil here, the settings model opens an edit only when the hook is set
+	return func() tea.Msg {
+		cfg, err := set(key, value)
+		if err != nil {
+			return configSaveFailedMsg{key: key, err: err}
+		}
+		return configSavedMsg{key: key, cfg: cfg}
+	}
+}
+
 func (m Model) verifyToken(token, host string) tea.Cmd {
 	verify := m.opts.Hooks.VerifyToken
 	return func() tea.Msg {
@@ -859,6 +871,9 @@ func (m *Model) leaveScreen() tea.Cmd {
 		return m.closeTimesheetDetail()
 	case screenInbox:
 		return m.leaveInbox()
+	case screenSettings:
+		// A sign in screen on a 401 or a control socket command can take the screen away under an open row.
+		m.settings = m.settings.endEdit()
 	}
 	return nil
 }

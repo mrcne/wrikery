@@ -207,11 +207,16 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		return err
 	}
 	defer func() { _ = logFile.Close() }()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
-		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
+	level := new(slog.LevelVar) // the settings screen changes it while the app runs
+	level.Set(cfg.SlogLevel())
+	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: level})))
 
-	theme := cfg.UI.Theme
-	cfg.UI = resolveTheme(cfg.UI, true)
+	// The terminal is asked for its background once, and only when the file leaves the theme to it.
+	// The interface resolves auto itself, so the config travels as the file has it and a save hands the same shape back.
+	autoTheme := ""
+	if cfg.UI.Theme == "auto" {
+		autoTheme = resolveTheme(cfg.UI, true).Theme
+	}
 
 	if demoMode {
 		tasks, comments, err := demoSize()
@@ -231,7 +236,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			cfg.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
 		}
 		p := tea.NewProgram(ui.New(ui.Options{
-			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
+			Version: buildVersion(), Store: st, Config: cfg, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
@@ -259,9 +264,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
 		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
 	}
-	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
+	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv(),
+		configFile: paths.ConfigFile, logLevel: level}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
+		Version: buildVersion(), Store: st, Config: cfg, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
