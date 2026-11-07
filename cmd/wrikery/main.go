@@ -207,11 +207,16 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		return err
 	}
 	defer func() { _ = logFile.Close() }()
-	slog.SetDefault(slog.New(slog.NewTextHandler(logFile,
-		&slog.HandlerOptions{Level: cfg.SlogLevel()})))
+	level := new(slog.LevelVar) // the settings screen changes it while the app runs
+	level.Set(cfg.SlogLevel())
+	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: level})))
 
 	theme := cfg.UI.Theme
-	cfg.UI = resolveTheme(cfg.UI, true)
+	// What auto resolves to is kept for a theme saved on the settings screen, the terminal is asked once.
+	autoTheme := resolveTheme(config.UIConfig{Theme: "auto"}, true).Theme
+	if cfg.UI.Theme == "auto" {
+		cfg.UI.Theme = autoTheme
+	}
 
 	if demoMode {
 		tasks, comments, err := demoSize()
@@ -259,9 +264,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		// --offline=false is the way out in both cases, the flag on the line or offline = true in the file.
 		return errors.New("no sign in stored yet, the first run needs Wrike, start with --offline=false")
 	}
-	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv()}
+	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv(),
+		configFile: paths.ConfigFile, logLevel: level}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Offline: offline,
+		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {

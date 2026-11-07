@@ -292,7 +292,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.status.show(text, false)
 	case configSaveFailedMsg:
-		return m, m.status.show(msg.err.Error(), true)
+		// The loader names the file first, the footer of the screen does that already and the bar would cut the reason off.
+		return m, m.status.show(strings.TrimPrefix(msg.err.Error(), "reading "+m.opts.ConfigFile+": "), true)
 	case WentOfflineMsg:
 		// Offline mode as --offline starts it, see New, under a state of its own: the bar says what happened and what to press
 		// for as long as it lasts, the toast carries the reason, which names every host asked.

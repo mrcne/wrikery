@@ -131,6 +131,7 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 	m := editModel(t, func(string, any) (config.Config, error) {
 		return config.Config{}, errors.New("reading /x/config.toml: poll_interval 5s is below 10s")
 	})
+	m.opts.ConfigFile, m.settings.file = "/x/config.toml", "/x/config.toml"
 	m.settings = rowAt(t, m.settings, "Check Wrike every")
 	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
 	m.settings = withText(m.settings, "5s")
@@ -139,8 +140,9 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 	if !m.settings.editing || m.settings.input.Value() != "5s" {
 		t.Errorf("after the refusal editing = %v, field = %q, want the edit kept", m.settings.editing, m.settings.input.Value())
 	}
-	if !strings.Contains(m.status.toast, "poll_interval 5s is below 10s") || !m.status.toastErr {
-		t.Errorf("toast = %q (err %v), want the loader's words as an error", m.status.toast, m.status.toastErr)
+	// The bar is narrow and the footer names the file already, so the loader's "reading <file>: " goes.
+	if strings.TrimSpace(m.status.toast) != "poll_interval 5s is below 10s" || !m.status.toastErr {
+		t.Errorf("toast = %q (err %v), want the loader's words without the file as an error", m.status.toast, m.status.toastErr)
 	}
 }
 
