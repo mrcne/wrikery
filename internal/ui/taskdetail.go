@@ -66,7 +66,7 @@ func (d taskDetailModel) title() string {
 }
 
 // layout rebuilds the viewport content. The root calls it from Update, View only reads what it left behind.
-// The description render is cached on task id, updated date and width, so a resize or a focus change costs nothing.
+// The description render is cached on task id, updated date, width and mode, so a resize or a focus change costs nothing.
 // The description itself is compared as well, since a queued edit changes it before the updated date moves.
 // offline is the root's mode, it sends nothing, so a queued write reads queued and not sending.
 func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string, offline bool) {
@@ -80,8 +80,8 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 		// A terminal that cannot draw the theme glyphs cannot draw glamour's bullets and rules either.
 		mode = "ascii"
 	}
-	// The theme mode is resolved once at startup and never changes while the process runs, so it stays out of the key.
-	renderKey := fmt.Sprintf("%s|%s|%d", d.task.ID, d.task.UpdatedDate, width)
+	// The settings screen changes the theme and the glyphs while the process runs, so the mode is part of the key.
+	renderKey := fmt.Sprintf("%s|%s|%d|%s", d.task.ID, d.task.UpdatedDate, width, mode)
 	// Everything below is wrapped or padded to the width before the box strips the joiners,
 	// so the text is stripped first, see stableWidth, or the end of a wrapped line is cut.
 	if renderKey != d.renderKey || d.task.Description != d.renderedFrom {

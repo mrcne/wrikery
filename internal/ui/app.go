@@ -222,8 +222,9 @@ func (m *Model) applyConfig(cfg config.Config) {
 	m.applyHelpGlyphs()
 	m.sidebar.setHidePrefixes(m.theme.HidePrefixes)
 	m.settings.setConfig(cfg, theme)
-	if m.shape == shapeBoard {
-		m.board.fit(&m.list, m.theme.HidePrefixes)
+	// The detail pane is drawn with the theme's colors and glyphs and the sidebar's width follows the prefixes, both live in the layout.
+	if m.width > 0 {
+		m.syncPaneSizes()
 	}
 }
 
@@ -288,7 +289,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "offline":
 			text += ", read at the next start"
 		case "poll_interval":
-			text += fmt.Sprintf(", next check in %ds", int(msg.cfg.PollInterval.Seconds()))
+			// Only an engine between cycles restarts its wait with the new interval, offline mode, a backoff and a sign in wait do not.
+			if m.status.state == "" || m.status.state == "idle" || m.status.state == "syncing" {
+				text += fmt.Sprintf(", next check in %ds", int(msg.cfg.PollInterval.Seconds()))
+			} else {
+				text += ", applies to the next check"
+			}
 		}
 		return m, m.status.show(text, false)
 	case configSaveFailedMsg:

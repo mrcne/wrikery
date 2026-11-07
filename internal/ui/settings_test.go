@@ -282,25 +282,77 @@ func TestSettingsChoiceRowCyclesAndWraps(t *testing.T) {
 	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")}, "dark")
 	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}, "dark")
 	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}, "dark")
+	step(tea.KeyMsg{Type: tea.KeyRight}, "light")
 	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.theme", value: "dark"}}) {
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.theme", value: "light"}}) {
 		t.Errorf("enter sent %#v", msgs)
 	}
 }
 
-func TestSettingsPrefixesAreTypedWithSpaces(t *testing.T) {
-	s := rowAt(t, testSettings(), "Hidden title prefixes")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if s.input.Value() != "(MX)" {
-		t.Fatalf("the field starts with %q, want (MX)", s.input.Value())
+// A prefix may hold a space, "(MX) Backend:" is one prefix, so the row shows and takes the list separated by commas.
+func TestSettingsPrefixesAreTypedWithCommas(t *testing.T) {
+	s := testSettings()
+	s.cfg.UI.HidePrefixes = []string{"(MX) Backend:", "(TX)"}
+	s = rowAt(t, s, "Hidden title prefixes")
+	if rows := s.rows(); rows[s.cursor].value != "(MX) Backend:, (TX)" {
+		t.Fatalf("the row shows %q, want the prefixes separated by commas", rows[s.cursor].value)
 	}
-	_, cmd := withText(s, "(MX) (TX)").Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{"(MX)", "(TX)"}}}) {
-		t.Errorf("enter sent %#v", msgs)
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if s.input.Value() != "(MX) Backend:, (TX)" {
+		t.Fatalf("the field starts with %q", s.input.Value())
+	}
+	_, cmd := withText(s, "(MX) Backend:,(AX) , (TX)").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	want := []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{"(MX) Backend:", "(AX)", "(TX)"}}}
+	if msgs := collect(cmd); !reflect.DeepEqual(msgs, want) {
+		t.Errorf("enter sent %#v, want the three prefixes trimmed", msgs)
 	}
 	_, cmd = withText(s, "").Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{}}}) {
 		t.Errorf("an empty field sent %#v, want an empty list", msgs)
+	}
+}
+
+// At 80 columns the open choice row still shows the value being picked, the long hint is for the bar.
+func TestSettingsChoiceRowShowsItsValueOnANarrowTerminal(t *testing.T) {
+	s := rowAt(t, testSettings(), "Log level")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 78, 30)
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Log level") {
+			if !strings.Contains(line, "info") {
+				t.Errorf("the open row hides its value at 78 columns:\n%s", line)
+			}
+			return
+		}
+	}
+	t.Fatalf("no Log level row:\n%s", view)
+}
+
+// Enter on a row left as it was writes nothing: no file rewrite, no poll wait restarted.
+func TestSettingsEnterOnAnUnchangedRowSavesNothing(t *testing.T) {
+	s := rowAt(t, testSettings(), "Theme")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || s.editing {
+		t.Errorf("enter on the unchanged theme sent %#v, editing %v", msgs, s.editing)
+	}
+	s = rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || s.editing {
+		t.Errorf("enter on the unchanged poll interval sent %#v, editing %v", msgs, s.editing)
+	}
+}
+
+// The field's cursor blinks like every other field's, which needs the command Focus hands back.
+func TestSettingsOpeningATextRowStartsTheCursor(t *testing.T) {
+	s := rowAt(t, testSettings(), "Accent")
+	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+		t.Error("opening a text row returned no command for the cursor")
+	}
+	s = rowAt(t, testSettings(), "Theme")
+	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+		t.Error("opening a choice row returned a command, there is no cursor to start")
 	}
 }
 

@@ -28,6 +28,7 @@ const (
 	rowReadOnly rowKind = iota // enter sends msg, or names the key and the file
 	rowText                    // enter opens a text field with edit in it
 	rowChoice                  // enter opens choices, left and right pick, edit is the current one
+	rowBool                    // a choice row whose value is a bool in the file
 )
 
 type settingRow struct {
@@ -61,6 +62,8 @@ type settingsModel struct {
 	editing  bool // the row under the cursor is open, the list keys go to the edit until enter or esc
 	saving   bool // enter was pressed and the hook has not answered, a second enter must not start a second write
 	editKey  string
+	editKind rowKind
+	editFrom string // what the open row started from, enter on it unchanged saves nothing
 	input    textinput.Model
 	choices  []string // the open choice row's values, nil while a text row is open
 	choice   int
@@ -139,7 +142,8 @@ func (s settingsModel) rows() []settingRow {
 		hostNote = "host is set in " + s.file + ", change it there and start the app again"
 	}
 	poll := fmt.Sprintf("%ds", int(s.cfg.PollInterval.Seconds()))
-	prefixes := strings.Join(ui.HidePrefixes, " ")
+	// A prefix may hold a space, so the list is shown and typed with commas between the prefixes.
+	prefixes := strings.Join(ui.HidePrefixes, ", ")
 	yesNo := []string{"false", "true"}
 	var rows []settingRow
 	if s.signedIn != "" {
@@ -155,13 +159,13 @@ func (s settingsModel) rows() []settingRow {
 		{group: "Sync", label: "Followed spaces and projects", value: orText(strings.Join(names, ", "), "none"), msg: openScopesMsg{}},
 		{group: "Sync", label: "Check Wrike every", value: poll, key: "poll_interval", kind: rowText, edit: poll},
 		{group: "Sync", label: "Wrike host", value: host, key: "host", msg: toastMsg{text: hostNote}},
-		{group: "Sync", label: "Start offline", value: fmt.Sprint(s.cfg.Offline), key: "offline", kind: rowChoice, edit: fmt.Sprint(s.cfg.Offline), choices: yesNo},
+		{group: "Sync", label: "Start offline", value: fmt.Sprint(s.cfg.Offline), key: "offline", kind: rowBool, edit: fmt.Sprint(s.cfg.Offline), choices: yesNo},
 		{group: "Sync", label: "Budget", value: s.budget, key: "budget.source"},
 		{group: "Interface", label: "Sidebar", value: sidebar, msg: toggleSidebarMsg{}},
 		{group: "Interface", label: "Ask before H and L", value: ask, msg: toggleMoveAskMsg{}},
 		{group: "Interface", label: "Theme", value: theme, key: "ui.theme", kind: rowChoice, edit: fileTheme, choices: []string{"auto", "dark", "light"}},
 		{group: "Interface", label: "Accent", value: orText(ui.Accent, "default"), key: "ui.accent", kind: rowText, edit: ui.Accent},
-		{group: "Interface", label: "ASCII glyphs", value: fmt.Sprint(ui.ASCII), key: "ui.ascii", kind: rowChoice, edit: fmt.Sprint(ui.ASCII), choices: yesNo},
+		{group: "Interface", label: "ASCII glyphs", value: fmt.Sprint(ui.ASCII), key: "ui.ascii", kind: rowBool, edit: fmt.Sprint(ui.ASCII), choices: yesNo},
 		{group: "Interface", label: "Hidden title prefixes", value: orText(prefixes, "none"), key: "ui.hide_prefixes", kind: rowText, edit: prefixes},
 		{group: "Interface", label: "Branch name template", value: ui.BranchTemplate, key: "ui.branch_template", kind: rowText, edit: ui.BranchTemplate},
 		{group: "Logging", label: "Log level", value: s.cfg.LogLevel, key: "log_level", kind: rowChoice, edit: s.cfg.LogLevel, choices: []string{"debug", "info", "warn", "error"}},
@@ -195,23 +199,22 @@ func (s settingsModel) Update(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		case row.msg != nil:
 			return s, intent(row.msg)
 		case s.editable && row.kind != rowReadOnly:
-			return s.startEdit(row), nil
+			return s.startEdit(row)
 		}
 		return s, intent(toastMsg{text: fmt.Sprintf("set %s in %s and start the app again", row.key, s.file)})
 	}
 	return s, nil
 }
 
-func (s settingsModel) startEdit(row settingRow) settingsModel {
-	s.editing, s.editKey, s.choices = true, row.key, nil
-	if row.kind == rowChoice {
+func (s settingsModel) startEdit(row settingRow) (settingsModel, tea.Cmd) {
+	s.editing, s.editKey, s.editKind, s.editFrom, s.choices = true, row.key, row.kind, row.edit, nil
+	if row.kind != rowText {
 		s.choices, s.choice = row.choices, max(slices.Index(row.choices, row.edit), 0)
-		return s
+		return s, nil
 	}
 	s.input.SetValue(row.edit)
 	s.input.CursorEnd()
-	s.input.Focus()
-	return s
+	return s, s.input.Focus()
 }
 
 // editBindings are the bar's keys while a row is open.
@@ -244,6 +247,9 @@ func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	case key.Matches(msg, s.keys.Back):
 		return s.endEdit(), nil
 	case key.Matches(msg, s.keys.Enter):
+		if s.unchanged() {
+			return s.endEdit(), nil
+		}
 		value, err := s.editedValue()
 		if err != nil {
 			return s, intent(toastMsg{text: err.Error(), isErr: true})
@@ -264,12 +270,20 @@ func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	return s, cmd
 }
 
+// unchanged says whether the open row still holds what it started from, a save would rewrite the file for nothing.
+func (s settingsModel) unchanged() bool {
+	if s.choices != nil {
+		return s.choices[s.choice] == s.editFrom
+	}
+	return strings.TrimSpace(s.input.Value()) == s.editFrom
+}
+
 // editedValue is what the hook gets for the open row, typed the way the config package takes it.
 // The poll interval travels as the text typed, with the unit added to bare digits, so the file reads as the user wrote it.
 func (s settingsModel) editedValue() (any, error) {
 	if s.choices != nil {
 		picked := s.choices[s.choice]
-		if s.editKey == "ui.ascii" || s.editKey == "offline" {
+		if s.editKind == rowBool {
 			return picked == "true", nil
 		}
 		return picked, nil
@@ -285,7 +299,13 @@ func (s settingsModel) editedValue() (any, error) {
 		}
 		return text, nil
 	case "ui.hide_prefixes":
-		return strings.Fields(text), nil
+		prefixes := []string{}
+		for _, p := range strings.Split(text, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				prefixes = append(prefixes, p)
+			}
+		}
+		return prefixes, nil
 	}
 	return text, nil
 }
@@ -311,7 +331,8 @@ func (s settingsModel) View(th Theme, width, height int) string {
 		case hint == "":
 			hint = "enter to change"
 		case s.editing && i == s.cursor && s.choices != nil:
-			hint, value = "left and right pick, enter saves, esc cancels", s.choices[s.choice]
+			// Short, the bar lists the keys in full and an 80 column row has no room for more next to the value.
+			hint, value = "h and l pick, enter saves", s.choices[s.choice]
 		case s.editing && i == s.cursor:
 			hint = "enter saves, esc cancels"
 			// The field takes the room the row has after the label, so the cursor stays on screen on a narrow terminal.

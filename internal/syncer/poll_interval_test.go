@@ -43,3 +43,16 @@ func TestEngineSetPollIntervalLeavesABackoffWaitAlone(t *testing.T) {
 		t.Fatalf("calls went from %d to %d, a backoff wait was cut by a new poll interval", calls, now)
 	}
 }
+
+// A save of the same interval must not restart the wait, so nothing is queued for the loop.
+func TestEngineSetPollIntervalIgnoresTheSameValue(t *testing.T) {
+	e := New(&fakeClient{}, newTestStore(t), Config{PollInterval: time.Hour}, nil)
+	e.SetPollInterval(time.Hour)
+	if len(e.rearm) != 0 {
+		t.Error("the same interval queued a rearm")
+	}
+	e.SetPollInterval(time.Minute)
+	if len(e.rearm) != 1 {
+		t.Error("a new interval queued no rearm")
+	}
+}

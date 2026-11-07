@@ -136,7 +136,9 @@ func (e *Engine) Refresh() {
 // A poll wait in progress restarts with the new interval measured from the call, so a shorter one shows at once and a longer one does not fire the old timer.
 // A backoff wait after a failed cycle is left alone, it paces the retries and the new interval applies once a cycle succeeds.
 func (e *Engine) SetPollInterval(d time.Duration) {
-	e.pollInterval.Store(int64(d))
+	if e.pollInterval.Swap(int64(d)) == int64(d) {
+		return // a save of the same value, the wait in progress keeps its end
+	}
 	select {
 	case e.rearm <- struct{}{}:
 	default:

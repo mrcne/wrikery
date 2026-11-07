@@ -199,3 +199,44 @@ func TestWithoutTheHookTheFileRowsAreReadOnly(t *testing.T) {
 		t.Errorf("enter without the hook: %#v, editing %v", msgs, m.settings.editing)
 	}
 }
+
+// The screen can change under an open row, the sign in screen on a 401 or a control socket command, and the row must not stay open behind it.
+func TestLeavingTheSettingsScreenClosesAnOpenRow(t *testing.T) {
+	m := editModel(t, answering(config.Config{}))
+	m.settings = rowAt(t, m.settings, "Accent")
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m.openScreen(screenMain)
+	if m.settings.editing {
+		t.Error("the row is still open after the screen changed")
+	}
+}
+
+// No engine runs in offline mode, so the toast cannot promise a check in thirty seconds.
+func TestPollIntervalToastInOfflineModePromisesNoCheck(t *testing.T) {
+	m := editModel(t, answering(config.Config{PollInterval: 30 * time.Second, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true}}))
+	m.opts.Offline, m.status.state = true, "offline_mode"
+	m.settings = rowAt(t, m.settings, "Check Wrike every")
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m.settings = withText(m.settings, "30s")
+	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = saveThrough(m, cmd)
+	if !strings.Contains(m.status.toast, "poll_interval saved, applies to the next check") || strings.Contains(m.status.toast, "30s") {
+		t.Errorf("toast = %q", m.status.toast)
+	}
+}
+
+// The detail pane and the sidebar are laid out with the theme and the prefixes, so a save lays the panes out again.
+func TestSavingLaysThePanesOutAgain(t *testing.T) {
+	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "light", ASCII: true}}))
+	if m.list.height != 0 {
+		t.Fatalf("the list already has a height of %d before any layout", m.list.height)
+	}
+	m.settings = rowAt(t, m.settings, "Theme")
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyRight})
+	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = saveThrough(m, cmd)
+	if m.list.height == 0 {
+		t.Error("the panes were not laid out again after the save")
+	}
+}
