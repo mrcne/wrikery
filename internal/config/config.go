@@ -74,14 +74,17 @@ func defaults() Config {
 }
 
 // Load reads the config file. A missing file is fine and yields defaults.
-func Load(path string) (Config, error) {
+func Load(path string) (Config, error) { return load(path, path) }
+
+// load reads the file at path and names it name in its errors: Set checks a temporary copy under the config file's own name.
+func load(path, name string) (Config, error) {
 	cfg := defaults()
 	md, err := toml.DecodeFile(path, &cfg)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
 	}
 	if err != nil {
-		return Config{}, fmt.Errorf("reading %s: %w", path, err)
+		return Config{}, fmt.Errorf("reading %s: %w", name, err)
 	}
 	// The decoder drops keys it does not know, so a typo would silently do nothing.
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
@@ -89,22 +92,22 @@ func Load(path string) (Config, error) {
 		for i, key := range undecoded {
 			keys[i] = key.String()
 		}
-		return Config{}, fmt.Errorf("reading %s: unknown keys: %s", path, strings.Join(keys, ", "))
+		return Config{}, fmt.Errorf("reading %s: unknown keys: %s", name, strings.Join(keys, ", "))
 	}
 	// The decoder matches key names case-insensitively, so accept values the same way.
 	cfg.LogLevel = strings.ToLower(cfg.LogLevel)
 	if _, ok := levels[cfg.LogLevel]; !ok {
-		return Config{}, fmt.Errorf("reading %s: unknown log_level %q", path, cfg.LogLevel)
+		return Config{}, fmt.Errorf("reading %s: unknown log_level %q", name, cfg.LogLevel)
 	}
 	cfg.UI.Theme = strings.ToLower(cfg.UI.Theme)
 	switch cfg.UI.Theme {
 	case "auto", "dark", "light":
 	default:
-		return Config{}, fmt.Errorf("reading %s: unknown ui.theme %q", path, cfg.UI.Theme)
+		return Config{}, fmt.Errorf("reading %s: unknown ui.theme %q", name, cfg.UI.Theme)
 	}
 	// Below ten seconds the poll alone would eat a large share of the roughly 400 requests per minute Wrike allows (https://developers.wrike.com/faq/).
 	if cfg.PollInterval < 10*time.Second {
-		return Config{}, fmt.Errorf("reading %s: poll_interval %s is below 10s", path, cfg.PollInterval)
+		return Config{}, fmt.Errorf("reading %s: poll_interval %s is below 10s", name, cfg.PollInterval)
 	}
 	// An empty template would produce no branch name at all, so it falls back instead of failing the load.
 	if cfg.UI.BranchTemplate == "" {
@@ -113,33 +116,33 @@ func Load(path string) (Config, error) {
 	// A scheme or a path would silently break wrike.BaseURL, which only prefixes https:// and appends /api/v4,
 	// so reject anything that is not a bare host name up front.
 	if cfg.Host != "" && strings.Contains(cfg.Host, "/") {
-		return Config{}, fmt.Errorf("reading %s: host %q must be a host name such as app-eu.wrike.com", path, cfg.Host)
+		return Config{}, fmt.Errorf("reading %s: host %q must be a host name such as app-eu.wrike.com", name, cfg.Host)
 	}
 	cfg.OAuth.ClientID = strings.TrimSpace(cfg.OAuth.ClientID)
 	cfg.OAuth.ClientSecret = strings.TrimSpace(cfg.OAuth.ClientSecret)
 	if cfg.OAuth.ClientSecret != "" && cfg.OAuth.ClientID == "" {
-		return Config{}, fmt.Errorf("reading %s: oauth.client_secret needs oauth.client_id, the id of the same API app", path)
+		return Config{}, fmt.Errorf("reading %s: oauth.client_secret needs oauth.client_id, the id of the same API app", name)
 	}
 	if cfg.OAuth.RedirectURI == "" {
 		cfg.OAuth.RedirectURI = defaultRedirectURI
 	}
 	// The sign in binds a listener to the port of this address and Wrike compares it with the registered one, so a bare host or another scheme would fail late.
 	if u, err := url.Parse(cfg.OAuth.RedirectURI); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return Config{}, fmt.Errorf("reading %s: oauth.redirect_uri %q must be an http or https address such as %s", path, cfg.OAuth.RedirectURI, defaultRedirectURI)
+		return Config{}, fmt.Errorf("reading %s: oauth.redirect_uri %q must be an http or https address such as %s", name, cfg.OAuth.RedirectURI, defaultRedirectURI)
 	}
 	cfg.Budget.Source = strings.ToLower(strings.TrimSpace(cfg.Budget.Source))
 	cfg.Budget.Field = strings.TrimSpace(cfg.Budget.Field)
 	switch cfg.Budget.Source {
 	case "", "effort", "field":
 	default:
-		return Config{}, fmt.Errorf("reading %s: unknown budget.source %q, use effort or field", path, cfg.Budget.Source)
+		return Config{}, fmt.Errorf("reading %s: unknown budget.source %q, use effort or field", name, cfg.Budget.Source)
 	}
 	if cfg.Budget.Source == "field" && cfg.Budget.Field == "" {
-		return Config{}, fmt.Errorf("reading %s: budget.source = \"field\" needs budget.field, the custom field's title or id", path)
+		return Config{}, fmt.Errorf("reading %s: budget.source = \"field\" needs budget.field, the custom field's title or id", name)
 	}
 	// A field named without the source is the likely mistake, and it would silently show no budget.
 	if cfg.Budget.Source != "field" && cfg.Budget.Field != "" {
-		return Config{}, fmt.Errorf("reading %s: budget.field needs budget.source = \"field\"", path)
+		return Config{}, fmt.Errorf("reading %s: budget.field needs budget.source = \"field\"", name)
 	}
 	return cfg, nil
 }
