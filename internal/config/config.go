@@ -74,15 +74,21 @@ func defaults() Config {
 }
 
 // Load reads the config file. A missing file is fine and yields defaults.
-func Load(path string) (Config, error) { return load(path, path) }
-
-// load reads the file at path and names it name in its errors: Set checks a temporary copy under the config file's own name.
-func load(path, name string) (Config, error) {
-	cfg := defaults()
-	md, err := toml.DecodeFile(path, &cfg)
+func Load(path string) (Config, error) {
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return cfg, nil
+		return defaults(), nil
 	}
+	if err != nil {
+		return Config{}, fmt.Errorf("reading %s: %w", path, err)
+	}
+	return parse(data, path)
+}
+
+// parse decodes and checks the file's text, name is the file the errors name: Set checks the text it is about to write under the same name.
+func parse(data []byte, name string) (Config, error) {
+	cfg := defaults()
+	md, err := toml.Decode(string(data), &cfg)
 	if err != nil {
 		return Config{}, fmt.Errorf("reading %s: %w", name, err)
 	}

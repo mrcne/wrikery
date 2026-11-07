@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/mrcne/wrikery/internal/atomicfile"
 )
 
 var errCannotEdit = errors.New("the key is written in a form the app cannot edit")
@@ -15,7 +17,7 @@ var errCannotEdit = errors.New("the key is written in a form the app cannot edit
 // Set writes one key to the config file and returns what the file loads afterwards.
 // The app never writes the whole file: the TOML encoder would drop the comments a user put there.
 // So the key's line is replaced in its table, or added to it, and every other line stays as it is.
-// The new text is checked by the loader in a temporary file before it replaces the config file, so a value the next start would refuse never lands.
+// The new text is checked by the loader before it is written, so a value the next start would refuse never lands, and the write goes through a temporary file and a rename.
 // key is poll_interval, offline, log_level or ui.<name>, value a string, a bool or a []string.
 // The duration of poll_interval comes as the string the file takes, "2m", so the file reads as the user typed it.
 func Set(path, key string, value any) (Config, error) {
@@ -43,26 +45,15 @@ func Set(path, key string, value any) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("set %s in %s by hand, %w", key, path, err)
 	}
+	cfg, err := parse([]byte(text), path)
+	if err != nil {
+		return Config{}, err
+	}
 	mode := os.FileMode(0o600) // the file may hold a client secret
 	if fi, err := os.Stat(target); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(target), ".config-*.toml")
-	if err != nil {
-		return Config{}, fmt.Errorf("writing %s: %w", path, err)
-	}
-	_, werr := tmp.WriteString(text)
-	if err := errors.Join(werr, tmp.Close(), os.Chmod(tmp.Name(), mode)); err != nil {
-		_ = os.Remove(tmp.Name())
-		return Config{}, fmt.Errorf("writing %s: %w", path, err)
-	}
-	cfg, err := load(tmp.Name(), path)
-	if err != nil {
-		_ = os.Remove(tmp.Name())
-		return Config{}, err
-	}
-	if err := os.Rename(tmp.Name(), target); err != nil {
-		_ = os.Remove(tmp.Name())
+	if err := atomicfile.Write(target, []byte(text), mode); err != nil {
 		return Config{}, fmt.Errorf("writing %s: %w", path, err)
 	}
 	return cfg, nil

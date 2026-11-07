@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into six parts with strict boundaries, plus two small packages, the config and the lock file helper:
+The code is split into six parts with strict boundaries, plus three small packages, the config, the lock file helper and the atomic file writer:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
@@ -30,6 +30,7 @@ The code is split into six parts with strict boundaries, plus two small packages
   It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
 - `internal/config` loads the TOML config file, edits one key of it for the settings screen, and resolves the paths listed at the end.
 - `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
+- `internal/atomicfile` writes a file through a temporary one that is synced and renamed into place, the config file and the token file go through it.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
@@ -307,7 +308,7 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 
 - config: `~/.config/wrikery/config.toml`, read at start and edited one key at a time from the settings screen.
   The key's line is replaced, or added to its table, and every other line stays as it is, so the comments survive.
-  The new text is checked by the loader in a temporary file beside the config before a rename replaces it.
+  The new text is checked by the loader before anything is written, then written through a temporary file that is synced and renamed over the config, so a crash leaves the old file or the new one and never an empty one.
   A key written in a form the line edit cannot handle, twice, as a dotted key, in an inline table, over several lines or under an array of tables, is refused and named for a change by hand.
   A symbolic link is followed, the target is written and the link stays.
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
