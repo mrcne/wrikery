@@ -145,7 +145,8 @@ func (m Model) loadFlags() tea.Cmd {
 
 // loadTree builds the sidebar from the followed scopes: My tasks first,
 // then each followed space's subtree, then followed projects that are not inside a followed space.
-func (m Model) loadTree() tea.Cmd {
+// asked says the user changed the followed set, see treeLoadedMsg.
+func (m Model) loadTree(asked bool) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	// The pins are read once. A later load keeps the ones in memory, a key pressed while the load ran would otherwise be undone on screen.
 	needPins := !m.sidebar.pinsLoaded
@@ -229,7 +230,7 @@ func (m Model) loadTree() tea.Cmd {
 			}
 		}
 		if !needPins {
-			return treeLoadedMsg{nodes: nodes}
+			return treeLoadedMsg{nodes: nodes, asked: asked}
 		}
 		pinned, err := st.Pins().List(ctx)
 		if err != nil {
@@ -239,7 +240,7 @@ func (m Model) loadTree() tea.Cmd {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return errMsg{err}
 		}
-		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}}
+		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}, asked: asked}
 	}
 }
 
@@ -276,21 +277,6 @@ func (m Model) loadTasks(node treeNode, crumb, selectID string, lift bool) tea.C
 			selectID = real
 		}
 		return tasksLoadedMsg{nodeID: node.id, crumb: crumb, tasks: tasks, states: states, selectID: selectID, lift: lift}
-	}
-}
-
-// loadTasksUnasked reads the rows of a node a reload moved the sidebar to by itself, see treeLoadedMsg.
-// The rows land on the pane's task when they hold it, a parent lists the tasks of its subtree, and the pane keeps
-// its task either way, which the flag on the answer tells tasksLoadedMsg.
-func (m Model) loadTasksUnasked(node treeNode) tea.Cmd {
-	load := m.loadTasks(node, m.sidebar.crumb(node), m.selectedTaskID, false)
-	return func() tea.Msg {
-		msg := load()
-		if loaded, ok := msg.(tasksLoadedMsg); ok {
-			loaded.unasked = true
-			return loaded
-		}
-		return msg
 	}
 }
 

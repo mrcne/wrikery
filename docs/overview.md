@@ -63,8 +63,9 @@ The pins and the toggle are kept across restarts.
 `@` opens the inbox, the comments addressed to you, see Inbox below.
 A jump to a task, from the search, the changes screen, the inbox or the timesheet, opens the way to its folder through a collapsed parent, the tree filter or the pinned view.
 When none of its folders is in the sidebar, your own task lands in My tasks, and any other task stays in the detail pane over the list that was on screen until you go back to that list.
-A sync never moves the sidebar off the folder you are in while the folder exists, a parent the new tree would leave collapsed is opened again.
-When the folder is gone from the tree, the cursor goes to the nearest parent still there and the list shows that one, but the task in the detail pane stays, and the pane takes the focus when the new list does not hold it.
+A sync never moves the sidebar off the folder you are in while the folder is in the sidebar, a parent the new tree would leave collapsed is opened again.
+When the folder is gone from the sidebar, deleted or hidden by the pinned view or the tree filter after the change, the cursor goes to the nearest parent still there and the list shows that one.
+The task in the detail pane stays and the keys act on it, and from the list the pane takes the focus when the new list does not hold the task.
 The status bar says which folder left.
 On the selected task, `o` opens it in the browser, `y` copies its permalink, `Y` copies a branch name built from the task, and `i` copies the task id.
 `.` lists every action on the selected task with its key, narrowed as you type, enter runs the highlighted one and esc closes the list.

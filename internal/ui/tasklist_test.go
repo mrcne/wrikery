@@ -286,6 +286,17 @@ func TestJumpLiftsTheDoneToggleAndTheFilter(t *testing.T) {
 	}
 }
 
+// A reload that moves the list to another node and names the task to land on, without a lift, is still a move:
+// the toggle a jump lifted falls back, or the parent would list every completed task of its subtree.
+func TestAMoveThatNamesTheTaskDropsTheLiftedToggle(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	tasks := []store.Task{{ID: "1", Title: "open", Status: "Active"}, {ID: "2", Title: "done", Status: "Completed"}}
+	l.setRows("F1", "API", tasks, nil, "2", true)
+	if found := l.setRows("F2", "Web", tasks, nil, "2", false); found || l.showDone {
+		t.Errorf("after the move: found %v, showDone %v, want the completed task hidden again", found, l.showDone)
+	}
+}
+
 // A filter left on the list must not swallow the task a jump asks for: the list would come out empty and the
 // selection would be dropped with it.
 func TestJumpKeepsItsTaskUnderAFilter(t *testing.T) {

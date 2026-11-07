@@ -65,6 +65,7 @@ type scopesLoadedMsg struct{ scopes []store.Scope }
 type treeLoadedMsg struct {
 	nodes []treeNode
 	pins  *pinState // nil keeps the pins the sidebar has
+	asked bool      // the user changed the followed set, a move the new tree makes is theirs
 }
 type nodeSelectedMsg struct{ node treeNode } // intent: show this node's tasks
 type focusMsg struct{ pane pane }            // intent: move focus
@@ -74,7 +75,6 @@ type tasksLoadedMsg struct {
 	states        map[string]store.OutboxState
 	selectID      string // the row to land on: a create just queued, a jump, or the task on screen after a swap
 	lift          bool   // show the row even where the done toggle or a filter would hide it, a jump and a create ask for it, a swap does not
-	unasked       bool   // a reload moved the sidebar to the node by itself, the pane keeps its task
 }
 type taskSelectedMsg struct{ id string } // intent: show this task in the detail pane
 type taskGoneMsg struct{ id string }     // the task is no longer in the cache and no swap explains it
