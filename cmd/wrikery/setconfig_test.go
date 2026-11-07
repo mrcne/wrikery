@@ -62,3 +62,15 @@ func TestSetConfigReturnsTheLoaderError(t *testing.T) {
 		t.Errorf("a refused save changed something: file %q, running %v", got, a.cfg.PollInterval)
 	}
 }
+
+// The running config keeps ui.theme as the file has it, only the interface gets the resolved copy, so the Theme row still says auto after another key is saved.
+func TestUIConfigResolvesAutoOnACopy(t *testing.T) {
+	cfg := config.Config{UI: config.UIConfig{Theme: "auto"}}
+	got := uiConfig(cfg, "light")
+	if got.UI.Theme != "light" || cfg.UI.Theme != "auto" {
+		t.Errorf("uiConfig gave %q and left %q, want light on the copy and auto on the original", got.UI.Theme, cfg.UI.Theme)
+	}
+	if got := uiConfig(config.Config{UI: config.UIConfig{Theme: "dark"}}, "light"); got.UI.Theme != "dark" {
+		t.Errorf("a theme that is not auto changed to %q", got.UI.Theme)
+	}
+}

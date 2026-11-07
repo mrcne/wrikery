@@ -71,6 +71,7 @@ func Set(path, key string, value any) (Config, error) {
 // editLines replaces the key's line in its table, or adds one, and leaves every other line as it is.
 // table is empty for the top level, line is the rendered "key = value".
 // Headers and keys match the way the loader matches them, ignoring case, a replaced line keeps the spelling the file has.
+// Every value is followed to its end, so a line added after the table's last key never lands inside an array or a string that runs on below.
 // A key written twice, as a dotted key, in an inline table, over several lines or under an array of tables is errCannotEdit:
 // the file after such an edit would not be what the user meant, so nothing guesses.
 func editLines(text, table, key, line string) (string, error) {
@@ -80,7 +81,18 @@ func editLines(text, table, key, line string) (string, error) {
 	}
 	current := "" // the table the walk is in, empty before the first header
 	tableAt, lastKey, found := -1, -1, -1
+	var open *valueScanner // a value that continues from an earlier line, nil otherwise
+	openInTarget := false
 	for i, raw := range lines {
+		if open != nil {
+			if _, done := open.feed(strings.TrimRight(raw, "\r")); done {
+				open = nil
+				if openInTarget {
+					lastKey = i
+				}
+			}
+			continue
+		}
 		l := strings.TrimSpace(raw)
 		switch {
 		case l == "" || strings.HasPrefix(l, "#"):
@@ -103,18 +115,25 @@ func editLines(text, table, key, line string) (string, error) {
 			continue
 		}
 		k = unquoteKey(k)
+		sc := &valueScanner{}
+		_, done := sc.feed(rest)
+		inTarget := strings.EqualFold(current, table)
 		switch {
-		case strings.EqualFold(current, table) && strings.EqualFold(k, key):
-			if found >= 0 {
+		case inTarget && strings.EqualFold(k, key):
+			if found >= 0 || !done {
 				return "", errCannotEdit
 			}
-			found, lastKey = i, i
-		case strings.EqualFold(current, table):
-			lastKey = i
+			found = i
 		case current == "" && table != "" && strings.EqualFold(k, table+"."+key):
 			return "", errCannotEdit
 		case current == "" && table != "" && strings.EqualFold(k, table) && strings.HasPrefix(strings.TrimSpace(rest), "{"):
 			return "", errCannotEdit
+		}
+		if inTarget {
+			lastKey = i
+		}
+		if !done {
+			open, openInTarget = sc, inTarget
 		}
 	}
 	switch {
@@ -122,10 +141,7 @@ func editLines(text, table, key, line string) (string, error) {
 		raw := strings.TrimRight(lines[found], "\r")
 		eq := strings.Index(raw, "=")
 		v := raw[eq+1:]
-		end, complete := valueEnd(v)
-		if !complete {
-			return "", errCannotEdit
-		}
+		end, _ := (&valueScanner{}).feed(v)
 		_, value, _ := strings.Cut(line, " = ")
 		lead := v[:len(v)-len(strings.TrimLeft(v, " \t"))]
 		edited := raw[:eq+1] + lead + value
@@ -163,36 +179,43 @@ func unquoteKey(k string) string {
 	return k
 }
 
-// valueEnd scans a TOML value that starts after the equals sign and reports where it ends, at a comment or the end of the line,
-// and whether it ends on this line at all: a multi line string or an array left open continues below and cannot be replaced line by line.
-func valueEnd(v string) (end int, complete bool) {
-	body := strings.TrimLeft(v, " \t")
-	if strings.HasPrefix(body, `"""`) || strings.HasPrefix(body, "'''") {
-		return 0, false
-	}
-	off := len(v) - len(body)
-	depth := 0
-	var quote byte
-	i := 0
-scan:
-	for ; i < len(body); i++ {
-		c := body[i]
-		switch {
-		case quote == '"' && c == '\\':
-			i++
-		case quote != 0:
-			if c == quote {
-				quote = 0
+// valueScanner follows a TOML value, over several lines when it runs on: a one line string, a multi line string, and the brackets of arrays and inline tables.
+type valueScanner struct {
+	quote  byte   // the open one line string's quote, 0 outside one
+	triple string // the open multi line string's delimiter, empty outside one
+	depth  int    // open brackets
+}
+
+func (v *valueScanner) open() bool { return v.quote != 0 || v.triple != "" || v.depth > 0 }
+
+// feed scans one line of the value and reports where the value ends on it, before a comment or at the end of the line, and whether it ends there at all.
+// A # outside strings starts a comment, inside an open array the value goes on below it.
+func (v *valueScanner) feed(line string) (end int, done bool) {
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case v.triple != "":
+			if v.triple == `"""` && c == '\\' {
+				i++
+			} else if strings.HasPrefix(line[i:], v.triple) {
+				i, v.triple = i+2, ""
 			}
+		case v.quote != 0:
+			if v.quote == '"' && c == '\\' {
+				i++
+			} else if c == v.quote {
+				v.quote = 0
+			}
+		case strings.HasPrefix(line[i:], `"""`), strings.HasPrefix(line[i:], "'''"):
+			v.triple, i = line[i:i+3], i+2
 		case c == '"' || c == '\'':
-			quote = c
+			v.quote = c
 		case c == '[' || c == '{':
-			depth++
+			v.depth++
 		case c == ']' || c == '}':
-			depth--
+			v.depth--
 		case c == '#':
-			break scan
+			return i, !v.open()
 		}
 	}
-	return off + i, quote == 0 && depth == 0
+	return len(line), !v.open()
 }

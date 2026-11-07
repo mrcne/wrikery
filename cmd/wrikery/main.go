@@ -214,9 +214,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	theme := cfg.UI.Theme
 	// What auto resolves to is kept for a theme saved on the settings screen, the terminal is asked once.
 	autoTheme := resolveTheme(config.UIConfig{Theme: "auto"}, true).Theme
-	if cfg.UI.Theme == "auto" {
-		cfg.UI.Theme = autoTheme
-	}
+	uiCfg := uiConfig(cfg, autoTheme)
 
 	if demoMode {
 		tasks, comments, err := demoSize()
@@ -236,7 +234,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 			cfg.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
 		}
 		p := tea.NewProgram(ui.New(ui.Options{
-			Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
+			Version: buildVersion(), Store: st, Config: uiCfg, ThemeSetting: theme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
 		}), tea.WithAltScreen())
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
@@ -267,7 +265,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	a := &app{cfg: cfg, st: st, tokens: tokens, lock: lockPath(paths), session: session, dbFile: paths.DBFile, tokenFromEnv: tokenFromEnv(),
 		configFile: paths.ConfigFile, logLevel: level}
 	a.prog = tea.NewProgram(ui.New(ui.Options{
-		Version: buildVersion(), Store: st, Config: cfg, ThemeSetting: theme, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Offline: offline,
+		Version: buildVersion(), Store: st, Config: uiCfg, ThemeSetting: theme, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
 	}), tea.WithAltScreen())
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
@@ -473,6 +471,15 @@ func demoSize() (tasks, comments int, err error) {
 		return 0, 0, fmt.Errorf("%s puts comments on the generated tasks, set %s as well", envDemoComments, envDemoTasks)
 	}
 	return tasks, comments, nil
+}
+
+// uiConfig is the copy of the config the interface draws with, the auto theme resolved.
+// The app keeps cfg as the file has it, so a save on the settings screen hands the file's theme back and the Theme row keeps saying auto.
+func uiConfig(cfg config.Config, autoTheme string) config.Config {
+	if cfg.UI.Theme == "auto" {
+		cfg.UI.Theme = autoTheme
+	}
+	return cfg
 }
 
 // resolveTheme turns the auto theme into dark or light.
