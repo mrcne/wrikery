@@ -59,6 +59,7 @@ type settingsModel struct {
 
 	editable bool // a hook writes the file, see Hooks.SetConfig
 	editing  bool // the row under the cursor is open, the list keys go to the edit until enter or esc
+	saving   bool // enter was pressed and the hook has not answered, a second enter must not start a second write
 	editKey  string
 	input    textinput.Model
 	choices  []string // the open choice row's values, nil while a text row is open
@@ -223,14 +224,23 @@ func (s settingsModel) editBindings() []key.Binding {
 }
 
 func (s settingsModel) endEdit() settingsModel {
-	s.editing, s.choices = false, nil
+	s.editing, s.saving, s.choices = false, false, nil
 	s.input.Blur()
+	return s
+}
+
+// saveFailed frees the open row for the next try after the hook refused the value.
+func (s settingsModel) saveFailed() settingsModel {
+	s.saving = false
 	return s
 }
 
 // updateEdit has the keys while a row is open: enter saves, esc cancels, left and right pick on a choice row, everything else types into the field.
 func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 	switch {
+	case s.saving:
+		// The hook answers within the moment, the row holds its value and its keys until it does.
+		return s, nil
 	case key.Matches(msg, s.keys.Back):
 		return s.endEdit(), nil
 	case key.Matches(msg, s.keys.Enter):
@@ -238,6 +248,7 @@ func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		if err != nil {
 			return s, intent(toastMsg{text: err.Error(), isErr: true})
 		}
+		s.saving = true
 		return s, intent(setConfigMsg{key: s.editKey, value: value})
 	case s.choices != nil:
 		switch {
@@ -302,7 +313,13 @@ func (s settingsModel) View(th Theme, width, height int) string {
 		case s.editing && i == s.cursor && s.choices != nil:
 			hint, value = "left and right pick, enter saves, esc cancels", s.choices[s.choice]
 		case s.editing && i == s.cursor:
-			hint, value = "enter saves, esc cancels", s.input.View()
+			hint = "enter saves, esc cancels"
+			// The field takes the room the row has after the label, so the cursor stays on screen on a narrow terminal.
+			// The cursor is set again because the field scrolls only when the cursor moves, not when its width changes.
+			in := s.input
+			in.Width = max(width-2-len(hint)-2-31-1, 10) // the label column, a space, and the cursor cell after the text
+			in.SetCursor(in.Position())
+			value = in.View()
 		}
 		line := fmt.Sprintf("%-30s %s", row.label, value)
 		line = ansi.Truncate(line, max(width-2-len(hint)-2, 10), "...")

@@ -144,6 +144,11 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 	if strings.TrimSpace(m.status.toast) != "poll_interval 5s is below 10s" || !m.status.toastErr {
 		t.Errorf("toast = %q (err %v), want the loader's words without the file as an error", m.status.toast, m.status.toastErr)
 	}
+	// The refusal frees the row for the next try.
+	m.settings = withText(m.settings, "30s")
+	if _, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter}); len(collect(cmd)) != 1 {
+		t.Error("enter after a refused save sent nothing, the row is still waiting on the first save")
+	}
 }
 
 func TestSaveToastsSayWhatHappensNext(t *testing.T) {

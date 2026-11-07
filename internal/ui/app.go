@@ -292,6 +292,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.status.show(text, false)
 	case configSaveFailedMsg:
+		m.settings = m.settings.saveFailed()
 		// The loader names the file first, the footer of the screen does that already and the bar would cut the reason off.
 		return m, m.status.show(strings.TrimPrefix(msg.err.Error(), "reading "+m.opts.ConfigFile+": "), true)
 	case WentOfflineMsg:

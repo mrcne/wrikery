@@ -308,7 +308,7 @@ The app follows the XDG base directory convention on both macOS and Linux , beca
 - config: `~/.config/wrikery/config.toml`, read at start and edited one key at a time from the settings screen.
   The key's line is replaced, or added to its table, and every other line stays as it is, so the comments survive.
   The new text is checked by the loader in a temporary file beside the config before a rename replaces it.
-  A key written in a form the line edit cannot handle, twice, as a dotted key, in an inline table or over several lines, is refused and named for a change by hand.
+  A key written in a form the line edit cannot handle, twice, as a dotted key, in an inline table, over several lines or under an array of tables, is refused and named for a change by hand.
   A symbolic link is followed, the target is written and the link stays.
 - database: `~/.local/share/wrikery/wrike.db`, cache and outbox in one file, deleting it resets the cache
 - logs: `~/.local/state/wrikery/wrikery.log`, the previous run's log is kept as `wrikery.log.1`, two instances at once share the name and the first one's later lines end up in the `.1` file.

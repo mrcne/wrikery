@@ -351,3 +351,28 @@ func TestSettingsFooterSaysEnterEdits(t *testing.T) {
 		t.Errorf("without the hook the footer should say the file is read at start:\n%s", view)
 	}
 }
+
+// On a narrow terminal the field takes the room the row has, so the cursor and the end of a long value stay on screen.
+func TestSettingsFieldFitsTheRowOnANarrowTerminal(t *testing.T) {
+	s := testSettings()
+	s.cfg.UI.HidePrefixes = []string{"(MX)", "(TX)", "(AX)", "(BX)", "(CX)", "(DX)", "(EX)", "(FX)", "(GX)"}
+	s = rowAt(t, s, "Hidden title prefixes")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 80, 30); !strings.Contains(view, "(GX)") {
+		t.Errorf("the end of the field, where the cursor is, is off screen at 80 columns:\n%s", view)
+	}
+}
+
+// Two enters in a row must not start two writes of the file, the second waits for the first answer.
+func TestSettingsSecondEnterWhileSavingSendsNothing(t *testing.T) {
+	s := rowAt(t, testSettings(), "Check Wrike every")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); len(msgs) != 1 {
+		t.Fatalf("the first enter sent %#v", msgs)
+	}
+	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if msgs := collect(cmd); msgs != nil || !s.editing {
+		t.Errorf("the second enter sent %#v with editing %v, want nothing while the save runs", msgs, s.editing)
+	}
+}
