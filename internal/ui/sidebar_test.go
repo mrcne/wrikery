@@ -592,3 +592,61 @@ func TestSidebarSetSizeKeepsTheCursorOnScreen(t *testing.T) {
 		t.Errorf("cursor %d is outside the window at offset %d with %d rows", s.cursor, s.offset, rows)
 	}
 }
+
+// A folder can be moved under another parent on Wrike between two syncs.
+// The reload finds the selected folder under a collapsed parent and opens the way to it,
+// a fallback to the parent would reload the list and the pane under the user.
+func TestTreeReplacementOpensTheWayToTheSelectedNode(t *testing.T) {
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(sampleNodes(), nil)
+	if !s.selectByID("P1") {
+		t.Fatal("API should be visible under the expanded Platform")
+	}
+	// API moved under Infra, which is collapsed.
+	s.setTree([]treeNode{
+		{id: "me", title: "My tasks", kind: nodeMe, count: 12},
+		{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2}, expanded: true},
+		{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3, 4}},
+		{id: "P1", title: "API", kind: nodeProject, depth: 2, statusGroup: "Active"},
+		{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+		{id: "S2", title: "Mobile", kind: nodeSpace, children: []int{6}},
+		{id: "P2", title: "Android app", kind: nodeProject, depth: 1, statusGroup: "Active"},
+		{id: "F9", title: "Archive", kind: nodeFolder},
+	}, nil)
+	if n, _ := s.current(); n.id != "P1" {
+		t.Errorf("cursor on %s after API moved under the collapsed Infra, want API", n.id)
+	}
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "P1", "F2", "S2", "F9"}) {
+		t.Errorf("visible = %v, want Infra opened", got)
+	}
+}
+
+// A folder with two parents is a node under each. The one opened before a reload is the one open after it,
+// not whichever node of the id comes last in the tree.
+func TestTreeReplacementKeepsTheOpenedRowOfAFolderWithTwoParents(t *testing.T) {
+	twoParents := func() []treeNode {
+		return []treeNode{
+			{id: "me", title: "My tasks", kind: nodeMe},
+			{id: "S1", title: "Platform", kind: nodeSpace, children: []int{2, 4}, expanded: true},
+			{id: "F1", title: "Infra", kind: nodeFolder, depth: 1, children: []int{3}},
+			{id: "F2", title: "On-call", kind: nodeFolder, depth: 2},
+			{id: "F3", title: "Shared", kind: nodeFolder, depth: 1, children: []int{5}},
+			{id: "F1", title: "Infra", kind: nodeFolder, depth: 2, children: []int{6}},
+			{id: "F2", title: "On-call", kind: nodeFolder, depth: 3},
+		}
+	}
+	s := newSidebar(defaultKeyMap(), nil)
+	s.setTree(twoParents(), nil)
+	s.selectByID("F1")
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2", "F3"}) {
+		t.Fatalf("visible after opening Infra under Platform = %v", got)
+	}
+	s.setTree(twoParents(), nil)
+	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2", "F3"}) {
+		t.Errorf("visible after the reload = %v, want the same rows", got)
+	}
+	if n, _ := s.current(); n.id != "F1" || s.visible[s.cursor] != 2 {
+		t.Errorf("cursor on %s at node %d, want Infra under Platform", n.id, s.visible[s.cursor])
+	}
+}

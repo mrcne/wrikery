@@ -373,14 +373,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 	case treeLoadedMsg:
+		before, had := m.sidebar.current()
 		m.sidebar.setTree(msg.nodes, msg.pins)
 		m.list.folders = newFolderIndex(msg.nodes)
 		m.list.regroup()
 		m.syncPaneSizes()
-		if n, ok := m.sidebar.current(); ok {
-			return m, intent(nodeSelectedMsg{node: n})
+		n, ok := m.sidebar.current()
+		if !ok {
+			return m, nil
 		}
-		return m, nil
+		if had && n.id != before.id {
+			// The node left the tree and the cursor fell to the nearest parent still in it, see reselect.
+			// That move is the reload's, not the user's: the list shows the parent, the pane keeps its task, and the bar says what moved.
+			// A user who thinks a key goes to the task they opened must never find it went to another one.
+			m.selectedNode = n
+			text := displayTitle(before.title, m.theme.HidePrefixes) + " left the sidebar, the list shows " + displayTitle(n.title, m.theme.HidePrefixes)
+			return m, tea.Batch(m.loadTasksUnasked(n), intent(toastMsg{text: text}))
+		}
+		return m, intent(nodeSelectedMsg{node: n})
 	case focusMsg:
 		if m.screen == screenTimesheet {
 			// The detail pane names the list on h, beside the grid that means the grid.
@@ -411,13 +421,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.nodeID != m.selectedNode.id {
 			return m, nil
 		}
-		// The pane follows the row under the cursor when the list moves to another node, when the load names a row
+		// The pane follows the row under the cursor when the user moves the list to another node, when the load names a row
 		// to land on (a create), and when the selected task was among the rows before, so a task that left the folder
 		// or got its real id after a swap is not shown on.
 		// A task the rows did not hold is one a jump brought in from outside the folder on screen, and the reloads
 		// after a sync or an outbox change leave it in the pane, only a move to the list or the board replaces it (afterFocus).
-		follow := m.selectedTaskID == "" || msg.nodeID != m.list.nodeID || msg.lift || m.list.has(m.selectedTaskID)
-		if m.list.nodeID != msg.nodeID && msg.selectID == "" {
+		// A move to another node that a reload made by itself is not the user's, the pane keeps its task, see treeLoadedMsg:
+		// the rows land on that task when they hold it and nothing changes, else the cursor goes to the top on its own.
+		follow := m.selectedTaskID == "" || !msg.unasked && (msg.nodeID != m.list.nodeID || msg.lift || m.list.has(m.selectedTaskID))
+		if m.list.nodeID != msg.nodeID && (msg.selectID == "" || msg.unasked) {
 			m.list.cursor = 0
 		}
 		found := m.list.setRows(msg.nodeID, msg.crumb, msg.tasks, msg.states, msg.selectID, msg.lift)
@@ -430,7 +442,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.board.fit(&m.list, m.theme.HidePrefixes)
 		}
 		// The list reloads behind the timesheet after every drain and every sync, its row must not replace the pane's task.
-		if m.paneBesideGrid() || !follow {
+		if m.paneBesideGrid() {
+			return m, nil
+		}
+		if !follow {
+			if msg.unasked && !found && m.focus != paneDetail {
+				// The pane holds a task the rows do not, as after a jump from outside the tree, and the open and copy keys act on
+				// the row under the cursor unless the pane has them, so they go to the pane. The way back to the list puts its row in the pane.
+				// Not through focusMsg: nothing was opened, so the task is not marked opened and its thread is not asked for again.
+				m.focus = paneDetail
+				m.syncPaneSizes()
+			}
 			return m, nil
 		}
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {

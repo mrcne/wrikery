@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -75,16 +76,17 @@ func newSidebar(keys KeyMap, hide []string) sidebarModel {
 }
 
 // setTree replaces the nodes, and the pins when the load carried them, with one rebuild for both.
-// Expansion state and the selection are kept by id across the reload.
+// Expansion state and the selection are kept across the reload by the path of ids down to the node,
+// a folder with two parents is a node under each and only the one the user opened stays open.
 // The toggle counts only with a pin the tree can show, otherwise the pane would hold My tasks alone.
 func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 	chain := s.ancestry()
 	expanded := map[string]bool{}
-	for _, n := range s.nodes {
-		expanded[n.id] = n.expanded
+	for i, key := range pathKeys(s.nodes) {
+		expanded[key] = s.nodes[i].expanded
 	}
-	for i := range nodes {
-		if was, ok := expanded[nodes[i].id]; ok {
+	for i, key := range pathKeys(nodes) {
+		if was, ok := expanded[key]; ok {
 			nodes[i].expanded = was
 		}
 	}
@@ -105,6 +107,21 @@ func (s *sidebarModel) setTree(nodes []treeNode, pins *pinState) {
 		s.selectByID(store.ScopeKindMe)
 	}
 	s.scroll()
+}
+
+// pathKeys names every node by the ids from its root down to it.
+// A parent comes before its children in nodes, so one pass forward reaches every child with its parent's key set.
+func pathKeys(nodes []treeNode) []string {
+	keys := make([]string, len(nodes))
+	for i, n := range nodes {
+		if keys[i] == "" {
+			keys[i] = n.id
+		}
+		for _, c := range n.children {
+			keys[c] = keys[i] + "/" + nodes[c].id
+		}
+	}
+	return keys
 }
 
 // setSize hands the pane size down. The input gets the width so it scrolls a long query instead of running out of the pane.
@@ -184,24 +201,62 @@ func (s *sidebarModel) rebuildKeeping() {
 
 // ancestry is the selected node and its parents, nearest first, as the tree stands now.
 // It is taken before a rebuild, the parents of a node that leaves the tree cannot be looked up afterwards.
+// It starts from the node under the cursor and not from the id, a folder with two parents is a node under each.
 func (s sidebarModel) ancestry() []string {
 	n, ok := s.current()
 	if !ok {
 		return nil
 	}
-	chain := []string{n.id}
-	for p := s.parentOf(s.indexOf(n.id)); p >= 0; p = s.parentOf(p) {
-		chain = append(chain, s.nodes[p].id)
-	}
-	return chain
+	return append([]string{n.id}, s.parentIDs(s.visible[s.cursor])...)
 }
 
-// reselect puts the cursor back on the node selected before a rebuild, or on its nearest ancestor still drawn, and reports which.
+// parentIDs is the ids above a node, nearest first.
+func (s sidebarModel) parentIDs(idx int) []string {
+	var ids []string
+	for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
+		ids = append(ids, s.nodes[p].id)
+	}
+	return ids
+}
+
+// nodeUnder is the node of id under the parents given, nearest first, else the first node of id, else -1.
+// A folder with two parents is two nodes, and the one the cursor was on is the one to go back to.
+func (s sidebarModel) nodeUnder(id string, parents []string) int {
+	first := -1
+	for i, n := range s.nodes {
+		if n.id != id {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		if slices.Equal(s.parentIDs(i), parents) {
+			return i
+		}
+	}
+	return first
+}
+
+// reselect puts the cursor back on the node selected before a rebuild, else on its nearest ancestor still in the tree, and reports which.
+// A node still in the tree but behind a collapsed parent gets the way to it opened, a reload must not move the cursor
+// off a folder the user is in, the list and the detail pane would follow.
+// One hidden by the pinned view or the filter is left alone, the view hides it on purpose, and the cursor goes to the parent.
 // With none of them left it keeps the cursor at the same height clamped to the rows that are left,
 // so a vanished row does not throw the selection to the top.
 func (s *sidebarModel) reselect(chain []string) bool {
-	for _, id := range chain {
-		if s.selectByID(id) {
+	for k, id := range chain {
+		idx := s.nodeUnder(id, chain[k+1:])
+		if idx < 0 {
+			continue
+		}
+		if s.selectNode(idx) {
+			return true
+		}
+		for p := s.parentOf(idx); p >= 0; p = s.parentOf(p) {
+			s.nodes[p].expanded = true
+		}
+		s.rebuild()
+		if s.selectNode(idx) {
 			return true
 		}
 	}
@@ -316,6 +371,14 @@ func (s *sidebarModel) selectByID(id string) bool {
 			s.cursor = vi
 			return true
 		}
+	}
+	return false
+}
+
+func (s *sidebarModel) selectNode(idx int) bool {
+	if vi := slices.Index(s.visible, idx); vi >= 0 {
+		s.cursor = vi
+		return true
 	}
 	return false
 }

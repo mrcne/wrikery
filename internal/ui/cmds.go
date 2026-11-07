@@ -279,6 +279,21 @@ func (m Model) loadTasks(node treeNode, crumb, selectID string, lift bool) tea.C
 	}
 }
 
+// loadTasksUnasked reads the rows of a node a reload moved the sidebar to by itself, see treeLoadedMsg.
+// The rows land on the pane's task when they hold it, a parent lists the tasks of its subtree, and the pane keeps
+// its task either way, which the flag on the answer tells tasksLoadedMsg.
+func (m Model) loadTasksUnasked(node treeNode) tea.Cmd {
+	load := m.loadTasks(node, m.sidebar.crumb(node), m.selectedTaskID, false)
+	return func() tea.Msg {
+		msg := load()
+		if loaded, ok := msg.(tasksLoadedMsg); ok {
+			loaded.unasked = true
+			return loaded
+		}
+		return msg
+	}
+}
+
 // loadTask reads one task and its thread. It runs on every cursor move, so it only reads.
 // Recording that a task was opened is markOpened's job.
 func (m Model) loadTask(id string) tea.Cmd {
