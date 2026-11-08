@@ -296,3 +296,24 @@ func TestLoadChangesTakesANilFolderMap(t *testing.T) {
 		t.Errorf("rows %+v, err %v", rows, err)
 	}
 }
+
+// A command's write names its source after the time, cli for a person's command and the word an agent set, the interface's own rows carry nothing.
+func TestChangesViewNamesTheSourceOfACommandWrite(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	m := changesModel{height: 8}
+	m.set([]Change{
+		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z", Source: "codex"}, Title: "By an agent", Summary: "status  -> Done"},
+		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T09:00:00Z", Source: store.SourceTUI}, Title: "By hand", Summary: "status  -> Done"},
+		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T08:00:00Z"}, Title: "From before the column", Summary: "status  -> Done"},
+	})
+	out := m.View(th, now, 100, 8, false)
+	if !strings.Contains(out, "2 h ago  codex") || strings.Contains(out, "tui") {
+		t.Errorf("view:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "From before the column") && !strings.HasSuffix(strings.TrimRight(line, " "), "4 h ago") {
+			t.Errorf("a row without a source carries a tag:\n%s", line)
+		}
+	}
+}

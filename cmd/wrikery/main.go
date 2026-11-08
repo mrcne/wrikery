@@ -306,9 +306,9 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
-	if cli.IsHelp(args) {
-		// Help at any level prints from the command table alone, so it must not create the data directory,
-		// open the store or read the token, and a broken config file must not stop it.
+	if cli.Standalone(args) {
+		// Help at any level and the skill print from the binary alone, so they must not create the data directory,
+		// open the store or read the token, and a broken config file or a bad WRIKERY_SOURCE must not stop them.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	// The profile starts before the store opens, so it covers the migrations a large cache may run.
@@ -349,13 +349,18 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 	}
 	cfg.UI = resolveTheme(cfg.UI, terminal)
 
+	source, err := cli.SourceWord(os.Getenv(cli.EnvSource))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		return 2
+	}
 	st, err := store.Open(paths.DBFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		return 1
 	}
 	defer func() { _ = st.Close() }()
-	st.Source = store.SourceCLI
+	st.Source = source
 	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.

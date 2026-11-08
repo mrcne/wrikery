@@ -20,7 +20,7 @@ var cmdChanges = Command{
 	Notes: "Lists the writes made through Wrikery from this machine, what the changes screen shows: the writes still queued or failed first, in the order they are sent, then the ones sent or discarded in the last 30 days, newest first.\n" +
 		"A row names the task, the field with its old and new value, the state and whether the interface or a command made it, and a second line carries the values in full or the error Wrike returned.\n" +
 		"In JSON the stored values stand next to the text, with ids where the text has names, before and payload as the outbox keeps them, in Wrike's own field names.\n" +
-		"--source keeps the rows of one source, tui for the interface or cli for a command, and --limit N stops after N rows, the queue first, so a script reads what it needs.",
+		"--source keeps the rows of one source, tui for the interface, cli for a command or the word WRIKERY_SOURCE gave an agent's commands, and --limit N stops after N rows, the queue first, so a script reads what it needs.",
 	Flags: func() *flag.FlagSet { return new(changesOpts).flagSet() },
 }
 
@@ -32,7 +32,7 @@ type changesOpts struct {
 
 func (o *changesOpts) flagSet() *flag.FlagSet {
 	fs := jsonFlagSet("changes", &o.json)
-	fs.StringVar(&o.source, "source", "", "only the rows of this source `WORD`, tui or cli")
+	fs.StringVar(&o.source, "source", "", "only the rows of this source `WORD`, tui, cli or an agent's word")
 	fs.IntVar(&o.limit, "limit", 0, "stop after `N` rows, the queue first")
 	return fs
 }

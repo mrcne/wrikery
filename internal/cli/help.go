@@ -34,6 +34,7 @@ func Commands() []Command {
 		cmdSync, cmdChanges,
 		cmdTaskList, cmdTaskShow, cmdTaskStatus, cmdTaskCreate, cmdTaskEdit, cmdTaskComment, cmdTaskAssign, cmdTaskUnassign, cmdTaskMove,
 		cmdUIFilter, cmdUISelect, cmdUIFolder, cmdUIList, cmdUIBoard, cmdUIOpen, cmdUIRefresh,
+		cmdSkill,
 	}
 }
 
@@ -134,6 +135,7 @@ A task may also be the number or the link from the browser, a bare number is alw
 A person is me, a contact id or a part of a name that matches exactly one contact.
 A description is markdown, the text the E editor in the interface writes.
 The ui commands act on the interface that is running and print what it did, wrikery --demo ui ... drives a demo.
+WRIKERY_SOURCE in the environment names the source of a command's writes on the changes screen, cli by default, a word of up to 24 letters, digits and hyphens, an agent sets its own name.
 Every command takes --json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 `
 
@@ -181,6 +183,11 @@ func helpArgs(words []string) []string {
 // isHelpWord matches the word help and the three spellings of the flag the flag package answers with ErrHelp.
 func isHelpWord(s string) bool {
 	return s == "help" || s == "-h" || s == "-help" || s == "--help"
+}
+
+// Standalone says whether args run from the binary alone, help at any level or the skill, so main skips the config, the store and the sign in.
+func Standalone(args []string) bool {
+	return IsHelp(args) || len(args) > 0 && args[0] == cmdSkill.Name
 }
 
 // IsHelp says whether args ask for help at some level, so main can skip the setup a command needs:

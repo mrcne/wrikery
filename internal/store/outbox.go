@@ -82,7 +82,7 @@ type OutboxRow struct {
 	Before        []byte // the values the write replaced, in the payload's shape, empty when it replaced nothing
 	TaskID        string // the task the write belongs to, the local id of a create until it lands, empty when unknown
 	TaskTitle     string // the title at enqueue, a fallback when the task has left the cache
-	Source        string // SourceTUI or SourceCLI
+	Source        string // SourceTUI, SourceCLI or the word WRIKERY_SOURCE gave a command, an agent's name for example
 	State         OutboxState
 	Attempts      int
 	LastError     string

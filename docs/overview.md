@@ -220,7 +220,7 @@ A task edit whose field someone changed on Wrike since it was queued is held the
 On a held edit `r` sends it anyway and `x` drops it.
 In offline mode `r` does nothing, there is nothing to send with yet, `x` discards as always, and a write a send failed on in an earlier session reads `queued`.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
-A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
+A write made by a command carries a `cli` tag, or the word the command found in `WRIKERY_SOURCE`, an agent's own name, so a change an agent made is told from one made here.
 The same list prints from the command line with `wrikery changes`.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
@@ -375,11 +375,12 @@ On an account whose plan has no Effort field the first read answers 403, the app
 ### Commands
 
 `wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
-The commands are `sync`, `changes`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and the `ui` commands below.
+The commands are `sync`, `changes`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign`, `task move` and `skill`, and the `ui` commands below.
 `wrikery help` prints the same page as `wrikery --help`, every command with its one line and the global flags, `wrikery help task` or `wrikery help ui` prints a group, and `wrikery help <command>` prints one command with its flags, the text `<command> --help` prints.
 `man wrikery` is the manual, with the commands, their flags and the keys of the interface, installed by the Homebrew cask and carried in the release archive.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
+A command run with `WRIKERY_SOURCE` in its environment, a word of up to 24 letters, digits and hyphens, puts that word on the row instead, so an AI agent that sets its own name is told from the person's own commands, and a value that is not a word stops the command with exit 2.
 `wrikery changes` prints what the changes screen shows, the queue first and then the last thirty days, each row with the task, the field with its old and new value, the state and whether the interface or a command made it, so an agent can check what it did before it goes on.
 In JSON the stored values stand next to the text, with ids where the text has names, `before` and `payload` as the outbox keeps them in Wrike's own field names, which can change between versions where the other keys do not.
 `--source` keeps the rows of one source and `--limit N` the first N rows, the queue first, and on a terminal a line is cut to the width.
@@ -423,3 +424,7 @@ A person is `me`, `unassigned`, a contact id or a part of a name, a status is ch
 With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.
 `wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.
+
+`wrikery skill` prints the skill that tells an AI agent how to work with Wrike through these commands, a short file in the Agent Skills format the coding agents read, https://agentskills.io: when to use the commands, how a task is named, the rules a script follows, what exit 3 and a rejected token mean, what the commands cannot do, with the JSON fields in a reference file next to it.
+`wrikery skill install` writes the folder under `~/.claude/skills` and `~/.agents/skills`, the directories Claude Code and the other coding agents read, `--project` puts it under the working directory for one repository and `--dir` under one directory of choice, and it connects to nothing.
+The same folder is in the repository under `skills/wrikery`, so `gh skill install mrcne/wrikery` and `npx skills add mrcne/wrikery` install it as well, pinned to a release tag.

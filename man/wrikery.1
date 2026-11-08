@@ -50,6 +50,7 @@ A task may also be the number or the link from the browser, a bare number is alw
 A person is me, a contact id or a part of a name that matches exactly one contact.
 A description is markdown, the text the E editor in the interface writes.
 The ui commands act on the interface that is running and print what it did, wrikery \-\-demo ui ... drives a demo.
+WRIKERY_SOURCE in the environment names the source of a command's writes on the changes screen, cli by default, a word of up to 24 letters, digits and hyphens, an agent sets its own name.
 Every command takes \-\-json. Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 .SS sync
 .B "wrikery sync [\-\-full]"
@@ -70,7 +71,7 @@ print JSON
 Lists the writes made through Wrikery from this machine, what the changes screen shows: the writes still queued or failed first, in the order they are sent, then the ones sent or discarded in the last 30 days, newest first.
 A row names the task, the field with its old and new value, the state and whether the interface or a command made it, and a second line carries the values in full or the error Wrike returned.
 In JSON the stored values stand next to the text, with ids where the text has names, before and payload as the outbox keeps them, in Wrike's own field names.
-\-\-source keeps the rows of one source, tui for the interface or cli for a command, and \-\-limit N stops after N rows, the queue first, so a script reads what it needs.
+\-\-source keeps the rows of one source, tui for the interface, cli for a command or the word WRIKERY_SOURCE gave an agent's commands, and \-\-limit N stops after N rows, the queue first, so a script reads what it needs.
 .RS
 .TP
 .B \-\-json
@@ -80,7 +81,7 @@ print JSON
 stop after N rows, the queue first
 .TP
 .BI "\-\-source " WORD
-only the rows of this source WORD, tui or cli
+only the rows of this source WORD, tui, cli or an agent's word
 .RE
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.
@@ -288,6 +289,26 @@ Runs a sync cycle in the interface that is running, what R does there.
 .TP
 .B \-\-json
 print JSON
+.RE
+.SS skill
+.B "wrikery skill"
+.br
+.B "wrikery skill install [\-\-project | \-\-dir DIR]"
+.PP
+Prints SKILL.md, the skill that tells an AI agent how to work with Wrike through wrikery, in the Agent Skills format, and \-\-json prints every file of the skill folder.
+install writes the folder, the reference file included, under ~/.claude/skills and ~/.agents/skills, the two directories the coding agents read, \-\-project puts it under the working directory instead and \-\-dir DIR under one directory of your choice, and a file an older skill left there goes.
+The folder is in the repository as well, so gh skill install mrcne/wrikery and npx skills add mrcne/wrikery install it too.
+Neither form reads the config or the cache or talks to Wrike.
+.RS
+.TP
+.BI "\-\-dir " DIR
+install under the skills directory DIR alone
+.TP
+.B \-\-json
+print JSON
+.TP
+.B \-\-project
+install under the working directory, for one repository
 .RE
 .SH KEYS
 The ? key shows the bindings of the current screen.
@@ -605,6 +626,10 @@ The next sync sends it, from the interface or from wrikery sync.
 A permanent API token that overrides the stored sign in, keychain and files both.
 A command run with it compares its account with the one the cache was built from and refuses another.
 .TP
+.B WRIKERY_SOURCE
+The source a command's writes carry on the changes screen and in wrikery changes, cli when unset.
+A word of up to 24 letters, digits and hyphens, an agent sets its own name so its writes are told from yours.
+.TP
 .B NO_COLOR
 Plain output without colors, what \-\-no\-color does.
 .TP
@@ -663,6 +688,7 @@ wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog
 wrikery ui filter \-\-importance High \-\-person me # narrow the interface that is running
 wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills
 .fi
 .SH SEE ALSO
 The project page, https://github.com/mrcne/wrikery, with the product description in docs/overview.md and the technical design in docs/architecture.md.

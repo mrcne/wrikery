@@ -250,11 +250,7 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 		return reportFate(env, out, t.ID, asJSON)
 	}
 	if asJSON {
-		type result struct {
-			taskJSON
-			Sent bool `json:"sent"`
-		}
-		if code := printJSON(env, result{taskJSON: taskRow(ctx, env, t, ref), Sent: out == sent}); code != exitOK {
+		if code := printJSON(env, writeJSON{taskJSON: taskRow(ctx, env, t, ref), Sent: out == sent}); code != exitOK {
 			return code
 		}
 		if out == queued {
@@ -270,16 +266,36 @@ func reportWrite(ctx context.Context, env Env, out outcome, reason string, asJSO
 	return exitOK
 }
 
+// The JSON answers of a write: the task read back with sent, the comment as well after task comment,
+// unchanged when nothing was sent, and the id alone when the task could not be read back.
+type writeJSON struct {
+	taskJSON
+	Sent bool `json:"sent"`
+}
+
+type fateJSON struct {
+	ID       string `json:"id"`
+	Sent     bool   `json:"sent"`
+	ReadBack bool   `json:"read_back"`
+}
+
+type unchangedJSON struct {
+	taskJSON
+	Sent      bool `json:"sent"`
+	Unchanged bool `json:"unchanged"`
+}
+
+type commentResultJSON struct {
+	taskJSON
+	Comment commentJSON `json:"comment"`
+	Sent    bool        `json:"sent"`
+}
+
 // reportFate prints what is known when the task cannot be read back: the id and whether the write reached Wrike.
 // After a create the id is still the local one, the server's is in the row the read failed on, and the word sent is right all the same.
 func reportFate(env Env, out outcome, id string, asJSON bool) int {
 	if asJSON {
-		type fate struct {
-			ID       string `json:"id"`
-			Sent     bool   `json:"sent"`
-			ReadBack bool   `json:"read_back"`
-		}
-		if code := printJSON(env, fate{ID: id, Sent: out == sent}); code != exitOK {
+		if code := printJSON(env, fateJSON{ID: id, Sent: out == sent}); code != exitOK {
 			return code
 		}
 	} else {
@@ -367,12 +383,7 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 // the task is in the folder already, or every field is as it was. Nothing is queued, so the exit is 0.
 func reportUnchanged(ctx context.Context, env Env, t store.Task, ref *refData, asJSON bool, line string) int {
 	if asJSON {
-		type unchanged struct {
-			taskJSON
-			Sent      bool `json:"sent"`
-			Unchanged bool `json:"unchanged"`
-		}
-		return printJSON(env, unchanged{taskJSON: taskRow(ctx, env, t, ref), Unchanged: true})
+		return printJSON(env, unchangedJSON{taskJSON: taskRow(ctx, env, t, ref), Unchanged: true})
 	}
 	_, _ = fmt.Fprintf(env.Stdout, "unchanged: %s  %s\n", t.Title, line)
 	return exitOK

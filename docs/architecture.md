@@ -6,7 +6,7 @@ A sync engine runs in the background, keeps that database up to date with Wrike 
 
 ## Modules
 
-The code is split into six parts with strict boundaries, plus three small packages, the config, the lock file helper and the atomic file writer:
+The code is split into six parts with strict boundaries, plus four small packages, the config, the lock file helper, the atomic file writer and the embedded agent skill:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
   A request that ran into the rate limit is always retried.
@@ -31,6 +31,7 @@ The code is split into six parts with strict boundaries, plus three small packag
 - `internal/config` loads the TOML config file, edits one key of it for the settings screen, and resolves the paths listed at the end.
 - `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
 - `internal/atomicfile` writes a file through a temporary one that is synced and renamed into place, the config file and the token file go through it.
+- `skills` is the agent skill the repository ships under `skills/wrikery`, a package so that the `skill` command embeds the same files the skill installers read from the repository.
 
 Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
 
@@ -199,7 +200,7 @@ The conflict check compares the budget like the other fields and words a held ed
 A row is not deleted when it has been sent or discarded.
 It stays for thirty days, marked sent or discarded with the time, and the sweep that removes the older ones runs inside the transaction that completes or discards a row.
 The row also carries the values the write replaced, read in the enqueue transaction before its own update overwrites the cache row, which is the last moment they exist: the old title, description, status, importance or dates block of a task update, the old hours, day and note of a time entry edit, the whole entry for a delete, and the mirror of an assignee or folder change.
-It names the task it belongs to, with the title at the time, and the front end that queued it, the interface or a command.
+It names the task it belongs to, with the title at the time, and the front end that queued it, the interface or a command, or the word a command found in `WRIKERY_SOURCE`, an agent's own name.
 The changes screen and `wrikery changes` read these rows next to the queue through one list and describe them with one function, which lives in `internal/ui` with the other text the commands borrow from the interface.
 The queries that work the queue, the due pick, the blocker, the marks and the counts, filter on the three queue states and never see the history.
 
