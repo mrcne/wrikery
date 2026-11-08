@@ -30,10 +30,12 @@ flowchart LR
     store <--> syncer
     syncer <--> client
     client <--> api
+    cli -- "one drain pass, a cycle or a fetch" --> syncer
     cli -. "internal/control, a unix socket" .-> ui
 ```
 
-Data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
+The interface's data flows in one line: ui <-> store <-> syncer <-> `pkg/wrike` <-> Wrike API.
+A command reads and queues through the store the same way, and runs the engine itself for the one drain pass that sends its write, the cycle of `wrikery sync` or the fetch of a task the cache lacks.
 The code is split into six parts with strict boundaries, plus four small packages, the config, the lock file helper, the atomic file writer and the embedded agent skill:
 
 - `pkg/wrike` talks to the Wrike REST API v4: typed requests and responses, the auth header, a User-Agent that names the app and its version, paging, retries and rate limits.
@@ -147,7 +149,7 @@ The smaller tables:
   Each row remembers how far the last sync got.
   Unfollowing a scope clears that memory, so following it again later pulls it from the start instead of asking only for the changes since the day it was dropped.
 - pins lists the folders the sidebar can narrow itself to, local state that never goes to Wrike.
-- meta holds the inbox's seen marker, the arrival stamp of the newest row the user had on screen, and a row is unread when it arrived after the marker.
+- meta is the key value table: the cursors, the account record, the host, the user id, the pull field set, the Effort flag, the start of the timelog window, and the inbox's seen marker, the arrival stamp of the newest row the user had on screen, a row is unread when it arrived after the marker.
   Arrival and not creation, because comments do not enter the cache in creation order: a task cached late, a task the user starts following, or a thread read on an open brings comments older than what was seen already, and those must still show as unread.
   The marker only moves forward, a second interface on the cache with an older list cannot star rows again, and a move to another person forgets it.
 - outbox holds the queued writes, and for thirty days the sent and discarded ones, see [Sending changes back](#sending-changes-back).
@@ -158,7 +160,7 @@ The smaller tables:
 
 The first sync fetches everything in the followed scopes.
 After that the engine polls, every 60 seconds by default, and there is a key for a manual refresh.
-A cycle runs these steps in this order, and the interface is told after each step that changed something, with the kinds it changed:
+A cycle runs these steps in this order, and the interface is told after each step that changed something, with the kinds it changed, the reference step says so every time it runs:
 
 1. The account check, once per engine, see [The account record](#the-account-record).
 2. The drain of the outbox, oldest write first.
@@ -174,7 +176,8 @@ A cycle runs these steps in this order, and the interface is told after each ste
 
 ```mermaid
 flowchart TD
-    start(["a cycle: the poll timer, R or wrikery sync"]) --> drain["drain the outbox, oldest first"]
+    start(["a cycle: the poll timer, R or wrikery sync"]) --> home["the account check, once per engine"]
+    home --> drain["drain the outbox, oldest first"]
     drain --> ref["reference data<br>manual cycle or once an interval"]
     ref --> scopes["each followed scope<br>tasks whose updatedDate moved since the cursor"]
     scopes --> sweep["the sweep, manual cycle only<br>drop what no scope lists and no stamp keeps"]
@@ -191,7 +194,7 @@ flowchart TD
 
 A poll asks Wrike only for tasks whose updatedDate changed since the last sync.
 The task search API supports that filter directly, so a poll with nothing new costs one small request per scope.
-A change of the followed set asks the engine for a full cycle, the kind the refresh key asks for: a newly followed scope is pulled from the start, and the sweep at the end of such a cycle removes the tasks of an unfollowed scope, which is why a scope followed again later starts from scratch as well.
+A change of the followed set asks the engine for a full cycle, the kind the refresh key asks for: a newly followed scope is pulled from the start, and the sweep after the scope pulls of such a cycle removes the tasks of an unfollowed scope, which is why a scope followed again later starts from scratch as well.
 The task search also lists subtasks, including those with no folder of their own, and carries each task's super tasks, dependency ids and attachment count.
 A name added to the set of fields the pulls ask for makes the next cycle pull every followed scope from the start once, the way a new column does, so a cache built before the field has it on every task after one full pull.
 
@@ -224,7 +227,7 @@ Membership is what the contacts read answers for the group, whether a parent gro
 
 ### The per task reads
 
-An edit or a deletion of a comment comes with the per task read of a thread, the comments and the time entries of one task, which stamps the task with the updatedDate it had when the read started.
+An edit or a deletion, of a comment or of a time entry, comes with the per task read of a thread, the comments and the time entries of one task, which stamps the task with the updatedDate it had when the read started.
 That read answers at most 1000 comments of a task, takes no limit and has no paging, and a full answer leaves comments out, among the newest as well (checked on the live account with a thread of 1050).
 A full answer is therefore stored over what the cache holds and drops nothing, so the comments the account wide read brought stay, and a comment deleted on Wrike stays in such a thread too.
 A thread that had more than 1000 comments before its first read starts with the 1000 Wrike answers.
@@ -286,11 +289,14 @@ The UI shows the change at once, and the queue can never disagree with the cache
 
 ```mermaid
 stateDiagram-v2
+    state "in flight" as inflight
     [*] --> pending: a write, with the cache row changed in the same transaction
-    pending --> in_flight: a drain pass claims the row
-    in_flight --> sent: Wrike answered, the local row is swapped for the server's
-    in_flight --> pending: Wrike did not answer, or a 500 with a wait of its own
-    in_flight --> failed: Wrike rejected it, or a field moved on Wrike since the enqueue
+    pending --> inflight: a drain pass claims the row
+    inflight --> sent: Wrike answered, the local row is swapped for the server's
+    inflight --> pending: Wrike did not answer, or a 500 with a wait of its own
+    inflight --> pending: the next drain pass, when the process died mid-send
+    inflight --> failed: Wrike rejected it, or a field moved on Wrike since the enqueue
+    pending --> failed: held after a move to another account
     failed --> pending: r on the changes screen
     failed --> discarded: x on the changes screen
     pending --> discarded: x on the changes screen
@@ -423,13 +429,13 @@ A request that fails on the network or on Wrike's side shows the app as offline 
 A request Wrike rejects with a client error shows as a failing sync instead, the log line carries the request and the reason.
 Reads keep coming from the cache and writes keep going to the queue.
 The engine reconnects on its own, waiting longer between attempts each time (exponential backoff).
+A 401 is the exception: the client asks its token source once for a renewed token, a browser session refreshes and a permanent token has nothing to renew.
+A refresh Wrike refused pauses sync and asks for a new sign in, a refresh that could not run, the token endpoint unreachable for example, leaves the request to the retry with the session intact.
 
 The client's own retries: a request that ran into the rate limit is always retried.
 After a server or network error only GET, PUT and DELETE are retried, never a POST.
 The server may have applied the POST already, and a second attempt would create a duplicate comment or timelog.
 
-A 401 is the exception: the client asks its token source once for a renewed token, a browser session refreshes and a permanent token has nothing to renew.
-A refresh Wrike refused pauses sync and asks for a new sign in, a refresh that could not run, the token endpoint unreachable for example, leaves the request to the retry with the session intact.
 A scope that Wrike rejects, because access was revoked or the project was deleted, is skipped with a log line and the other scopes keep syncing.
 Logs go to a file through log/slog, never onto the screen.
 Every local change is a single SQLite transaction, so a crash cannot leave the cache half written.

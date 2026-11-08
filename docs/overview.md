@@ -119,7 +119,7 @@ The keys of the screens and the boxes are in their sections, these work on the m
 | `j` `k` `g` `G` | move, first and last row |
 | `ctrl+d` `ctrl+u` | half of the rows on screen down and up in the sidebar, the list and the task detail, page down and page up do the same |
 | `/` | filter the current list as you type |
-| `S` `ctrl+b` | hide the sidebar, bring it back |
+| `S` or `ctrl+b` | hide the sidebar or bring it back, `ctrl+b` not inside tmux |
 | `ctrl+f` | search over everything cached |
 | `.` | every action on the selected task, with its key |
 | `v` `b` | the grouping of the list, the board |
@@ -476,13 +476,13 @@ Enter on the pane goes to the task on the main screen with its folder selected, 
 
 | row | shows | enter |
 | --- | --- | --- |
+| Signed in with | a permanent token, or the browser with the app's client id, a row that is there once a sign in is stored | says that `wrikery --logout` signs out and the next start asks for a new sign in |
 | Followed spaces and projects | the followed set | opens the Follow box |
-| Check Wrike every, Start offline, Theme and the other config rows | the value the config file sets, with the key it has in the file | edits the value in place |
-| Wrike host | the data center | says it is set at the sign in, the row is read only |
-| Budget | where the budget comes from as the cache sees it: not set, the Effort field, with a note when the account has none, or the custom field with its type, with a note when the field is missing or of a type that cannot hold hours | says the budget is two keys with a sync behind them, the row is read only |
+| Check Wrike every, Start offline, Theme, Accent, ASCII glyphs, Hidden title prefixes, Branch name template, Log level | the value the config file sets, with the key it has in the file | edits the value in place |
+| Wrike host | the data center, detected or picked, or the one the config file sets | says that the data center is set at the sign in, that `wrikery --logout` and a new sign in change it, or `host` in the config file, and names the file when the key is set |
+| Budget | where the budget comes from as the cache sees it: not set, the Effort field, with a note when the account has none, or the custom field with its type, with a note when the field is missing or of a type that cannot hold hours | says to set `budget.source` in the config file and start the app again |
 | Sidebar | whether the pane is shown or hidden | flips it, the same as `S` on the main screen |
-| Ask before H and L | the answer to the question the first `H` or `L` asked | brings the question back |
-| Account | the sign in, a permanent token or the browser with the app's client id | nothing |
+| Ask before H and L | yes until a first `H` or `L` was confirmed, no from then on | flips it, so the question comes back or goes away |
 
 ### The Follow box
 

@@ -19,5 +19,6 @@ Read [docs/overview.md](docs/overview.md) for what the app does and does not do 
 - The manual page `man/wrikery.1` is generated from the code the same way, `go test ./cmd/wrikery -update` rewrites it.
 - A choice of technology or of a way of working goes through a decision record in [docs/adr/](docs/adr/), one file per decision, the existing records show the shape.
 - [docs/overview.md](docs/overview.md) describes what the app does and [docs/architecture.md](docs/architecture.md) how, keep both current when behavior changes.
-- The screenshots under `docs/img` are rendered from `wrikery --demo` in a terminal of 150 columns with the dark theme, one per screen, and a UI change that moves what they show needs new ones, halved to about 2700 pixels wide and under 300 KB each, a test checks the size.
+- The screenshots under `docs/img` come from `wrikery --demo` in a terminal of 150 columns with the dark theme, one per screen, halved to about 2700 pixels wide and under 300 KB each, which a test checks.
+  A UI change that moves what one of them shows: name the screen in the pull request, the maintainer renders the image again.
 - Comments explain why rather than what, and text in the repository stays plain ASCII.
