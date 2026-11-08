@@ -13,9 +13,9 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-var changesRef = refData{
-	contacts: map[string]store.Contact{"U1": {FirstName: "Ada", LastName: "Nowak"}, "U2": {FirstName: "Bartek", LastName: "Lis"}},
-	statuses: map[string]store.CustomStatus{"S1": {Name: "In Progress"}, "S2": {Name: "Done"}},
+var changesRef = ChangeNames{
+	Contacts: map[string]store.Contact{"U1": {FirstName: "Ada", LastName: "Nowak"}, "U2": {FirstName: "Bartek", LastName: "Lis"}},
+	Statuses: map[string]store.CustomStatus{"S1": {Name: "In Progress"}, "S2": {Name: "Done"}},
 }
 
 func TestDescribeWritesOldAndNew(t *testing.T) {
@@ -88,8 +88,8 @@ func TestStateText(t *testing.T) {
 		{store.OutboxRow{State: store.StateDiscarded, DoneAt: "2026-10-01T10:00:00Z"}, "discarded 1 Oct"},
 	}
 	for _, c := range cases {
-		if got := stateText(c.row, now, false); got != c.want {
-			t.Errorf("stateText(%s) = %q, want %q", c.row.State, got, c.want)
+		if got := StateText(c.row, now, false); got != c.want {
+			t.Errorf("StateText(%s) = %q, want %q", c.row.State, got, c.want)
 		}
 	}
 }
@@ -99,9 +99,9 @@ func TestChangesViewShowsTheErrorOrTheValuesUnderTheCursor(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	m := changesModel{height: 6}
-	m.set([]changeRow{
-		{row: store.OutboxRow{State: store.StateFailed, LastError: "wrike: 404 Task not found", CreatedAt: "2026-10-15T11:00:00Z"}, title: "Failed one", summary: "status  -> Done", detail: "status  -> Done"},
-		{row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z", Source: store.SourceCLI}, title: "Sent one", summary: "title  Short -> A much longer title t...", detail: "title  Short -> A much longer title than fits here"},
+	m.set([]Change{
+		{Row: store.OutboxRow{State: store.StateFailed, LastError: "wrike: 404 Task not found", CreatedAt: "2026-10-15T11:00:00Z"}, Title: "Failed one", Summary: "status  -> Done", Detail: "status  -> Done"},
+		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T10:00:00Z", Source: store.SourceCLI}, Title: "Sent one", Summary: "title  Short -> A much longer title t...", Detail: "title  Short -> A much longer title than fits here"},
 	})
 	out := m.View(th, now, 100, 6, false)
 	if !strings.Contains(out, "404 Task not found") || !strings.Contains(out, "Sent one") || !strings.Contains(out, "2 h ago  cli") {
@@ -117,7 +117,7 @@ func TestChangesViewShowsTheErrorOrTheValuesUnderTheCursor(t *testing.T) {
 // Retry and discard mean nothing on a row that went out or was dropped, the keys only say so.
 func TestRetryAndDiscardOnAHistoryRowOnlyWriteTheStatusLine(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 6}
-	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateSent}}, {row: store.OutboxRow{ID: 8, State: store.StateDiscarded}}})
+	m.set([]Change{{Row: store.OutboxRow{ID: 7, State: store.StateSent}}, {Row: store.OutboxRow{ID: 8, State: store.StateDiscarded}}})
 	for _, c := range []struct {
 		key  string
 		want string
@@ -137,7 +137,7 @@ func TestRetryAndDiscardOnAHistoryRowOnlyWriteTheStatusLine(t *testing.T) {
 
 func TestChangesKeysMoveByPageAndToTheEnds(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 5}
-	rows := make([]changeRow, 20)
+	rows := make([]Change, 20)
 	m.set(rows)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
 	if m.cursor != 19 || m.offset != 16 {
@@ -153,7 +153,7 @@ func TestChangesKeysMoveByPageAndToTheEnds(t *testing.T) {
 	}
 }
 
-// TestLoadChangesFallbackTitles covers the rows loadChanges cannot resolve through the cache: a task update whose task is gone,
+// TestLoadChangesFallbackTitles covers the rows LoadChanges cannot resolve through the cache: a task update whose task is gone,
 // a time entry delete whose entry was never cached, so no task is known at all, and a task that left the cache after the enqueue.
 func TestLoadChangesFallbackTitles(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "changes-fallback.db"))
@@ -187,22 +187,20 @@ func TestLoadChangesFallbackTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := New(Options{Store: st, Now: func() time.Time { return time.Now() }})
-	msg := m.loadChanges()()
-	loaded, ok := msg.(changesLoadedMsg)
-	if !ok {
-		t.Fatalf("loadChanges() = %#v, want changesLoadedMsg", msg)
+	rows, err := LoadChanges(ctx, st, ChangeNames{}, map[string]string{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(loaded.rows) != 3 {
-		t.Fatalf("rows = %+v, want 3", loaded.rows)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %+v, want 3", rows)
 	}
 	for i, want := range []string{"(task GHOSTTASK1)", "(time entry GHOSTLOG1)", "Was here"} {
-		if loaded.rows[i].title != want {
-			t.Errorf("row %d title = %q, want %q", i, loaded.rows[i].title, want)
+		if rows[i].Title != want {
+			t.Errorf("row %d title = %q, want %q", i, rows[i].Title, want)
 		}
 		// Enter has nowhere to go for any of the three, the task is not in the cache.
-		if loaded.rows[i].task.ID != "" {
-			t.Errorf("row %d task = %q, want none, the cache has no such task", i, loaded.rows[i].task.ID)
+		if rows[i].Task.ID != "" {
+			t.Errorf("row %d task = %q, want none, the cache has no such task", i, rows[i].Task.ID)
 		}
 	}
 }
@@ -210,7 +208,7 @@ func TestLoadChangesFallbackTitles(t *testing.T) {
 // A row being sent right now belongs to the engine, the keys say so instead of handing a stale count to the status bar.
 func TestRetryAndDiscardOnARowBeingSentOnlyWriteTheStatusLine(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 6}
-	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateInflight}}})
+	m.set([]Change{{Row: store.OutboxRow{ID: 7, State: store.StateInflight}}})
 	for _, k := range []string{"r", "x"} {
 		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
 		if msg, ok := cmd().(toastMsg); !ok || msg.text != "being sent right now" {
@@ -221,7 +219,7 @@ func TestRetryAndDiscardOnARowBeingSentOnlyWriteTheStatusLine(t *testing.T) {
 
 func TestEnterOnARowWithoutATaskSaysSo(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 6}
-	m.set([]changeRow{{row: store.OutboxRow{ID: 7, State: store.StateDiscarded}, title: "(task local:3)"}})
+	m.set([]Change{{Row: store.OutboxRow{ID: 7, State: store.StateDiscarded}, Title: "(task local:3)"}})
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter on a row without a task did nothing, want a status line")
@@ -259,7 +257,7 @@ func TestEnqueueWriteOpMapsNotFoundToAPlainToastWithTheCounts(t *testing.T) {
 }
 
 func TestDescribeWritesABudgetChange(t *testing.T) {
-	ref := refData{customFields: []store.CustomField{{ID: "CF1", Title: "Budget", Type: "Duration"}}}
+	ref := ChangeNames{CustomFields: []store.CustomField{{ID: "CF1", Title: "Budget", Type: "Duration"}}}
 	row := func(payload, before string) store.OutboxRow {
 		return store.OutboxRow{Kind: store.KindTaskUpdate, Payload: []byte(payload), Before: []byte(before)}
 	}
@@ -276,5 +274,25 @@ func TestDescribeWritesABudgetChange(t *testing.T) {
 		if summary != tc.want {
 			t.Errorf("%s: %q, want %q", name, summary, tc.want)
 		}
+	}
+}
+
+// The command passes no folder titles of its own, so a nil map must not stop a row with a folder change.
+func TestLoadChangesTakesANilFolderMap(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "changes-nil.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "One", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{AddParents: []string{"F1"}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := LoadChanges(ctx, st, ChangeNames{}, nil)
+	if err != nil || len(rows) != 1 || !strings.Contains(rows[0].Summary, "F1") {
+		t.Errorf("rows %+v, err %v", rows, err)
 	}
 }

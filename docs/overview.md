@@ -221,6 +221,7 @@ On a held edit `r` sends it anyway and `x` drops it.
 In offline mode `r` does nothing, there is nothing to send with yet, `x` discards as always, and a write a send failed on in an earlier session reads `queued`.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
 A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
+The same list prints from the command line with `wrikery changes`.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.
 
@@ -374,11 +375,14 @@ On an account whose plan has no Effort field the first read answers 403, the app
 ### Commands
 
 `wrikery` alone opens the interface, `wrikery <command>` runs one operation and exits.
-The commands are `sync`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and the `ui` commands below.
+The commands are `sync`, `changes`, `task list`, `task show`, `task status`, `task create`, `task edit`, `task comment`, `task assign`, `task unassign` and `task move`, and the `ui` commands below.
 `wrikery help` prints the same page as `wrikery --help`, every command with its one line and the global flags, `wrikery help task` or `wrikery help ui` prints a group, and `wrikery help <command>` prints one command with its flags, the text `<command> --help` prints.
 `man wrikery` is the manual, with the commands, their flags and the keys of the interface, installed by the Homebrew cask and carried in the release archive.
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
+`wrikery changes` prints what the changes screen shows, the queue first and then the last thirty days, each row with the task, the field with its old and new value, the state and whether the interface or a command made it, so an agent can check what it did before it goes on.
+In JSON the stored values stand next to the text, with ids where the text has names, `before` and `payload` as the outbox keeps them in Wrike's own field names, which can change between versions where the other keys do not.
+`--source` keeps the rows of one source and `--limit N` the first N rows, the queue first, and on a terminal a line is cut to the width.
 A read prints the cache and waits for the network only to fetch a task argument the cache lacks, or to read the comments and time entries of a task the cache never read, which `task show` does before it prints.
 In offline mode it prints what the cache holds and marks such a thread `not synced yet`, in JSON as `thread_synced`.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.

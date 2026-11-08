@@ -117,10 +117,10 @@ func TestOfflineModeKeepsQueuedAfterTheDetailIsBuiltAgain(t *testing.T) {
 func TestAFailedTryReadsQueuedInOfflineMode(t *testing.T) {
 	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
 	row := store.OutboxRow{State: store.StatePending, LastError: "context canceled", CreatedAt: "2026-10-23T10:00:00Z"}
-	if got := stateText(row, now, true); got != "queued" {
+	if got := StateText(row, now, true); got != "queued" {
 		t.Errorf("offline = %q, want queued", got)
 	}
-	if got := stateText(row, now, false); !strings.HasPrefix(got, "retrying") {
+	if got := StateText(row, now, false); !strings.HasPrefix(got, "retrying") {
 		t.Errorf("online = %q, want retrying", got)
 	}
 }
