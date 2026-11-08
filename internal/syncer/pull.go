@@ -154,7 +154,8 @@ func pullScope(ctx context.Context, c Client, st *store.Store, sc store.Scope, m
 // sweep deletes tasks that vanished from every followed scope.
 // It only ever prunes with the complete union, a partial one would delete live tasks and cascade their comments.
 // full holds the ids of the scopes pulled from scratch in this cycle, those are not crawled a second time.
-func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope, meID string, full map[string][]string) error {
+// It returns how many tasks it removed, so the cycle can tell the interface to re-read the tasks.
+func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope, meID string, full map[string][]string) (int64, error) {
 	var keep []string
 	for _, sc := range scopes {
 		if ids, ok := full[sc.ID]; ok {
@@ -165,7 +166,7 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 		for {
 			page, err := c.Tasks(ctx, p)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			for _, t := range page.Tasks {
 				keep = append(keep, t.ID)
@@ -176,8 +177,7 @@ func sweep(ctx context.Context, c Client, st *store.Store, scopes []store.Scope,
 			p.PageToken = page.NextPageToken
 		}
 	}
-	_, err := st.Tasks().PruneExcept(ctx, keep)
-	return err
+	return st.Tasks().PruneExcept(ctx, keep)
 }
 
 // pullMyTimelogs replaces the store's rows for the window as a whole, so a deleted or moved entry disappears too.
