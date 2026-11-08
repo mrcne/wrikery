@@ -471,7 +471,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
-			return m, intent(taskSelectedMsg{id: cur.task.ID})
+			return m, m.showRow(cur.task.ID)
 		}
 		m.clearIfListEmpty()
 		return m, nil
@@ -481,10 +481,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.list.has(msg.id) || m.paneBesideGrid() {
 			return m, nil
 		}
-		// The pane takes a row of the list, a hold from a reload's move is over.
-		m.unasked = false
-		m.selectTask(msg.id)
-		return m, m.loadTask(msg.id)
+		return m, m.showRow(msg.id)
 	case taskLoadedMsg:
 		// The cursor is free to move while the read runs, so an answer for a task nobody is on any more is dropped.
 		if msg.asked != m.selectedTaskID {
@@ -1049,7 +1046,7 @@ func (m *Model) afterFocus(prev pane) tea.Cmd {
 		}
 	case paneList, paneBoard:
 		if cur, ok := m.list.current(); ok && cur.task.ID != m.selectedTaskID {
-			return intent(taskSelectedMsg{id: cur.task.ID})
+			return m.showRow(cur.task.ID)
 		}
 		m.clearIfListEmpty()
 	}
@@ -1196,6 +1193,14 @@ func (m *Model) followTimesheetRow() tea.Cmd {
 		m.syncPaneSizes()
 		return nil
 	}
+	return m.loadTask(id)
+}
+
+// showRow puts a row of the list in the pane, a hold from a reload's move is over.
+// The selection moves at once and only the read waits, so a key pressed before the read lands goes to the row, see selectedTask.
+func (m *Model) showRow(id string) tea.Cmd {
+	m.unasked = false
+	m.selectTask(id)
 	return m.loadTask(id)
 }
 
@@ -1717,7 +1722,8 @@ func (m Model) selectedTask() (store.Task, bool) {
 	}
 	// The pane holds a task the list does not after a jump from outside the tree or a reload's move, and the user sees that task,
 	// so the keys act on it from any pane until the list is brought back to a row of its own.
-	if m.detail.loaded && (m.focus == paneDetail || !m.list.has(m.detail.task.ID)) {
+	// A pane behind the selection holds nothing: the list has moved on and the read of its row has not landed yet.
+	if m.detail.loaded && (m.focus == paneDetail || (m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID))) {
 		return m.detail.task, true
 	}
 	if row, ok := m.list.current(); ok {

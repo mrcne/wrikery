@@ -163,6 +163,48 @@ func TestFocusOnTheListLeavesAHeldTask(t *testing.T) {
 	}
 }
 
+// The pane shows the task before until the read of the row under the cursor lands.
+// A key pressed in that moment acts on the row the cursor is on, the task before is not among the rows.
+func TestAKeyBeforeThePaneFollowsActsOnTheRow(t *testing.T) {
+	wantRow := func(t *testing.T, m Model, before string) {
+		t.Helper()
+		cur, ok := m.list.current()
+		if !ok || cur.task.ID == before {
+			t.Fatalf("the list is on %q, want a row other than the pane's %q", cur.task.ID, before)
+		}
+		if got, ok := m.selectedTask(); !ok || got.ID != cur.task.ID {
+			t.Errorf("the pane still shows %q and the keys act on %q, want the list's row %q", m.detail.task.ID, got.ID, cur.task.ID)
+		}
+	}
+	t.Run("the list moved to another node", func(t *testing.T) {
+		m := pump(demoModel(t), focusMsg{pane: paneList})
+		before := m.detail.task.ID
+		if !m.sidebar.reveal("IEAAIOS1") {
+			t.Fatal("the iOS app folder is not in the tree")
+		}
+		n, _ := m.sidebar.current()
+		next, cmd := m.Update(nodeSelectedMsg{node: n})
+		m = next.(Model)
+		for _, msg := range collect(cmd) {
+			if loaded, ok := msg.(tasksLoadedMsg); ok {
+				// What the load starts is held back, the pane's read among it.
+				next, _ = m.Update(loaded)
+				m = next.(Model)
+			}
+		}
+		if m.list.nodeID != "IEAAIOS1" {
+			t.Fatalf("list on %q, want the iOS app folder", m.list.nodeID)
+		}
+		wantRow(t, m, before)
+	})
+	t.Run("the focus came back to the list from a held task", func(t *testing.T) {
+		task := outsideTask("KUAAAAB1", outsideFolder)
+		m := pump(demoModel(t, task), openTaskMsg{task: task})
+		next, _ := m.Update(focusMsg{pane: paneList})
+		wantRow(t, next.(Model), task.ID)
+	})
+}
+
 // The crumb under a search result names the first of the task's folders the cache holds.
 func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 	task := outsideTask("KUAAAAB1", outsideFolder, "IEAAWEB1")
