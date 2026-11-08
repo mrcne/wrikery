@@ -270,6 +270,32 @@ func TestCommandHelpSkipsTheConfigAndTheStore(t *testing.T) {
 	}
 }
 
+// The skill prints from the binary alone, so a broken config file, a missing data directory or a bad source word must not stop it.
+func TestSkillSkipsTheConfigAndTheStore(t *testing.T) {
+	dir := isolate(t)
+	confDir := filepath.Join(dir, "config", "wrikery")
+	if err := os.MkdirAll(confDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "config.toml"), []byte("poll_interval = [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(cli.EnvSource, "my agent")
+	fs, o := rootFlags()
+	o.noColor = true
+	for _, args := range [][]string{{"skill"}, {"skill", "install", "--dir", filepath.Join(dir, "skills")}, {"skill", "--help"}} {
+		if code := runCommand(args, fs, o); code != 0 {
+			t.Errorf("%v: code = %d, want 0", args, code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "data")); !os.IsNotExist(err) {
+		t.Errorf("skill created the data directory, stat err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "skills", "wrikery", "SKILL.md")); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestDemoSizeReadsTheEnvironment(t *testing.T) {
 	for _, tc := range []struct {
 		tasks, comments         string

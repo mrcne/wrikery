@@ -108,6 +108,8 @@ The next sync sends it, from the interface or from wrikery sync.`},
 var environment = []entry{
 	{tag: "WRIKERY_TOKEN", text: `A permanent API token that overrides the stored sign in, keychain and files both.
 A command run with it compares its account with the one the cache was built from and refuses another.`},
+	{tag: "WRIKERY_SOURCE", text: `The source a command's writes carry on the changes screen and in wrikery changes, cli when unset.
+A word of up to 24 letters, digits and hyphens, an agent sets its own name so its writes are told from yours.`},
 	{tag: "NO_COLOR", text: "Plain output without colors, what --no-color does."},
 	{tag: "VISUAL, EDITOR", text: `The editor E and C open for a description or a longer comment, VISUAL first.
 A command that waits for a window, code --wait, works the same way.`},

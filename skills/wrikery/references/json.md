@@ -2,6 +2,7 @@
 
 Every command takes `--json`.
 Keys are snake case, a list is never null, a time is the RFC 3339 stamp Wrike stores, and the shapes are a contract: a field is added, never renamed or removed.
+The one exception is the stored request under `before` and `payload` of `wrikery changes`, see there.
 
 ## A task, from `wrikery task list --json`
 
@@ -49,7 +50,8 @@ When the task cannot be read back after the write, the answer is `id`, `sent` an
 
 ## `wrikery changes --json`
 
-A list of rows, the queue first in send order, then the last thirty days newest first:
+A list of rows, the queue first in send order, then the last thirty days newest first.
+`--source WORD` keeps the rows of one source and `--limit N` the first N rows.
 
 | key | value |
 | --- | --- |
@@ -59,11 +61,11 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 | `source` | tui for the interface, cli for a command, or the word a command found in WRIKERY_SOURCE |
 | `entity_id` | the id of the task, comment or time entry the row writes |
 | `task_id` | the task the row belongs to |
-| `task_title` | its title when the row was queued |
+| `task_title` | the task's title as the cache has it now, or the one at the time of the write once the task left the cache |
 | `summary` | one line, the field with its old and new value, as the changes screen shows it |
-| `detail` | the values in full when the summary cut them, else empty |
-| `before` | the values the write replaced, null when it replaced none |
-| `payload` | the request as it was queued |
+| `detail` | the values in full, the whole text of a comment for example, where the summary is cut to a line, often the same text, empty for a few kinds |
+| `before` | the values the write replaced, in the shape of `payload`, null when it replaced none |
+| `payload` | the request as it was queued, in Wrike's own field names such as customStatusId, a shape that can change between versions |
 | `error` | the last error from Wrike, empty when none |
 | `attempts` | how many times it was sent |
 | `created` | when it was queued |
@@ -73,7 +75,7 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 
 `state` after the cycle, `pending` and `failed` are the counts of the queue.
 
-## `wrikery ui ... --json`
+## The `ui` commands with `--json`
 
 `ok` true and `text`, the interface's own line about what it did.
 

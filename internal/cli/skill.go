@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/mrcne/wrikery/internal/atomicfile"
@@ -19,9 +20,10 @@ var cmdSkill = Command{
 	Name:     "skill",
 	Synopsis: []string{"skill", "skill install [--project | --dir DIR]"},
 	Short:    "print the agent skill, or install it where the coding agents look",
-	Notes: `Prints the skill that tells an AI agent how to work with Wrike through wrikery, a file in the Agent Skills format, so wrikery skill > FILE works too.
-install writes the whole skill folder under ~/.claude/skills and ~/.agents/skills, the directories Claude Code and the other coding agents read, --project puts it under the working directory instead and --dir DIR under one directory of your choice.
-The folder is in the repository as well, so gh skill install mrcne/wrikery and npx skills add mrcne/wrikery install it too.`,
+	Notes: `Prints SKILL.md, the skill that tells an AI agent how to work with Wrike through wrikery, in the Agent Skills format, and --json prints every file of the skill folder.
+install writes the folder, the reference file included, under ~/.claude/skills and ~/.agents/skills, the two directories the coding agents read, --project puts it under the working directory instead and --dir DIR under one directory of your choice, and a file an older skill left there goes.
+The folder is in the repository as well, so gh skill install mrcne/wrikery and npx skills add mrcne/wrikery install it too.
+Neither form reads the config or the cache or talks to Wrike.`,
 	Flags: func() *flag.FlagSet { return new(skillOpts).flagSet() },
 }
 
@@ -62,10 +64,14 @@ func runSkill(_ context.Context, env Env, args []string) int {
 	if err != nil {
 		return fail(env, err)
 	}
+	files, err := skillFiles()
+	if err != nil {
+		return fail(env, err)
+	}
 	written := make([]string, 0, len(targets))
 	for _, target := range targets {
 		dest := filepath.Join(target, skills.Name)
-		if err := writeSkill(dest); err != nil {
+		if err := writeSkill(dest, files); err != nil {
 			return fail(env, err)
 		}
 		written = append(written, dest)
@@ -81,8 +87,8 @@ func runSkill(_ context.Context, env Env, args []string) int {
 
 // skillTargets are the skills directories an install writes under.
 // Without --dir they are the two the agents agree on: .claude/skills, which Claude Code reads, and .agents/skills,
-// which Codex, Cursor, Copilot, Gemini CLI and the others read, under the home directory or with --project the working one.
-// An agent with a directory of its own gets it through --dir, a table of every agent's path would go stale faster than this help.
+// which the other coding agents share, see https://cli.github.com/manual/gh_skill_install, under the home directory or with --project the working one.
+// Both are written whatever is installed here, the help says so and a folder nobody reads costs nothing, an agent with a directory of its own takes --dir.
 func skillTargets(o skillOpts) ([]string, error) {
 	if o.dir != "" {
 		return []string{o.dir}, nil
@@ -97,36 +103,9 @@ func skillTargets(o skillOpts) ([]string, error) {
 	return []string{filepath.Join(base, ".claude", "skills"), filepath.Join(base, ".agents", "skills")}, nil
 }
 
-// writeSkill puts the embedded folder at dest, replacing the files an older binary or a hand edit left there.
-func writeSkill(dest string) error {
-	return fs.WalkDir(skills.FS, skills.Name, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dest, filepath.FromSlash(strings.TrimPrefix(path, skills.Name)))
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		b, err := skills.FS.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return atomicfile.Write(target, b, 0o644)
-	})
-}
-
-func printSkill(env Env, asJSON bool) int {
-	if !asJSON {
-		b, err := skills.FS.ReadFile(skills.Name + "/SKILL.md")
-		if err != nil {
-			return fail(env, err)
-		}
-		if _, err := env.Stdout.Write(b); err != nil {
-			return fail(env, err)
-		}
-		return exitOK
-	}
-	files := map[string]string{}
+// skillFiles is the embedded folder as path under it to text, SKILL.md and the reference files.
+func skillFiles() (map[string][]byte, error) {
+	files := map[string][]byte{}
 	err := fs.WalkDir(skills.FS, skills.Name, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -135,13 +114,66 @@ func printSkill(env Env, asJSON bool) int {
 		if err != nil {
 			return err
 		}
-		files[strings.TrimPrefix(path, skills.Name+"/")] = string(b)
+		files[strings.TrimPrefix(path, skills.Name+"/")] = b
+		return nil
+	})
+	return files, err
+}
+
+// writeSkill puts the files at dest and removes what an older skill left there,
+// a reference file renamed or dropped since would otherwise stay next to the new text and be read with it.
+func writeSkill(dest string, files map[string][]byte) error {
+	keep := map[string]bool{".": true}
+	for rel, b := range files {
+		target := filepath.Join(dest, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := atomicfile.Write(target, b, 0o644); err != nil {
+			return err
+		}
+		for p := filepath.FromSlash(rel); p != "."; p = filepath.Dir(p) {
+			keep[p] = true
+		}
+	}
+	var stale []string
+	err := filepath.WalkDir(dest, func(path string, _ fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if rel, _ := filepath.Rel(dest, path); !keep[rel] {
+			stale = append(stale, path)
+		}
 		return nil
 	})
 	if err != nil {
+		return err
+	}
+	// Deepest first, so a directory goes after what it held.
+	sort.Slice(stale, func(i, j int) bool { return len(stale[i]) > len(stale[j]) })
+	for _, path := range stale {
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func printSkill(env Env, asJSON bool) int {
+	files, err := skillFiles()
+	if err != nil {
 		return fail(env, err)
 	}
-	return printJSON(env, files)
+	if asJSON {
+		texts := make(map[string]string, len(files))
+		for path, b := range files {
+			texts[path] = string(b)
+		}
+		return printJSON(env, texts)
+	}
+	// A stdout that cannot be written is left alone, as printJSON leaves it, the exit code says what the command did.
+	_, _ = env.Stdout.Write(files["SKILL.md"])
+	return exitOK
 }
 
 // EnvSource names the source of a command's writes, the word the changes screen and wrikery changes show next to each one.

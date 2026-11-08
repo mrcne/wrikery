@@ -220,7 +220,7 @@ A task edit whose field someone changed on Wrike since it was queued is held the
 On a held edit `r` sends it anyway and `x` drops it.
 In offline mode `r` does nothing, there is nothing to send with yet, `x` discards as always, and a write a send failed on in an earlier session reads `queued`.
 Enter opens the task, `g`, `G`, ctrl+d and ctrl+u move through the list, esc goes back to the previous screen.
-A write made by a command carries a `cli` tag, so a change an agent made is told from one made here.
+A write made by a command carries a `cli` tag, or the word the command found in `WRIKERY_SOURCE`, an agent's own name, so a change an agent made is told from one made here.
 The same list prints from the command line with `wrikery changes`.
 The list is this machine's: it holds what this copy of Wrikery sent, not what other people or another computer changed on Wrike.
 Discarding a task update does not roll back the change already applied to the local cache, the next refresh brings back whatever Wrike has.

@@ -90,13 +90,15 @@ func TestSkillFolderIsAValidAgentSkill(t *testing.T) {
 	for _, c := range Commands() {
 		known[c.Name] = true
 	}
+	groups := map[string]bool{}
 	for _, g := range Groups() {
-		known[g.Name] = true
+		groups[g.Name] = true
 	}
 	mention := regexp.MustCompile(`wrikery ([a-z]+)(?: ([a-z]+))?`)
 	for _, name := range []string{"SKILL.md", "references/json.md"} {
 		for _, m := range mention.FindAllStringSubmatch(codeOf(skillFile(t, name)), -1) {
-			if !known[m[1]+" "+m[2]] && !known[m[1]] {
+			// A group word alone names no command, and a group with a second word must be one of its commands.
+			if ok := known[m[1]] || groups[m[1]] && known[m[1]+" "+m[2]]; !ok {
 				t.Errorf("%s names a command that does not exist: %q", name, m[0])
 			}
 		}
@@ -205,16 +207,20 @@ func TestSkillInstallProjectWritesUnderTheWorkingDirectory(t *testing.T) {
 	}
 }
 
-// --dir writes one folder, and a second install replaces what an older binary or a hand edit left there.
+// --dir writes one folder, and a second install replaces what an older binary or a hand edit left there,
+// a file the skill no longer ships included, so an agent never reads an old reference next to the new text.
 func TestSkillInstallDirWritesOneFolderAndReplacesIt(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	target := filepath.Join(dir, "wrikery", "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	stale := filepath.Join(dir, "wrikery", "references", "old.md")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte("stale"), 0o644); err != nil {
-		t.Fatal(err)
+	for path, text := range map[string]string{target: "stale", stale: "gone"} {
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	env, out, _ := testEnv(t)
 	if code := Run(context.Background(), env, []string{"skill", "install", "--dir", dir, "--json"}); code != exitOK {
@@ -233,6 +239,9 @@ func TestSkillInstallDirWritesOneFolderAndReplacesIt(t *testing.T) {
 	}
 	if string(b) != skillFile(t, "SKILL.md") {
 		t.Errorf("SKILL.md was not replaced:\n%s", b)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("a file the skill no longer has stayed, stat err %v", err)
 	}
 	if entries, _ := os.ReadDir(os.Getenv("HOME")); len(entries) != 0 {
 		t.Errorf("--dir wrote under the home directory: %v", entries)

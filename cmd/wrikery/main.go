@@ -306,9 +306,9 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		fmt.Fprintln(os.Stderr, "wrikery: --version and --logout take no command")
 		return 2
 	}
-	if cli.IsHelp(args) {
-		// Help at any level prints from the command table alone, so it must not create the data directory,
-		// open the store or read the token, and a broken config file must not stop it.
+	if cli.Standalone(args) {
+		// Help at any level and the skill print from the binary alone, so they must not create the data directory,
+		// open the store or read the token, and a broken config file or a bad WRIKERY_SOURCE must not stop them.
 		return cli.Run(context.Background(), cli.Env{GlobalFlags: global, Stdout: os.Stdout, Stderr: os.Stderr}, args)
 	}
 	// The profile starts before the store opens, so it covers the migrations a large cache may run.
