@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -27,7 +29,7 @@ func testTree() []treeNode {
 
 func foldersDialogFor(task store.Task, nodeID string) dialog {
 	nodes := testTree()
-	d, _ := newFoldersDialog(task, nodes, newFolderIndex(nodes), nodeID)
+	d, _ := newFoldersDialog(task, nodes, nil, newFolderIndex(nodes), nodeID)
 	return d
 }
 
@@ -133,7 +135,7 @@ func TestFolderIndexUnder(t *testing.T) {
 
 func TestFoldersDialogListsAFolderUnderTwoParentsOnce(t *testing.T) {
 	nodes := sharedTree()
-	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"SHR"}}, nodes, newFolderIndex(nodes), "DSG")
+	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"SHR"}}, nodes, nil, newFolderIndex(nodes), "DSG")
 	if n := strings.Count(d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40), "[x] Shared"); n != 1 {
 		t.Errorf("Shared listed %d times, want once", n)
 	}
@@ -175,5 +177,51 @@ func TestFoldersDialogClearsTheRefusalOnAMove(t *testing.T) {
 	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); !strings.Contains(view, "no folder matches") || strings.Contains(view, "already in") {
 		t.Errorf("enter with no match should say so:\n%s", view)
+	}
+}
+
+func TestFoldersDialogListsThePinnedFoldersFirst(t *testing.T) {
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	if view := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT").View(th, 60, 40); strings.Contains(view, "Pinned") || strings.Contains(view, "All") {
+		t.Errorf("without pins the box has no headers:\n%s", view)
+	}
+	nodes := testTree()
+	pinned := map[string]bool{"ONC": true, "API": true, "GONE": true}
+	// The task sits outside the followed scopes, so the cursor starts at the top, on the first pinned folder.
+	dl, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"OUT"}}, nodes, pinned, newFolderIndex(nodes), "PLT")
+	view := dl.View(th, 60, 40)
+	// The pinned folders come first in tree order, without the tree's indent, then the whole tree keeps its shape.
+	order := []string{"Pinned", "[ ] API", "[ ] On-call", "All", "[ ] Mobile", "  [ ] API", "    [ ] On-call"}
+	at := 0
+	for _, s := range order {
+		i := strings.Index(view[at:], s)
+		if i < 0 {
+			t.Fatalf("%q missing after position %d:\n%s", s, at, view)
+		}
+		at += i + len(s)
+	}
+	if !strings.Contains(view, "enter adds to API") {
+		t.Errorf("the first line should offer the pinned folder under the cursor:\n%s", view)
+	}
+	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	want := submitFoldersMsg{taskID: "T", add: []string{"API"}}
+	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
+		t.Errorf("enter -> %#v", msgs)
+	}
+}
+
+func TestFoldersDialogCountsTheHeadersInItsHeight(t *testing.T) {
+	nodes := []treeNode{{id: store.ScopeKindMe, title: "My tasks", kind: nodeMe}, {id: "S", title: "Space", kind: nodeSpace}}
+	for i := range 20 {
+		id := fmt.Sprintf("F%02d", i)
+		nodes[1].children = append(nodes[1].children, len(nodes))
+		nodes = append(nodes, treeNode{id: id, title: "Folder " + id, kind: nodeFolder, depth: 1})
+	}
+	pinned := map[string]bool{"F03": true, "F10": true}
+	dl, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"OUT", "F03"}}, nodes, pinned, newFolderIndex(nodes), "S")
+	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 20)
+	if h := lipgloss.Height(view); h > 20 {
+		t.Errorf("the box is %d lines tall on a 20 line screen:\n%s", h, view)
 	}
 }

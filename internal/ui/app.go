@@ -1450,7 +1450,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.ClearFilter):
 		return m, m.setNarrow(rowFilter{})
 	case key.Matches(msg, m.keys.New):
-		d, cmd := newCreateDialog(m.sidebar.nodes, m.folderCrumbs(), m.createPreset(),
+		d, cmd := newCreateDialog(m.sidebar.nodes, m.sidebar.pinned, m.folderCrumbs(), m.createPreset(),
 			m.selectedNode.kind == nodeMe, min(m.width-4, 80))
 		m.openDialog(d)
 		return m, cmd

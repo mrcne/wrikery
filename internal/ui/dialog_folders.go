@@ -27,8 +27,8 @@ type foldersDialog struct {
 	errText string
 }
 
-func newFoldersDialog(task store.Task, nodes []treeNode, idx folderIndex, nodeID string) (foldersDialog, tea.Cmd) {
-	rows, titles := treeRows(nodes)
+func newFoldersDialog(task store.Task, nodes []treeNode, pinned map[string]bool, idx folderIndex, nodeID string) (foldersDialog, tea.Cmd) {
+	rows, titles := treeRows(nodes, pinned)
 	d := foldersDialog{taskID: task.ID, titles: titles}
 	var known []string
 	for _, id := range task.ParentIDs {
@@ -134,8 +134,9 @@ func (d foldersDialog) View(th Theme, width, height int) string {
 	muted := lipgloss.NewStyle().Foreground(th.Muted)
 	var b strings.Builder
 	b.WriteString(muted.Render(d.plan()) + "\n")
-	// Border, plan, filter, two blanks, the outside line and the hint take up to nine lines, the rest is the list, twelve at most.
-	b.WriteString(d.list.view(th, width-2, max(min(12, height-9), 3)))
+	// Border, plan, filter, two blanks, the outside line and the hint take up to nine lines and every section a header,
+	// the rest is the list, twelve at most.
+	b.WriteString(d.list.view(th, width-2, max(min(12, height-9-d.list.sections()), 3)))
 	if d.outside > 0 {
 		noun := "folders"
 		if d.outside == 1 {
