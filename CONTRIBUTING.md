@@ -5,18 +5,19 @@ Read [docs/overview.md](docs/overview.md) for what the app does and does not do 
 
 ## Build and check
 
-`make build` builds the binary with cgo off, `make test` runs the tests and `make lint` runs golangci-lint.
-`make check` runs both, and CI runs the same on Linux and macOS, plus a race run, a tidy check and govulncheck.
-golangci-lint is not part of the module, install the pinned version once with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3`.
-`./wrikery --demo` runs the app on built in sample data with no Wrike account, which is the fastest way to look at a UI change.
-The release workflow runs from the Actions tab without a tag, as a dry run that exercises everything but the release notes, which is how a change to it is tested.
+- `make build` builds the binary with cgo off, `make test` runs the tests and `make lint` runs golangci-lint.
+  `make check` runs both, and CI runs the same on Linux and macOS, plus a race run, a tidy check and govulncheck.
+- golangci-lint is not part of the module, install the pinned version once with `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3`.
+- `./wrikery --demo` runs the app on built in sample data with no Wrike account, which is the fastest way to look at a UI change.
+- The release workflow runs from the Actions tab without a tag, as a dry run that exercises everything but the release notes, which is how a change to it is tested.
 
 ## Changes
 
-One topic per pull request.
-A commit subject starts with a type, `feat`, `fix`, `chore`, `docs`, `refactor`, `test` or `build`, followed by an imperative sentence, for example `fix: reject an empty comment`.
-Tests assert behavior, the UI tests run against a seeded temporary store, and golden files are updated with `go test ./internal/ui -update`.
-The manual page `man/wrikery.1` is generated from the code the same way, `go test ./cmd/wrikery -update` rewrites it.
-A choice of technology or of a way of working goes through a decision record in [docs/adr/](docs/adr/), one file per decision, the existing records show the shape.
-[docs/overview.md](docs/overview.md) describes what the app does and [docs/architecture.md](docs/architecture.md) how, keep both current when behavior changes.
-Comments explain why rather than what, and text in the repository stays plain ASCII.
+- One topic per pull request.
+- A commit subject starts with a type, `feat`, `fix`, `chore`, `docs`, `refactor`, `test` or `build`, followed by an imperative sentence, for example `fix: reject an empty comment`.
+- Tests assert behavior, the UI tests run against a seeded temporary store, and golden files are updated with `go test ./internal/ui -update`.
+- The manual page `man/wrikery.1` is generated from the code the same way, `go test ./cmd/wrikery -update` rewrites it.
+- A choice of technology or of a way of working goes through a decision record in [docs/adr/](docs/adr/), one file per decision, the existing records show the shape.
+- [docs/overview.md](docs/overview.md) describes what the app does and [docs/architecture.md](docs/architecture.md) how, keep both current when behavior changes.
+- The screenshots under `docs/img` are rendered from `wrikery --demo` in a terminal of 150 columns with the dark theme, one per screen, and a UI change that moves what they show needs new ones, halved to about 2700 pixels wide and under 300 KB each, a test checks the size.
+- Comments explain why rather than what, and text in the repository stays plain ASCII.
