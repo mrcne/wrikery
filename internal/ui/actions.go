@@ -115,7 +115,7 @@ func taskActionTable(k KeyMap) []taskAction {
 				if m.screen == screenTimesheet {
 					node = ""
 				}
-				d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.list.folders, node)
+				d, cmd := newFoldersDialog(t, m.sidebar.nodes, m.sidebar.pinned, m.list.folders, node)
 				m.openDialog(d)
 				return cmd
 			})

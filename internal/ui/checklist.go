@@ -151,6 +151,17 @@ func (c *checklist) update(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
+// sections counts the header lines the list draws when nothing is typed, a box takes them off its row budget.
+func (c checklist) sections() int {
+	n, last := 0, ""
+	for _, r := range c.rows {
+		if r.section != last {
+			n, last = n+1, r.section
+		}
+	}
+	return n
+}
+
 // view draws the filter, a blank line and at most rows lines of the list, plus a header line where a section starts.
 // A list longer than that shows a window kept around the cursor and one marker line counting what sits outside it.
 func (c checklist) view(th Theme, width, rows int) string {
@@ -207,17 +218,36 @@ func splitIndent(label string) (indent, rest string) {
 	return label[:len(label)-len(rest)], rest
 }
 
-// treeRows lists the sidebar tree for a box, indented by depth and once per folder.
+// treeRows lists the sidebar tree for a box, indented by depth and once per folder, with the pinned folders first.
 // The tree draws a folder under every parent, a list offers it where it first appears.
-func treeRows(nodes []treeNode) ([]checkRow, map[string]string) {
-	var rows []checkRow
+// A pinned folder is offered twice, flat under a Pinned header at the top and again in its place in the tree,
+// so it is one keystroke away and its children keep their parent row.
+// The flat row names its parent at the right edge, two pinned folders with one name are told apart by it,
+// as a hint and not as part of the name, so the filter still matches what the sidebar shows.
+func treeRows(nodes []treeNode, pinned map[string]bool) ([]checkRow, map[string]string) {
+	var top, rows []checkRow
+	var path []string // the titles down to the node, by depth, a parent comes before its children
 	titles := map[string]string{}
 	for _, n := range nodes {
+		path = append(path[:n.depth], n.title)
 		if n.kind == nodeMe || titles[n.id] != "" {
 			continue
+		}
+		if pinned[n.id] {
+			parent := ""
+			if n.depth > 0 {
+				parent = path[n.depth-1]
+			}
+			top = append(top, checkRow{id: n.id, label: n.title, section: "Pinned", hint: parent})
 		}
 		rows = append(rows, checkRow{id: n.id, label: strings.Repeat("  ", n.depth) + n.title})
 		titles[n.id] = n.title
 	}
-	return rows, titles
+	if len(top) == 0 {
+		return rows, titles
+	}
+	for i := range rows {
+		rows[i].section = "All"
+	}
+	return append(top, rows...), titles
 }

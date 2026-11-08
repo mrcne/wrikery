@@ -148,13 +148,7 @@ func (d filterDialog) filter() rowFilter {
 func (d filterDialog) View(th Theme, width, height int) string {
 	width = min(width, 50)
 	// Border, filter, blank, blank and the hint take six lines and every section a header, the rest is the list, fourteen rows at most.
-	sections, last := 0, ""
-	for _, r := range d.list.rows {
-		if r.section != last {
-			sections, last = sections+1, r.section
-		}
-	}
-	body := d.list.view(th, width-2, max(min(14, height-6-sections), 3))
+	body := d.list.view(th, width-2, max(min(14, height-6-d.list.sections()), 3))
 	body += "\n" + lipgloss.NewStyle().Foreground(th.Muted).Render("space toggle   enter apply   esc cancel")
 	return th.box("Filter", body, width, lipgloss.Height(body)+2, true)
 }

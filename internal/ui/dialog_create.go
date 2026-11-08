@@ -34,14 +34,14 @@ type createDialog struct {
 	errText  string
 }
 
-func newCreateDialog(nodes []treeNode, crumbs map[string]string, presetID string, mine bool, width int) (createDialog, tea.Cmd) {
+func newCreateDialog(nodes []treeNode, pinned map[string]bool, crumbs map[string]string, presetID string, mine bool, width int) (createDialog, tea.Cmd) {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Placeholder = "task title"
 	in.Width = width - 4
 	// Focus first, the model is copied into the dialog below and a focus after that would reach the copy.
 	cmd := in.Focus()
-	rows, _ := treeRows(nodes)
+	rows, _ := treeRows(nodes, pinned)
 	list, _ := newChecklist(rows, nil, "type a folder name")
 	list.single = true
 	list.filter.Blur()
@@ -127,8 +127,8 @@ func (d createDialog) View(th Theme, width, height int) string {
 	b.WriteString(d.title.View() + "\n\n")
 	hint := "enter creates   tab folder   esc cancels"
 	if d.field == fieldFolder {
-		// Border, title, two blanks, filter, blank, hint: eight lines around the list, eight rows of tree at most.
-		b.WriteString(d.folders.view(th, width-2, max(min(8, height-10), 3)))
+		// Border, title, two blanks, filter, blank, hint: eight lines around the list and every section a header, eight rows of tree at most.
+		b.WriteString(d.folders.view(th, width-2, max(min(8, height-10-d.folders.sections()), 3)))
 		hint = "enter picks   tab title   esc cancels"
 	} else {
 		where := "pick a folder"

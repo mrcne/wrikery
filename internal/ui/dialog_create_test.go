@@ -19,7 +19,7 @@ func testCrumbs() map[string]string {
 }
 
 func createDialogFor(presetID string, mine bool) dialog {
-	d, _ := newCreateDialog(testTree(), testCrumbs(), presetID, mine, 60)
+	d, _ := newCreateDialog(testTree(), nil, testCrumbs(), presetID, mine, 60)
 	return d
 }
 
@@ -117,7 +117,7 @@ func TestCreateDialogSaysWhenNoFolderMatches(t *testing.T) {
 }
 
 func TestCreateDialogWithAnEmptyTreeAsksForAFolder(t *testing.T) {
-	dl, _ := newCreateDialog(nil, nil, "", false, 60)
+	dl, _ := newCreateDialog(nil, nil, nil, "", false, 60)
 	var d dialog = dl
 	d = typeRunes(d, "Fix it")
 	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -133,7 +133,7 @@ func TestCreateDialogWithAnEmptyTreeAsksForAFolder(t *testing.T) {
 
 // The preset is the sidebar's selected node, which can be gone from the tree by the time the dialog opens.
 func TestCreateDialogIgnoresAPresetTheTreeLacks(t *testing.T) {
-	dl, _ := newCreateDialog(testTree(), testCrumbs(), "GONE", false, 60)
+	dl, _ := newCreateDialog(testTree(), nil, testCrumbs(), "GONE", false, 60)
 	var d dialog = dl
 	if view := createView(d); !strings.Contains(view, "pick a folder") {
 		t.Errorf("a preset outside the tree should leave the folder unpicked:\n%s", view)
@@ -168,5 +168,31 @@ func TestFolderCrumbsFollowTheTree(t *testing.T) {
 	m := Model{sidebar: sidebarModel{nodes: testTree()}}
 	if got := m.folderCrumbs(); !reflect.DeepEqual(got, testCrumbs()) {
 		t.Errorf("crumbs = %v, want %v", got, testCrumbs())
+	}
+}
+
+func TestCreateDialogOffersThePinnedFoldersFirst(t *testing.T) {
+	d, _ := newCreateDialog(testTree(), map[string]bool{"DSG": true}, testCrumbs(), "", true, 60)
+	dl := typeRunes(dialog(d), "Fix it")
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	view := createView(dl)
+	// On My tasks nothing is preset, so the cursor starts on the pinned folder and enter takes it without typing.
+	at := 0
+	for _, s := range []string{"Pinned", "> Design system", "All", "  Mobile", "    Design system"} {
+		i := strings.Index(view[at:], s)
+		if i < 0 {
+			t.Fatalf("%q missing after position %d:\n%s", s, at, view)
+		}
+		at += i + len(s)
+	}
+	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if view := createView(dl); !strings.Contains(view, "in: Platform / Design system") {
+		t.Errorf("enter should pick the pinned folder:\n%s", view)
+	}
+	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	want := submitCreateMsg{folderID: "DSG", title: "Fix it", where: "Platform / Design system", assignMe: true}
+	if len(msgs) != 2 || msgs[0] != want {
+		t.Errorf("enter -> %#v", msgs)
 	}
 }

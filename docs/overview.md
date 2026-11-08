@@ -146,6 +146,8 @@ Saving an unchanged or an empty file writes nothing.
 A High task carries a `!` next to its status glyph in the list and on its card, the other two levels show nothing there.
 
 `m` lists the followed spaces, projects and folders as a checklist with the task's folders checked, narrowed as you type.
+The pinned folders come first, under a Pinned header, and the whole tree follows under All, so a pinned folder is a keystroke away instead of a few typed letters.
+Each pinned row names its parent at the right edge, so two pinned folders with one name are told apart.
 Space toggles a folder and enter applies the toggles, so a task can join or leave several folders in one go.
 Enter with nothing toggled moves the task instead: it leaves the folders under the node in view and joins the highlighted one.
 On My tasks no folder is in view, so the move only joins, and the same happens when the task sits in no folder under the node in view, after a search that found it elsewhere for example.
@@ -161,6 +163,7 @@ When the budget cannot be edited, the row says why instead of opening the box: n
 `n` creates a task, from any pane of the main screen.
 The box asks for a title and shows the folder the task goes into, preset to the folder or project in view, or to the folder of the section under the cursor when the list is grouped by folder.
 Tab moves to the folder field, which narrows the followed tree as you type, enter picks and goes back to the title, and enter on the title creates.
+The folder field lists the pinned folders first, as the folders box does, so with no folder in view tab and enter take the first pinned one.
 On My tasks no folder is in view, so the box asks for one, and the task is assigned to you so it stays in the view.
 Elsewhere nobody is assigned.
 `a`, `d`, `p` and `E` fill in the rest.
