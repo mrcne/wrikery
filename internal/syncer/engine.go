@@ -483,9 +483,12 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 	if err != nil {
 		return err
 	}
+	// The tasks hint of the scope step went out before the sweep, so a sweep that removed something sends one of its own,
+	// or a task deleted on Wrike stays on screen until a later step happens to change a task.
+	var swept int64
 	switch {
 	case manual && rebuild:
-		if err := sweep(ctx, e.client, e.st, answered, meID, full); err != nil {
+		if swept, err = sweep(ctx, e.client, e.st, answered, meID, full); err != nil {
 			return err
 		}
 		if err := e.st.ClearRebuild(ctx); err != nil {
@@ -495,9 +498,12 @@ func (e *Engine) cycle(ctx, post context.Context, manual bool) error {
 			e.emit(Event{Kind: EventScopesLost})
 		}
 	case manual && !partial:
-		if err := sweep(ctx, e.client, e.st, scopes, meID, full); err != nil {
+		if swept, err = sweep(ctx, e.client, e.st, scopes, meID, full); err != nil {
 			return err
 		}
+	}
+	if swept > 0 {
+		e.emit(Event{Kind: EventStoreChanged, Entities: []EntityKind{KindTasks}})
 	}
 
 	changedLogs, err := pullMyTimelogs(ctx, e.client, e.st, meID, time.Now())

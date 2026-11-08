@@ -149,7 +149,7 @@ func TestSweepPrunesVanishedTasks(t *testing.T) {
 	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
 		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
+	if _, err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
@@ -173,7 +173,7 @@ func TestSweepKeepsAStampedTask(t *testing.T) {
 	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
 		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
+	if _, err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Tasks().Get(ctx, "T3"); err != nil {
@@ -193,7 +193,7 @@ func TestSweepReusesInitialPull(t *testing.T) {
 
 	fc := &fakeClient{}
 	full := map[string][]string{"F1": {"T1"}}
-	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", full); err != nil {
+	if _, err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", full); err != nil {
 		t.Fatal(err)
 	}
 	if calls := fc.callLog(); len(calls) != 0 {
@@ -220,7 +220,7 @@ func TestSweepAbortsOnPartialUnion(t *testing.T) {
 		}
 		return wrike.TasksPage{}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{scA, scB}, "U1", nil); err == nil {
+	if _, err := sweep(ctx, fc, st, []store.Scope{scA, scB}, "U1", nil); err == nil {
 		t.Fatal("want the error back")
 	}
 	if _, err := st.Tasks().Get(ctx, "T1"); err != nil {
@@ -549,7 +549,7 @@ func TestSweepKeepsAnUnconfirmedTask(t *testing.T) {
 	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
 		return wrike.TasksPage{Tasks: []wrike.Task{{ID: "T1"}}}, nil
 	}}
-	if err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
+	if _, err := sweep(ctx, fc, st, []store.Scope{sc}, "U1", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Tasks().Get(ctx, store.LocalID(id)); err != nil {

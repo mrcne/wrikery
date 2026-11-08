@@ -547,3 +547,42 @@ func TestPullStartsOverWhenTheTaskFieldsChange(t *testing.T) {
 		t.Errorf("the same set again must stay incremental, since = %v", since)
 	}
 }
+
+// The sweep of a manual cycle removes tasks, and the interface has to hear about it like about any other change,
+// or a task deleted on Wrike stays on screen until some later tasks hint.
+func TestEngineSweepTellsTheInterface(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	if err := st.Scopes().Upsert(ctx, store.Scope{ID: "F1", Kind: store.ScopeKindProject,
+		Title: "Alpha", Followed: true}); err != nil {
+		t.Fatal(err)
+	}
+	var live atomic.Value // the ids the scope lists on Wrike
+	live.Store([]string{"T1", "T2"})
+	fc := &fakeClient{tasks: func(p wrike.TaskParams) (wrike.TasksPage, error) {
+		if p.FolderID != "F1" || !p.UpdatedAfter.IsZero() {
+			return wrike.TasksPage{}, nil
+		}
+		var page wrike.TasksPage
+		for _, id := range live.Load().([]string) {
+			page.Tasks = append(page.Tasks, wrike.Task{ID: id, Title: id, Status: "Active",
+				UpdatedDate: time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)})
+		}
+		return page, nil
+	}}
+	e := startEngine(t, fc, st, Config{PollInterval: time.Hour})
+	waitFor(t, e, "first idle", isState(StateIdle))
+	if _, err := st.Tasks().Get(ctx, "T2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// T2 is deleted on Wrike. The poll asks for changes alone and sees none, the sweep of the refresh finds it missing.
+	live.Store([]string{"T1"})
+	e.Refresh()
+	waitFor(t, e, "a tasks hint from the sweep", func(ev Event) bool {
+		return ev.Kind == EventStoreChanged && slices.Contains(ev.Entities, KindTasks)
+	})
+	if _, err := st.Tasks().Get(ctx, "T2"); err == nil {
+		t.Error("T2 is still in the cache after the hint")
+	}
+}
