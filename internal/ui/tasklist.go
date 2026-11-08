@@ -58,13 +58,14 @@ func newTaskList(keys KeyMap) taskListModel {
 // and a lifted toggle falls back once a plain move takes the list to another node.
 // A reload that follows a queued task's swap names its row without lift, and a plain reload names none,
 // both leave the toggle and the filters alone, so a task completed or moved out of the filter from the list leaves it like any other.
+// A move to another node without a lift ends an earlier lift whether it names a row or not, see treeLoadedMsg for the one that does.
 func (l *taskListModel) setRows(nodeID, crumb string, tasks []store.Task, states map[string]store.OutboxState, keepID string, lift bool) bool {
+	if l.doneLifted && nodeID != l.nodeID && !lift {
+		l.showDone, l.doneLifted = false, false
+	}
 	if keepID == "" {
 		if cur, ok := l.current(); ok {
 			keepID = cur.task.ID
-		}
-		if l.doneLifted && nodeID != l.nodeID {
-			l.showDone, l.doneLifted = false, false
 		}
 	} else if i := slices.IndexFunc(tasks, func(t store.Task) bool { return t.ID == keepID }); i >= 0 && lift {
 		if !l.showDone && isDone(tasks[i]) {

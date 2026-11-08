@@ -99,11 +99,9 @@ func TestTasksLoadedMsgSkipsReselectWhenCursorDidNotMove(t *testing.T) {
 	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
 	m.selectedTaskID = "1"
 	m.selectedNode = treeNode{id: "F1"}
-	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
-	if cmd != nil {
-		if msg, ok := cmd().(taskSelectedMsg); ok {
-			t.Errorf("reselected task %s though the cursor stayed on the already selected task", msg.id)
-		}
+	next, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
+	if got := next.(Model).selectedTaskID; got != "1" || cmd != nil {
+		t.Errorf("selection %q with a command %v, want task 1 kept and the pane not read again", got, cmd != nil)
 	}
 }
 
@@ -113,13 +111,9 @@ func TestTasksLoadedMsgReselectsWhenCursorMoved(t *testing.T) {
 	tasks := []store.Task{{ID: "1", Title: "a", Status: "Active"}, {ID: "2", Title: "b", Status: "Active"}}
 	m.selectedTaskID = "9"
 	m.selectedNode = treeNode{id: "F1"}
-	_, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
-	if cmd == nil {
-		t.Fatal("expected a command reselecting the new task")
-	}
-	msg, ok := cmd().(taskSelectedMsg)
-	if !ok || msg.id != "1" {
-		t.Errorf("Update() cmd = %#v, want taskSelectedMsg{id: \"1\"}", cmd())
+	next, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: tasks})
+	if got := next.(Model).selectedTaskID; got != "1" || cmd == nil {
+		t.Errorf("selection %q with a command %v, want task 1 selected and its read started", got, cmd != nil)
 	}
 }
 
@@ -283,6 +277,17 @@ func TestJumpLiftsTheDoneToggleAndTheFilter(t *testing.T) {
 	tasks[0].Status = "Completed"
 	if found := l.setRows("F1", "API", tasks, nil, "", false); found || l.showDone {
 		t.Errorf("reload with the selected task completed: found %v, showDone %v, want it gone from the list", found, l.showDone)
+	}
+}
+
+// A reload that moves the list to another node and names the task to land on, without a lift, is still a move:
+// the toggle a jump lifted falls back, or the parent would list every completed task of its subtree.
+func TestAMoveThatNamesTheTaskDropsTheLiftedToggle(t *testing.T) {
+	l := newTaskList(defaultKeyMap())
+	tasks := []store.Task{{ID: "1", Title: "open", Status: "Active"}, {ID: "2", Title: "done", Status: "Completed"}}
+	l.setRows("F1", "API", tasks, nil, "2", true)
+	if found := l.setRows("F2", "Web", tasks, nil, "2", false); found || l.showDone {
+		t.Errorf("after the move: found %v, showDone %v, want the completed task hidden again", found, l.showDone)
 	}
 }
 

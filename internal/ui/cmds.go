@@ -145,7 +145,8 @@ func (m Model) loadFlags() tea.Cmd {
 
 // loadTree builds the sidebar from the followed scopes: My tasks first,
 // then each followed space's subtree, then followed projects that are not inside a followed space.
-func (m Model) loadTree() tea.Cmd {
+// asked says the user changed the followed set, see treeLoadedMsg.
+func (m Model) loadTree(asked bool) tea.Cmd {
 	st, meID := m.opts.Store, m.ref.meID
 	// The pins are read once. A later load keeps the ones in memory, a key pressed while the load ran would otherwise be undone on screen.
 	needPins := !m.sidebar.pinsLoaded
@@ -229,7 +230,7 @@ func (m Model) loadTree() tea.Cmd {
 			}
 		}
 		if !needPins {
-			return treeLoadedMsg{nodes: nodes}
+			return treeLoadedMsg{nodes: nodes, asked: asked}
 		}
 		pinned, err := st.Pins().List(ctx)
 		if err != nil {
@@ -239,7 +240,7 @@ func (m Model) loadTree() tea.Cmd {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return errMsg{err}
 		}
-		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}}
+		return treeLoadedMsg{nodes: nodes, pins: &pinState{ids: pinned, only: only == "1"}, asked: asked}
 	}
 }
 

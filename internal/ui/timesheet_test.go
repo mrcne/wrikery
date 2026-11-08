@@ -451,12 +451,10 @@ func TestListReloadsLeaveThePaneBesideTheGridAlone(t *testing.T) {
 	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
 	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
 	m.selectedTaskID = "T1"
-	next, cmd := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: []store.Task{{ID: "T2", Title: "Beta", Status: "Active"}}})
+	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", tasks: []store.Task{{ID: "T2", Title: "Beta", Status: "Active"}}})
 	m = next.(Model)
-	for _, msg := range collect(cmd) {
-		if sel, ok := msg.(taskSelectedMsg); ok {
-			t.Errorf("the list reload selected %s over the pane's task", sel.id)
-		}
+	if m.selectedTaskID != "T1" {
+		t.Errorf("the list reload selected %s over the pane's task", m.selectedTaskID)
 	}
 	next, _ = m.Update(taskSelectedMsg{id: "T2"})
 	m = next.(Model)
