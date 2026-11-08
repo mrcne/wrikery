@@ -142,6 +142,14 @@ func waitAfter(t *testing.T, tm *teatest.TestModel, from int, want string) {
 	}
 }
 
+// waitForHit waits for a search hit row, the title with the hit's folder after it.
+// The title alone is drawn by the list, the detail pane and the changes screen too, and their rows can land after the search box opened.
+// A wait for the title can then pass before the hit is drawn, and an enter on a box with no hits does nothing.
+func waitForHit(t *testing.T, tm *teatest.TestModel, from int, title, folder string) {
+	t.Helper()
+	waitAfter(t, tm, from, title+"  "+folder)
+}
+
 // finalView quits the program and returns the last full frame, without cursor sequences, for goldens.
 func finalView(t *testing.T, tm *teatest.TestModel) string {
 	t.Helper()
@@ -569,7 +577,7 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
 	press(tm, "fix auth retry") // the only task matching all three words is IEAATASK00, Fix auth retry loop
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	// A permalink is on screen from the very first task the detail pane ever showed, so the wait needs a fresh mark:
 	// only a frame drawn after enter proves the overlay actually closed.
 	from = mark(t, tm)
@@ -594,7 +602,7 @@ func TestQuickSearchFromChangesScreenJumpsToMain(t *testing.T) {
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
@@ -613,7 +621,7 @@ func TestCopyBindingsCopyTheRightText(t *testing.T) {
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
@@ -649,7 +657,7 @@ func TestCommentDialogQueuesAndMarks(t *testing.T) {
 	from := mark(t, tm)
 	// "Fix auth retry loop" is IEAATASK00 and the only task matching all three words, so the search lands on it.
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
@@ -745,7 +753,7 @@ func TestDatesDialogSetsDue(t *testing.T) {
 	// "Fix auth retry loop" is IEAATASK00, the same task the comment flow test picks, and it
 	// starts with no dates block, so typing straight into the due field needs no clearing first.
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
@@ -923,7 +931,7 @@ func TestChangesEnterOpensTheTask(t *testing.T) {
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
@@ -1564,7 +1572,7 @@ func TestJumpOpensTheWayToACollapsedFolder(t *testing.T) {
 	waitFor(t, tm, "Search")
 	from := mark(t, tm)
 	press(tm, "refactor sync cursor") // IEAATASK04, the only task with all three words, lives in On-call
-	waitAfter(t, tm, from, "Refactor sync cursor")
+	waitForHit(t, tm, from, "Refactor sync cursor", "On-call")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "Tasks: Platform / Infra / On-call (")
@@ -1668,7 +1676,7 @@ func TestDetailShowsTheRelationsOfADemoTask(t *testing.T) {
 	// The title is in the list already, only a frame drawn after typing proves the search found it.
 	from := mark(t, tm)
 	press(tm, "fix auth retry")
-	waitAfter(t, tm, from, "Fix auth retry loop")
+	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	from = mark(t, tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
