@@ -112,6 +112,21 @@ func TestRunCommandHelpNeedsNoTokenAndNoTerminal(t *testing.T) {
 	}
 }
 
+// A bad WRIKERY_SOURCE stops the command before it touches the store, a word lets it run.
+func TestRunCommandChecksTheSourceWord(t *testing.T) {
+	isolate(t)
+	fs, o := rootFlags()
+	o.noColor = true
+	t.Setenv(cli.EnvSource, "my agent")
+	if code := runCommand([]string{"changes"}, fs, o); code != 2 {
+		t.Errorf("bad word: code = %d, want 2", code)
+	}
+	t.Setenv(cli.EnvSource, "codex")
+	if code := runCommand([]string{"changes"}, fs, o); code != 0 {
+		t.Errorf("good word: code = %d, want 0", code)
+	}
+}
+
 func TestRunCommandUsageErrorStillExitsWithTwo(t *testing.T) {
 	isolate(t)
 	fs, o := rootFlags()

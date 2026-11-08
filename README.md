@@ -51,6 +51,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - a time budget against the logged time in the task detail, from Wrike's Effort field or a custom field the config names, editable from the actions list
 - commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, and read back the changes made through Wrikery, with JSON output
 - commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
+- an agent skill, installed by `wrikery skill install` where Claude Code, Codex, Cursor and the other coding agents look, and a `WRIKERY_SOURCE` word that tells an agent's writes from yours on the changes screen
 - an inbox of the comments that mention you or land on tasks you follow, with an unread count in the status bar
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
 - start offline on purpose with `--offline`, look over the queue, then go online with `R`, and a queued edit of a field someone changed on Wrike meanwhile waits for you instead of overwriting it
@@ -86,6 +87,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 `wrikery` alone opens the interface.
 With a command it runs one operation on the same local cache and exits.
 `wrikery help` lists the commands and `wrikery help <command>` explains one.
+An AI agent learns them from the skill in `skills/wrikery`: `wrikery skill install` puts it where Claude Code, Codex, Cursor and the other coding agents look, `gh skill install mrcne/wrikery` and `npx skills add mrcne/wrikery` do the same from the repository.
 
 ```sh
 wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
@@ -103,6 +105,7 @@ wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT --to "Next release" --from Backlog
 wrikery ui filter --importance High --person me # narrow the interface that is running
 wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills
 ```
 
 A task or a folder is an id or a part of its title that matches exactly one cached row.

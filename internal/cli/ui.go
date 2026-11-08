@@ -66,6 +66,12 @@ F is an id or a part of its title, me is My tasks.`,
 	}
 )
 
+// uiJSON is the answer of every ui command, the interface's own line.
+type uiJSON struct {
+	OK   bool   `json:"ok"`
+	Text string `json:"text"`
+}
+
 type filterOpts struct {
 	levels, statuses multiFlag
 	person           string
@@ -307,11 +313,7 @@ func uiCall(ctx context.Context, env Env, req control.Request, asJSON bool, text
 		text = reply.Text
 	}
 	if asJSON {
-		type result struct {
-			OK   bool   `json:"ok"`
-			Text string `json:"text"`
-		}
-		return printJSON(env, result{OK: true, Text: text})
+		return printJSON(env, uiJSON{OK: true, Text: text})
 	}
 	_, _ = fmt.Fprintln(env.Stdout, text)
 	return exitOK

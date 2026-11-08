@@ -18,7 +18,7 @@ type Store struct {
 	// Now stamps the rows the store creates itself, queued writes and their optimistic cache rows.
 	// The tests run on a fixed clock, so the stamps have to come from here and not from SQLite.
 	Now func() time.Time
-	// Source names the front end on every row the outbox queues, SourceTUI or SourceCLI, set once by main.
+	// Source names the front end on every row the outbox queues, SourceTUI, SourceCLI or the word a command's environment gave, set once by main.
 	Source string
 }
 

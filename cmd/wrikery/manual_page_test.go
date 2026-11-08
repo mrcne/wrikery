@@ -146,7 +146,8 @@ wrikery task comment MAAAAAEPXpuT Pushed the branch
 wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT --to "Next release" --from Backlog
 wrikery ui filter --importance High --person me # narrow the interface that is running
-wrikery ui folder "Next release"                # open a folder there, as from the sidebar`
+wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills`
 
 const seeAlso = `The project page, https://github.com/mrcne/wrikery, with the product description in docs/overview.md and the technical design in docs/architecture.md.`
 

@@ -194,12 +194,7 @@ func reportComment(ctx context.Context, env Env, out outcome, reason string, row
 			}
 		}
 	}
-	type result struct {
-		taskJSON
-		Comment commentJSON `json:"comment"`
-		Sent    bool        `json:"sent"`
-	}
-	if code := printJSON(env, result{taskJSON: taskRow(ctx, env, t, ref), Comment: c, Sent: out == sent}); code != exitOK {
+	if code := printJSON(env, commentResultJSON{taskJSON: taskRow(ctx, env, t, ref), Comment: c, Sent: out == sent}); code != exitOK {
 		return code
 	}
 	if out == queued {

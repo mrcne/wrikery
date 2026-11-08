@@ -289,6 +289,25 @@ Runs a sync cycle in the interface that is running, what R does there.
 .B \-\-json
 print JSON
 .RE
+.SS skill
+.B "wrikery skill"
+.br
+.B "wrikery skill install [\-\-project | \-\-dir DIR]"
+.PP
+Prints the skill that tells an AI agent how to work with Wrike through wrikery, a file in the Agent Skills format, so wrikery skill > FILE works too.
+install writes the whole skill folder under ~/.claude/skills and ~/.agents/skills, the directories Claude Code and the other coding agents read, \-\-project puts it under the working directory instead and \-\-dir DIR under one directory of your choice.
+The folder is in the repository as well, so gh skill install mrcne/wrikery and npx skills add mrcne/wrikery install it too.
+.RS
+.TP
+.BI "\-\-dir " DIR
+install under the skills directory DIR alone
+.TP
+.B \-\-json
+print JSON
+.TP
+.B \-\-project
+install under the working directory, for one repository
+.RE
 .SH KEYS
 The ? key shows the bindings of the current screen.
 Vim keys and the arrow keys both work, and home, end, page up and page down work beside g, G, ctrl+d and ctrl+u.
@@ -663,6 +682,7 @@ wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog
 wrikery ui filter \-\-importance High \-\-person me # narrow the interface that is running
 wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills
 .fi
 .SH SEE ALSO
 The project page, https://github.com/mrcne/wrikery, with the product description in docs/overview.md and the technical design in docs/architecture.md.

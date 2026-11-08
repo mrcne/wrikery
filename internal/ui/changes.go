@@ -413,8 +413,9 @@ func (s changesModel) View(th Theme, now time.Time, width, height int, offline b
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
 		when := StateText(r.Row, now, offline)
-		if r.Row.Source == store.SourceCLI {
-			when += "  cli"
+		// A command's write names its source, cli or the word an agent set, the interface's own rows carry nothing.
+		if src := r.Row.Source; src != "" && src != store.SourceTUI {
+			when += "  " + src
 		}
 		label := fmt.Sprintf("%s  %s  %s", ansi.Truncate(displayTitle(r.Title, th.HidePrefixes), 30, "..."), r.Summary, muted.Render(when))
 		b.WriteString(rowLine(th, label, width, i == s.cursor, true) + "\n")

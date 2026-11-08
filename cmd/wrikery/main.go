@@ -349,13 +349,18 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 	}
 	cfg.UI = resolveTheme(cfg.UI, terminal)
 
+	source, err := cli.SourceWord(os.Getenv(cli.EnvSource))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
+		return 2
+	}
 	st, err := store.Open(paths.DBFile)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		return 1
 	}
 	defer func() { _ = st.Close() }()
-	st.Source = store.SourceCLI
+	st.Source = source
 	tokens := auth.Tokens{TokenFile: paths.TokenFile, SessionFile: paths.SessionFile, LockFile: paths.AuthLockFile}
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM}
 	// signal.Notify un-ignores an ignored SIGHUP, which would undo nohup, see https://pkg.go.dev/os/signal.

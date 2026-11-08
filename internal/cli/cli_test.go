@@ -73,7 +73,7 @@ func TestRunHelpPrintsTheUsageOnStdout(t *testing.T) {
 	}
 	for _, want := range []string{"wrikery sync", "wrikery task list", "wrikery task show", "wrikery task status", "wrikery task create",
 		"wrikery task edit", "wrikery task comment", "wrikery task assign", "wrikery task unassign", "wrikery task move",
-		"wrikery ui filter", "wrikery ui select", "wrikery ui folder", "wrikery ui open", "wrikery ui refresh", "wrikery changes", "--json"} {
+		"wrikery ui filter", "wrikery ui select", "wrikery ui folder", "wrikery ui open", "wrikery ui refresh", "wrikery changes", "wrikery skill", "--json"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("usage lacks %q:\n%s", want, out.String())
 		}
