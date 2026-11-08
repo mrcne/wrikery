@@ -179,3 +179,83 @@ func TestChangesTakesNoArguments(t *testing.T) {
 		t.Errorf("code %d stderr %q, want a usage error", code, errOut.String())
 	}
 }
+
+// --source keeps the rows of one front end or agent word, --limit cuts the list after the first N rows, the queue first.
+func TestChangesSourceAndLimitNarrowTheList(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	seedChanges(t, env.Store)
+	ids := func(args ...string) string {
+		t.Helper()
+		out.Reset()
+		if code := Run(context.Background(), env, append([]string{"changes", "--json"}, args...)); code != exitOK {
+			t.Fatalf("%v: exit %d", args, code)
+		}
+		var rows []changeJSON
+		if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, r := range rows {
+			got = append(got, r.TaskID)
+		}
+		return strings.Join(got, " ")
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--source", "cli"}, "TASK2 TASK4"},
+		{[]string{"--limit", "2"}, "TASK2 TASK3"},
+		{[]string{"--source", "tui", "--limit", "1"}, "TASK3"},
+		{[]string{"--source", "codex"}, ""},
+	} {
+		if got := ids(tc.args...); got != tc.want {
+			t.Errorf("%v: got %q, want %q", tc.args, got, tc.want)
+		}
+	}
+	env2, _, errOut := testEnv(t)
+	if code := Run(context.Background(), env2, []string{"changes", "--limit", "-1"}); code != exitUsage || !strings.Contains(errOut.String(), "usage: wrikery changes") {
+		t.Errorf("--limit -1: exit %d, stderr:\n%s", code, errOut.String())
+	}
+}
+
+// A command retries nothing itself, so a queued row whose last send failed reads queued with the error under it, never retrying.
+func TestChangesCallsAQueuedRowQueuedWhateverItsLastTry(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	env.Store.Source = store.SourceCLI
+	ctx := context.Background()
+	id, err := env.Store.Outbox().EnqueueComment(ctx, "TASK1", "U1", "Soon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := env.Store.Outbox().Reschedule(ctx, id, "wrike: 429 rate limit", "2026-10-03T12:05:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run(ctx, env, []string{"changes"}); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.HasPrefix(out.String(), "queued  cli  ") || !strings.Contains(out.String(), "\n    wrike: 429 rate limit\n") || strings.Contains(out.String(), "retrying") {
+		t.Errorf("changes printed:\n%s", out.String())
+	}
+}
+
+// On a terminal a line is cut to the width, a pipe gets the whole line. The test theme is ASCII, so bytes are cells.
+func TestChangesOnATerminalCutsLinesToTheWidth(t *testing.T) {
+	env, out, _ := testEnv(t)
+	seedBoard(t, env.Store)
+	seedChanges(t, env.Store)
+	env.Width = 50
+	if code := Run(context.Background(), env, []string{"changes"}); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if len(line) > 50 {
+			t.Errorf("%d cells wide: %q", len(line), line)
+		}
+	}
+	if !strings.Contains(out.String(), "4 changes") {
+		t.Errorf("changes printed:\n%s", out.String())
+	}
+}

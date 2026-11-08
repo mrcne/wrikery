@@ -65,15 +65,22 @@ also check for tasks deleted on Wrike, slower
 print JSON
 .RE
 .SS changes
-.B "wrikery changes"
+.B "wrikery changes [\-\-source WORD] [\-\-limit N]"
 .PP
 Lists the writes made through Wrikery from this machine, what the changes screen shows: the writes still queued or failed first, in the order they are sent, then the ones sent or discarded in the last 30 days, newest first.
 A row names the task, the field with its old and new value, the state and whether the interface or a command made it, and a second line carries the values in full or the error Wrike returned.
-In JSON the stored values stand next to the text, with ids where the text has names.
+In JSON the stored values stand next to the text, with ids where the text has names, before and payload as the outbox keeps them, in Wrike's own field names.
+\-\-source keeps the rows of one source, tui for the interface or cli for a command, and \-\-limit N stops after N rows, the queue first, so a script reads what it needs.
 .RS
 .TP
 .B \-\-json
 print JSON
+.TP
+.BI "\-\-limit " N
+stop after N rows, the queue first
+.TP
+.BI "\-\-source " WORD
+only the rows of this source WORD, tui or cli
 .RE
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.

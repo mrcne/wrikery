@@ -381,7 +381,8 @@ The commands are `sync`, `changes`, `task list`, `task show`, `task status`, `ta
 They read the same local cache and queue writes through the same outbox as the interface.
 A write a command made shows on the changes screen with a `cli` tag.
 `wrikery changes` prints what the changes screen shows, the queue first and then the last thirty days, each row with the task, the field with its old and new value, the state and whether the interface or a command made it, so an agent can check what it did before it goes on.
-In JSON the stored values stand next to the text, with ids where the text has names.
+In JSON the stored values stand next to the text, with ids where the text has names, `before` and `payload` as the outbox keeps them in Wrike's own field names, which can change between versions where the other keys do not.
+`--source` keeps the rows of one source and `--limit N` the first N rows, the queue first, and on a terminal a line is cut to the width.
 A read prints the cache and waits for the network only to fetch a task argument the cache lacks, or to read the comments and time entries of a task the cache never read, which `task show` does before it prints.
 In offline mode it prints what the cache holds and marks such a thread `not synced yet`, in JSON as `thread_synced`.
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.

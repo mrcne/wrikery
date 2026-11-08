@@ -92,7 +92,7 @@ type OutboxRow struct {
 }
 
 // Payloads mirror the params of the client call each kind replays.
-// internal/syncer decodes them, the JSON never leaves the app.
+// internal/syncer decodes them, and wrikery changes --json prints them as stored, so a renamed key reaches a script that reads before or payload.
 type TaskUpdatePayload struct {
 	Title              string     `json:"title,omitempty"`
 	Description        string     `json:"description,omitempty"`

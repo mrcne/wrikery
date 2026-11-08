@@ -46,7 +46,11 @@ type ChangeNames struct {
 // a time entry whose task was never cached shows the entry id.
 // The same task and folder come up many times in a month of writes, each is read once,
 // and a title already in folders is not read at all, the screen seeds it with the ones the tree holds.
+// The map is filled with every title resolved, nil is taken as an empty one.
 func LoadChanges(ctx context.Context, st *store.Store, names ChangeNames, folders map[string]string) ([]Change, error) {
+	if folders == nil {
+		folders = map[string]string{}
+	}
 	all, err := st.Outbox().ListChanges(ctx)
 	if err != nil {
 		return nil, err

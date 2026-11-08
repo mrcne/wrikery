@@ -276,3 +276,23 @@ func TestDescribeWritesABudgetChange(t *testing.T) {
 		}
 	}
 }
+
+// The command passes no folder titles of its own, so a nil map must not stop a row with a folder change.
+func TestLoadChangesTakesANilFolderMap(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "changes-nil.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	if err := st.Tasks().Upsert(ctx, []store.Task{{ID: "T1", Title: "One", Status: "Active"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Outbox().EnqueueTaskUpdate(ctx, "T1", store.TaskUpdatePayload{AddParents: []string{"F1"}}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := LoadChanges(ctx, st, ChangeNames{}, nil)
+	if err != nil || len(rows) != 1 || !strings.Contains(rows[0].Summary, "F1") {
+		t.Errorf("rows %+v, err %v", rows, err)
+	}
+}
