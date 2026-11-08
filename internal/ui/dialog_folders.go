@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -37,14 +39,12 @@ func newFoldersDialog(task store.Task, nodes []treeNode, pinned map[string]bool,
 			continue
 		}
 		known = append(known, id)
-	}
-	for _, r := range rows {
-		for _, id := range known {
-			if r.id == id && idx.under(id, nodeID) {
-				d.leaving = append(d.leaving, id)
-			}
+		if idx.under(id, nodeID) {
+			d.leaving = append(d.leaving, id)
 		}
 	}
+	// The plan line names them in the order the sidebar shows them.
+	slices.SortFunc(d.leaving, func(a, b string) int { return cmp.Compare(idx.order[a], idx.order[b]) })
 	list, cmd := newChecklist(rows, known, "type a folder name")
 	if len(known) > 0 {
 		list.selectID(known[0])

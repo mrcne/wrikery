@@ -222,15 +222,23 @@ func splitIndent(label string) (indent, rest string) {
 // The tree draws a folder under every parent, a list offers it where it first appears.
 // A pinned folder is offered twice, flat under a Pinned header at the top and again in its place in the tree,
 // so it is one keystroke away and its children keep their parent row.
+// The flat row names its parent at the right edge, two pinned folders with one name are told apart by it,
+// as a hint and not as part of the name, so the filter still matches what the sidebar shows.
 func treeRows(nodes []treeNode, pinned map[string]bool) ([]checkRow, map[string]string) {
 	var top, rows []checkRow
+	var path []string // the titles down to the node, by depth, a parent comes before its children
 	titles := map[string]string{}
 	for _, n := range nodes {
+		path = append(path[:n.depth], n.title)
 		if n.kind == nodeMe || titles[n.id] != "" {
 			continue
 		}
 		if pinned[n.id] {
-			top = append(top, checkRow{id: n.id, label: n.title, section: "Pinned"})
+			parent := ""
+			if n.depth > 0 {
+				parent = path[n.depth-1]
+			}
+			top = append(top, checkRow{id: n.id, label: n.title, section: "Pinned", hint: parent})
 		}
 		rows = append(rows, checkRow{id: n.id, label: strings.Repeat("  ", n.depth) + n.title})
 		titles[n.id] = n.title

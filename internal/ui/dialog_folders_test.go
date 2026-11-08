@@ -191,15 +191,7 @@ func TestFoldersDialogListsThePinnedFoldersFirst(t *testing.T) {
 	dl, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"OUT"}}, nodes, pinned, newFolderIndex(nodes), "PLT")
 	view := dl.View(th, 60, 40)
 	// The pinned folders come first in tree order, without the tree's indent, then the whole tree keeps its shape.
-	order := []string{"Pinned", "[ ] API", "[ ] On-call", "All", "[ ] Mobile", "  [ ] API", "    [ ] On-call"}
-	at := 0
-	for _, s := range order {
-		i := strings.Index(view[at:], s)
-		if i < 0 {
-			t.Fatalf("%q missing after position %d:\n%s", s, at, view)
-		}
-		at += i + len(s)
-	}
+	expectInOrder(t, view, "Pinned", "[ ] API", "[ ] On-call", "All", "[ ] Mobile", "  [ ] API", "    [ ] On-call")
 	if !strings.Contains(view, "enter adds to API") {
 		t.Errorf("the first line should offer the pinned folder under the cursor:\n%s", view)
 	}
@@ -223,5 +215,58 @@ func TestFoldersDialogCountsTheHeadersInItsHeight(t *testing.T) {
 	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 20)
 	if h := lipgloss.Height(view); h > 20 {
 		t.Errorf("the box is %d lines tall on a 20 line screen:\n%s", h, view)
+	}
+}
+
+// expectInOrder fails unless every piece is in the view, each after the one before it.
+// The boxes pad and frame their rows, so a substring walk is used instead of a line match.
+func expectInOrder(t *testing.T, view string, order ...string) {
+	t.Helper()
+	at := 0
+	for _, s := range order {
+		i := strings.Index(view[at:], s)
+		if i < 0 {
+			t.Fatalf("%q missing after position %d:\n%s", s, at, view)
+		}
+		at += i + len(s)
+	}
+}
+
+// A pinned folder is two rows of the list, under Pinned and in the tree, but the task leaves it once.
+func TestFoldersDialogLeavesAPinnedFolderOnce(t *testing.T) {
+	nodes := testTree()
+	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"ONC"}}, nodes, map[string]bool{"ONC": true}, newFolderIndex(nodes), "INF")
+	dl := typeRunes(dialog(d), "des")
+	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
+	if !strings.Contains(view, "enter moves to Design system, leaves On-call") || strings.Contains(view, "On-call, On-call") {
+		t.Errorf("the first line should name On-call once:\n%s", view)
+	}
+	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msgs := collect(cmd)
+	want := submitFoldersMsg{taskID: "T", add: []string{"DSG"}, remove: []string{"ONC"}}
+	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
+		t.Errorf("enter -> %#v", msgs)
+	}
+}
+
+// Two pinned folders with one name are told apart by the parent at the right edge of the row.
+// The parent is a hint and not part of the name, so typing it does not find the pinned row.
+func TestFoldersDialogNamesTheParentOfAPinnedFolder(t *testing.T) {
+	nodes := []treeNode{
+		{id: store.ScopeKindMe, title: "My tasks", kind: nodeMe},
+		{id: "PLT", title: "Platform", kind: nodeSpace, children: []int{2, 4}},
+		{id: "API", title: "API", kind: nodeProject, depth: 1, children: []int{3}},
+		{id: "BK1", title: "Backlog", kind: nodeFolder, depth: 2},
+		{id: "INF", title: "Infra", kind: nodeFolder, depth: 1, children: []int{5}},
+		{id: "BK2", title: "Backlog", kind: nodeFolder, depth: 2},
+	}
+	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
+	pinned := map[string]bool{"PLT": true, "BK1": true, "BK2": true}
+	d, _ := newFoldersDialog(store.Task{ID: "T", ParentIDs: []string{"INF"}}, nodes, pinned, newFolderIndex(nodes), "")
+	view := d.View(th, 60, 40)
+	expectInOrder(t, view, "Pinned", "[ ] Platform", "[ ] Backlog", "API", "[ ] Backlog", "Infra", "All", "[ ] Platform", "  [ ] API", "    [ ] Backlog")
+	dl := typeRunes(dialog(d), "inf")
+	if view := dl.View(th, 60, 40); strings.Contains(view, "Pinned") || !strings.Contains(view, "[x] Infra") {
+		t.Errorf("typing the parent's name should leave the tree's Infra alone on screen:\n%s", view)
 	}
 }

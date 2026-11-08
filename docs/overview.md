@@ -147,6 +147,7 @@ A High task carries a `!` next to its status glyph in the list and on its card, 
 
 `m` lists the followed spaces, projects and folders as a checklist with the task's folders checked, narrowed as you type.
 The pinned folders come first, under a Pinned header, and the whole tree follows under All, so a pinned folder is a keystroke away instead of a few typed letters.
+Each pinned row names its parent at the right edge, so two pinned folders with one name are told apart.
 Space toggles a folder and enter applies the toggles, so a task can join or leave several folders in one go.
 Enter with nothing toggled moves the task instead: it leaves the folders under the node in view and joins the highlighted one.
 On My tasks no folder is in view, so the move only joins, and the same happens when the task sits in no folder under the node in view, after a search that found it elsewhere for example.
