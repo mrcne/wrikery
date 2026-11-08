@@ -8,29 +8,31 @@ It keeps a local copy of what you follow, so browsing and search are instant and
 
 ## Screenshots
 
-![The main screen: the spaces tree, the task list and one task's details, with the log time dialog open](docs/img/main.png)
+![The main screen: the spaces tree, the task list and the detail of one task with its description, subtasks, dependencies, comments and time](docs/img/main.png)
+
+![The board: the tasks of a space as cards in a column per status](docs/img/board.png)
 
 ![The timesheet: a week of time entries as a grid with totals](docs/img/timesheet.png)
 
+The inbox, the changes screen, the settings screen and the actions list are shown in [docs/overview.md](docs/overview.md).
+
 ## Install
 
-On macOS with Homebrew: `brew install mrcne/tap/wrikery`, which also installs the manual, `man wrikery`.
-
-On Linux, or without Homebrew, download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, for example `wrikery_0.3.0_darwin_arm64.tar.gz`, with `checksums.txt` next to them.
-The checksum file is signed and each archive has an SBOM and a build provenance attestation, see [Checking a release](SECURITY.md#checking-a-release).
-Unpack it and put the `wrikery` binary on your PATH.
-The archive also carries the manual, `man/wrikery.1`, for a `man1` directory on your MANPATH.
-On macOS a browser download is quarantined and Gatekeeper refuses the first run.
-Run `xattr -d com.apple.quarantine wrikery` once after unpacking.
-
-With Go 1.26 or newer installed, `go install github.com/mrcne/wrikery/cmd/wrikery@latest` builds it from source instead.
+- macOS with Homebrew: `brew install mrcne/tap/wrikery`, which also installs the manual, `man wrikery`.
+- Linux, or macOS without Homebrew: download the archive for your system from the [releases page](https://github.com/mrcne/wrikery/releases), `wrikery_<version>_<os>_<arch>.tar.gz` for Linux and macOS on amd64 and arm64, with `checksums.txt` next to them.
+  Unpack it and put the `wrikery` binary on your PATH.
+  The archive also carries the manual, `man/wrikery.1`, for a `man1` directory on your MANPATH.
+  On macOS a browser download is quarantined and Gatekeeper refuses the first run, run `xattr -d com.apple.quarantine wrikery` once after unpacking.
+  The checksum file is signed and each archive has an SBOM and a build provenance attestation, see [Checking a release](SECURITY.md#checking-a-release).
+- From source, with Go 1.26 or newer: `go install github.com/mrcne/wrikery/cmd/wrikery@latest`.
 
 ## First run
 
-`wrikery` asks for a Wrike API token, a permanent access token created in the Wrike App Console with Get token, and keeps it in the system keychain.
-With an API app named in the config it signs in through the browser instead, with short lived tokens it renews on its own, see [docs/overview.md](docs/overview.md).
-The data center is detected from the token, or picked on the sign in screen.
-Then pick the spaces and projects to follow from a checklist and watch the first sync run.
+1. `wrikery` asks for a Wrike API token, a permanent access token created in the Wrike App Console with Get token, and keeps it in the system keychain.
+   With an API app named in the config it signs in through the browser instead, with short lived tokens it renews on its own, see [docs/overview.md](docs/overview.md).
+2. The data center is detected from the token, or picked on the sign in screen.
+3. Pick the spaces and projects to follow from a checklist and watch the first sync run.
+
 `wrikery --demo` runs on built in sample data instead, with no token and no network, to look around first.
 
 ## Features
@@ -120,9 +122,17 @@ Exit codes: 0 done, 1 error, 2 usage, 3 queued but not on Wrike yet.
 
 The config file is `~/.config/wrikery/config.toml`, `--config PATH` reads another one.
 Most keys can also be changed on the settings screen, the file keeps its comments.
-`poll_interval` sets how often the app checks Wrike for changes and `log_level` how much it logs.
-The `[ui]` table holds `theme` (auto, dark or light), `accent` for the highlight color, `ascii` for plain drawing characters, and `branch_template` for the branch name `Y` copies.
-`host` names the Wrike data center, `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com`, when neither the detection nor the pick at the sign in is wanted.
+The keys people set most, the rest are in [docs/overview.md](docs/overview.md#config):
+
+| key | what it sets |
+| --- | --- |
+| `poll_interval` | how often the app checks Wrike for changes |
+| `log_level` | how much it logs |
+| `host` | the Wrike data center, `www.wrike.com`, `app-eu.wrike.com` or `app-us2.wrike.com`, when neither the detection nor the pick at the sign in is wanted |
+| `[ui]` `theme` | auto, dark or light |
+| `[ui]` `accent` | the highlight color |
+| `[ui]` `ascii` | plain drawing characters for a terminal without the glyphs |
+| `[ui]` `branch_template` | the branch name `Y` copies |
 
 ## Docs
 
