@@ -64,6 +64,17 @@ also check for tasks deleted on Wrike, slower
 .B \-\-json
 print JSON
 .RE
+.SS changes
+.B "wrikery changes"
+.PP
+Lists the writes made through Wrikery from this machine, what the changes screen shows: the writes still queued or failed first, in the order they are sent, then the ones sent or discarded in the last 30 days, newest first.
+A row names the task, the field with its old and new value, the state and whether the interface or a command made it, and a second line carries the values in full or the error Wrike returned.
+In JSON the stored values stand next to the text, with ids where the text has names.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.
 .SS task list
@@ -631,6 +642,7 @@ A second keychain item with the access token, the refresh token, the expiry, the
 .SH EXAMPLES
 .nf
 wrikery sync                                 # one sync cycle, \-\-full also checks for deleted tasks
+wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
 wrikery task list \-\-folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

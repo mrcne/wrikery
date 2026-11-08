@@ -3,7 +3,6 @@ package ui
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
@@ -581,66 +580,18 @@ func (m Model) swapWatch() string {
 	return ""
 }
 
-// loadChanges reads the rows for the changes screen and resolves what they name:
-// the task for its current title and the folder a jump needs, and the folder ids a summary shows by title.
-// A task gone from the cache keeps the title the row took at enqueue and gets no task id, enter has nowhere to go,
-// a time entry whose task was never cached shows the entry id.
-// The same task and folder come up many times in a month of writes, each is read once, and the folder titles the tree
-// already holds are not read at all.
+// loadChanges reads the rows for the changes screen, with the folder titles the tree already holds as the seed.
 func (m Model) loadChanges() tea.Cmd {
-	st, ref := m.opts.Store, m.ref
+	st := m.opts.Store
+	names := ChangeNames{Statuses: m.ref.statuses, Contacts: m.ref.contacts, CustomFields: m.ref.customFields}
 	folders := map[string]string{}
 	for id, title := range m.list.folders.title {
 		folders[id] = title
 	}
 	return func() tea.Msg {
-		ctx := context.Background()
-		all, err := st.Outbox().ListChanges(ctx)
+		rows, err := LoadChanges(context.Background(), st, names, folders)
 		if err != nil {
 			return errMsg{err}
-		}
-		type known struct {
-			task store.Task
-			ok   bool
-		}
-		tasks := map[string]known{}
-		var rows []changeRow
-		for _, r := range all {
-			cr := changeRow{row: r, title: r.TaskTitle}
-			if r.TaskID == "" {
-				cr.title = "(time entry " + r.EntityID + ")"
-			} else {
-				k, seen := tasks[r.TaskID]
-				if !seen {
-					if t, err := st.Tasks().Get(ctx, r.TaskID); err == nil {
-						k = known{task: t, ok: true}
-					}
-					tasks[r.TaskID] = k
-				}
-				if k.ok {
-					cr.task, cr.title = k.task, k.task.Title
-				} else if cr.title == "" {
-					cr.title = "(task " + r.TaskID + ")"
-				}
-			}
-			if r.Kind == store.KindTaskUpdate {
-				var p store.TaskUpdatePayload
-				_ = json.Unmarshal(r.Payload, &p)
-				for _, ids := range [][]string{p.AddParents, p.RemoveParents} {
-					for _, id := range ids {
-						if _, seen := folders[id]; seen {
-							continue
-						}
-						// A folder the store has no row for keeps its id as the title, and is not asked for again.
-						folders[id] = id
-						if f, err := st.Folders().Get(ctx, id); err == nil {
-							folders[id] = f.Title
-						}
-					}
-				}
-			}
-			cr.summary, cr.detail = describe(r, ref, folders)
-			rows = append(rows, cr)
 		}
 		return changesLoadedMsg{rows: rows}
 	}

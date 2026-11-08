@@ -66,6 +66,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 	switch args[0] {
 	case "sync":
 		return runSync(ctx, env, args[1:])
+	case "changes":
+		return runChanges(ctx, env, args[1:])
 	case "task":
 		return runTask(ctx, env, args[1:])
 	case "ui":

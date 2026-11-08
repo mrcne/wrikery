@@ -31,7 +31,7 @@ With --demo they reach a running demo, and every value goes as typed, the demo's
 // Commands is every command in the order the help page and the manual list them.
 func Commands() []Command {
 	return []Command{
-		cmdSync,
+		cmdSync, cmdChanges,
 		cmdTaskList, cmdTaskShow, cmdTaskStatus, cmdTaskCreate, cmdTaskEdit, cmdTaskComment, cmdTaskAssign, cmdTaskUnassign, cmdTaskMove,
 		cmdUIFilter, cmdUISelect, cmdUIFolder, cmdUIList, cmdUIBoard, cmdUIOpen, cmdUIRefresh,
 	}

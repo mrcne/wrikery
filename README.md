@@ -49,7 +49,7 @@ Then pick the spaces and projects to follow from a checklist and watch the first
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
 - a time budget against the logged time in the task detail, from Wrike's Effort field or a custom field the config names, editable from the actions list
-- commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, with JSON output
+- commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, and read back the changes made through Wrikery, with JSON output
 - commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
 - an inbox of the comments that mention you or land on tasks you follow, with an unread count in the status bar
 - offline: reads come from the local cache, writes are queued and sent later, and a changes screen lists what went out over the last thirty days with the old and the new values, and the writes that failed for a retry or a discard
@@ -89,6 +89,7 @@ With a command it runs one operation on the same local cache and exits.
 
 ```sh
 wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
+wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
 wrikery task list --folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

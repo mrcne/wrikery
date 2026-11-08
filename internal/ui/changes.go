@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -14,23 +15,97 @@ import (
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-type changeRow struct {
-	row     store.OutboxRow
-	task    store.Task // the task as the cache has it, zero when the cache does not hold it
-	title   string
-	summary string // the field with its old and new value, one line
-	detail  string // the cursor's second line, the values in full, the error takes its place on a row the engine still retries
+// Change is one write as the changes screen and the changes command show it.
+type Change struct {
+	Row     store.OutboxRow
+	Task    store.Task // the task as the cache has it, zero when the cache does not hold it
+	Title   string     // the task's title, the one the row took at enqueue once the task left the cache, else its id in parentheses
+	Summary string     // the field with its old and new value, one line
+	Detail  string     // the values in full, the second line under the cursor
+}
+
+// Problem is the error of a row the engine still works on, the second line shows it in place of the values.
+// A row that went out or was dropped may carry an error too, history by then.
+func (c Change) Problem() string {
+	if inQueue(c.Row) {
+		return c.Row.LastError
+	}
+	return ""
+}
+
+// ChangeNames is what a description resolves ids with, an id nothing knows stays an id.
+type ChangeNames struct {
+	Statuses     map[string]store.CustomStatus
+	Contacts     map[string]store.Contact
+	CustomFields []store.CustomField // the account's definitions, a budget write names one of them
+}
+
+// LoadChanges reads the queue and the history, the screen's list and the command's, and describes every row.
+// It resolves the task of a row for its current title and the folder a jump needs, and the folder ids a summary shows by title.
+// A task gone from the cache keeps the title the row took at enqueue and gets no task, enter has nowhere to go,
+// a time entry whose task was never cached shows the entry id.
+// The same task and folder come up many times in a month of writes, each is read once,
+// and a title already in folders is not read at all, the screen seeds it with the ones the tree holds.
+func LoadChanges(ctx context.Context, st *store.Store, names ChangeNames, folders map[string]string) ([]Change, error) {
+	all, err := st.Outbox().ListChanges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type known struct {
+		task store.Task
+		ok   bool
+	}
+	tasks := map[string]known{}
+	var rows []Change
+	for _, r := range all {
+		c := Change{Row: r, Title: r.TaskTitle}
+		if r.TaskID == "" {
+			c.Title = "(time entry " + r.EntityID + ")"
+		} else {
+			k, seen := tasks[r.TaskID]
+			if !seen {
+				if t, err := st.Tasks().Get(ctx, r.TaskID); err == nil {
+					k = known{task: t, ok: true}
+				}
+				tasks[r.TaskID] = k
+			}
+			if k.ok {
+				c.Task, c.Title = k.task, k.task.Title
+			} else if c.Title == "" {
+				c.Title = "(task " + r.TaskID + ")"
+			}
+		}
+		if r.Kind == store.KindTaskUpdate {
+			var p store.TaskUpdatePayload
+			_ = json.Unmarshal(r.Payload, &p)
+			for _, ids := range [][]string{p.AddParents, p.RemoveParents} {
+				for _, id := range ids {
+					if _, seen := folders[id]; seen {
+						continue
+					}
+					// A folder the store has no row for keeps its id as the title, and is not asked for again.
+					folders[id] = id
+					if f, err := st.Folders().Get(ctx, id); err == nil {
+						folders[id] = f.Title
+					}
+				}
+			}
+		}
+		c.Summary, c.Detail = describe(r, names, folders)
+		rows = append(rows, c)
+	}
+	return rows, nil
 }
 
 type changesModel struct {
-	rows   []changeRow
+	rows   []Change
 	cursor int
 	offset int
 	height int // set by the root from the computed layout, View cannot remember it on its own
 	keys   KeyMap
 }
 
-type changesLoadedMsg struct{ rows []changeRow }
+type changesLoadedMsg struct{ rows []Change }
 type retryWriteMsg struct{ id int64 }
 type discardWriteMsg struct{ id int64 }
 
@@ -51,9 +126,9 @@ func refusal(r store.OutboxRow, verb string) string {
 	return ""
 }
 
-// stateText is the muted text after a row: where a queued write stands, or when a finished one went out.
+// StateText is the muted text after a row: where a queued write stands, or when a finished one went out.
 // In offline mode nothing retries, a write a send failed on in an earlier session reads queued.
-func stateText(r store.OutboxRow, now time.Time, offline bool) string {
+func StateText(r store.OutboxRow, now time.Time, offline bool) string {
 	switch r.State {
 	case store.StateInflight:
 		return "sending"
@@ -109,7 +184,7 @@ func datesText(d *store.TaskDates) string {
 }
 
 // budgetText is a budget write as hours, none for no value, the raw value when the field is unknown or its value cannot be read.
-func budgetText(p store.TaskUpdatePayload, ref refData) string {
+func budgetText(p store.TaskUpdatePayload, fields []store.CustomField) string {
 	if p.Effort != nil {
 		return store.MinutesWords(p.Effort.TotalMinutes)
 	}
@@ -118,7 +193,7 @@ func budgetText(p store.TaskUpdatePayload, ref refData) string {
 	}
 	cf := p.CustomFields[0]
 	def := store.CustomField{ID: cf.ID}
-	for _, f := range ref.customFields {
+	for _, f := range fields {
 		if f.ID == cf.ID {
 			def = f
 		}
@@ -137,12 +212,12 @@ func timelogText(hours float64, date, note string) string {
 // describe writes the one line summary of a write and the longer line the cursor shows under it.
 // The old side comes from the row's before, the new side from its payload.
 // Names come from the reference data and the folder titles the loader looked up, an id nothing knows stays an id.
-func describe(row store.OutboxRow, ref refData, folders map[string]string) (summary, detail string) {
+func describe(row store.OutboxRow, names ChangeNames, folders map[string]string) (summary, detail string) {
 	statusName := func(id string) string {
 		if id == "" {
 			return ""
 		}
-		if cs, ok := ref.statuses[id]; ok {
+		if cs, ok := names.Statuses[id]; ok {
 			return cs.Name
 		}
 		return id
@@ -153,7 +228,12 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 		}
 		return id
 	}
-	contact := func(id string) string { return contactName(id, ref) }
+	contact := func(id string) string {
+		if c, ok := names.Contacts[id]; ok {
+			return c.Name()
+		}
+		return id
+	}
 	switch row.Kind {
 	case store.KindCommentCreate:
 		var p store.CommentCreatePayload
@@ -192,7 +272,7 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 		}
 		if len(p.CustomFields) > 0 || p.Effort != nil {
 			// The only custom field the client writes is the budget, in the field's format or as the Effort field's minutes.
-			both("budget  " + arrow(budgetText(b, ref), budgetText(p, ref)))
+			both("budget  " + arrow(budgetText(b, names.CustomFields), budgetText(p, names.CustomFields)))
 		}
 		// The description is the long one, it comes last so the short fields stay on screen in a cut summary.
 		if p.Description != "" {
@@ -234,7 +314,7 @@ func describe(row store.OutboxRow, ref refData, folders map[string]string) (summ
 	return string(row.Kind), ""
 }
 
-func (s *changesModel) set(rows []changeRow) {
+func (s *changesModel) set(rows []Change) {
 	s.rows = rows
 	if s.cursor >= len(rows) {
 		s.cursor = max(0, len(rows)-1)
@@ -282,35 +362,35 @@ func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
 	case key.Matches(msg, s.keys.Retry):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if text := refusal(r.row, "retry"); text != "" {
+			if text := refusal(r.Row, "retry"); text != "" {
 				return s, intent(toastMsg{text: text})
 			}
-			return s, intent(retryWriteMsg{id: r.row.ID})
+			return s, intent(retryWriteMsg{id: r.Row.ID})
 		}
 	case key.Matches(msg, s.keys.Discard):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if text := refusal(r.row, "discard"); text != "" {
+			if text := refusal(r.Row, "discard"); text != "" {
 				return s, intent(toastMsg{text: text})
 			}
 			// store.Outbox().Discard only rolls back the optimistic row for a create,
 			// a task update leaves the cache ahead of the server until the next pull corrects it.
 			// A new task has no server state to come back to, and the comments and time entries queued on it exist nowhere else.
 			prompt := "Discard this write? The next refresh brings back the server state."
-			if r.row.Kind == store.KindTaskCreate {
+			if r.Row.Kind == store.KindTaskCreate {
 				prompt = "Discard this new task? Its queued comments and time entries go with it."
 			}
-			prompt += "\n" + r.summary
-			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardWriteMsg{id: r.row.ID}})
+			prompt += "\n" + r.Summary
+			return s, intent(openConfirmMsg{prompt: prompt, onYes: discardWriteMsg{id: r.Row.ID}})
 		}
 	case key.Matches(msg, s.keys.Enter):
 		if s.cursor < len(s.rows) {
 			r := s.rows[s.cursor]
-			if r.task.ID == "" {
+			if r.Task.ID == "" {
 				// A discarded new task, or a task the pull sweep removed since, has no detail to open.
 				return s, intent(toastMsg{text: "the task is not in the cache"})
 			}
-			return s, intent(openTaskMsg{task: r.task})
+			return s, intent(openTaskMsg{task: r.Task})
 		}
 	}
 	return s, nil
@@ -328,16 +408,16 @@ func (s changesModel) View(th Theme, now time.Time, width, height int, offline b
 	var b strings.Builder
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
-		when := stateText(r.row, now, offline)
-		if r.row.Source == store.SourceCLI {
+		when := StateText(r.Row, now, offline)
+		if r.Row.Source == store.SourceCLI {
 			when += "  cli"
 		}
-		label := fmt.Sprintf("%s  %s  %s", ansi.Truncate(displayTitle(r.title, th.HidePrefixes), 30, "..."), r.summary, muted.Render(when))
+		label := fmt.Sprintf("%s  %s  %s", ansi.Truncate(displayTitle(r.Title, th.HidePrefixes), 30, "..."), r.Summary, muted.Render(when))
 		b.WriteString(rowLine(th, label, width, i == s.cursor, true) + "\n")
 		if i == s.cursor {
-			second, style := r.detail, muted
-			if r.row.LastError != "" && inQueue(r.row) {
-				second, style = r.row.LastError, lipgloss.NewStyle().Foreground(th.Error)
+			second, style := r.Detail, muted
+			if p := r.Problem(); p != "" {
+				second, style = p, lipgloss.NewStyle().Foreground(th.Error)
 			}
 			b.WriteString("    " + style.Render(ansi.Truncate(second, width-6, "...")) + "\n")
 		}
