@@ -442,6 +442,48 @@ func TestTaskKeysOnTheTimesheetActOnTheOpenDetail(t *testing.T) {
 	}
 }
 
+// A grid move puts the selection on its row at once and the pane keeps the task before until the read lands.
+// Enter or tab in that moment hands the keys to the pane, and a key then must not act on the task the pane still draws.
+func TestKeysOnTheGridPaneRightAfterAMoveDoNotReachTheTaskBefore(t *testing.T) {
+	for name, hand := range map[string]func(m Model) Model{
+		"enter": func(m Model) Model {
+			next, _ := m.Update(openBesideMsg{id: "T2"})
+			return next.(Model)
+		},
+		"tab": func(m Model) Model {
+			next, _ := m.timesheetKey(tea.KeyMsg{Type: tea.KeyTab})
+			return next.(Model)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := New(rootTestOptions(t))
+			m.screen = screenTimesheet
+			m.timesheet.rows = []tsRow{{taskID: "T1", cached: true}, {taskID: "T2", cached: true}}
+			m.timesheet.loaded, m.timesheet.detailOpen = true, true
+			m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
+			m.selectedTaskID = "T1"
+			// j moves the cursor and the selection, the read of T2 is held back.
+			next, _ := m.timesheetKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+			m = next.(Model)
+			if m.selectedTaskID != "T2" || m.detail.task.ID != "T1" {
+				t.Fatalf("after j the selection is on %q and the pane on %q, want T2 with the pane behind", m.selectedTaskID, m.detail.task.ID)
+			}
+			m = hand(m)
+			if !m.timesheet.detailFocus {
+				t.Fatalf("%s did not give the pane the keys", name)
+			}
+			if got, ok := m.selectedTask(); ok && got.ID != "T2" {
+				t.Errorf("the keys act on %q, want T2 or no task", got.ID)
+			}
+			next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			m = next.(Model)
+			if d, ok := m.dialog.(statusDialog); ok && d.taskID != "T2" {
+				t.Errorf("s opened the status box for %q, want T2 or none", d.taskID)
+			}
+		})
+	}
+}
+
 // A list reload runs behind the timesheet after every drain and every sync.
 // It must not take the pane beside the grid over with the list's own row, the keys there act on what the pane shows.
 func TestListReloadsLeaveThePaneBesideTheGridAlone(t *testing.T) {
