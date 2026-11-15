@@ -421,6 +421,7 @@ Enter opens the task the way the changes screen does, `g`, `G`, ctrl+d and ctrl+
 A row you have not looked at yet starts with `*`, and the status bar counts those rows, `2 unread`, so a new comment is noticed without opening the screen.
 Leaving the screen, with esc, by opening a task or by quitting, marks the rows that were on screen as seen, and a row that reaches the cache later is unread whatever its date, an older comment of a task that was just assigned to you for example.
 That marker is this machine's: Wrike's own inbox is not read and reading there does not clear it, nor the other way round.
+`wrikery inbox` prints the same rows for a script and leaves the marker alone unless it is told to move it, see [Reads](#reads).
 
 On a fresh cache the inbox starts with the first week of comments and older ones come in as their threads are read.
 A mention of you on a task outside the spaces you follow is fetched on its own and stays cached for thirty days, like a task opened by its link.
@@ -577,6 +578,7 @@ The commands read the same local cache and queue writes through the same outbox 
 | --- | --- |
 | `sync` | sends the queue, refreshes the reference data and pulls the changes, `--full` also checks every followed scope for tasks deleted on Wrike, which is slower |
 | `changes` | prints what the changes screen shows, the queue first and then the last thirty days, `--source` keeps the rows of one source and `--limit N` the first N rows |
+| `inbox` | prints what the inbox screen shows, the comments for you of the last thirty days, `--unread` keeps the rows not seen yet, `--limit N` the first N rows and `--seen` marks the rows printed as seen |
 | `task list` | the tasks of a folder, project or space with `--folder`, your own open tasks without, `--all` adds the completed and cancelled ones |
 | `task show` | one task with its description and comments |
 | `task status` | moves a task to a status of its workflow |
@@ -614,6 +616,12 @@ A task in JSON has `pending` true while a write for it is waiting to be sent and
 `wrikery changes` prints each row with the task, the field with its old and new value, the state and whether the interface or a command made it, so an agent can check what it did before it goes on.
 In JSON the stored values stand next to the text, with ids where the text has names, `before` and `payload` as the outbox keeps them in Wrike's own field names, which can change between versions where the other keys do not.
 On a terminal a line of `wrikery changes` is cut to the width.
+
+`wrikery inbox` prints the rows of the inbox screen, newest first: a star on a row not seen yet, the time, the task, the author with `mentioned you` on a mention, and the comment on one line, cut to the width on a terminal.
+In JSON a row has the comment's id, `task_id` and `task_title`, `author_id` and `author`, `created`, `mentioned`, `unread` and the `text` with its line breaks.
+Reading moves nothing: a script that lists the inbox must not take the star off a comment the person has not looked at.
+`--seen` is the way to say they have, it marks the rows the command printed as seen when it is done, as leaving the screen does, and the count in the status bar of a running interface drops.
+It is refused together with `--limit`, since the marker is one point in time and the rows the limit cut off would count as seen with the rest.
 
 ### Writes
 

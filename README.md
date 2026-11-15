@@ -51,7 +51,7 @@ The inbox, the changes screen, the settings screen and the actions list are show
 - move a task between folders, or put it in several
 - log, edit and delete your own time entries
 - a time budget against the logged time in the task detail, from Wrike's Effort field or a custom field the config names, editable from the actions list
-- commands for scripts and agents: list, show, create, edit, comment on, assign, move and change the status of tasks from a shell, and read back the changes made through Wrikery, with JSON output
+- commands for scripts and agents: list, show, create, edit, comment on, assign, move, set the dates and change the status of tasks from a shell, and read the inbox and the changes made through Wrikery, with JSON output
 - commands that drive the running interface: set its filter, show a task, open a folder, switch the shape or the screen
 - an agent skill, installed by `wrikery skill install` where Claude Code, Codex, Cursor and the other coding agents look, and a `WRIKERY_SOURCE` word that tells an agent's writes from yours on the changes screen
 - an inbox of the comments that mention you or land on tasks you follow, with an unread count in the status bar
@@ -94,6 +94,7 @@ An AI agent learns them from the skill in `skills/wrikery`: `wrikery skill insta
 ```sh
 wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
 wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
+wrikery inbox --unread                       # the comments for you that are not seen yet, mentions and followed tasks
 wrikery task list --folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

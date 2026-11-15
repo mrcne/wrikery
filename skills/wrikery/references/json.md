@@ -71,6 +71,23 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 | `created` | when it was queued |
 | `done` | when it was sent or discarded, empty while it waits |
 
+## `wrikery inbox --json`
+
+A list of comments, newest first, at most 200: the ones other people wrote in the last thirty days on the tasks the user follows, and the ones that mention the user.
+`--unread` keeps the rows with `unread` true and `--limit N` the first N rows.
+
+| key | value |
+| --- | --- |
+| `id` | the comment id |
+| `task_id` | the task the comment is on |
+| `task_title` | its title |
+| `author_id` | the contact id of who wrote it |
+| `author` | their name |
+| `created` | when it was written |
+| `mentioned` | true when the comment mentions the user, by name, through a group they belong to or as an assignee, false for a comment on a followed task |
+| `unread` | true while it arrived after the user last looked at the inbox, the mark `--seen` and the inbox screen take off |
+| `text` | the comment as plain text |
+
 ## `wrikery sync --json`
 
 `state` after the cycle, `pending` and `failed` are the counts of the queue.

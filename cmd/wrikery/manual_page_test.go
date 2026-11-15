@@ -136,6 +136,7 @@ A demo run writes demo.log in the same directory.`},
 // examples are the commands the README shows.
 const examples = `wrikery sync                                 # one sync cycle, --full also checks for deleted tasks
 wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
+wrikery inbox --unread                       # the comments for you that are not seen yet, mentions and followed tasks
 wrikery task list --folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

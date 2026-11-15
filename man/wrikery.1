@@ -83,6 +83,28 @@ stop after N rows, the queue first
 .BI "\-\-source " WORD
 only the rows of this source WORD, tui, cli or an agent's word
 .RE
+.SS inbox
+.B "wrikery inbox [\-\-unread] [\-\-limit N] [\-\-seen]"
+.PP
+Lists what the inbox screen shows: the comments other people wrote in the last 30 days on the tasks you follow and the ones that mention you, newest first, at most 200.
+A row names the task and the author, says mentioned you when it is a mention, and starts with a star while it arrived after the inbox was last seen.
+\-\-unread keeps the rows with a star and \-\-limit N stops after N rows.
+The command changes nothing unless \-\-seen is given, which marks the rows it printed as seen, the way leaving the inbox screen does, so the unread count of the interface drops.
+\-\-seen does not go with \-\-limit, the rows the limit cut off would be marked with the rest.
+.RS
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-limit " N
+stop after N rows
+.TP
+.B \-\-seen
+mark the rows printed as seen
+.TP
+.B \-\-unread
+only the rows not seen yet
+.RE
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.
 .SS task list
@@ -695,6 +717,7 @@ A second keychain item with the access token, the refresh token, the expiry, the
 .nf
 wrikery sync                                 # one sync cycle, \-\-full also checks for deleted tasks
 wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
+wrikery inbox \-\-unread                       # the comments for you that are not seen yet, mentions and followed tasks
 wrikery task list \-\-folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments

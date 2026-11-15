@@ -129,7 +129,7 @@ func jsonKeys(typ reflect.Type) []string {
 // Every field a command prints with --json is in the reference, so a new field is documented with the code that adds it.
 func TestJSONReferenceListsEveryField(t *testing.T) {
 	doc := skillFile(t, "references/json.md")
-	for _, shape := range []any{taskDetailJSON{}, changeJSON{}, syncJSON{}, writeJSON{}, fateJSON{}, unchangedJSON{}, commentResultJSON{}, uiJSON{}, installJSON{}} {
+	for _, shape := range []any{taskDetailJSON{}, changeJSON{}, inboxJSON{}, syncJSON{}, writeJSON{}, fateJSON{}, unchangedJSON{}, commentResultJSON{}, uiJSON{}, installJSON{}} {
 		typ := reflect.TypeOf(shape)
 		for _, key := range jsonKeys(typ) {
 			if !strings.Contains(doc, "`"+key+"`") {

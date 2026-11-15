@@ -1,6 +1,6 @@
 ---
 name: wrikery
-description: Work with Wrike tasks through wrikery, a local first terminal client with commands for scripts and agents. Use it when a request is about Wrike or about tasks, folders, projects, statuses, due dates, comments, assignees or a backlog kept there, to list, read, create, edit, schedule, comment on, assign and move tasks, and to check the changes made through it.
+description: Work with Wrike tasks through wrikery, a local first terminal client with commands for scripts and agents. Use it when a request is about Wrike or about tasks, folders, projects, statuses, due dates, comments, assignees or a backlog kept there, to list, read, create, edit, schedule, comment on, assign and move tasks, to read the comments addressed to the user, and to check the changes made through it.
 license: MPL-2.0
 compatibility: Requires the wrikery binary on PATH, signed in once through its interface, and a shell to run it from
 ---
@@ -31,12 +31,15 @@ wrikery task list --json                          # the user's own open tasks
 wrikery task list --all --json                    # the user's own tasks, completed and cancelled ones too
 wrikery task list --folder "Next release" --json  # everybody's tasks in a folder, project or space
 wrikery task show MAAAAAEPXpuT --json             # one task with its description, comments, subtasks and dependencies
+wrikery inbox --unread --json                     # the comments for the user they have not seen yet
 wrikery changes --source my-agent --limit 10 --json   # the last writes made under your name, see Writing
 ```
 
 Read a task with `--json`, the text form runs the description into one line in a pipe.
 `description_markdown` is the description as text, `comments` the thread oldest first, `pending` and `failed` say whether a write for the task is still on its way or was refused.
 Everybody's tasks come through `--folder` alone, there is no list of the whole account.
+`wrikery inbox` lists the comments other people wrote in the last thirty days on the tasks the user follows and the ones that mention the user, `mentioned` and `unread` say which is which.
+Reading it changes nothing. `--seen` takes the unread mark off every row printed, in the user's interface too, so pass it only when the user asked for the inbox to be marked as read.
 
 ## Writing
 

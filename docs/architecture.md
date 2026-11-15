@@ -224,6 +224,8 @@ Following a task moves its updatedDate and unfollowing does not (checked on the 
 
 The inbox is one query over the comments of the last thirty days joined with their task: the comments of other people on followed tasks, and the ones whose mention list names the user, a group the user is a member of by its name, or `@assignees` on a task the user is responsible for, with a count of the rows after the seen marker for the status bar.
 Membership is what the contacts read answers for the group, whether a parent group's list covers the members of its child groups is not checked.
+The inbox screen and `wrikery inbox` read the rows through one function in `internal/ui`, which holds the window, the cap of two hundred rows and the read of the seen marker, so the command lists the set the screen stars and the status bar counts.
+The command writes the marker only with `--seen`, to the newest arrival among the rows it printed, and tells a running interface to read its count again.
 
 ### The per task reads
 

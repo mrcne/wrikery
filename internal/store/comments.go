@@ -17,6 +17,9 @@ type InboxRow struct {
 	Mentioned bool // the comment mentions the user, by id or through @assignees on a task the user is responsible for
 }
 
+// Unread says whether the row arrived after the seen marker, the rule InboxUnread counts by.
+func (r InboxRow) Unread(seenTo string) bool { return r.ArrivedAt > seenTo }
+
 type CommentRepo interface {
 	// ReplaceForTask writes a thread as Wrike answered it: the rows upserted, the ones Wrike no longer lists deleted, the optimistic rows kept.
 	ReplaceForTask(ctx context.Context, taskID string, comments []Comment) error

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,8 +37,33 @@ type inboxLoadedMsg struct {
 	seenTo string
 }
 
-// inboxLimit caps the rows the screen reads, a month of comments on a busy account is more than anyone reads in a list.
-const inboxLimit = 200
+// InboxLimit caps the rows the inbox lists, on the screen and from the inbox command:
+// a month of comments on a busy account is more than anyone reads in a list.
+const InboxLimit = 200
+
+// LoadInbox reads the inbox as the screen and the inbox command list it: the comments addressed to the user in the last
+// store.InboxDays days, newest first and at most InboxLimit of them, and the seen marker, a row that arrived after it is unread.
+// One function for both, so a command never lists another set than the screen marks and the status bar counts.
+// Nothing is read without the user's id, the inbox is empty before the first sync wrote it.
+func LoadInbox(ctx context.Context, st *store.Store, meID string, now time.Time) (rows []store.InboxRow, seenTo string, err error) {
+	if meID == "" {
+		return nil, "", nil
+	}
+	seenTo, err = st.GetMeta(ctx, store.MetaKeyInboxSeenTo)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, "", err
+	}
+	rows, err = st.Comments().Inbox(ctx, meID, inboxSince(now), InboxLimit)
+	return rows, seenTo, err
+}
+
+// inboxSince is the start of the inbox's window as the comments store their creation date.
+func inboxSince(now time.Time) string {
+	return now.AddDate(0, 0, -store.InboxDays).UTC().Format(time.RFC3339)
+}
+
+// RelTime words a stamp the way the screens do, how long ago today, yesterday, then the day. Exported for the inbox command.
+func RelTime(rfc string, now time.Time) string { return relTime(rfc, now) }
 
 // inboxTextLines is how many lines of the comment the cursor's row shows under itself.
 // A comment of a paragraph fits in three at a hundred columns, and the thread has the rest.
@@ -62,7 +89,7 @@ func (s *inboxModel) set(rows []inboxRow, seenTo string) {
 // capacity is how many rows fit above the cursor's text lines and, on a full list, the line that says so.
 func (s inboxModel) capacity() int {
 	n := s.height - inboxTextLines
-	if len(s.rows) == inboxLimit {
+	if len(s.rows) == InboxLimit {
 		n--
 	}
 	return n
@@ -129,7 +156,7 @@ func (s inboxModel) View(th Theme, now time.Time, width, height int) string {
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
 		marker := "  "
-		if r.row.ArrivedAt > s.seenTo {
+		if r.row.Unread(s.seenTo) {
 			marker = accent.Render("*") + " "
 		}
 		sep := ": "
@@ -149,9 +176,9 @@ func (s inboxModel) View(th Theme, now time.Time, width, height int) string {
 			}
 		}
 	}
-	if len(s.rows) == inboxLimit && s.offset+capacity >= len(s.rows) {
+	if len(s.rows) == InboxLimit && s.offset+capacity >= len(s.rows) {
 		// The count in the status bar is not cut, so a full list says where the rest is, on the line capacity() kept for it.
-		b.WriteString(muted.Render(fmt.Sprintf("  the list stops at %d rows, older comments are in their threads", inboxLimit)) + "\n")
+		b.WriteString(muted.Render(fmt.Sprintf("  the list stops at %d rows, older comments are in their threads", InboxLimit)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
