@@ -468,3 +468,62 @@ func TestReachBoundsTheHookWithADeadline(t *testing.T) {
 		t.Errorf("the hook ran without a deadline, answer %#v", msg)
 	}
 }
+
+// The list keeps the rows of the folder before until the read of the new one lands, with its cursor on a task of that folder.
+// A key in that moment must not act on it, the user has moved on: the sidebar is on another folder.
+func TestAKeyBeforeTheRowsOfANewFolderLandDoesNotReachTheFolderBefore(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		move func(m Model) (Model, tea.Cmd)
+	}{
+		{"a move in the sidebar", func(m Model) (Model, tea.Cmd) {
+			m = pump(m, focusMsg{pane: paneSidebar})
+			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+			m = next.(Model)
+			// The sidebar's intent names the node, the read it starts is held back.
+			var read tea.Cmd
+			for _, msg := range collect(cmd) {
+				if sel, ok := msg.(nodeSelectedMsg); ok {
+					next, read = m.Update(sel)
+					m = next.(Model)
+				}
+			}
+			return m, read
+		}},
+		{"a folder opened by a command", func(m Model) (Model, tea.Cmd) {
+			next, read := m.Update(ControlMsg{Op: OpFolder, FolderID: "IEAAWEB1"})
+			return next.(Model), read
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := demoModel(t)
+			before, ok := m.list.current()
+			if !ok {
+				t.Fatal("the demo list has no row")
+			}
+			m, read := tc.move(m)
+			if m.selectedNode.id == demo.ProjectAPI || m.list.nodeID != demo.ProjectAPI {
+				t.Fatalf("after the move the node is %q and the rows are of %q, want another node with the rows of the API folder still there", m.selectedNode.id, m.list.nodeID)
+			}
+			if got, ok := m.selectedTask(); ok {
+				t.Errorf("the keys act on %q of the folder before, want no task until the rows land", got.ID)
+			}
+			if s := show(t, m); s.TaskID != "" || s.FolderID != m.selectedNode.id {
+				t.Errorf("show names the task %q in the folder %q, want no task while the rows are of the folder before", s.TaskID, s.FolderID)
+			}
+			next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			pressed := next.(Model)
+			if d, ok := pressed.dialog.(statusDialog); ok {
+				t.Errorf("s opened the status box for %q, the row of the folder before was %q", d.taskID, before.task.ID)
+			}
+			m = pump(m, collect(read)...)
+			row, ok := m.list.current()
+			if !ok || m.list.nodeID != m.selectedNode.id || row.task.ID == before.task.ID {
+				t.Fatalf("after the read the rows are of %q with %q under the cursor, want a row of %q", m.list.nodeID, row.task.ID, m.selectedNode.id)
+			}
+			if got, ok := m.selectedTask(); !ok || got.ID != row.task.ID {
+				t.Errorf("with the rows in the keys act on %q, want the row %q", got.ID, row.task.ID)
+			}
+		})
+	}
+}

@@ -670,7 +670,8 @@ The `ui` commands act on the interface that is running instead of the cache, thr
 A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
 With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
 `ui show` is the one command that reads, so a script can act on what the person is looking at.
-The task it names is the one a key pressed at that moment would change: the row under the cursor or the task in the detail pane on the tasks screen, the task in the pane beside the grid on the timesheet, and none on the other screens or for the moment a pane is still reading the task it was sent to.
+The task it names is the one a key pressed at that moment would change: the row under the cursor or the task in the detail pane on the tasks screen, the task in the pane beside the grid on the timesheet, and none on the other screens.
+It names none either for the moment the list is still reading the folder it was sent to or a pane the task it was sent to, a key pressed then reaches no task, so `ui folder` followed at once by `ui show` never answers a task of the folder before.
 The shape, the folder and the filter are the tasks screen's and are answered whatever screen is in view.
 It is answered with a box open as well, with `busy` set, since reading changes nothing.
 In JSON the folder and the task carry `id` and `title`, the folder's id is `me` for My tasks, and the filter has the values `ui filter` takes, so a script can put a filter back.

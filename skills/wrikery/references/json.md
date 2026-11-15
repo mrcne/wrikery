@@ -103,7 +103,7 @@ A list of comments, newest first, at most 200: the ones other people wrote in th
 | `shape` | list or board, the shape of the tasks screen |
 | `busy` | true while a box, the search, the help, a filter field or the sign in screen has the keys, when every other `ui` command is refused |
 | `folder` | the folder, project or space the list is on, with `id` and `title`, the id is me for My tasks, null before one is open |
-| `task` | the task the user's keys act on, with `id` and `title`, null on a screen without one and while the detail pane is still reading the task |
+| `task` | the task the user's keys act on, with `id` and `title`, null on a screen without one and for the moment the list or the detail pane is still reading what it was sent to |
 | `filter` | `importance`, the levels shown, `person` with `id` and `name`, null for everyone and the id unassigned for nobody's tasks, and `statuses`, the status names shown, the values `wrikery ui filter` takes |
 
 ## `wrikery skill --json`

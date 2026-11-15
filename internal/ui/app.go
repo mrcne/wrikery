@@ -1719,8 +1719,10 @@ func (m Model) goOnline() (tea.Model, tea.Cmd) {
 
 // selectedTask is the task the action keys act on.
 // The selection moves at once and the pane's read waits, so the pane can draw a task behind the selection for one read.
+// The list waits the same way: after a move to another node it keeps the rows of the node before until the read lands.
 // With the keys on the pane: the pane's task when it is the selected one, else the row under the cursor when that is, else nothing.
-// With the keys elsewhere: the pane's task when it holds the selected task the list does not have, else the row under the cursor.
+// With the keys elsewhere: nothing while the rows are of a node the user has left, else the pane's task when it holds
+// the selected task the rows do not have, else the row under the cursor.
 func (m Model) selectedTask() (store.Task, bool) {
 	if m.screen == screenTimesheet {
 		// The grid has no task of its own, only the pane open beside it, and that pane follows the grid's row one read behind.
@@ -1739,12 +1741,18 @@ func (m Model) selectedTask() (store.Task, bool) {
 		}
 		return store.Task{}, false
 	}
+	// The rows are the selected node's once their read landed. Until then the row under the cursor and the task in the pane
+	// are of the node before, and a user who moved on must not reach them. A move a reload made keeps the pane's task on purpose.
+	fresh := m.list.nodeID == m.selectedNode.id
+	if !fresh && !m.unasked {
+		return store.Task{}, false
+	}
 	// The pane holds a task the list does not after a jump from outside the tree or a reload's move, and the user sees that task,
 	// so the keys act on it from the list or the sidebar until the list is brought back to a row of its own.
-	if m.detail.loaded && m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID) {
+	if m.detail.loaded && m.detail.task.ID == m.selectedTaskID && (!fresh || !m.list.has(m.detail.task.ID)) {
 		return m.detail.task, true
 	}
-	if row, ok := m.list.current(); ok {
+	if row, ok := m.list.current(); ok && fresh {
 		return row.task, true
 	}
 	return store.Task{}, false
