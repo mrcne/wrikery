@@ -31,6 +31,22 @@ type TaskDates struct {
 	Due      string
 }
 
+// SameDates says whether two dates blocks plan the same days: the type and the day of the start and of the due.
+// A write sends a bare day and Wrike answers it with its working hour, the day followed by T09:00:00,
+// and it derives the duration itself, so neither tells a change apart.
+// A task without a block is the Backlog task a write of no dates makes.
+func SameDates(a, b *TaskDates) bool {
+	backlog := TaskDates{Type: "Backlog"}
+	if a == nil {
+		a = &backlog
+	}
+	if b == nil {
+		b = &backlog
+	}
+	day := func(s string) string { return s[:min(len(s), len("2006-01-02"))] }
+	return a.Type == b.Type && day(a.Start) == day(b.Start) && day(a.Due) == day(b.Due)
+}
+
 // CustomField is a custom field the account defines, the type is the API's, Duration, Numeric, Text and the rest.
 type CustomField struct {
 	ID, Title, Type string

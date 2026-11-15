@@ -41,7 +41,7 @@ The task above, plus:
 | `thread_synced` | false while the cache never read the task's comments, offline for example |
 | `comments` | oldest first, each with `id`, `author_id`, `author`, `created` and `text` |
 
-## A write, from `wrikery task status`, `create`, `edit`, `comment`, `assign`, `unassign` and `move`
+## A write, from `wrikery task status`, `create`, `edit`, `dates`, `comment`, `assign`, `unassign` and `move`
 
 The task as above, read back after the write, plus `sent`, true when the write is on Wrike and false when it is queued, which is exit 3.
 `wrikery task comment` adds `comment`, the new comment with its `id`, `author_id`, `author`, `created` and `text`.

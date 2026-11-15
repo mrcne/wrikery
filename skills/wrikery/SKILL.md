@@ -1,6 +1,6 @@
 ---
 name: wrikery
-description: Work with Wrike tasks through wrikery, a local first terminal client with commands for scripts and agents. Use it when a request is about Wrike or about tasks, folders, projects, statuses, comments, assignees or a backlog kept there, to list, read, create, edit, comment on, assign and move tasks, and to check the changes made through it.
+description: Work with Wrike tasks through wrikery, a local first terminal client with commands for scripts and agents. Use it when a request is about Wrike or about tasks, folders, projects, statuses, due dates, comments, assignees or a backlog kept there, to list, read, create, edit, schedule, comment on, assign and move tasks, and to check the changes made through it.
 license: MPL-2.0
 compatibility: Requires the wrikery binary on PATH, signed in once through its interface, and a shell to run it from
 ---
@@ -51,12 +51,14 @@ WRIKERY_SOURCE=my-agent wrikery task create --folder "Next release" --importance
 WRIKERY_SOURCE=my-agent wrikery task create --folder "Next release" --description notes.md The words of the title
 WRIKERY_SOURCE=my-agent wrikery task edit MAAAAAEPXpuT --title "A plainer title"
 WRIKERY_SOURCE=my-agent wrikery task edit MAAAAAEPXpuT --description -   # the new description from stdin, markdown
+WRIKERY_SOURCE=my-agent wrikery task dates MAAAAAEPXpuT --due 2026-09-12  # or --start, or both, --clear takes both off
 WRIKERY_SOURCE=my-agent wrikery task assign MAAAAAEPXpuT me
 WRIKERY_SOURCE=my-agent wrikery task move MAAAAAEPXpuT --to "Next release" --from Backlog
 ```
 
 A status is a name from the task's own workflow, `task show --json` prints the current one under `status`.
 A description edit starts from `description_markdown` of `task show --json`, changes the paragraphs it has to and sends the whole text back through `--description -`. The paragraphs left as printed keep their bytes on Wrike.
+A date is an ISO day, or a word such as `today`, `fri` or `+3d` read from today. Send the ISO day when the user named a day, a word is for a request that used the word. The date not named keeps its day.
 A comment, a new task and an edit are posted under the user's own account. Write only what was asked for.
 
 ## What a write answers
@@ -71,7 +73,7 @@ Judge a write by its exit code, the first word of the line differs from command 
 
 ## What the commands cannot do
 
-Delete anything, change dates, log time, read or set custom fields.
+Delete anything, log time, read or set custom fields.
 When a request needs one of these, say so and point the user at the interface or the Wrike web app instead of improvising with another tool or the API.
 
 ## Rules

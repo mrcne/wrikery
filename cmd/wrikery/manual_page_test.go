@@ -144,6 +144,7 @@ wrikery task status MAAAAAEPXpuT "In Progress"
 wrikery task create --folder Sandbox Try the new command
 wrikery task create --folder Sandbox --importance High --description notes.md Try it with a description
 wrikery task edit MAAAAAEPXpuT --title "A plainer title" --description -
+wrikery task dates MAAAAAEPXpuT --due fri    # a day as the dates box reads it, fri, +3d or an ISO date
 wrikery task comment MAAAAAEPXpuT Pushed the branch
 wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT --to "Next release" --from Backlog

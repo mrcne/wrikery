@@ -100,6 +100,8 @@ func runTask(ctx context.Context, env Env, args []string) int {
 		return runTaskCreate(ctx, env, args[1:])
 	case "edit":
 		return runTaskEdit(ctx, env, args[1:])
+	case "dates":
+		return runTaskDates(ctx, env, args[1:])
 	case "comment":
 		return runTaskComment(ctx, env, args[1:])
 	case "assign":

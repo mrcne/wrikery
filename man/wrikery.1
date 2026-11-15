@@ -1,4 +1,4 @@
-.TH WRIKERY 1 2026-11-01 wrikery "User Commands"
+.TH WRIKERY 1 2026-11-08 wrikery "User Commands"
 .SH NAME
 wrikery \- an unofficial terminal client for Wrike
 .SH SYNOPSIS
@@ -161,6 +161,26 @@ print JSON
 .TP
 .BI "\-\-title " TITLE
 the new TITLE
+.RE
+.SS task dates
+.B "wrikery task dates T [\-\-start DAY] [\-\-due DAY] | \-\-clear"
+.PP
+Sets the start, the due date or both, the one not named keeps its day, and \-\-clear takes both off.
+A DAY is what the dates box of the interface reads: 2026\-09\-12, today, tomorrow, fri, next fri, +3d or "12 sep".
+One date on a task without dates makes a one day task, as the box does, and a milestone moved by its due date stays a milestone.
+.RS
+.TP
+.B \-\-clear
+take both dates off
+.TP
+.BI "\-\-due " DAY
+the due DAY
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-start " DAY
+the start DAY
 .RE
 .SS task comment
 .B "wrikery task comment T TEXT..."
@@ -683,6 +703,7 @@ wrikery task status MAAAAAEPXpuT "In Progress"
 wrikery task create \-\-folder Sandbox Try the new command
 wrikery task create \-\-folder Sandbox \-\-importance High \-\-description notes.md Try it with a description
 wrikery task edit MAAAAAEPXpuT \-\-title "A plainer title" \-\-description \-
+wrikery task dates MAAAAAEPXpuT \-\-due fri    # a day as the dates box reads it, fri, +3d or an ISO date
 wrikery task comment MAAAAAEPXpuT Pushed the branch
 wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog

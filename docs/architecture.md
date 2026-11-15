@@ -54,7 +54,7 @@ The code is split into six parts with strict boundaries, plus four small package
 - `internal/control` is the channel between a command and a running interface, a unix socket with one JSON line each way.
 - `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
-  It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
+  It imports the TUI's theme, its description renderer, the editor's markdown translation and the date words of the dates box, so both front ends look the same, write a description the same way and read a day the same way, and nothing flows the other way.
 - `internal/config` loads the TOML config file, edits one key of it for the settings screen, and resolves the paths listed at the end.
 - `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
 - `internal/atomicfile` writes a file through a temporary one that is synced and renamed into place, the config file and the token file go through it.

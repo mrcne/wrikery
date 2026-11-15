@@ -32,7 +32,7 @@ With --demo they reach a running demo, and every value goes as typed, the demo's
 func Commands() []Command {
 	return []Command{
 		cmdSync, cmdChanges,
-		cmdTaskList, cmdTaskShow, cmdTaskStatus, cmdTaskCreate, cmdTaskEdit, cmdTaskComment, cmdTaskAssign, cmdTaskUnassign, cmdTaskMove,
+		cmdTaskList, cmdTaskShow, cmdTaskStatus, cmdTaskCreate, cmdTaskEdit, cmdTaskDates, cmdTaskComment, cmdTaskAssign, cmdTaskUnassign, cmdTaskMove,
 		cmdUIFilter, cmdUISelect, cmdUIFolder, cmdUIList, cmdUIBoard, cmdUIOpen, cmdUIRefresh,
 		cmdSkill,
 	}

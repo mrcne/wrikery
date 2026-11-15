@@ -337,7 +337,7 @@ func deliver(ctx context.Context, env Env, host string, unchecked error, rowID i
 
 // finishUpdate drops the fields of p the task already has, sends what is left and reports the task before and after,
 // in the two line shape of task status: line is what follows the title on both lines, the status, the importance,
-// the people or the folders, suffix ends the now line.
+// the people, the folders or the dates, suffix ends the now line.
 // A field already so is noted on stderr, the way the boxes close without a write on the same value,
 // and with nothing left the command ends as unchanged without reading the token.
 func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p store.TaskUpdatePayload, asJSON bool,
@@ -354,6 +354,10 @@ func finishUpdate(ctx context.Context, env Env, t store.Task, ref *refData, p st
 	if p.CustomStatusID != "" && p.CustomStatusID == t.CustomStatusID {
 		_, _ = fmt.Fprintln(env.Stderr, "wrikery: status unchanged")
 		p.CustomStatusID, p.Status = "", ""
+	}
+	if p.Dates != nil && store.SameDates(t.Dates, p.Dates) {
+		_, _ = fmt.Fprintln(env.Stderr, "wrikery: dates unchanged")
+		p.Dates = nil
 	}
 	if p.Title == "" && p.Description == "" && p.Importance == "" && p.CustomStatusID == "" && p.Dates == nil &&
 		len(p.AddResponsibles)+len(p.RemoveResponsibles)+len(p.AddParents)+len(p.RemoveParents) == 0 {

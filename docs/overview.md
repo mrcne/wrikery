@@ -304,6 +304,7 @@ Both take quick words instead of a full date:
 
 The day a field reads to is shown next to it, so a wrong reading is visible before it is saved.
 An empty field clears that date.
+A milestone, a task with a due date and no start, stays a milestone while the start is left empty, and a start makes it a planned task.
 Tab moves between the two fields, enter saves, esc cancels.
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
@@ -581,6 +582,7 @@ The commands read the same local cache and queue writes through the same outbox 
 | `task status` | moves a task to a status of its workflow |
 | `task create` | creates a task in a folder, with an importance and a description when given |
 | `task edit` | changes the title, the importance or the description of a task in one write |
+| `task dates` | sets the start with `--start`, the due date with `--due` or both, in the words the dates box reads, and `--clear` takes both off |
 | `task comment` | adds a comment as you, in JSON the result carries the comment with its id |
 | `task assign`, `task unassign` | put people on a task or take them off |
 | `task move` | puts a task in folders with `--to` and takes it out of others with `--from`, in one write, `--to` alone adds a folder and keeps the rest, since a task can sit in several |
@@ -629,8 +631,12 @@ A description is markdown, the text the `E` editor writes, from a file or from s
 An edit merges it with the description the cache holds, so a paragraph left as `description_markdown` prints it keeps the bytes Wrike stored, and an input that changes nothing sends nothing.
 The write is the whole field, as from the editor, so a change made on Wrike between the show and the edit is overwritten by it.
 
-A person already on the task, a folder it is already in, or a title, importance or status it already has is left out of the write with a note, and when nothing is left the command reports the task unchanged, `unchanged` true and `sent` false in JSON, and exits with 0.
+A person already on the task, a folder it is already in, or a title, importance, status or dates it already has is left out of the write with a note, and when nothing is left the command reports the task unchanged, `unchanged` true and `sent` false in JSON, and exits with 0.
 Taking a task out of its last folder is refused, as in the folders box, and a move that leaves no followed folder on the task goes out with a note, since the task leaves the cache at the next sync.
+
+`task dates` reads a day the way the dates box does, `fri`, `+3d`, `12 sep` or an ISO date, see [Dates](#dates).
+The date not named keeps its day, one date on a task without dates makes a one day task, and a milestone moved by `--due` alone stays a milestone.
+A due date before the start is refused: with both flags as bad usage, and with one flag against the day the task already has with exit 1 and a message that asks for both.
 
 | exit code | meaning |
 | --- | --- |
