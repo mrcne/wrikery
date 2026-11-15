@@ -17,16 +17,28 @@ const (
 	OpShape   = "shape"
 	OpScreen  = "screen"
 	OpRefresh = "refresh"
+	OpShow    = "show"
 )
+
+// screenWords are the words a screen request opens a screen by and a show request names it by.
+var screenWords = map[string]screen{
+	"tasks": screenMain, "timesheet": screenTimesheet, "changes": screenChanges, "inbox": screenInbox, "settings": screenSettings,
+}
 
 // control answers a request from the command line, the operations a script can ask for.
 // Each one goes through the code its key uses, so a command and a key leave the interface in the same state.
 // A box, the search, the help, a filter field being typed in or the first run screen refuse the request: the person is in the middle of something.
+// A show request changes nothing, so it is answered all the same and says that the interface is busy.
 func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 	if !msg.Deadline.IsZero() && time.Now().After(msg.Deadline) {
 		return m, nil
 	}
-	if m.screen == screenFirstRun || m.overlay != overlayNone || m.typing() {
+	if msg.Op == OpShow {
+		state := m.shown()
+		msg.reply(ControlReply{State: &state})
+		return m, nil
+	}
+	if m.busy() {
 		return m.answer(msg, "", errors.New("a box or a filter field is open in the interface"))
 	}
 	switch msg.Op {
@@ -101,19 +113,8 @@ func (m Model) control(msg ControlMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.answer(msg, msg.Shape, nil)
 	case OpScreen:
-		var want screen
-		switch msg.Screen {
-		case "tasks":
-			want = screenMain
-		case "timesheet":
-			want = screenTimesheet
-		case "changes":
-			want = screenChanges
-		case "inbox":
-			want = screenInbox
-		case "settings":
-			want = screenSettings
-		default:
+		want, ok := screenWords[msg.Screen]
+		if !ok {
 			return m.answer(msg, "", fmt.Errorf("no screen %q, tasks, timesheet, changes, inbox or settings", msg.Screen))
 		}
 		cmd := m.openScreen(want)
@@ -139,19 +140,73 @@ func (m Model) typing() bool {
 	return m.list.filtering || m.sidebar.filtering
 }
 
+// busy says whether something has the keys that a request must not change the interface under:
+// the first run screen, an overlay, or a filter field being typed in.
+func (m Model) busy() bool {
+	return m.screen == screenFirstRun || m.overlay != overlayNone || m.typing()
+}
+
+// shown is the state a show request answers: the screen, and of the tasks screen the shape, the node the list is on and the filter box's choice.
+// The task is the one the action keys act on, which only the tasks screen and the pane beside the timesheet grid have,
+// so a script that reads it knows what a key or a write on "this task" would reach, and nothing while a pane is one read behind.
+func (m Model) shown() ControlState {
+	s := ControlState{Shape: "list", Busy: m.busy(), Importance: []string{}, Statuses: []string{}}
+	if m.screen == screenFirstRun {
+		// No request opens it, so it has no word in the table.
+		s.Screen = "sign-in"
+	}
+	for word, sc := range screenWords {
+		if sc == m.screen {
+			s.Screen = word
+		}
+	}
+	if m.shape == shapeBoard {
+		s.Shape = "board"
+	}
+	if n := m.selectedNode; n.kind != nodeNone {
+		s.FolderID, s.FolderTitle = n.id, n.title
+	}
+	if m.screen == screenMain || m.screen == screenTimesheet {
+		if t, ok := m.selectedTask(); ok {
+			s.TaskID, s.TaskTitle = t.ID, t.Title
+		}
+	}
+	f := m.list.narrow
+	for _, level := range importanceLevels {
+		if f.importance[level] {
+			s.Importance = append(s.Importance, level)
+		}
+	}
+	switch f.person {
+	case "":
+	case unassigned:
+		s.PersonID, s.PersonName = unassigned, "Unassigned"
+	default:
+		s.PersonID, s.PersonName = f.person, contactName(f.person, m.ref)
+	}
+	if len(f.statuses) > 0 {
+		s.Statuses = statusNames(f.statuses, m.ref)
+	}
+	return s
+}
+
 // answer sends the reply and returns the model as it is, for the operations that change nothing more.
 func (m Model) answer(msg ControlMsg, text string, err error) (tea.Model, tea.Cmd) {
 	msg.send(text, err)
 	return m, nil
 }
 
-// send puts the reply in the channel without ever waiting: the sender buffers one, and a full channel means nobody listens any more.
 func (msg ControlMsg) send(text string, err error) {
+	msg.reply(ControlReply{Text: text, Err: err})
+}
+
+// reply puts the answer in the channel without ever waiting: the sender buffers one, and a full channel means nobody listens any more.
+func (msg ControlMsg) reply(r ControlReply) {
 	if msg.Reply == nil {
 		return
 	}
 	select {
-	case msg.Reply <- ControlReply{Text: text, Err: err}:
+	case msg.Reply <- r:
 	default:
 	}
 }

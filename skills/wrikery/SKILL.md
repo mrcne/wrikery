@@ -89,4 +89,6 @@ When a request needs one of these, say so and point the user at the interface or
 ## With the user's interface running
 
 `wrikery ui select MAAAAAEPXpuT` shows a task in the running interface and `wrikery ui folder "Next release"` opens a folder there, so the user can look at what you are talking about.
+`wrikery ui show --json` answers what the user has in view: `task` is the task their keys act on and `folder` the folder their list is on, each with its `id`.
+Use it when a request says this task or this folder. When `task` is null there is no such task, ask instead of guessing from the folder.
 The interface picks up every write a command makes at once, there is nothing to refresh.

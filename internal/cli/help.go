@@ -33,7 +33,7 @@ func Commands() []Command {
 	return []Command{
 		cmdSync, cmdChanges, cmdInbox,
 		cmdTaskList, cmdTaskShow, cmdTaskStatus, cmdTaskCreate, cmdTaskEdit, cmdTaskDates, cmdTaskComment, cmdTaskAssign, cmdTaskUnassign, cmdTaskMove,
-		cmdUIFilter, cmdUISelect, cmdUIFolder, cmdUIList, cmdUIBoard, cmdUIOpen, cmdUIRefresh,
+		cmdUIFilter, cmdUISelect, cmdUIFolder, cmdUIList, cmdUIBoard, cmdUIOpen, cmdUIRefresh, cmdUIShow,
 		cmdSkill,
 	}
 }

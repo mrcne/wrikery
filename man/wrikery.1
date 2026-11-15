@@ -332,6 +332,18 @@ Runs a sync cycle in the interface that is running, what R does there.
 .B \-\-json
 print JSON
 .RE
+.SS ui show
+.B "wrikery ui show"
+.PP
+Prints what the interface that is running has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter.
+The task is the one a key pressed now would change, none on a screen without one and none for the moment the detail pane is still reading it.
+It answers with a box open as well and says busy, every other ui command is refused then.
+In JSON the folder and the task have their ids, null when there is none, and the filter has the values ui filter takes.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
 .SS skill
 .B "wrikery skill"
 .br
@@ -732,6 +744,7 @@ wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog
 wrikery ui filter \-\-importance High \-\-person me # narrow the interface that is running
 wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery ui show \-\-json                          # what it has in view: the screen, the folder, the task, the filter
 wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills
 .fi
 .SH SEE ALSO

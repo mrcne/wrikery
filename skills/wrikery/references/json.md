@@ -95,6 +95,16 @@ A list of comments, newest first, at most 200: the ones other people wrote in th
 ## The `ui` commands with `--json`
 
 `ok` true and `text`, the interface's own line about what it did.
+`wrikery ui show --json` answers what the interface has in view instead:
+
+| key | value |
+| --- | --- |
+| `screen` | tasks, timesheet, changes, inbox, settings, or sign-in |
+| `shape` | list or board, the shape of the tasks screen |
+| `busy` | true while a box, the search, the help, a filter field or the sign in screen has the keys, when every other `ui` command is refused |
+| `folder` | the folder, project or space the list is on, with `id` and `title`, the id is me for My tasks, null before one is open |
+| `task` | the task the user's keys act on, with `id` and `title`, null on a screen without one and while the detail pane is still reading the task |
+| `filter` | `importance`, the levels shown, `person` with `id` and `name`, null for everyone and the id unassigned for nobody's tasks, and `statuses`, the status names shown, the values `wrikery ui filter` takes |
 
 ## `wrikery skill --json`
 

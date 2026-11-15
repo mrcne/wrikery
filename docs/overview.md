@@ -665,9 +665,15 @@ The `ui` commands act on the interface that is running instead of the cache, thr
 | `ui list`, `ui board` | set the shape |
 | `ui open tasks\|timesheet\|changes\|inbox\|settings` | opens a screen |
 | `ui refresh` | is `R` |
+| `ui show` | prints what the interface has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter |
 
 A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
 With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
+`ui show` is the one command that reads, so a script can act on what the person is looking at.
+The task it names is the one a key pressed at that moment would change: the row under the cursor or the task in the detail pane on the tasks screen, the task in the pane beside the grid on the timesheet, and none on the other screens or for the moment a pane is still reading the task it was sent to.
+The shape, the folder and the filter are the tasks screen's and are answered whatever screen is in view.
+It is answered with a box open as well, with `busy` set, since reading changes nothing.
+In JSON the folder and the task carry `id` and `title`, the folder's id is `me` for My tasks, and the filter has the values `ui filter` takes, so a script can put a filter back.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.
 `wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.
 
