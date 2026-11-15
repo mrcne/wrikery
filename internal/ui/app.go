@@ -1064,6 +1064,12 @@ func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, te
 	m.screen, m.overlay, m.focus = screenMain, overlayNone, paneDetail
 	m.unasked = false
 	m.selectTask(id)
+	// The pane starts empty rather than show the task left behind until the read lands, as the pane beside the grid does.
+	// A key in that moment would otherwise act on that task, selectedTask reads the pane whenever the pane has the keys.
+	if m.detail.task.ID != id {
+		m.detail = taskDetailModel{keys: m.keys}
+		m.syncPaneSizes()
+	}
 	m.search.blur()
 	// A pick from the search overlay leaves the timesheet too, the grid has no pane beside it when T comes back.
 	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
@@ -1720,10 +1726,17 @@ func (m Model) selectedTask() (store.Task, bool) {
 		}
 		return store.Task{}, false
 	}
+	if m.focus == paneDetail {
+		// An empty pane with the keys is one waiting for the read of a jump, the row the list has not left yet is not its task.
+		if m.detail.loaded {
+			return m.detail.task, true
+		}
+		return store.Task{}, false
+	}
 	// The pane holds a task the list does not after a jump from outside the tree or a reload's move, and the user sees that task,
 	// so the keys act on it from any pane until the list is brought back to a row of its own.
 	// A pane behind the selection holds nothing: the list has moved on and the read of its row has not landed yet.
-	if m.detail.loaded && (m.focus == paneDetail || (m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID))) {
+	if m.detail.loaded && m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID) {
 		return m.detail.task, true
 	}
 	if row, ok := m.list.current(); ok {

@@ -205,6 +205,57 @@ func TestAKeyBeforeThePaneFollowsActsOnTheRow(t *testing.T) {
 	})
 }
 
+// A jump moves the focus to the pane and the selection to the picked task at once, the read of that task lands later.
+// A key in that moment must not act on the task the pane showed before, nor on the row the list has not left yet,
+// whether the jump reloads the list for a folder of the task or leaves it where it was.
+func TestAKeyRightAfterAJumpDoesNotReachTheTaskBefore(t *testing.T) {
+	check := func(t *testing.T, m Model, task store.Task) {
+		t.Helper()
+		m = pump(m, focusMsg{pane: paneList})
+		before := m.detail.task.ID
+		if before == "" || before == task.ID || !m.detail.loaded {
+			t.Fatalf("the pane shows %q before the jump, want a loaded task other than %q", before, task.ID)
+		}
+		// What the jump starts is held back, the pane's read and the list's among it.
+		next, cmd := m.Update(openTaskMsg{task: task})
+		m = next.(Model)
+		if m.focus != paneDetail {
+			t.Fatalf("focus %v after the jump, want the pane", m.focus)
+		}
+		if got, ok := m.selectedTask(); ok && got.ID != task.ID {
+			t.Errorf("before the read lands the keys act on %q, want %q or no task", got.ID, task.ID)
+		}
+		if m.detail.loaded && m.detail.task.ID != task.ID {
+			t.Errorf("before the read lands the pane shows %q, want %q or nothing", m.detail.task.ID, task.ID)
+		}
+		next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+		m = next.(Model)
+		if d, ok := m.dialog.(statusDialog); ok && d.taskID != task.ID {
+			t.Errorf("s before the read lands opened the status box for %q, want %q or none", d.taskID, task.ID)
+		}
+		m.overlay, m.dialog = overlayNone, nil
+		m = pump(m, collect(cmd)...)
+		if got, ok := m.selectedTask(); !ok || got.ID != task.ID {
+			t.Errorf("after the read the keys act on %q, want %q", got.ID, task.ID)
+		}
+		if m.detail.task.ID != task.ID {
+			t.Errorf("after the read the pane shows %q, want %q", m.detail.task.ID, task.ID)
+		}
+	}
+	t.Run("into a folder the sidebar shows", func(t *testing.T) {
+		m := demoModel(t)
+		tasks, err := m.opts.Store.Tasks().ListInFolder(context.Background(), "IEAAIOS1")
+		if err != nil || len(tasks) == 0 {
+			t.Fatalf("the iOS app folder has no tasks: %v", err)
+		}
+		check(t, m, tasks[0])
+	})
+	t.Run("outside the tree", func(t *testing.T) {
+		task := outsideTask("KUAAAAB1", outsideFolder)
+		check(t, demoModel(t, task), task)
+	})
+}
+
 // The crumb under a search result names the first of the task's folders the cache holds.
 func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 	task := outsideTask("KUAAAAB1", outsideFolder, "IEAAWEB1")
