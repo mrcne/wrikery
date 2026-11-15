@@ -734,16 +734,8 @@ func (m Model) verifyToken(token, host string) tea.Cmd {
 func (m Model) loadInbox() tea.Cmd {
 	st, ref, nowFn := m.opts.Store, m.ref, m.opts.Now
 	return func() tea.Msg {
-		if ref.meID == "" {
-			return inboxLoadedMsg{}
-		}
-		ctx, now := context.Background(), nowFn()
-		seenTo, err := st.GetMeta(ctx, store.MetaKeyInboxSeenTo)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return errMsg{err}
-		}
-		since := now.AddDate(0, 0, -store.InboxDays).UTC().Format(time.RFC3339)
-		all, err := st.Comments().Inbox(ctx, ref.meID, since, inboxLimit)
+		ctx := context.Background()
+		all, seenTo, err := st.Comments().InboxList(ctx, ref.meID, nowFn(), false, 0)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -789,8 +781,7 @@ func unreadCount(ctx context.Context, st *store.Store, meID string, now time.Tim
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return 0, err
 	}
-	since := now.AddDate(0, 0, -store.InboxDays).UTC().Format(time.RFC3339)
-	return st.Comments().InboxUnread(ctx, meID, since, seenTo)
+	return st.Comments().InboxUnread(ctx, meID, store.InboxSince(now), seenTo)
 }
 
 // leaveInbox writes the seen marker from the newest arrival drawn since the load and reads the count again in the same command,

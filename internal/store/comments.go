@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 )
@@ -10,12 +11,24 @@ import (
 // InboxDays is the inbox's window, a constant and no config key, like the history days of the changes screen.
 const InboxDays = 30
 
+// InboxLimit caps the whole list of the inbox, on the screen and from the inbox command:
+// a month of comments on a busy account is more than anyone reads in a list.
+const InboxLimit = 200
+
+// InboxSince is the start of the inbox's window as the comments store their creation date.
+func InboxSince(now time.Time) string {
+	return now.AddDate(0, 0, -InboxDays).UTC().Format(time.RFC3339)
+}
+
 // InboxRow is one comment of the inbox with what the screen draws next to it.
 type InboxRow struct {
 	Comment
 	TaskTitle string
 	Mentioned bool // the comment mentions the user, by id or through @assignees on a task the user is responsible for
 }
+
+// Unread says whether the row arrived after the seen marker, the rule InboxUnread counts by.
+func (r InboxRow) Unread(seenTo string) bool { return r.ArrivedAt > seenTo }
 
 type CommentRepo interface {
 	// ReplaceForTask writes a thread as Wrike answered it: the rows upserted, the ones Wrike no longer lists deleted, the optimistic rows kept.
@@ -28,6 +41,10 @@ type CommentRepo interface {
 	Inbox(ctx context.Context, meID, since string, limit int) ([]InboxRow, error)
 	// InboxUnread counts the rows Inbox would list that arrived after seenTo, every one when seenTo is empty.
 	InboxUnread(ctx context.Context, meID, since, seenTo string) (int, error)
+	// InboxList is the inbox as the screen and the inbox command list it, with the seen marker its rows are judged against.
+	// The whole list is the newest InboxLimit rows of the window, or limit of them when that is fewer.
+	// With unread it is every row that arrived after the marker, the set InboxUnread counts, newest first, cut only by a limit above zero.
+	InboxList(ctx context.Context, meID string, now time.Time, unread bool, limit int) (rows []InboxRow, seenTo string, err error)
 	// MarkInboxSeen moves the seen marker to at, never back: a second interface on the cache with an older list must not star rows again.
 	MarkInboxSeen(ctx context.Context, at string) error
 }
@@ -152,11 +169,43 @@ func (c commentRepo) Inbox(ctx context.Context, meID, since string, limit int) (
 	if meID == "" {
 		return nil, nil
 	}
+	return c.inboxRows(ctx, "", "", meID, since, limit)
+}
+
+func (c commentRepo) InboxList(ctx context.Context, meID string, now time.Time, unread bool, limit int) ([]InboxRow, string, error) {
+	if meID == "" {
+		return nil, "", nil
+	}
+	var seenTo string
+	err := c.r.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, MetaKeyInboxSeenTo).Scan(&seenTo)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, "", err
+	}
+	since := InboxSince(now)
+	if !unread {
+		if limit <= 0 || limit > InboxLimit {
+			limit = InboxLimit
+		}
+		rows, err := c.Inbox(ctx, meID, since, limit)
+		return rows, seenTo, err
+	}
+	// The unread rows are found by their arrival, the walk of the count, and not among the newest rows by creation date:
+	// an older comment of a task cached late is unread and far down that list, past its cap on a busy account.
+	// A negative limit is none in SQLite.
+	if limit <= 0 {
+		limit = -1
+	}
+	rows, err := c.inboxRows(ctx, "INDEXED BY idx_comments_arrived", " AND c.arrived_at > ?4", meID, since, limit, max(seenTo, since))
+	return rows, seenTo, err
+}
+
+// inboxRows runs the list query, ?1 the user, ?2 the window's start, ?3 the limit, with an index to walk and a condition more when given.
+func (c commentRepo) inboxRows(ctx context.Context, index, and string, args ...any) ([]InboxRow, error) {
 	rows, err := c.r.QueryContext(ctx, `
 		SELECT c.id, c.task_id, c.author_id, c.text, c.created_date, c.mentions, c.arrived_at, t.title, `+inboxMentioned+`
-		FROM comments c JOIN tasks t ON t.id = c.task_id
-		WHERE `+inboxWhere+`
-		ORDER BY c.created_date DESC, c.id DESC LIMIT ?3`, meID, since, limit)
+		FROM comments c `+index+` JOIN tasks t ON t.id = c.task_id
+		WHERE `+inboxWhere+and+`
+		ORDER BY c.created_date DESC, c.id DESC LIMIT ?3`, args...)
 	if err != nil {
 		return nil, err
 	}

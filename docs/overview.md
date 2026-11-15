@@ -304,6 +304,7 @@ Both take quick words instead of a full date:
 
 The day a field reads to is shown next to it, so a wrong reading is visible before it is saved.
 An empty field clears that date.
+A milestone, a task with a due date and no start, stays a milestone while the start is left empty, and a start makes it a planned task.
 Tab moves between the two fields, enter saves, esc cancels.
 Saving lets Wrike recompute the duration from the new dates, a custom duration set elsewhere is not kept.
 
@@ -420,6 +421,7 @@ Enter opens the task the way the changes screen does, `g`, `G`, ctrl+d and ctrl+
 A row you have not looked at yet starts with `*`, and the status bar counts those rows, `2 unread`, so a new comment is noticed without opening the screen.
 Leaving the screen, with esc, by opening a task or by quitting, marks the rows that were on screen as seen, and a row that reaches the cache later is unread whatever its date, an older comment of a task that was just assigned to you for example.
 That marker is this machine's: Wrike's own inbox is not read and reading there does not clear it, nor the other way round.
+`wrikery inbox` prints the same rows for a script and leaves the marker alone unless it is told to move it, see [Reads](#reads).
 
 On a fresh cache the inbox starts with the first week of comments and older ones come in as their threads are read.
 A mention of you on a task outside the spaces you follow is fetched on its own and stays cached for thirty days, like a task opened by its link.
@@ -576,11 +578,13 @@ The commands read the same local cache and queue writes through the same outbox 
 | --- | --- |
 | `sync` | sends the queue, refreshes the reference data and pulls the changes, `--full` also checks every followed scope for tasks deleted on Wrike, which is slower |
 | `changes` | prints what the changes screen shows, the queue first and then the last thirty days, `--source` keeps the rows of one source and `--limit N` the first N rows |
+| `inbox` | prints what the inbox screen shows, the comments for you of the last thirty days, `--unread` lists every row not seen yet, `--limit N` the first N rows and `--seen` marks the rows printed as seen |
 | `task list` | the tasks of a folder, project or space with `--folder`, your own open tasks without, `--all` adds the completed and cancelled ones |
 | `task show` | one task with its description and comments |
 | `task status` | moves a task to a status of its workflow |
 | `task create` | creates a task in a folder, with an importance and a description when given |
 | `task edit` | changes the title, the importance or the description of a task in one write |
+| `task dates` | sets the start with `--start`, the due date with `--due` or both, in the words the dates box reads, and `--clear` takes both off |
 | `task comment` | adds a comment as you, in JSON the result carries the comment with its id |
 | `task assign`, `task unassign` | put people on a task or take them off |
 | `task move` | puts a task in folders with `--to` and takes it out of others with `--from`, in one write, `--to` alone adds a folder and keeps the rest, since a task can sit in several |
@@ -613,6 +617,16 @@ A task in JSON has `pending` true while a write for it is waiting to be sent and
 In JSON the stored values stand next to the text, with ids where the text has names, `before` and `payload` as the outbox keeps them in Wrike's own field names, which can change between versions where the other keys do not.
 On a terminal a line of `wrikery changes` is cut to the width.
 
+`wrikery inbox` prints the rows of the inbox screen, newest first: a star on a row not seen yet, the time, the task, the author with `mentioned you` on a mention, and the comment on one line, cut to the width on a terminal.
+In JSON a row has the comment's id, `task_id` and `task_title`, `author_id` and `author`, `created`, `mentioned`, `unread` and the `text` with its line breaks.
+The whole list is the newest two hundred rows by the day they were written, and says so on stderr when it was cut there.
+`--unread` lists every row not seen yet instead, the rows the status bar counts, found by when they reached the cache, so an older comment that arrived late is among them although it sits past the two hundred.
+Reading moves nothing: a script that lists the inbox must not take the star off a comment the person has not looked at.
+`--seen` is the way to say they have, it marks the rows the command printed as seen when it is done, as leaving the screen does, and the count in the status bar of a running interface drops.
+The marker is one point in time and everything that arrived up to it counts as seen, so `--seen` moves it only when every such row was printed.
+It is refused together with `--limit`, and it marks nothing and exits with 1 when a row not seen yet was not among the rows printed, which the whole list can do at its two hundred rows, or when the rows could not be written.
+`wrikery inbox --unread --seen` prints and marks them all.
+
 ### Writes
 
 A write is queued and then sent at once, and the command reports the result: sent, queued when Wrike could not be reached within fifteen seconds or an earlier write on the same task is still being retried, rejected, or blocked when Wrike refused the token, which leaves the change queued and exits with 1.
@@ -629,8 +643,12 @@ A description is markdown, the text the `E` editor writes, from a file or from s
 An edit merges it with the description the cache holds, so a paragraph left as `description_markdown` prints it keeps the bytes Wrike stored, and an input that changes nothing sends nothing.
 The write is the whole field, as from the editor, so a change made on Wrike between the show and the edit is overwritten by it.
 
-A person already on the task, a folder it is already in, or a title, importance or status it already has is left out of the write with a note, and when nothing is left the command reports the task unchanged, `unchanged` true and `sent` false in JSON, and exits with 0.
+A person already on the task, a folder it is already in, or a title, importance, status or dates it already has is left out of the write with a note, and when nothing is left the command reports the task unchanged, `unchanged` true and `sent` false in JSON, and exits with 0.
 Taking a task out of its last folder is refused, as in the folders box, and a move that leaves no followed folder on the task goes out with a note, since the task leaves the cache at the next sync.
+
+`task dates` reads a day the way the dates box does, `fri`, `+3d`, `12 sep` or an ISO date, see [Dates](#dates).
+The date not named keeps its day, one date on a task without dates makes a one day task, and a milestone moved by `--due` alone stays a milestone.
+A due date before the start is refused: with both flags as bad usage, and with one flag against the day the task already has with exit 1 and a message that asks for both.
 
 | exit code | meaning |
 | --- | --- |
@@ -651,9 +669,18 @@ The `ui` commands act on the interface that is running instead of the cache, thr
 | `ui list`, `ui board` | set the shape |
 | `ui open tasks\|timesheet\|changes\|inbox\|settings` | opens a screen |
 | `ui refresh` | is `R` |
+| `ui show` | prints what the interface has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter |
 
 A person is `me`, `unassigned`, a contact id or a part of a name, a status is checked against the cached workflows, and the interface's own line comes back, "showing High | Ada Nowak (me)" for a filter.
 With no interface running the command says so and exits with 1, and a box, the search, the help, a filter field being typed in or the first run screen refuse the request the same way.
+`ui show` is the one command that reads, so a script can act on what the person is looking at.
+The task it names is the one a key pressed at that moment would change: the row under the cursor or the task in the detail pane on the tasks screen, the task in the pane beside the grid on the timesheet, and none on the other screens.
+It names none either for the moment the list is still reading the folder it was sent to or a pane the task it was sent to, a key pressed then reaches no task, so `ui folder` followed at once by `ui show` never answers a task of the folder before.
+The shape, the folder and the filter are the tasks screen's and are answered whatever screen is in view.
+It is answered with a box open as well, with `busy` set, since reading changes nothing.
+The one case without an answer is the external editor: while `E` holds the terminal the interface answers no request, and `ui show` exits with 1 like every other `ui` command.
+In JSON the folder and the task carry `id` and `title`, the folder's id is `me` for My tasks, and the filter has the values `ui filter` takes, so a script can put a filter back.
+A status in the filter that no cached workflow holds any more comes back in lower case, and `ui filter` refuses it like any name it does not know.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.
 `wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.
 

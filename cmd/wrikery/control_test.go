@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestDemoSocketPathFallsBackForALongPathLikeTheRealOne(t *testing.T) {
 func TestControlOpsMatchTheInterface(t *testing.T) {
 	pairs := map[string]string{
 		control.OpFilter: ui.OpFilter, control.OpSelect: ui.OpSelect, control.OpFolder: ui.OpFolder,
-		control.OpShape: ui.OpShape, control.OpScreen: ui.OpScreen, control.OpRefresh: ui.OpRefresh,
+		control.OpShape: ui.OpShape, control.OpScreen: ui.OpScreen, control.OpRefresh: ui.OpRefresh, control.OpShow: ui.OpShow,
 	}
 	for wire, model := range pairs {
 		if wire != model {
@@ -94,6 +95,35 @@ func TestControlHandlerMapsARequestAndItsReply(t *testing.T) {
 	}, nil)
 	if reply := refusing(control.Request{Op: control.OpRefresh}); reply.OK || reply.Error != "a box is open in the interface" {
 		t.Errorf("refusal = %+v", reply)
+	}
+}
+
+// A show request comes back with the state, and what the interface did not name is null on the socket, not an empty item.
+func TestControlHandlerPutsTheStateOnTheSocket(t *testing.T) {
+	answer := func(s ui.ControlState) control.Reply {
+		handle := controlHandler(func(msg tea.Msg) { msg.(ui.ControlMsg).Reply <- ui.ControlReply{State: &s} }, nil)
+		return handle(control.Request{Op: control.OpShow})
+	}
+	reply := answer(ui.ControlState{
+		Screen: "tasks", Shape: "board", Busy: true, FolderID: "F1", FolderTitle: "Next release", TaskID: "T1", TaskTitle: "Ship it",
+		Importance: []string{"High"}, PersonID: "U1", PersonName: "Ada Nowak", Statuses: []string{"New", "In Progress"},
+	})
+	want := control.State{
+		Screen: "tasks", Shape: "board", Busy: true,
+		Folder: &control.StateItem{ID: "F1", Title: "Next release"}, Task: &control.StateItem{ID: "T1", Title: "Ship it"},
+		Filter: control.StateFilter{Importance: []string{"High"}, Person: &control.StatePerson{ID: "U1", Name: "Ada Nowak"}, Statuses: []string{"New", "In Progress"}},
+	}
+	if !reply.OK || reply.State == nil || !reflect.DeepEqual(*reply.State, want) {
+		t.Errorf("reply = %+v, state %+v, want %+v", reply, reply.State, want)
+	}
+	reply = answer(ui.ControlState{Screen: "changes", Shape: "list", Importance: []string{}, Statuses: []string{}})
+	if s := reply.State; s == nil || s.Folder != nil || s.Task != nil || s.Filter.Person != nil || s.Screen != "changes" {
+		t.Errorf("state = %+v, want no folder, no task and no person", s)
+	}
+	// Every other reply carries no state.
+	plain := controlHandler(func(msg tea.Msg) { msg.(ui.ControlMsg).Reply <- ui.ControlReply{Text: "list"} }, nil)
+	if reply := plain(control.Request{Op: control.OpShape, Shape: "list"}); reply.State != nil {
+		t.Errorf("a shape reply carried a state: %+v", reply.State)
 	}
 }
 

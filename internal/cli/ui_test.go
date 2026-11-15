@@ -292,3 +292,83 @@ func TestUISelectFetchesAnUncachedTask(t *testing.T) {
 		t.Errorf("out = %q", out.String())
 	}
 }
+
+func TestUIShowPrintsWhatTheInterfaceHasInView(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	// The demo's case: no store, nothing to resolve, the interface names everything itself.
+	env.Store = nil
+	env, got := uiStub(t, env, control.Reply{OK: true, State: &control.State{
+		Screen: "tasks", Shape: "board",
+		Folder: &control.StateItem{ID: "PROJ1", Title: "4 Later"}, Task: &control.StateItem{ID: "TASK1", Title: "Headless commands for scripts"},
+		Filter: control.StateFilter{Importance: []string{"High", "Low"}, Person: &control.StatePerson{ID: "U2", Name: "Anna Nowak"}, Statuses: []string{"In Progress"}},
+	}})
+	if code := Run(context.Background(), env, []string{"ui", "show"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if len(*got) != 1 || (*got)[0].Op != control.OpShow {
+		t.Errorf("requests = %+v, want one show", *got)
+	}
+	want := "screen  tasks\nshape   board\nfolder  4 Later  PROJ1\ntask    Headless commands for scripts  TASK1\nfilter  High, Low | Anna Nowak | In Progress\n"
+	if out.String() != want {
+		t.Errorf("out:\n%s\nwant:\n%s", out.String(), want)
+	}
+	out.Reset()
+	if code := Run(context.Background(), env, []string{"ui", "show", "--json"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	var state struct {
+		Screen, Shape string
+		Busy          bool
+		Folder, Task  *struct{ ID, Title string }
+		Filter        struct {
+			Importance, Statuses []string
+			Person               *struct{ ID, Name string }
+		}
+	}
+	if err := json.Unmarshal(out.Bytes(), &state); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if state.Screen != "tasks" || state.Shape != "board" || state.Busy || state.Folder.ID != "PROJ1" || state.Task.ID != "TASK1" || state.Task.Title != "Headless commands for scripts" ||
+		strings.Join(state.Filter.Importance, ",") != "High,Low" || state.Filter.Person.ID != "U2" || state.Filter.Statuses[0] != "In Progress" {
+		t.Errorf("json = %+v\n%s", state, out.String())
+	}
+}
+
+// With nothing selected and a box open the state still comes back: nulls and empty lists in JSON, none and a busy line in text.
+func TestUIShowWithNothingInViewAndABoxOpen(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	env, _ = uiStub(t, env, control.Reply{OK: true, State: &control.State{Screen: "changes", Shape: "list", Busy: true}})
+	if code := Run(context.Background(), env, []string{"ui", "show"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	want := "screen  changes\nshape   list\nfolder  none\ntask    none\nfilter  none\nbusy    a box, the search, the help, a filter field or the sign in screen has the keys\n"
+	if out.String() != want {
+		t.Errorf("out:\n%s\nwant:\n%s", out.String(), want)
+	}
+	out.Reset()
+	if code := Run(context.Background(), env, []string{"ui", "show", "--json"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	for _, want := range []string{`"busy": true`, `"folder": null`, `"task": null`, `"person": null`, `"importance": []`, `"statuses": []`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("json lacks %s:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestUIShowRefusesAnArgumentAndAReplyWithoutAState(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	env, got := uiStub(t, env, control.Reply{OK: true, Text: "ok"})
+	if code := Run(context.Background(), env, []string{"ui", "show", "TASK1"}); code != exitUsage || len(*got) != 0 {
+		t.Errorf("an argument: code %d, %d requests, want a usage error before anything is sent", code, len(*got))
+	}
+	errOut.Reset()
+	if code := Run(context.Background(), env, []string{"ui", "show"}); code != exitError || !strings.Contains(errOut.String(), "without its state") || out.Len() != 0 {
+		t.Errorf("no state: code %d, stderr %q, stdout %q", code, errOut.String(), out.String())
+	}
+	env.Socket = filepath.Join(t.TempDir(), "none.sock")
+	errOut.Reset()
+	if code := Run(context.Background(), env, []string{"ui", "show"}); code != exitError || !strings.Contains(errOut.String(), "no wrikery interface is running") {
+		t.Errorf("no interface: code %d, stderr %q", code, errOut.String())
+	}
+}

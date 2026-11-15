@@ -41,7 +41,7 @@ The task above, plus:
 | `thread_synced` | false while the cache never read the task's comments, offline for example |
 | `comments` | oldest first, each with `id`, `author_id`, `author`, `created` and `text` |
 
-## A write, from `wrikery task status`, `create`, `edit`, `comment`, `assign`, `unassign` and `move`
+## A write, from `wrikery task status`, `create`, `edit`, `dates`, `comment`, `assign`, `unassign` and `move`
 
 The task as above, read back after the write, plus `sent`, true when the write is on Wrike and false when it is queued, which is exit 3.
 `wrikery task comment` adds `comment`, the new comment with its `id`, `author_id`, `author`, `created` and `text`.
@@ -71,6 +71,25 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 | `created` | when it was queued |
 | `done` | when it was sent or discarded, empty while it waits |
 
+## `wrikery inbox --json`
+
+A list of comments, newest first: the ones other people wrote in the last thirty days on the tasks the user follows, and the ones that mention the user.
+The whole list is the newest 200 of them, and a note on stderr says when it was cut there.
+`--unread` lists every row with `unread` true instead, however old, and `--limit N` stops after N rows.
+`--seen` marks the rows printed as seen. It exits with 1 and marks nothing when a row not seen yet was not printed, so use it as `wrikery inbox --unread --seen`.
+
+| key | value |
+| --- | --- |
+| `id` | the comment id |
+| `author_id` | the contact id of who wrote it |
+| `author` | their name |
+| `created` | when it was written |
+| `text` | the comment as plain text |
+| `task_id` | the task the comment is on |
+| `task_title` | its title |
+| `mentioned` | true when the comment mentions the user, by name, through a group they belong to or as an assignee, false for a comment on a followed task |
+| `unread` | true while it arrived after the user last looked at the inbox, the mark `--seen` and the inbox screen take off |
+
 ## `wrikery sync --json`
 
 `state` after the cycle, `pending` and `failed` are the counts of the queue.
@@ -78,6 +97,16 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 ## The `ui` commands with `--json`
 
 `ok` true and `text`, the interface's own line about what it did.
+`wrikery ui show --json` answers what the interface has in view instead:
+
+| key | value |
+| --- | --- |
+| `screen` | tasks, timesheet, changes, inbox, settings, or sign-in |
+| `shape` | list or board, the shape of the tasks screen |
+| `busy` | true while a box, the search, the help, a filter field or the sign in screen has the keys, when every other `ui` command is refused |
+| `folder` | the folder, project or space the list is on, with `id` and `title`, the id is me for My tasks, null before one is open |
+| `task` | the task the user's keys act on, with `id` and `title`, null on a screen without one and for the moment the list or the detail pane is still reading what it was sent to |
+| `filter` | `importance`, the levels shown, `person` with `id` and `name`, null for everyone and the id unassigned for nobody's tasks, and `statuses`, the status names shown, the values `wrikery ui filter` takes, except a status no cached workflow holds any more, which comes back in lower case and is refused there |
 
 ## `wrikery skill --json`
 

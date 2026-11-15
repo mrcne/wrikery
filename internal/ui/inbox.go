@@ -35,9 +35,6 @@ type inboxLoadedMsg struct {
 	seenTo string
 }
 
-// inboxLimit caps the rows the screen reads, a month of comments on a busy account is more than anyone reads in a list.
-const inboxLimit = 200
-
 // inboxTextLines is how many lines of the comment the cursor's row shows under itself.
 // A comment of a paragraph fits in three at a hundred columns, and the thread has the rest.
 const inboxTextLines = 3
@@ -62,7 +59,7 @@ func (s *inboxModel) set(rows []inboxRow, seenTo string) {
 // capacity is how many rows fit above the cursor's text lines and, on a full list, the line that says so.
 func (s inboxModel) capacity() int {
 	n := s.height - inboxTextLines
-	if len(s.rows) == inboxLimit {
+	if len(s.rows) == store.InboxLimit {
 		n--
 	}
 	return n
@@ -129,7 +126,7 @@ func (s inboxModel) View(th Theme, now time.Time, width, height int) string {
 	for i := s.offset; i < len(s.rows) && i-s.offset < capacity; i++ {
 		r := s.rows[i]
 		marker := "  "
-		if r.row.ArrivedAt > s.seenTo {
+		if r.row.Unread(s.seenTo) {
 			marker = accent.Render("*") + " "
 		}
 		sep := ": "
@@ -138,7 +135,7 @@ func (s inboxModel) View(th Theme, now time.Time, width, height int) string {
 		}
 		// Measured after stableWidth, as rowLine will draw it: an emoji drawn as its parts is wider than the joined form measures.
 		head := marker + ansi.Truncate(stableWidth(displayTitle(r.row.TaskTitle, th.HidePrefixes)), 30, "...") + "  " + stableWidth(r.author) + sep
-		when := relTime(r.row.CreatedDate, now)
+		when := RelTime(r.row.CreatedDate, now)
 		// The text takes what the width leaves after the head and the time, the row never hides the time behind it.
 		room := width - 2 - ansi.StringWidth(head) - ansi.StringWidth(when) - 2
 		text := ansi.Truncate(stableWidth(strings.Join(strings.Fields(r.row.Text), " ")), max(room, 0), "...")
@@ -149,9 +146,9 @@ func (s inboxModel) View(th Theme, now time.Time, width, height int) string {
 			}
 		}
 	}
-	if len(s.rows) == inboxLimit && s.offset+capacity >= len(s.rows) {
+	if len(s.rows) == store.InboxLimit && s.offset+capacity >= len(s.rows) {
 		// The count in the status bar is not cut, so a full list says where the rest is, on the line capacity() kept for it.
-		b.WriteString(muted.Render(fmt.Sprintf("  the list stops at %d rows, older comments are in their threads", inboxLimit)) + "\n")
+		b.WriteString(muted.Render(fmt.Sprintf("  the list stops at %d rows, older comments are in their threads", store.InboxLimit)) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

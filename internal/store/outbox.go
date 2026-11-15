@@ -260,7 +260,7 @@ func taskBeforeTx(ctx context.Context, tx *sql.Tx, taskID string, p TaskUpdatePa
 	}
 	if p.Dates != nil {
 		// A task without a dates block comes back to that through a Backlog write, the same write the dates box uses to clear them.
-		before.Dates = &TaskDates{Type: "Backlog"}
+		before.Dates = &TaskDates{Type: DatesBacklog}
 		if dType.String != "" {
 			before.Dates = &TaskDates{Type: dType.String, Duration: int(dDur.Int64), Start: dStart.String, Due: dDue.String}
 		}

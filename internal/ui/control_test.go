@@ -214,3 +214,100 @@ func TestControlFolderWritesThePinChangesBeforeAnswering(t *testing.T) {
 		t.Errorf("the returned model still holds %d pin changes, want them written before the reply", len(m.sidebar.changes))
 	}
 }
+
+func show(t *testing.T, m Model) ControlState {
+	t.Helper()
+	_, r := control(t, m, ControlMsg{Op: OpShow})
+	if r.Err != nil || r.State == nil || r.Text != "" {
+		t.Fatalf("show replied %+v, want the state alone", r)
+	}
+	return *r.State
+}
+
+func TestControlShowAnswersTheScreenTheFolderAndTheFilter(t *testing.T) {
+	m := controlRoot(t)
+	s := show(t, m)
+	if s.Screen != "tasks" || s.Shape != "list" || s.Busy || s.FolderID != "" || s.TaskID != "" || s.PersonID != "" {
+		t.Errorf("before a folder is open: %+v, want the tasks screen as a list and nothing else", s)
+	}
+	if s.Importance == nil || s.Statuses == nil || len(s.Importance)+len(s.Statuses) != 0 {
+		t.Errorf("no filter: importance %#v, statuses %#v, want two empty lists, never nil", s.Importance, s.Statuses)
+	}
+	m, _ = control(t, m, ControlMsg{Op: OpFolder, FolderID: "API"})
+	m, _ = control(t, m, ControlMsg{Op: OpShape, Shape: "board"})
+	m, _ = control(t, m, ControlMsg{Op: OpFilter, Importance: []string{"Low", "High"}, Person: "me", Statuses: []string{"in progress"}})
+	s = show(t, m)
+	if s.Shape != "board" || s.FolderID != "API" || s.FolderTitle != "API" {
+		t.Errorf("state = %+v, want the board on the API project", s)
+	}
+	if strings.Join(s.Importance, ",") != "High,Low" || s.PersonID != "U1" || s.PersonName != "Ada Nowak" || strings.Join(s.Statuses, ",") != "In Progress" {
+		t.Errorf("filter = %v, %q %q, %v, want the levels in the box's order, the person by id and name, the status as its workflow spells it",
+			s.Importance, s.PersonID, s.PersonName, s.Statuses)
+	}
+	m, _ = control(t, m, ControlMsg{Op: OpFilter, Person: "unassigned"})
+	if s = show(t, m); s.PersonID != "unassigned" || s.PersonName != "Unassigned" || len(s.Importance) != 0 {
+		t.Errorf("filter = %+v, want unassigned, the word a filter request takes", s)
+	}
+	// The shape, the folder and the filter are the tasks screen's, another screen in view does not hide them.
+	m, _ = control(t, m, ControlMsg{Op: OpFolder, FolderID: "me"})
+	for word := range screenWords {
+		m, _ = control(t, m, ControlMsg{Op: OpScreen, Screen: word})
+		if s = show(t, m); s.Screen != word || s.Shape != "board" || s.FolderID != "me" || s.FolderTitle != "My tasks" || s.PersonID != "unassigned" {
+			t.Errorf("on %s: %+v, want the screen named and the tasks screen's shape, folder and filter", word, s)
+		}
+	}
+}
+
+// Reading changes nothing, so show answers where every other request is refused, and says that the keys are taken.
+func TestControlShowAnswersWhileABoxIsOpen(t *testing.T) {
+	for _, c := range []struct {
+		name, screen string
+		prep         func(m *Model)
+	}{
+		{"help", "tasks", func(m *Model) { m.overlay = overlayHelp }},
+		{"search", "tasks", func(m *Model) { m.overlay = overlaySearch }},
+		{"a box", "tasks", func(m *Model) { m.overlay = overlayDialog }},
+		{"first run", "sign-in", func(m *Model) { m.screen = screenFirstRun }},
+		{"list filter", "tasks", func(m *Model) { m.list.filtering = true }},
+		{"sidebar filter", "tasks", func(m *Model) { m.sidebar.filtering = true }},
+	} {
+		m := controlRoot(t)
+		c.prep(&m)
+		if s := show(t, m); !s.Busy || s.Screen != c.screen {
+			t.Errorf("%s: %+v, want busy on %s", c.name, s, c.screen)
+		}
+	}
+}
+
+// The task is the one a key would act on. A script that writes to "the task in view" must never be handed the task before.
+func TestControlShowNamesTheTaskTheKeysActOn(t *testing.T) {
+	m := pump(demoModel(t), focusMsg{pane: paneList})
+	row, ok := m.list.current()
+	if !ok {
+		t.Fatal("the demo list has no row")
+	}
+	if s := show(t, m); s.TaskID != row.task.ID || s.TaskTitle != row.task.Title || s.FolderID != m.selectedNode.id {
+		t.Errorf("state = %+v, want the row under the cursor %q in %q", s, row.task.ID, m.selectedNode.id)
+	}
+	// The selection moved to a task the list does not have and the pane with the keys still holds the row's task: nothing, for that one read.
+	behind := m
+	behind.focus = paneDetail
+	behind.selectTask("IEAA-ELSEWHERE")
+	if s := show(t, behind); s.TaskID != "" {
+		t.Errorf("with the pane one read behind show named %q, want no task", s.TaskID)
+	}
+	// The other screens have no task under the keys, the timesheet has the one in the pane beside its grid.
+	changes, _ := control(t, m, ControlMsg{Op: OpScreen, Screen: "changes"})
+	if s := show(t, changes); s.TaskID != "" || s.FolderID != m.selectedNode.id {
+		t.Errorf("on the changes screen: %+v, want no task and the folder kept", s)
+	}
+	sheet := m
+	sheet.screen = screenTimesheet
+	if s := show(t, sheet); s.TaskID != "" {
+		t.Errorf("on the grid with no pane open show named %q", s.TaskID)
+	}
+	sheet.timesheet.detailOpen = true
+	if s := show(t, sheet); s.TaskID != row.task.ID {
+		t.Errorf("with the pane beside the grid on %q show named %q", row.task.ID, s.TaskID)
+	}
+}

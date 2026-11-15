@@ -1,4 +1,4 @@
-.TH WRIKERY 1 2026-11-01 wrikery "User Commands"
+.TH WRIKERY 1 2026-11-08 wrikery "User Commands"
 .SH NAME
 wrikery \- an unofficial terminal client for Wrike
 .SH SYNOPSIS
@@ -83,6 +83,28 @@ stop after N rows, the queue first
 .BI "\-\-source " WORD
 only the rows of this source WORD, tui, cli or an agent's word
 .RE
+.SS inbox
+.B "wrikery inbox [\-\-unread] [\-\-limit N] [\-\-seen]"
+.PP
+Lists what the inbox screen shows: the comments other people wrote in the last 30 days on the tasks you follow and the ones that mention you, newest first, the newest 200 of them.
+A row names the task and the author, says mentioned you when it is a mention, and starts with a star while it arrived after the inbox was last seen.
+\-\-unread lists every row with a star instead, the ones the status bar of the interface counts, and \-\-limit N stops after N rows.
+The command changes nothing unless \-\-seen is given, which marks the rows it printed as seen, the way leaving the inbox screen does, so the unread count of the interface drops.
+The mark covers everything that arrived up to the newest row printed, so \-\-seen marks nothing and exits with 1 when a row not seen yet was not printed, and it does not go with \-\-limit: inbox \-\-unread \-\-seen prints and marks them all.
+.RS
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-limit " N
+stop after N rows
+.TP
+.B \-\-seen
+mark the rows printed as seen
+.TP
+.B \-\-unread
+every row not seen yet, and only those
+.RE
 .SS The task commands
 The task commands read the local cache and queue their writes through the same outbox as the interface.
 .SS task list
@@ -161,6 +183,26 @@ print JSON
 .TP
 .BI "\-\-title " TITLE
 the new TITLE
+.RE
+.SS task dates
+.B "wrikery task dates T [\-\-start DAY] [\-\-due DAY] | \-\-clear"
+.PP
+Sets the start, the due date or both, the one not named keeps its day, and \-\-clear takes both off.
+A DAY is what the dates box of the interface reads: 2026\-09\-12, today, tomorrow, fri, next fri, +3d or "12 sep".
+One date on a task without dates makes a one day task, as the box does, and a milestone moved by its due date stays a milestone.
+.RS
+.TP
+.B \-\-clear
+take both dates off
+.TP
+.BI "\-\-due " DAY
+the due DAY
+.TP
+.B \-\-json
+print JSON
+.TP
+.BI "\-\-start " DAY
+the start DAY
 .RE
 .SS task comment
 .B "wrikery task comment T TEXT..."
@@ -285,6 +327,19 @@ print JSON
 .B "wrikery ui refresh"
 .PP
 Runs a sync cycle in the interface that is running, what R does there.
+.RS
+.TP
+.B \-\-json
+print JSON
+.RE
+.SS ui show
+.B "wrikery ui show"
+.PP
+Prints what the interface that is running has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter.
+The task is the one a key pressed now would change, none on a screen without one and none for the moment the list or the detail pane is still reading what it was sent to.
+It answers with a box open as well and says busy, every other ui command is refused then.
+While the external editor is open the interface answers nothing and the command exits with 1.
+In JSON the folder and the task have their ids, null when there is none, and the filter has the values ui filter takes.
 .RS
 .TP
 .B \-\-json
@@ -675,6 +730,7 @@ A second keychain item with the access token, the refresh token, the expiry, the
 .nf
 wrikery sync                                 # one sync cycle, \-\-full also checks for deleted tasks
 wrikery changes                              # the changes made through Wrikery, the queue first, then 30 days back
+wrikery inbox \-\-unread                       # the comments for you that are not seen yet, mentions and followed tasks
 wrikery task list \-\-folder "4 Later"         # tasks of a folder, project or space
 wrikery task list                            # your own open tasks
 wrikery task show "licence file"             # one task with its description and comments
@@ -683,11 +739,13 @@ wrikery task status MAAAAAEPXpuT "In Progress"
 wrikery task create \-\-folder Sandbox Try the new command
 wrikery task create \-\-folder Sandbox \-\-importance High \-\-description notes.md Try it with a description
 wrikery task edit MAAAAAEPXpuT \-\-title "A plainer title" \-\-description \-
+wrikery task dates MAAAAAEPXpuT \-\-due fri    # a day as the dates box reads it, fri, +3d or an ISO date
 wrikery task comment MAAAAAEPXpuT Pushed the branch
 wrikery task assign MAAAAAEPXpuT me
 wrikery task move MAAAAAEPXpuT \-\-to "Next release" \-\-from Backlog
 wrikery ui filter \-\-importance High \-\-person me # narrow the interface that is running
 wrikery ui folder "Next release"                # open a folder there, as from the sidebar
+wrikery ui show \-\-json                          # what it has in view: the screen, the folder, the task, the filter
 wrikery skill install                        # the agent skill, into ~/.claude/skills and ~/.agents/skills
 .fi
 .SH SEE ALSO

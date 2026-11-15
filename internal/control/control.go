@@ -24,6 +24,7 @@ const (
 	OpShape   = "shape"
 	OpScreen  = "screen"
 	OpRefresh = "refresh"
+	OpShow    = "show"
 	OpReload  = "reload"
 )
 
@@ -45,11 +46,44 @@ type Request struct {
 	Entities       []string `json:"entities,omitempty"`
 }
 
-// Reply is what the interface says back: a line for the person on success, the reason on a refusal.
+// Reply is what the interface says back: a line for the person on success, the reason on a refusal,
+// and for OpShow the state it has in view.
 type Reply struct {
 	OK    bool   `json:"ok"`
 	Text  string `json:"text,omitempty"`
 	Error string `json:"error,omitempty"`
+	State *State `json:"state,omitempty"`
+}
+
+// State is what the interface has in view, the answer to OpShow. wrikery ui show --json prints it as it is,
+// so a key is added and never renamed or removed, and the two lists are never null.
+// Shape, Folder and Filter belong to the tasks screen and are answered whatever screen is in view.
+type State struct {
+	Screen string      `json:"screen"` // tasks, timesheet, changes, inbox, settings, or sign-in
+	Shape  string      `json:"shape"`  // list or board
+	Busy   bool        `json:"busy"`   // a box, the search, the help, a filter field or the sign in screen has the keys, every other request is refused
+	Folder *StateItem  `json:"folder"` // the node the list is on, me for My tasks, null before the first one
+	Task   *StateItem  `json:"task"`   // the task the action keys act on, null when no key acts on one
+	Filter StateFilter `json:"filter"`
+}
+
+// StateItem names a folder or a task.
+type StateItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// StateFilter is the filter box's choice in the values OpFilter takes, so a script can set it again.
+// A status no cached workflow spells any more is answered by its key, in lower case.
+type StateFilter struct {
+	Importance []string     `json:"importance"`
+	Person     *StatePerson `json:"person"` // null for everyone, the id is unassigned for the tasks of nobody
+	Statuses   []string     `json:"statuses"`
+}
+
+type StatePerson struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 var (

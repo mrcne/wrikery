@@ -208,10 +208,27 @@ type ControlMsg struct {
 	Reply          chan<- ControlReply
 }
 
-// ControlReply is the interface's answer: a line for the person, or the reason it did nothing.
+// ControlReply is the interface's answer: a line for the person, the reason it did nothing, or for a show request the state.
 type ControlReply struct {
-	Text string
-	Err  error
+	Text  string
+	Err   error
+	State *ControlState
+}
+
+// ControlState is what the interface has in view, the answer to a show request.
+// The shape, the folder and the filter are the tasks screen's and are answered whatever screen is in view.
+type ControlState struct {
+	Screen string // the word a screen request opens it by, or sign-in
+	Shape  string // list or board
+	Busy   bool   // something has the keys that refuses every other request
+	// The node the list is on, both empty before the first one.
+	FolderID, FolderTitle string
+	// The task the action keys act on, both empty when no key acts on one.
+	TaskID, TaskTitle string
+	// The filter box's choice: the levels, the person as a contact id or unassigned with the name to show, the status names.
+	Importance           []string
+	PersonID, PersonName string
+	Statuses             []string
 }
 
 // setConfigMsg is enter on an open row of the settings screen: the key and the value typed the way the config package takes it.

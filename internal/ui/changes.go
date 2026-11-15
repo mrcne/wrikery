@@ -138,15 +138,15 @@ func StateText(r store.OutboxRow, now time.Time, offline bool) string {
 		return "sending"
 	case store.StatePending:
 		if r.LastError != "" && !offline {
-			return "retrying " + relTime(r.CreatedAt, now)
+			return "retrying " + RelTime(r.CreatedAt, now)
 		}
 		return "queued"
 	case store.StateFailed:
-		return "failed " + relTime(r.CreatedAt, now)
+		return "failed " + RelTime(r.CreatedAt, now)
 	case store.StateDiscarded:
-		return "discarded " + relTime(r.DoneAt, now)
+		return "discarded " + RelTime(r.DoneAt, now)
 	}
-	return relTime(r.DoneAt, now)
+	return RelTime(r.DoneAt, now)
 }
 
 // arrow joins an old and a new value, with nothing before the arrow when the row has no old value,
@@ -173,9 +173,9 @@ func datesText(d *store.TaskDates) string {
 	switch {
 	case d == nil:
 		return ""
-	case d.Type == "Backlog":
+	case d.Type == store.DatesBacklog:
 		return "Backlog"
-	case d.Type == "Milestone":
+	case d.Type == store.DatesMilestone:
 		return "milestone " + shortDate(d.Due)
 	case d.Start != "" && d.Due != "":
 		return shortDate(d.Start) + " to " + shortDate(d.Due)

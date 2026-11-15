@@ -104,11 +104,33 @@ func controlHandler(send func(tea.Msg), counts func() (pending, failed int, err 
 			if r.Err != nil {
 				return control.Reply{Error: r.Err.Error()}
 			}
-			return control.Reply{OK: true, Text: r.Text}
+			return control.Reply{OK: true, Text: r.Text, State: wireState(r.State)}
 		case <-time.After(controlWait):
 			return control.Reply{Error: "the interface is busy"}
 		}
 	}
+}
+
+// wireState puts the state a show request was answered with on the socket, nil for every other reply.
+// A folder, a task and a person the interface did not name are null there, not an item with empty fields.
+func wireState(s *ui.ControlState) *control.State {
+	if s == nil {
+		return nil
+	}
+	out := &control.State{
+		Screen: s.Screen, Shape: s.Shape, Busy: s.Busy,
+		Filter: control.StateFilter{Importance: s.Importance, Statuses: s.Statuses},
+	}
+	if s.FolderID != "" {
+		out.Folder = &control.StateItem{ID: s.FolderID, Title: s.FolderTitle}
+	}
+	if s.TaskID != "" {
+		out.Task = &control.StateItem{ID: s.TaskID, Title: s.TaskTitle}
+	}
+	if s.PersonID != "" {
+		out.Filter.Person = &control.StatePerson{ID: s.PersonID, Name: s.PersonName}
+	}
+	return out
 }
 
 func entityNames(kinds []syncer.EntityKind) []string {

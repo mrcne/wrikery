@@ -68,6 +68,8 @@ func Run(ctx context.Context, env Env, args []string) int {
 		return runSync(ctx, env, args[1:])
 	case "changes":
 		return runChanges(ctx, env, args[1:])
+	case "inbox":
+		return runInbox(ctx, env, args[1:])
 	case "skill":
 		return runSkill(ctx, env, args[1:])
 	case "task":
@@ -100,6 +102,8 @@ func runTask(ctx context.Context, env Env, args []string) int {
 		return runTaskCreate(ctx, env, args[1:])
 	case "edit":
 		return runTaskEdit(ctx, env, args[1:])
+	case "dates":
+		return runTaskDates(ctx, env, args[1:])
 	case "comment":
 		return runTaskComment(ctx, env, args[1:])
 	case "assign":

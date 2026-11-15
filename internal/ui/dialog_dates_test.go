@@ -12,14 +12,52 @@ import (
 )
 
 func TestDatesFrom(t *testing.T) {
-	if d := datesFrom("", ""); d.Type != "Backlog" {
+	if d := DatesFrom("", "", false); d.Type != "Backlog" {
 		t.Errorf("empty -> %+v", d)
 	}
-	if d := datesFrom("", "2026-09-12"); d.Type != "Planned" || d.Start != "2026-09-12" || d.Due != "2026-09-12" {
+	if d := DatesFrom("", "2026-09-12", false); d.Type != "Planned" || d.Start != "2026-09-12" || d.Due != "2026-09-12" {
 		t.Errorf("due only -> %+v", d)
 	}
-	if d := datesFrom("2026-09-08", "2026-09-12"); d.Type != "Planned" || d.Start != "2026-09-08" {
+	if d := DatesFrom("2026-09-08", "2026-09-12", false); d.Type != "Planned" || d.Start != "2026-09-08" {
 		t.Errorf("both -> %+v", d)
+	}
+	if d := DatesFrom("", "2026-09-12", true); d != (store.TaskDates{Type: "Milestone", Due: "2026-09-12"}) {
+		t.Errorf("due only on a milestone -> %+v, want the milestone on the new day", d)
+	}
+	if d := DatesFrom("2026-09-08", "2026-09-12", true); d.Type != "Planned" || d.Start != "2026-09-08" || d.Due != "2026-09-12" {
+		t.Errorf("a start on a milestone -> %+v, want a planned task", d)
+	}
+	if d := DatesFrom("", "", true); d.Type != "Backlog" {
+		t.Errorf("a milestone cleared -> %+v", d)
+	}
+}
+
+// A milestone has a due date and no start. The box used to save it as a one day task, whatever was typed.
+func TestDatesDialogKeepsAMilestoneWhoseDueDateMoves(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	task := store.Task{ID: "T1", Dates: &store.TaskDates{Type: "Milestone", Due: "2026-09-10T17:00:00"}}
+	typeDue := func(dl dialog, word string) dialog {
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+		for _, r := range word {
+			dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		return dl
+	}
+	d, _ := newDatesDialog(task, now)
+	_, cmd := typeDue(d, "2026-09-15").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got, ok := collect(cmd)[0].(submitDatesMsg); !ok || got.dates != (store.TaskDates{Type: "Milestone", Due: "2026-09-15"}) {
+		t.Errorf("submit = %#v, want the milestone on the new day", got)
+	}
+	// A start typed into the empty field asks for a range, which a milestone cannot be.
+	d, _ = newDatesDialog(task, now)
+	var dl dialog = d
+	for _, r := range "2026-09-08" {
+		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got, ok := collect(cmd)[0].(submitDatesMsg); !ok || got.dates != (store.TaskDates{Type: "Planned", Start: "2026-09-08", Due: "2026-09-10"}) {
+		t.Errorf("submit = %#v, want a planned task from the start typed to the milestone's day", got)
 	}
 }
 

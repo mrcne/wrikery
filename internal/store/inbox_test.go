@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -183,5 +184,68 @@ func TestInboxCountsAMentionOfAGroupTheUserIsIn(t *testing.T) {
 	}
 	if n, _ := st.Comments().InboxUnread(ctx, "U1", "2026-08-10T00:00:00Z", ""); n != 1 {
 		t.Errorf("unread = %d, want 1", n)
+	}
+}
+
+// The whole list is cut by the creation date and an unread row is found by its arrival:
+// an older comment that arrives late, of a task just cached, must not hide behind the cap while the count shows it.
+func TestInboxListFindsTheUnreadRowsTheCapOfTheWholeListHides(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	followed := makeTask("T1", "followed")
+	followed.FollowedByMe = true
+	if err := st.Tasks().Upsert(ctx, []Task{followed}); err != nil {
+		t.Fatal(err)
+	}
+	arrive := func(at string, comments []Comment) {
+		t.Helper()
+		st.Now = func() time.Time { tm, _ := time.Parse(time.RFC3339, at); return tm }
+		if _, err := st.Comments().UpsertCached(ctx, comments); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var recent, late []Comment
+	for i := range InboxLimit {
+		recent = append(recent, Comment{ID: fmt.Sprintf("R%03d", i), TaskID: "T1", AuthorID: "U2", Text: "recent",
+			CreatedDate: time.Date(2026, 9, 9, 8, 0, i, 0, time.UTC).Format(time.RFC3339)})
+	}
+	for i := range 5 {
+		late = append(late, Comment{ID: fmt.Sprintf("L%d", i), TaskID: "T1", AuthorID: "U2", Text: "older, arrived late",
+			CreatedDate: time.Date(2026, 8, 20, 8, 0, i, 0, time.UTC).Format(time.RFC3339)})
+	}
+	arrive("2026-09-09T12:00:00Z", recent)
+	if err := st.Comments().MarkInboxSeen(ctx, "2026-09-09T12:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	arrive("2026-09-10T08:00:00Z", late)
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+
+	whole, seenTo, err := st.Comments().InboxList(ctx, "U1", now, false, 0)
+	if err != nil || len(whole) != InboxLimit || seenTo != "2026-09-09T12:00:00Z" {
+		t.Fatalf("the whole list: %d rows, marker %q, %v, want the cap and the marker", len(whole), seenTo, err)
+	}
+	for _, r := range whole {
+		if r.Unread(seenTo) {
+			t.Fatalf("the whole list holds the late row %s, the test needs it past the cap", r.ID)
+		}
+	}
+	unread, _, err := st.Comments().InboxList(ctx, "U1", now, true, 0)
+	if err != nil || len(unread) != 5 || unread[0].ID != "L4" || unread[4].ID != "L0" {
+		t.Fatalf("unread = %d rows, %v, want the five late ones newest first", len(unread), err)
+	}
+	if n, err := st.Comments().InboxUnread(ctx, "U1", InboxSince(now), seenTo); err != nil || n != len(unread) {
+		t.Errorf("the count says %d, %v, the list has %d, the two must be one set", n, err, len(unread))
+	}
+	if two, _, _ := st.Comments().InboxList(ctx, "U1", now, true, 2); len(two) != 2 || two[0].ID != "L4" {
+		t.Errorf("unread with a limit of 2 = %+v, want the two newest", two)
+	}
+	if three, _, _ := st.Comments().InboxList(ctx, "U1", now, false, 3); len(three) != 3 || three[0].ID != "R199" {
+		t.Errorf("the whole list with a limit of 3 = %d rows from %q, want the three newest", len(three), three[0].ID)
+	}
+	if over, _, _ := st.Comments().InboxList(ctx, "U1", now, false, InboxLimit+50); len(over) != InboxLimit {
+		t.Errorf("a limit above the cap gave %d rows, want the cap", len(over))
+	}
+	if rows, marker, err := st.Comments().InboxList(ctx, "", now, true, 0); err != nil || rows != nil || marker != "" {
+		t.Errorf("without a user: %d rows, marker %q, %v, want nothing", len(rows), marker, err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mrcne/wrikery/internal/control"
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -56,6 +57,17 @@ F is an id or a part of its title, me is My tasks.`,
 		Short:    "open one screen of the running interface",
 		Notes:    "Opens one screen of the interface that is running: tasks, timesheet, changes, inbox or settings.",
 		Flags:    func() *flag.FlagSet { return jsonFlagSet("ui open", new(bool)) },
+	}
+	cmdUIShow = Command{
+		Name:     "ui show",
+		Synopsis: []string{"ui show"},
+		Short:    "what the running interface has in view, the task and the folder",
+		Notes: `Prints what the interface that is running has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter.
+The task is the one a key pressed now would change, none on a screen without one and none for the moment the list or the detail pane is still reading what it was sent to.
+It answers with a box open as well and says busy, every other ui command is refused then.
+While the external editor is open the interface answers nothing and the command exits with 1.
+In JSON the folder and the task have their ids, null when there is none, and the filter has the values ui filter takes.`,
+		Flags: func() *flag.FlagSet { return jsonFlagSet("ui show", new(bool)) },
 	}
 	cmdUIRefresh = Command{
 		Name:     "ui refresh",
@@ -113,6 +125,8 @@ func runUI(ctx context.Context, env Env, args []string) int {
 		return runUIOpen(ctx, env, args[1:])
 	case "refresh":
 		return runUIPlain(ctx, env, args[1:], control.Request{Op: control.OpRefresh}, cmdUIRefresh)
+	case "show":
+		return runUIShow(ctx, env, args[1:])
 	}
 	_, _ = fmt.Fprintf(env.Stderr, "wrikery: unknown ui command %q\n", args[0])
 	_, _ = fmt.Fprint(env.Stderr, groupUsage(groupUI))
@@ -293,21 +307,101 @@ func runUIPlain(ctx context.Context, env Env, args []string, req control.Request
 	return uiCall(ctx, env, req, asJSON, "")
 }
 
-// uiCall sends the request and prints the interface's line, or text when the command has a better one.
-// No interface, a refusal and a name that matched nothing are all exit 1, the command did not do what it was asked.
-func uiCall(ctx context.Context, env Env, req control.Request, asJSON bool, text string) int {
+// runUIShow asks the interface what it has in view and prints it, the one ui command that reads.
+func runUIShow(ctx context.Context, env Env, args []string) int {
+	var asJSON bool
+	fs := jsonFlagSet("ui show", &asJSON)
+	positional, code, done := parse(env, fs, cmdUIShow.usage(), args)
+	if done {
+		return code
+	}
+	if len(positional) > 0 {
+		return usageError(env, fs, cmdUIShow.usage(), "ui show takes no arguments")
+	}
+	reply, code := uiAsk(ctx, env, control.Request{Op: control.OpShow})
+	if code != exitOK {
+		return code
+	}
+	if reply.State == nil {
+		return fail(env, errors.New("the running interface answered without its state, restart it"))
+	}
+	state := *reply.State
+	// A list is never null in the JSON a script reads, whatever the other end sent.
+	if state.Filter.Importance == nil {
+		state.Filter.Importance = []string{}
+	}
+	if state.Filter.Statuses == nil {
+		state.Filter.Statuses = []string{}
+	}
+	if asJSON {
+		return printJSON(env, state)
+	}
+	printUIState(env, state)
+	return exitOK
+}
+
+// printUIState writes one line per part of the state, the label first as task show writes its header,
+// with the filter worded as the line under the rows of the interface.
+func printUIState(env Env, s control.State) {
+	label := lipgloss.NewStyle().Foreground(env.Theme.Muted)
+	dim := lipgloss.NewStyle().Foreground(env.Theme.Dim)
+	line := func(name, value string) {
+		_, _ = fmt.Fprintf(env.Stdout, "%s%s\n", label.Render(padRight(name, 8)), value)
+	}
+	item := func(it *control.StateItem) string {
+		if it == nil {
+			return "none"
+		}
+		return it.Title + "  " + dim.Render(it.ID)
+	}
+	line("screen", s.Screen)
+	line("shape", s.Shape)
+	line("folder", item(s.Folder))
+	line("task", item(s.Task))
+	var parts []string
+	if len(s.Filter.Importance) > 0 {
+		parts = append(parts, strings.Join(s.Filter.Importance, ", "))
+	}
+	if s.Filter.Person != nil {
+		parts = append(parts, s.Filter.Person.Name)
+	}
+	if len(s.Filter.Statuses) > 0 {
+		parts = append(parts, strings.Join(s.Filter.Statuses, ", "))
+	}
+	if len(parts) == 0 {
+		parts = []string{"none"}
+	}
+	line("filter", strings.Join(parts, " | "))
+	if s.Busy {
+		line("busy", "a box, the search, the help, a filter field or the sign in screen has the keys")
+	}
+}
+
+// uiAsk sends the request and returns the interface's reply, or the exit code after the reason was printed.
+// No interface and a refusal are both exit 1, the command did not do what it was asked.
+func uiAsk(ctx context.Context, env Env, req control.Request) (control.Reply, int) {
 	reply, err := control.Call(ctx, env.Socket, req)
 	if errors.Is(err, control.ErrNotRunning) {
-		return fail(env, errors.New("no wrikery interface is running"))
+		return reply, fail(env, errors.New("no wrikery interface is running"))
 	}
 	if err != nil {
-		return fail(env, err)
+		return reply, fail(env, err)
 	}
 	if !reply.OK {
 		if reply.Error == "" {
 			reply.Error = "the interface refused the request"
 		}
-		return fail(env, errors.New(reply.Error))
+		return reply, fail(env, errors.New(reply.Error))
+	}
+	return reply, exitOK
+}
+
+// uiCall sends the request and prints the interface's line, or text when the command has a better one.
+// A name that matched nothing is exit 1 like no interface and a refusal.
+func uiCall(ctx context.Context, env Env, req control.Request, asJSON bool, text string) int {
+	reply, code := uiAsk(ctx, env, req)
+	if code != exitOK {
+		return code
 	}
 	if text == "" {
 		text = reply.Text

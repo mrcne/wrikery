@@ -31,6 +31,30 @@ type TaskDates struct {
 	Due      string
 }
 
+// The values of TaskDates.Type, Wrike's own words, see the Update Task reference at https://developers.wrike.com/reference/puttaskssingle.
+const (
+	DatesBacklog   = "Backlog"   // no dates
+	DatesMilestone = "Milestone" // a due date and no start
+	DatesPlanned   = "Planned"   // a start and a due date
+)
+
+// OrBacklog is the block, or for a task without one the Backlog block a write of no dates makes.
+func (d *TaskDates) OrBacklog() *TaskDates {
+	if d == nil {
+		return &TaskDates{Type: DatesBacklog}
+	}
+	return d
+}
+
+// SameDates says whether two dates blocks plan the same days: the type and the day of the start and of the due.
+// A write sends a bare day and Wrike answers it with its working hours, the start followed by T09:00:00 and the due by T17:00:00,
+// and it derives the duration itself, so neither tells a change apart.
+func SameDates(a, b *TaskDates) bool {
+	a, b = a.OrBacklog(), b.OrBacklog()
+	day := func(s string) string { return s[:min(len(s), len("2006-01-02"))] }
+	return a.Type == b.Type && day(a.Start) == day(b.Start) && day(a.Due) == day(b.Due)
+}
+
 // CustomField is a custom field the account defines, the type is the API's, Duration, Numeric, Text and the rest.
 type CustomField struct {
 	ID, Title, Type string

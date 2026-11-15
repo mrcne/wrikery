@@ -54,7 +54,7 @@ The code is split into six parts with strict boundaries, plus four small package
 - `internal/control` is the channel between a command and a running interface, a unix socket with one JSON line each way.
 - `internal/cli` is the command line front end: one operation per run, on the same store and outbox as the TUI.
   It parses its own arguments with the standard library, resolves names against the cache, queues writes the way the TUI does and prints text or JSON.
-  It imports the TUI's theme, its description renderer and the editor's markdown translation, so both front ends look the same and write a description the same way, and nothing flows the other way.
+  It imports the TUI's theme, its description renderer, the editor's markdown translation and the date words of the dates box, so both front ends look the same, write a description the same way and read a day the same way, and nothing flows the other way.
 - `internal/config` loads the TOML config file, edits one key of it for the settings screen, and resolves the paths listed at the end.
 - `internal/lockfile` is the flock helper the sync engine and the token renewal share, a lock the kernel releases when the holder dies.
 - `internal/atomicfile` writes a file through a temporary one that is synced and renamed into place, the config file and the token file go through it.
@@ -89,6 +89,7 @@ A running interface listens on a unix socket next to the database, `wrikery.sock
 `cmd/wrikery` owns the listener as it owns the engine forwarder, and turns a request into a `ui.ControlMsg` with a buffered reply channel that the model answers from its update loop, so `internal/ui` sees no socket.
 Every send to the program runs on a goroutine of its own, because the program blocks while an external editor holds it, and a request nobody answers in five seconds is reported as busy and carries a deadline past which the model drops it.
 The command reads for longer than that wait, so the busy answer reaches it instead of a timeout of its own.
+A show request is the one that reads: the model answers it with the screen, the shape, the node the list is on, the task its action keys act on and the filter, also while a box is open, where every other request is refused, and `cmd/wrikery` puts that state on the reply.
 A reload, what every write command and `wrikery sync` send when they are done, becomes the two messages the engine forwarder sends after a cycle and never reaches the model as a request, and it names the kinds it touched, a write the tasks, comments and time entries, a sync every kind.
 A socket path has room for 104 bytes on macOS, so a long data directory gets a hashed name in a directory of the user's own under /tmp, made 0700 and checked, computed the same way on both sides.
 The first interface keeps the socket, a second one logs that and runs without it, a file a crash left behind is removed before the bind, and the demo listens on a fixed name in the data directory.
@@ -224,6 +225,9 @@ Following a task moves its updatedDate and unfollowing does not (checked on the 
 
 The inbox is one query over the comments of the last thirty days joined with their task: the comments of other people on followed tasks, and the ones whose mention list names the user, a group the user is a member of by its name, or `@assignees` on a task the user is responsible for, with a count of the rows after the seen marker for the status bar.
 Membership is what the contacts read answers for the group, whether a parent group's list covers the members of its child groups is not checked.
+The inbox screen and `wrikery inbox` read the rows through one call of the store, which holds the window, the cap of two hundred rows on the whole list and the read of the seen marker.
+The whole list is cut by the creation date and a row is unread by its arrival, so the rows not seen yet are a query of their own that walks the arrival index like the count and has no cap: an older comment that arrived late is past the cap of the whole list and still in the count.
+The command writes the marker only with `--seen`, to the newest arrival among the rows it printed, and only when the count says that every row up to that stamp was printed, then it tells a running interface to read its count again.
 
 ### The per task reads
 
