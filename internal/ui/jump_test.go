@@ -205,6 +205,147 @@ func TestAKeyBeforeThePaneFollowsActsOnTheRow(t *testing.T) {
 	})
 }
 
+// A jump moves the focus to the pane and the selection to the picked task at once, the reads of the task and of the list land later.
+// A key in that moment must not act on the task the pane showed before, nor on the row the list has not left yet,
+// whether the jump reloads the list for a folder of the task or leaves it where it was.
+func TestAKeyRightAfterAJumpDoesNotReachTheTaskBefore(t *testing.T) {
+	// jump picks the task with every read it starts held back, checks the keys in that window and hands the reads back.
+	jump := func(t *testing.T, m Model, task store.Task) (Model, []tea.Msg) {
+		t.Helper()
+		m = pump(m, focusMsg{pane: paneList})
+		before := m.detail.task.ID
+		if before == "" || before == task.ID || !m.detail.loaded {
+			t.Fatalf("the pane shows %q before the jump, want a loaded task other than %q", before, task.ID)
+		}
+		next, cmd := m.Update(openTaskMsg{task: task})
+		m = next.(Model)
+		if m.focus != paneDetail {
+			t.Fatalf("focus %v after the jump, want the pane", m.focus)
+		}
+		if got, ok := m.selectedTask(); ok && got.ID != task.ID {
+			t.Errorf("before the reads land the keys act on %q, want %q or no task", got.ID, task.ID)
+		}
+		if m.detail.loaded && m.detail.task.ID != task.ID {
+			t.Errorf("before the reads land the pane shows %q, want %q or nothing", m.detail.task.ID, task.ID)
+		}
+		next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+		m = next.(Model)
+		if d, ok := m.dialog.(statusDialog); ok && d.taskID != task.ID {
+			t.Errorf("s before the reads land opened the status box for %q, want %q or none", d.taskID, task.ID)
+		}
+		m.overlay, m.dialog = overlayNone, nil
+		return m, collect(cmd)
+	}
+	landed := func(t *testing.T, m Model, task store.Task) {
+		t.Helper()
+		if got, ok := m.selectedTask(); !ok || got.ID != task.ID {
+			t.Errorf("after the reads the keys act on %q, want %q", got.ID, task.ID)
+		}
+		if m.detail.task.ID != task.ID {
+			t.Errorf("after the reads the pane shows %q, want %q", m.detail.task.ID, task.ID)
+		}
+	}
+	t.Run("into a folder the sidebar shows", func(t *testing.T) {
+		m := demoModel(t)
+		tasks, err := m.opts.Store.Tasks().ListInFolder(context.Background(), "IEAAIOS1")
+		if err != nil || len(tasks) == 0 {
+			t.Fatalf("the iOS app folder has no tasks: %v", err)
+		}
+		task := tasks[0]
+		m, held := jump(t, m, task)
+		if m.selectedNode.id != "IEAAIOS1" {
+			t.Fatalf("the jump landed on node %q, want the iOS app folder", m.selectedNode.id)
+		}
+		var list, read tea.Msg
+		for _, msg := range held {
+			switch msg.(type) {
+			case tasksLoadedMsg:
+				list = msg
+			case taskLoadedMsg:
+				read = msg
+			}
+		}
+		if list == nil || read == nil {
+			t.Fatalf("the jump started %d messages, want the list and the task among them", len(held))
+		}
+		// The two reads land in either order, and after the first the keys already act on the picked task:
+		// on the row under the cursor once the list is there, on the pane once the task is.
+		for name, order := range map[string][]tea.Msg{"list first": {list, read}, "task first": {read, list}} {
+			t.Run(name, func(t *testing.T) {
+				next, _ := m.Update(order[0])
+				between := next.(Model)
+				if got, ok := between.selectedTask(); !ok || got.ID != task.ID {
+					t.Errorf("after the first answer the keys act on %q, want %q", got.ID, task.ID)
+				}
+				next, _ = between.Update(order[1])
+				landed(t, next.(Model), task)
+			})
+		}
+	})
+	t.Run("outside the tree", func(t *testing.T) {
+		task := outsideTask("KUAAAAB1", outsideFolder)
+		m, held := jump(t, demoModel(t, task), task)
+		landed(t, pump(m, held...), task)
+	})
+}
+
+// j moves the selection to the next row at once and only the pane's read waits, enter then gives the pane the keys.
+// A key in that moment acts on the row, not on the task the pane still draws behind the selection.
+func TestEnterRightAfterAListMoveDoesNotReachTheTaskBefore(t *testing.T) {
+	m := pump(demoModel(t), focusMsg{pane: paneList})
+	before := m.detail.task.ID
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m = next.(Model)
+	// The list's intent moves the selection, the read it starts is held back.
+	var read tea.Cmd
+	for _, msg := range collect(cmd) {
+		if sel, ok := msg.(taskSelectedMsg); ok {
+			next, read = m.Update(sel)
+			m = next.(Model)
+		}
+	}
+	cur, ok := m.list.current()
+	if !ok || cur.task.ID == before || m.selectedTaskID != cur.task.ID || m.detail.task.ID != before {
+		t.Fatalf("after j the list is on %q and the selection on %q, the pane on %q, want the selection moved off %q with the pane behind",
+			cur.task.ID, m.selectedTaskID, m.detail.task.ID, before)
+	}
+	m = pump(m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.focus != paneDetail {
+		t.Fatalf("focus %v after enter, want the pane", m.focus)
+	}
+	if got, ok := m.selectedTask(); !ok || got.ID != cur.task.ID {
+		t.Errorf("the keys act on %q, want the row %q", got.ID, cur.task.ID)
+	}
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = next.(Model)
+	if d, ok := m.dialog.(statusDialog); !ok || d.taskID != cur.task.ID {
+		t.Errorf("s opened %T for %q, want the status box for %q", m.dialog, d.taskID, cur.task.ID)
+	}
+	m.overlay, m.dialog = overlayNone, nil
+	m = pump(m, collect(read)...)
+	if m.detail.task.ID != cur.task.ID {
+		t.Errorf("after the read the pane shows %q, want %q", m.detail.task.ID, cur.task.ID)
+	}
+}
+
+// A jump is a deliberate open from any pane, also from the pane itself.
+// The stamp keeps a task reached from outside the followed spaces cached and puts it on the list of threads to refresh.
+func TestAJumpFromTheFocusedPaneMarksTheTaskOpened(t *testing.T) {
+	task := outsideTask("KUAAAAB1", outsideFolder)
+	m := pump(demoModel(t, task), focusMsg{pane: paneDetail})
+	if m.focus != paneDetail {
+		t.Fatalf("focus %v, want the pane", m.focus)
+	}
+	m = pump(m, openTaskMsg{task: task})
+	got, err := m.opts.Store.Tasks().Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastOpenedAt == "" {
+		t.Error("the jump from the pane did not mark the task opened")
+	}
+}
+
 // The crumb under a search result names the first of the task's folders the cache holds.
 func TestSearchCrumbNamesAKnownFolder(t *testing.T) {
 	task := outsideTask("KUAAAAB1", outsideFolder, "IEAAWEB1")

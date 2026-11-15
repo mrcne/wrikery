@@ -648,8 +648,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen != screenTimesheet {
 			return m, nil
 		}
-		if m.timesheet.detailOpen && msg.id == m.selectedTaskID && m.detail.loaded {
+		if m.timesheet.detailOpen && msg.id == m.selectedTaskID && m.detail.loaded && m.detail.task.ID == msg.id {
 			// The pane followed the row here already, enter only hands it the keys.
+			// A pane still on the row before, its read of this one not landed, is opened afresh below instead.
 			m.timesheet.detailFocus = true
 			return m, tea.Batch(m.markOpened(msg.id), m.askThread(msg.id))
 		}
@@ -1053,17 +1054,20 @@ func (m *Model) afterFocus(prev pane) tea.Cmd {
 	return nil
 }
 
-// jumpToTask leaves the search overlay, the changes screen or the timesheet and shows the task on the main screen.
-// selectedTaskID is set here rather than waiting for the sidebar/list round trip:
-// taskLoadedMsg drops an answer for a task nobody is on yet, and afterFocus below has to mark the right task.
+// jumpToTask leaves the search overlay, the changes screen, the inbox or the timesheet and shows the task on the main screen.
+// selectedTaskID is set here rather than waiting for the sidebar/list round trip, taskLoadedMsg drops an answer for a task nobody is on yet.
 // The list lands in the first of the task's folders the sidebar has, else in My tasks when the task is the user's own,
 // the one node that lists a task from outside the followed scopes.
 // A task in neither stays in the pane over the folder left behind, the reload rule in tasksLoadedMsg keeps it there.
 func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, tea.Cmd) {
-	prevFocus := m.focus
 	m.screen, m.overlay, m.focus = screenMain, overlayNone, paneDetail
 	m.unasked = false
 	m.selectTask(id)
+	// The pane starts empty rather than draw the task left behind until the read lands, as the pane beside the grid does at an open.
+	// The keys go by the selection either way, see selectedTask.
+	if m.detail.task.ID != id {
+		m.detail = taskDetailModel{keys: m.keys}
+	}
 	m.search.blur()
 	// A pick from the search overlay leaves the timesheet too, the grid has no pane beside it when T comes back.
 	m.timesheet.detailOpen, m.timesheet.detailFocus = false, false
@@ -1075,8 +1079,11 @@ func (m Model) jumpToTask(id string, parents []string, mine bool) (tea.Model, te
 		m.selectedNode = n
 		cmds = append(cmds, m.loadTasks(n, m.sidebar.crumb(n), id, true), m.flushPins())
 	}
-	// A jump is a deliberate open whatever pane it came from, the thread is asked for when the detail lands.
-	cmds = append(cmds, m.loadTask(id), m.afterFocus(prevFocus), m.askThread(id))
+	// The screen, the focus, the pane beside the grid and the sidebar changed, the panes are laid out for that before the reads land.
+	m.syncPaneSizes()
+	// A jump is a deliberate open whatever pane it came from, the pane itself included, so the mark is not left to a focus change.
+	// The thread is asked for when the detail lands.
+	cmds = append(cmds, m.loadTask(id), m.markOpened(id), m.askThread(id))
 	return m, tea.Batch(cmds...)
 }
 
@@ -1710,20 +1717,31 @@ func (m Model) goOnline() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.status.show("going online", false), func() tea.Msg { hook(); return nil })
 }
 
-// selectedTask is the task the open/copy bindings act on:
-// the detail's task when the detail pane has focus and finished loading, otherwise the list's current row.
+// selectedTask is the task the action keys act on.
+// The selection moves at once and the pane's read waits, so the pane can draw a task behind the selection for one read.
+// With the keys on the pane: the pane's task when it is the selected one, else the row under the cursor when that is, else nothing.
+// With the keys elsewhere: the pane's task when it holds the selected task the list does not have, else the row under the cursor.
 func (m Model) selectedTask() (store.Task, bool) {
 	if m.screen == screenTimesheet {
-		// The grid has no task of its own, only the pane open beside it.
-		if m.timesheet.detailOpen && m.detail.loaded {
+		// The grid has no task of its own, only the pane open beside it, and that pane follows the grid's row one read behind.
+		if m.timesheet.detailOpen && m.detail.loaded && m.detail.task.ID == m.selectedTaskID {
 			return m.detail.task, true
 		}
 		return store.Task{}, false
 	}
+	if m.focus == paneDetail {
+		if m.detail.loaded && m.detail.task.ID == m.selectedTaskID {
+			return m.detail.task, true
+		}
+		// After a jump into a folder of the tree the list can be on the picked task before the pane is.
+		if row, ok := m.list.current(); ok && row.task.ID == m.selectedTaskID {
+			return row.task, true
+		}
+		return store.Task{}, false
+	}
 	// The pane holds a task the list does not after a jump from outside the tree or a reload's move, and the user sees that task,
-	// so the keys act on it from any pane until the list is brought back to a row of its own.
-	// A pane behind the selection holds nothing: the list has moved on and the read of its row has not landed yet.
-	if m.detail.loaded && (m.focus == paneDetail || (m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID))) {
+	// so the keys act on it from the list or the sidebar until the list is brought back to a row of its own.
+	if m.detail.loaded && m.detail.task.ID == m.selectedTaskID && !m.list.has(m.detail.task.ID) {
 		return m.detail.task, true
 	}
 	if row, ok := m.list.current(); ok {
