@@ -31,7 +31,7 @@ wrikery task list --json                          # the user's own open tasks
 wrikery task list --all --json                    # the user's own tasks, completed and cancelled ones too
 wrikery task list --folder "Next release" --json  # everybody's tasks in a folder, project or space
 wrikery task show MAAAAAEPXpuT --json             # one task with its description, comments, subtasks and dependencies
-wrikery inbox --unread --json                     # the comments for the user they have not seen yet
+wrikery inbox --unread --json                     # every comment for the user they have not seen yet
 wrikery changes --source my-agent --limit 10 --json   # the last writes made under your name, see Writing
 ```
 
@@ -39,7 +39,7 @@ Read a task with `--json`, the text form runs the description into one line in a
 `description_markdown` is the description as text, `comments` the thread oldest first, `pending` and `failed` say whether a write for the task is still on its way or was refused.
 Everybody's tasks come through `--folder` alone, there is no list of the whole account.
 `wrikery inbox` lists the comments other people wrote in the last thirty days on the tasks the user follows and the ones that mention the user, `mentioned` and `unread` say which is which.
-Reading it changes nothing. `--seen` takes the unread mark off every row printed, in the user's interface too, so pass it only when the user asked for the inbox to be marked as read.
+Reading it changes nothing. `--seen` takes the unread mark off every row printed, in the user's interface too, so pass it only when the user asked for the inbox to be marked as read, and then as `wrikery inbox --unread --seen`.
 
 ## Writing
 
@@ -90,5 +90,5 @@ When a request needs one of these, say so and point the user at the interface or
 
 `wrikery ui select MAAAAAEPXpuT` shows a task in the running interface and `wrikery ui folder "Next release"` opens a folder there, so the user can look at what you are talking about.
 `wrikery ui show --json` answers what the user has in view: `task` is the task their keys act on and `folder` the folder their list is on, each with its `id`.
-Use it when a request says this task or this folder. When `task` is null there is no such task, ask instead of guessing from the folder.
+Use it when a request says this task or this folder. When `task` is null there is no such task, ask instead of guessing from the folder. Exit 1 is no answer at all: no interface is running, or its editor is open.
 The interface picks up every write a command makes at once, there is nothing to refresh.

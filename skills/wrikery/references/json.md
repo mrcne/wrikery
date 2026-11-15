@@ -73,20 +73,22 @@ A list of rows, the queue first in send order, then the last thirty days newest 
 
 ## `wrikery inbox --json`
 
-A list of comments, newest first, at most 200: the ones other people wrote in the last thirty days on the tasks the user follows, and the ones that mention the user.
-`--unread` keeps the rows with `unread` true and `--limit N` the first N rows.
+A list of comments, newest first: the ones other people wrote in the last thirty days on the tasks the user follows, and the ones that mention the user.
+The whole list is the newest 200 of them, and a note on stderr says when it was cut there.
+`--unread` lists every row with `unread` true instead, however old, and `--limit N` stops after N rows.
+`--seen` marks the rows printed as seen. It exits with 1 and marks nothing when a row not seen yet was not printed, so use it as `wrikery inbox --unread --seen`.
 
 | key | value |
 | --- | --- |
 | `id` | the comment id |
-| `task_id` | the task the comment is on |
-| `task_title` | its title |
 | `author_id` | the contact id of who wrote it |
 | `author` | their name |
 | `created` | when it was written |
+| `text` | the comment as plain text |
+| `task_id` | the task the comment is on |
+| `task_title` | its title |
 | `mentioned` | true when the comment mentions the user, by name, through a group they belong to or as an assignee, false for a comment on a followed task |
 | `unread` | true while it arrived after the user last looked at the inbox, the mark `--seen` and the inbox screen take off |
-| `text` | the comment as plain text |
 
 ## `wrikery sync --json`
 
@@ -104,7 +106,7 @@ A list of comments, newest first, at most 200: the ones other people wrote in th
 | `busy` | true while a box, the search, the help, a filter field or the sign in screen has the keys, when every other `ui` command is refused |
 | `folder` | the folder, project or space the list is on, with `id` and `title`, the id is me for My tasks, null before one is open |
 | `task` | the task the user's keys act on, with `id` and `title`, null on a screen without one and for the moment the list or the detail pane is still reading what it was sent to |
-| `filter` | `importance`, the levels shown, `person` with `id` and `name`, null for everyone and the id unassigned for nobody's tasks, and `statuses`, the status names shown, the values `wrikery ui filter` takes |
+| `filter` | `importance`, the levels shown, `person` with `id` and `name`, null for everyone and the id unassigned for nobody's tasks, and `statuses`, the status names shown, the values `wrikery ui filter` takes, except a status no cached workflow holds any more, which comes back in lower case and is refused there |
 
 ## `wrikery skill --json`
 

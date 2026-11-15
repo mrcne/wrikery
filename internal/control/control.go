@@ -74,6 +74,7 @@ type StateItem struct {
 }
 
 // StateFilter is the filter box's choice in the values OpFilter takes, so a script can set it again.
+// A status no cached workflow spells any more is answered by its key, in lower case.
 type StateFilter struct {
 	Importance []string     `json:"importance"`
 	Person     *StatePerson `json:"person"` // null for everyone, the id is unassigned for the tasks of nobody

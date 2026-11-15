@@ -166,7 +166,7 @@ func Seed(ctx context.Context, st *store.Store, now time.Time) error {
 		}
 		if row%4 != 0 {
 			// Every fourth row in a folder has no dates block, the rest are Planned with the due date after the start.
-			t.Dates = &store.TaskDates{Type: "Planned", Start: day(-(i % 9)), Due: day(-(i % 9) + 1 + i%11)}
+			t.Dates = &store.TaskDates{Type: store.DatesPlanned, Start: day(-(i % 9)), Due: day(-(i % 9) + 1 + i%11)}
 		}
 		if row%3 == 0 {
 			mine = append(mine, t)

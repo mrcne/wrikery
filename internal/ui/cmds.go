@@ -735,7 +735,7 @@ func (m Model) loadInbox() tea.Cmd {
 	st, ref, nowFn := m.opts.Store, m.ref, m.opts.Now
 	return func() tea.Msg {
 		ctx := context.Background()
-		all, seenTo, err := LoadInbox(ctx, st, ref.meID, nowFn())
+		all, seenTo, err := st.Comments().InboxList(ctx, ref.meID, nowFn(), false, 0)
 		if err != nil {
 			return errMsg{err}
 		}
@@ -781,7 +781,7 @@ func unreadCount(ctx context.Context, st *store.Store, meID string, now time.Tim
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return 0, err
 	}
-	return st.Comments().InboxUnread(ctx, meID, inboxSince(now), seenTo)
+	return st.Comments().InboxUnread(ctx, meID, store.InboxSince(now), seenTo)
 }
 
 // leaveInbox writes the seen marker from the newest arrival drawn since the load and reads the count again in the same command,

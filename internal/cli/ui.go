@@ -65,6 +65,7 @@ F is an id or a part of its title, me is My tasks.`,
 		Notes: `Prints what the interface that is running has in view: the screen, the shape, the folder the list is on, the task the keys act on and the filter.
 The task is the one a key pressed now would change, none on a screen without one and none for the moment the list or the detail pane is still reading what it was sent to.
 It answers with a box open as well and says busy, every other ui command is refused then.
+While the external editor is open the interface answers nothing and the command exits with 1.
 In JSON the folder and the task have their ids, null when there is none, and the filter has the values ui filter takes.`,
 		Flags: func() *flag.FlagSet { return jsonFlagSet("ui show", new(bool)) },
 	}

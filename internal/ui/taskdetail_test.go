@@ -24,8 +24,8 @@ func TestRelTime(t *testing.T) {
 		"2026-08-20T15:00:00Z": "20 Aug",
 		"bad":                  "bad",
 	} {
-		if got := relTime(in, now); got != want {
-			t.Errorf("relTime(%s) = %q, want %q", in, got, want)
+		if got := RelTime(in, now); got != want {
+			t.Errorf("RelTime(%s) = %q, want %q", in, got, want)
 		}
 	}
 }

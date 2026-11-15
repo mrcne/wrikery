@@ -162,10 +162,10 @@ func TestInboxSetKeepsTheCursorOnItsRow(t *testing.T) {
 func TestInboxViewKeepsTheCutLineInTheBox(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	m := inboxModel{keys: defaultKeyMap(), height: 6}
-	rows := inboxRows(InboxLimit)
-	rows[InboxLimit-1].row.Text = strings.Repeat("x", 300)
+	rows := inboxRows(store.InboxLimit)
+	rows[store.InboxLimit-1].row.Text = strings.Repeat("x", 300)
 	m.set(rows, "")
-	m.move(InboxLimit)
+	m.move(store.InboxLimit)
 	out := ansi.Strip(m.View(th, time.Now(), 80, 6))
 	lines := strings.Split(out, "\n")
 	if len(lines) > 6 || !strings.Contains(out, "stops at 200 rows") {
@@ -294,7 +294,7 @@ func TestControlSelectFromTheInboxWritesTheMarker(t *testing.T) {
 func TestInboxViewSaysWhenTheListIsCut(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	m := inboxModel{height: 300}
-	m.set(inboxRows(InboxLimit), "")
+	m.set(inboxRows(store.InboxLimit), "")
 	out := ansi.Strip(m.View(th, time.Now(), 80, 300))
 	if !strings.Contains(out, "stops at 200 rows") {
 		t.Errorf("a full list says nothing about the cut:\n%s", out[len(out)-200:])

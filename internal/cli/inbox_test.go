@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -82,8 +83,8 @@ func TestInboxJSONCarriesTheTaskTheAuthorAndTheMarks(t *testing.T) {
 	if len(got) != 3 || got[0].ID != "C3" || got[1].ID != "C2" || got[2].ID != "C1" {
 		t.Fatalf("rows = %+v, want C3, C2, C1", got)
 	}
-	if want := (inboxJSON{ID: "C2", TaskID: "TASK3", TaskTitle: "Custom fields", AuthorID: "U2", Author: "Anna Nowak",
-		Created: "2026-10-03T09:30:00Z", Mentioned: true, Unread: true, Text: "Can you look at this?"}); got[1] != want {
+	if want := (inboxJSON{commentJSON: commentJSON{ID: "C2", AuthorID: "U2", Author: "Anna Nowak", Created: "2026-10-03T09:30:00Z", Text: "Can you look at this?"},
+		TaskID: "TASK3", TaskTitle: "Custom fields", Mentioned: true, Unread: true}); got[1] != want {
 		t.Errorf("the mention = %+v, want %+v", got[1], want)
 	}
 	if got[0].Mentioned || !got[0].Unread || got[2].Unread || got[2].Text != "First line\nsecond line" {
@@ -229,5 +230,114 @@ func TestInboxBeforeTheFirstSyncSaysToSync(t *testing.T) {
 	env, _, errOut := testEnv(t)
 	if code := Run(context.Background(), env, []string{"inbox"}); code != exitError || !strings.Contains(errOut.String(), "run wrikery sync first") {
 		t.Errorf("code = %d, stderr %q", code, errOut.String())
+	}
+}
+
+// flood brings n comments on the followed TASK2 into the cache in one poll, so they share one arrival stamp, oldest first by creation.
+func flood(t *testing.T, st *store.Store, prefix string, n int, created time.Time, arrived time.Time) {
+	t.Helper()
+	comments := make([]store.Comment, n)
+	for i := range comments {
+		comments[i] = store.Comment{ID: fmt.Sprintf("%s%03d", prefix, i), TaskID: "TASK2", AuthorID: "U2", Text: "one of many",
+			CreatedDate: created.Add(time.Duration(i) * time.Second).Format(time.RFC3339)}
+	}
+	now := st.Now
+	st.Now = func() time.Time { return arrived }
+	if _, err := st.Comments().UpsertCached(context.Background(), comments); err != nil {
+		t.Fatal(err)
+	}
+	st.Now = now
+}
+
+// The marker is one stamp. The whole list stops at its cap, so the rows past it share the stamp of the rows printed
+// and would be marked with them, unprinted, the case --limit is refused for.
+func TestInboxSeenMarksNothingWhenTheCapHidAnUnreadRow(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	seedInbox(t, env.Store)
+	extra := 50
+	flood(t, env.Store, "F", store.InboxLimit+extra, time.Date(2026, 10, 3, 6, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 11, 30, 0, 0, time.UTC))
+	env, got := uiStub(t, env, control.Reply{OK: true})
+	ctx := context.Background()
+	if code := Run(ctx, env, []string{"inbox", "--seen"}); code != exitError {
+		t.Fatalf("code = %d, want %d, stderr %q", code, exitError, errOut.String())
+	}
+	if strings.Count(out.String(), "\n") != store.InboxLimit {
+		t.Errorf("printed %d rows, want the %d of the whole list", strings.Count(out.String(), "\n"), store.InboxLimit)
+	}
+	// Two unread rows of the seed and the flood, less the rows printed, all of them unread.
+	hidden := 2 + extra
+	if !strings.Contains(errOut.String(), fmt.Sprintf("%d comments not seen yet were not among the rows printed, nothing was marked", hidden)) ||
+		!strings.Contains(errOut.String(), fmt.Sprintf("the list stops at %d rows", store.InboxLimit)) {
+		t.Errorf("stderr = %q, want the cut named and the %d rows it hid", errOut.String(), hidden)
+	}
+	if at := seenTo(t, env.Store); at != "2026-10-02T09:00:00Z" || len(*got) != 0 {
+		t.Fatalf("marker = %q, the interface got %d requests, want the marker where it was and nobody told", at, len(*got))
+	}
+	out.Reset()
+	errOut.Reset()
+	if code := Run(ctx, env, []string{"inbox", "--unread", "--seen"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if want := 2 + store.InboxLimit + extra; strings.Count(out.String(), "\n") != want {
+		t.Errorf("--unread printed %d rows, want every one of the %d not seen yet", strings.Count(out.String(), "\n"), want)
+	}
+	if n, err := env.Store.Comments().InboxUnread(ctx, "U1", store.InboxSince(env.Store.Now()), seenTo(t, env.Store)); err != nil || n != 0 || len(*got) != 1 {
+		t.Errorf("unread = %d, %v, the interface got %d requests, want none unread and one reload", n, err, len(*got))
+	}
+}
+
+// An older comment that arrives late, of a task cached or followed late, is unread and past the cap of the whole list.
+// --unread must list it: the status bar counts it.
+func TestInboxUnreadListsALateArrivalThePlainListCuts(t *testing.T) {
+	env, out, errOut := testEnv(t)
+	seedBoard(t, env.Store)
+	seedInbox(t, env.Store)
+	ctx := context.Background()
+	flood(t, env.Store, "R", store.InboxLimit, time.Date(2026, 10, 3, 6, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 11, 30, 0, 0, time.UTC))
+	if err := env.Store.Comments().MarkInboxSeen(ctx, "2026-10-03T11:30:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	flood(t, env.Store, "L", 5, time.Date(2026, 9, 20, 6, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 11, 45, 0, 0, time.UTC))
+	if code := Run(ctx, env, []string{"inbox", "--unread", "--json"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	var got []inboxJSON
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if len(got) != 5 || got[0].ID != "L004" || !got[0].Unread || errOut.Len() != 0 {
+		t.Errorf("--unread = %d rows from %+v, stderr %q, want the five late ones and no note", len(got), got, errOut.String())
+	}
+	// The whole list does not reach them, and says that it was cut, on stderr so the rows and the JSON stay clean.
+	out.Reset()
+	if code := Run(ctx, env, []string{"inbox", "--json"}); code != exitOK {
+		t.Fatalf("code = %d, stderr %q", code, errOut.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil || len(got) != store.InboxLimit {
+		t.Fatalf("the whole list: %d rows, %v", len(got), err)
+	}
+	if !strings.Contains(errOut.String(), fmt.Sprintf("the list stops at %d rows, --unread lists every comment not seen yet", store.InboxLimit)) {
+		t.Errorf("stderr = %q, want the cut named", errOut.String())
+	}
+}
+
+// The marker follows the print: rows that did not go out were not seen by anyone.
+func TestInboxSeenMarksNothingWhenThePrintFailed(t *testing.T) {
+	for _, args := range [][]string{{"inbox", "--seen"}, {"inbox", "--seen", "--json"}} {
+		env, _, errOut := testEnv(t)
+		seedBoard(t, env.Store)
+		seedInbox(t, env.Store)
+		env.Stdout = brokenWriter{}
+		if code := Run(context.Background(), env, args); code != exitError || !strings.Contains(errOut.String(), "nothing was marked as seen: write /dev/stdout: broken pipe") {
+			t.Errorf("%v: code = %d, stderr %q", args, code, errOut.String())
+		}
+		if at := seenTo(t, env.Store); at != "2026-10-02T09:00:00Z" {
+			t.Errorf("%v: the marker moved to %q after a print that failed", args, at)
+		}
+		// Without --seen a print that fails changes nothing about the exit, like every other read.
+		if code := Run(context.Background(), env, args[:1]); code != exitOK {
+			t.Errorf("a plain read with a failed print: code = %d, want 0", code)
+		}
 	}
 }

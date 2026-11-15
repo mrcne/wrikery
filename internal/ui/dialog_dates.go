@@ -26,7 +26,7 @@ type datesDialog struct {
 }
 
 func newDatesDialog(task store.Task, now time.Time) (datesDialog, tea.Cmd) {
-	d := datesDialog{taskID: task.ID, milestone: task.Dates != nil && task.Dates.Type == datesMilestone, now: now}
+	d := datesDialog{taskID: task.ID, milestone: task.Dates != nil && task.Dates.Type == store.DatesMilestone, now: now}
 	for i, label := range []string{"start", "due"} {
 		in := textinput.New()
 		in.Prompt = fmt.Sprintf("%-6s", label)
@@ -81,9 +81,6 @@ func ParseDay(word string, now time.Time) (string, error) {
 	return parseDate(word, now, dateAhead)
 }
 
-// datesMilestone is the dates.type of a task with a due date and no start.
-const datesMilestone = "Milestone"
-
 // DatesFrom maps a start and a due day to a Wrike dates block, what the dates box and the dates command write,
 // see the Update Task reference at https://developers.wrike.com/reference/puttaskssingle.
 // dates.type is Backlog, Milestone or Planned.
@@ -97,15 +94,15 @@ const datesMilestone = "Milestone"
 func DatesFrom(start, due string, milestone bool) store.TaskDates {
 	switch {
 	case start == "" && due == "":
-		return store.TaskDates{Type: "Backlog"}
+		return store.TaskDates{Type: store.DatesBacklog}
 	case start == "" && milestone:
-		return store.TaskDates{Type: datesMilestone, Due: due}
+		return store.TaskDates{Type: store.DatesMilestone, Due: due}
 	case start == "":
 		start = due
 	case due == "":
 		due = start
 	}
-	return store.TaskDates{Type: "Planned", Start: start, Due: due}
+	return store.TaskDates{Type: store.DatesPlanned, Start: start, Due: due}
 }
 
 func (d datesDialog) View(th Theme, width, height int) string {

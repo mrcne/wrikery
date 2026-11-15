@@ -578,7 +578,7 @@ The commands read the same local cache and queue writes through the same outbox 
 | --- | --- |
 | `sync` | sends the queue, refreshes the reference data and pulls the changes, `--full` also checks every followed scope for tasks deleted on Wrike, which is slower |
 | `changes` | prints what the changes screen shows, the queue first and then the last thirty days, `--source` keeps the rows of one source and `--limit N` the first N rows |
-| `inbox` | prints what the inbox screen shows, the comments for you of the last thirty days, `--unread` keeps the rows not seen yet, `--limit N` the first N rows and `--seen` marks the rows printed as seen |
+| `inbox` | prints what the inbox screen shows, the comments for you of the last thirty days, `--unread` lists every row not seen yet, `--limit N` the first N rows and `--seen` marks the rows printed as seen |
 | `task list` | the tasks of a folder, project or space with `--folder`, your own open tasks without, `--all` adds the completed and cancelled ones |
 | `task show` | one task with its description and comments |
 | `task status` | moves a task to a status of its workflow |
@@ -619,9 +619,13 @@ On a terminal a line of `wrikery changes` is cut to the width.
 
 `wrikery inbox` prints the rows of the inbox screen, newest first: a star on a row not seen yet, the time, the task, the author with `mentioned you` on a mention, and the comment on one line, cut to the width on a terminal.
 In JSON a row has the comment's id, `task_id` and `task_title`, `author_id` and `author`, `created`, `mentioned`, `unread` and the `text` with its line breaks.
+The whole list is the newest two hundred rows by the day they were written, and says so on stderr when it was cut there.
+`--unread` lists every row not seen yet instead, the rows the status bar counts, found by when they reached the cache, so an older comment that arrived late is among them although it sits past the two hundred.
 Reading moves nothing: a script that lists the inbox must not take the star off a comment the person has not looked at.
 `--seen` is the way to say they have, it marks the rows the command printed as seen when it is done, as leaving the screen does, and the count in the status bar of a running interface drops.
-It is refused together with `--limit`, since the marker is one point in time and the rows the limit cut off would count as seen with the rest.
+The marker is one point in time and everything that arrived up to it counts as seen, so `--seen` moves it only when every such row was printed.
+It is refused together with `--limit`, and it marks nothing and exits with 1 when a row not seen yet was not among the rows printed, which the whole list can do at its two hundred rows, or when the rows could not be written.
+`wrikery inbox --unread --seen` prints and marks them all.
 
 ### Writes
 
@@ -674,7 +678,9 @@ The task it names is the one a key pressed at that moment would change: the row 
 It names none either for the moment the list is still reading the folder it was sent to or a pane the task it was sent to, a key pressed then reaches no task, so `ui folder` followed at once by `ui show` never answers a task of the folder before.
 The shape, the folder and the filter are the tasks screen's and are answered whatever screen is in view.
 It is answered with a box open as well, with `busy` set, since reading changes nothing.
+The one case without an answer is the external editor: while `E` holds the terminal the interface answers no request, and `ui show` exits with 1 like every other `ui` command.
 In JSON the folder and the task carry `id` and `title`, the folder's id is `me` for My tasks, and the filter has the values `ui filter` takes, so a script can put a filter back.
+A status in the filter that no cached workflow holds any more comes back in lower case, and `ui filter` refuses it like any name it does not know.
 Two interfaces on one cache: the first keeps the socket, the second runs without it.
 `wrikery --demo ui ...` drives a running demo, with every value as typed since the demo's cache is a throwaway, so a script can set up a screen without key presses.
 

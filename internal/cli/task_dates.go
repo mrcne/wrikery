@@ -83,7 +83,7 @@ func runTaskDates(ctx context.Context, env Env, args []string) int {
 	milestone := false
 	if !o.clear && t.Dates != nil {
 		// The box opens on the task's two days and the user changes one, here the flag not given is the field left alone.
-		milestone = t.Dates.Type == "Milestone"
+		milestone = t.Dates.Type == store.DatesMilestone
 		if !hasStart {
 			start = shortDate(t.Dates.Start)
 		}

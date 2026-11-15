@@ -70,7 +70,7 @@ func conflictOf(ctx context.Context, c Client, st *store.Store, row store.Outbox
 		before.Importance = now.Importance
 	}
 	if p.Dates != nil {
-		wrike := backlogOr(now.Dates)
+		wrike := now.Dates.OrBacklog()
 		if !store.SameDates(before.Dates, wrike) && !store.SameDates(p.Dates, wrike) {
 			fields = append(fields, "dates")
 			before.Dates = wrike
@@ -142,14 +142,6 @@ func nameOr(names map[string]string, id string) string {
 		return name
 	}
 	return id
-}
-
-// backlogOr is a task's dates block, a task without one is the Backlog an edit writes to clear its dates.
-func backlogOr(d *store.TaskDates) *store.TaskDates {
-	if d == nil {
-		return &store.TaskDates{Type: "Backlog"}
-	}
-	return d
 }
 
 func customValue(values []store.CustomFieldValue, id string) string {

@@ -147,7 +147,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	if d.task.AttachmentCount > 0 {
 		b.WriteString(label("Attachments") + strconv.Itoa(d.task.AttachmentCount) + "\n")
 	}
-	b.WriteString(label("Updated") + relTime(d.task.UpdatedDate, now) + "\n\n")
+	b.WriteString(label("Updated") + RelTime(d.task.UpdatedDate, now) + "\n\n")
 
 	if strings.TrimSpace(d.rendered) != "" {
 		b.WriteString(d.rendered + "\n\n")
@@ -201,7 +201,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 			b.WriteString(bold.Render(who) + " " + sending + "\n" + body())
 			continue
 		}
-		when := relTime(c.CreatedDate, now)
+		when := RelTime(c.CreatedDate, now)
 		dc, ok := d.drawn[c.ID]
 		if !ok || dc.who != who || dc.when != when || dc.text != c.Text || dc.width != width {
 			dc = drawnComment{who: who, when: when, text: c.Text, width: width, out: bold.Render(who) + muted.Render(", "+when) + "\n" + body()}
@@ -348,9 +348,10 @@ func shortDate(s string) string {
 	return fmt.Sprintf("%d %s", t.Day(), t.Month().String()[:3])
 }
 
-// relTime compares calendar days rather than elapsed hours.
+// RelTime words a stamp the way the screens and the inbox command do: how long ago today, yesterday, then the day.
+// It compares calendar days rather than elapsed hours.
 // Counting hours calls a stamp from two days back "yesterday" as long as it is less than 48 hours old.
-func relTime(rfc string, now time.Time) string {
+func RelTime(rfc string, now time.Time) string {
 	t, err := time.Parse(time.RFC3339, rfc)
 	if err != nil {
 		return rfc
