@@ -21,12 +21,13 @@ func outsideTask(id, title string) wrike.Task {
 		CreatedDate: time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC), UpdatedDate: time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)}
 }
 
+// The stamp is the real clock's now: a cycle prunes by that clock, and a fixed day leaves store.ReachKeepDays with time.
 func stampedTask(t *testing.T, st *store.Store, id, title string) {
 	t.Helper()
 	err := st.Tasks().UpsertReached(context.Background(), []store.Task{{
 		ID: id, Title: title, Status: "Active",
 		CreatedDate: "2026-09-01T10:00:00Z", UpdatedDate: "2026-09-01T10:00:00Z",
-	}}, "2026-10-22T10:00:00Z")
+	}}, rfc3339(time.Now()))
 	if err != nil {
 		t.Fatal(err)
 	}
