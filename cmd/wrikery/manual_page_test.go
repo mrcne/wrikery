@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
+	"charm.land/bubbles/v2/key"
 
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/ui"

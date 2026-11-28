@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -24,7 +25,7 @@ func createDialogFor(presetID string, mine bool) dialog {
 }
 
 func createView(d dialog) string {
-	return d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
+	return ansi.Strip(d.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40))
 }
 
 func TestCreateDialogPresetsTheFolderInView(t *testing.T) {
@@ -33,7 +34,7 @@ func TestCreateDialogPresetsTheFolderInView(t *testing.T) {
 		t.Errorf("the folder line should show the preset:\n%s", view)
 	}
 	dl = typeRunes(dl, "Fix it")
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitCreateMsg{folderID: "API", title: "Fix it", where: "Platform / API"}
 	if len(msgs) != 2 || msgs[0] != want || msgs[1] != (closeDialogMsg{}) {
@@ -44,22 +45,22 @@ func TestCreateDialogPresetsTheFolderInView(t *testing.T) {
 func TestCreateDialogPicksAnotherFolder(t *testing.T) {
 	dl := createDialogFor("API", false)
 	dl = typeRunes(dl, "Fix it")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if view := createView(dl); !strings.Contains(view, "Design system") || strings.Contains(view, "[ ]") {
 		t.Errorf("tab should open the tree, drawn without check boxes:\n%s", view)
 	}
 	dl = typeRunes(dl, "des")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if view := createView(dl); !strings.Contains(view, "Platform / Design system") {
 		t.Errorf("enter on the tree should pick and show the folder:\n%s", view)
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	if view := createView(dl); !strings.Contains(view, "On-call") || !regexp.MustCompile(`> +Design system`).MatchString(view) {
 		t.Errorf("a second visit to the folder field should show the whole tree with the cursor on the pick:\n%s", view)
 	}
 	// Enter on the cursor row picks the same folder again.
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "DSG", title: "Fix it", where: "Platform / Design system"}) {
 		t.Errorf("enter -> %#v", msgs)
@@ -68,7 +69,7 @@ func TestCreateDialogPicksAnotherFolder(t *testing.T) {
 
 func TestCreateDialogRefusesAnEmptyTitle(t *testing.T) {
 	dl := createDialogFor("API", false)
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter on an empty title -> %#v, want nothing", msgs)
 	}
@@ -83,7 +84,7 @@ func TestCreateDialogOnMyTasksNeedsAFolderAndAssignsMe(t *testing.T) {
 		t.Errorf("without a folder in view the line should ask for one:\n%s", view)
 	}
 	dl = typeRunes(dl, "Fix it")
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	for _, m := range collect(cmd) {
 		// Moving to the folder field starts the cursor blink, that message is not a submit.
 		if _, ok := m.(submitCreateMsg); ok {
@@ -94,8 +95,8 @@ func TestCreateDialogOnMyTasksNeedsAFolderAndAssignsMe(t *testing.T) {
 		t.Errorf("enter without a folder should open the tree:\n%s", view)
 	}
 	dl = typeRunes(dl, "ios")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 || msgs[0] != (submitCreateMsg{folderID: "IOS", title: "Fix it", where: "Mobile / iOS app", assignMe: true}) {
 		t.Errorf("enter -> %#v", msgs)
@@ -105,9 +106,9 @@ func TestCreateDialogOnMyTasksNeedsAFolderAndAssignsMe(t *testing.T) {
 func TestCreateDialogSaysWhenNoFolderMatches(t *testing.T) {
 	dl := createDialogFor("API", false)
 	dl = typeRunes(dl, "Fix it")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	dl = typeRunes(dl, "zzz")
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter on an empty match list -> %#v, want nothing", msgs)
 	}
@@ -120,7 +121,7 @@ func TestCreateDialogWithAnEmptyTreeAsksForAFolder(t *testing.T) {
 	dl, _ := newCreateDialog(nil, nil, nil, "", false, 60)
 	var d dialog = dl
 	d = typeRunes(d, "Fix it")
-	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	d, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	for _, m := range collect(cmd) {
 		if _, ok := m.(submitCreateMsg); ok {
 			t.Errorf("enter with no folder to pick submitted %#v", m)
@@ -139,7 +140,7 @@ func TestCreateDialogIgnoresAPresetTheTreeLacks(t *testing.T) {
 		t.Errorf("a preset outside the tree should leave the folder unpicked:\n%s", view)
 	}
 	d = typeRunes(d, "Fix it")
-	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	d, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	for _, m := range collect(cmd) {
 		if _, ok := m.(submitCreateMsg); ok {
 			t.Errorf("enter submitted into a folder the tree does not hold: %#v", m)
@@ -153,12 +154,12 @@ func TestCreateDialogIgnoresAPresetTheTreeLacks(t *testing.T) {
 func TestCreateDialogSubmitsOnce(t *testing.T) {
 	dl := createDialogFor("API", false)
 	dl = typeRunes(dl, "Fix it")
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 2 {
 		t.Fatalf("first enter -> %#v", msgs)
 	}
 	// The close is still in the queue when a second enter arrives, it must not create the task twice.
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("second enter -> %#v, want nothing", msgs)
 	}
@@ -174,7 +175,7 @@ func TestFolderCrumbsFollowTheTree(t *testing.T) {
 func TestCreateDialogOffersThePinnedFoldersFirst(t *testing.T) {
 	d, _ := newCreateDialog(testTree(), map[string]bool{"DSG": true}, testCrumbs(), "", true, 60)
 	dl := typeRunes(dialog(d), "Fix it")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	view := createView(dl)
 	// On My tasks nothing is preset, so the cursor starts on the pinned folder and enter takes it without typing.
 	at := 0
@@ -185,11 +186,11 @@ func TestCreateDialogOffersThePinnedFoldersFirst(t *testing.T) {
 		}
 		at += i + len(s)
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if view := createView(dl); !strings.Contains(view, "in: Platform / Design system") {
 		t.Errorf("enter should pick the pinned folder:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitCreateMsg{folderID: "DSG", title: "Fix it", where: "Platform / Design system", assignMe: true}
 	if len(msgs) != 2 || msgs[0] != want {

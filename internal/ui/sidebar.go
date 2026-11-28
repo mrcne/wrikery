@@ -5,10 +5,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -68,7 +68,7 @@ type pinChange struct {
 func (s *sidebarModel) setHidePrefixes(hide []string) { s.hide = hide }
 
 func newSidebar(keys KeyMap, hide []string) sidebarModel {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = "/"
 	in.Placeholder = "filter"
 	in.CharLimit = 60
@@ -136,7 +136,7 @@ func pathKeys(nodes []treeNode) []string {
 // A shorter pane, after a resize or when the pane comes back from hidden, must not leave the cursor row below it.
 func (s *sidebarModel) setSize(width, height int) {
 	s.height = height
-	s.filter.Width = max(1, width-lipgloss.Width(s.filter.Prompt)-1)
+	s.filter.SetWidth(max(1, width-lipgloss.Width(s.filter.Prompt)-1))
 	s.scroll()
 }
 
@@ -435,11 +435,11 @@ func (s sidebarModel) crumb(n treeNode) string {
 	return strings.Join(titles, " / ")
 }
 
-func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
+func (s sidebarModel) Update(msg tea.KeyPressMsg) (sidebarModel, tea.Cmd) {
 	before, _ := s.current()
 	if s.filtering {
-		switch msg.Type {
-		case tea.KeyEsc:
+		switch msg.String() {
+		case "esc":
 			// The match under the cursor stays selected, which may mean opening its parents.
 			// With no match the cursor goes back to where / was pressed.
 			id := s.anchor
@@ -448,7 +448,7 @@ func (s sidebarModel) Update(msg tea.KeyMsg) (sidebarModel, tea.Cmd) {
 			}
 			s.clearFilter()
 			s.reveal(id)
-		case tea.KeyEnter:
+		case "enter":
 			s.filtering = false
 			s.filter.Blur()
 		default:
@@ -667,7 +667,9 @@ func rowLine(th Theme, label string, width int, selected, focused bool) string {
 		style = style.Foreground(th.Accent)
 	}
 	var b strings.Builder
-	for _, piece := range strings.SplitAfter(line, "\x1b[0m") {
+	// lipgloss ends a style with the short reset, a part styled by other hands may end with the long one.
+	line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[m")
+	for _, piece := range strings.SplitAfter(line, "\x1b[m") {
 		if piece != "" {
 			b.WriteString(style.Render(piece))
 		}

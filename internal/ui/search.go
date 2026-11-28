@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -28,7 +28,7 @@ type searchModel struct {
 }
 
 func newSearch(keys KeyMap) searchModel {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = "> "
 	in.Placeholder = "search tasks"
 	in.CharLimit = 120
@@ -62,30 +62,30 @@ func (s searchModel) Update(msg tea.Msg) (searchModel, tea.Cmd) {
 			s.cursor = max(0, s.rowCount()-1)
 		}
 		return s, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// j and k are letters in the search box, so only the arrows and ctrl+n / ctrl+p move the cursor.
 		switch {
-		case key.Matches(msg, s.keys.Down) && msg.Type != tea.KeyRunes:
+		case key.Matches(msg, s.keys.Down) && msg.Text == "":
 			if s.cursor < s.rowCount()-1 {
 				s.cursor++
 			}
 			return s, nil
-		case key.Matches(msg, s.keys.Up) && msg.Type != tea.KeyRunes:
+		case key.Matches(msg, s.keys.Up) && msg.Text == "":
 			if s.cursor > 0 {
 				s.cursor--
 			}
 			return s, nil
-		case msg.Type == tea.KeyCtrlN:
+		case msg.String() == "ctrl+n":
 			if s.cursor < s.rowCount()-1 {
 				s.cursor++
 			}
 			return s, nil
-		case msg.Type == tea.KeyCtrlP:
+		case msg.String() == "ctrl+p":
 			if s.cursor > 0 {
 				s.cursor--
 			}
 			return s, nil
-		case msg.Type == tea.KeyEnter:
+		case msg.String() == "enter":
 			if s.ref != "" && s.cursor == s.hitsShown() {
 				ref, ok := store.ParseTaskRef(s.ref)
 				if s.fetching || !ok {

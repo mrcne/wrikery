@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/syncer"
 	"github.com/mrcne/wrikery/internal/ui"

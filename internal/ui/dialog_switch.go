@@ -3,8 +3,8 @@ package ui
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // SwitchNeeded is the answer of a sign in, or of Hooks.SwitchHome, when the credential belongs to another account,
@@ -47,7 +47,7 @@ type switchLoadedMsg struct {                   // the answer of Hooks.SwitchHom
 }
 type switchDoneMsg struct{ err error } // the yes asked from the another account state ran through
 
-func (d switchDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d switchDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	if d.answered {
 		return d, nil
 	}

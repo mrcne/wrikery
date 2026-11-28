@@ -7,11 +7,17 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
+)
+
+var (
+	tabKey   = tea.KeyPressMsg{Code: tea.KeyTab}
+	ctrlPKey = tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
+	ctrlNKey = tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}
 )
 
 func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
@@ -19,9 +25,9 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	d, _ := newTimelogDialog("T", "Fix", nil, "2026-09-02", now, 80)
 	var dl dialog = d
 	for _, r := range "1:30" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitTimelogMsg{taskID: "T", hours: 1.5, date: "2026-09-02"}
 	if len(msgs) != 2 || msgs[0] != want {
@@ -29,7 +35,7 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	}
 	existing := &store.Timelog{ID: "L1", TaskID: "T", Hours: 2, TrackedDate: "2026-09-01", Comment: "old"}
 	d2, _ := newTimelogDialog("T", "Fix", existing, "", now, 80)
-	_, cmd = dialog(d2).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = dialog(d2).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs = collect(cmd)
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.timelogID != "L1" || got.hours != 2 || got.comment != "old" {
 		t.Errorf("edit -> %#v", msgs)
@@ -37,7 +43,7 @@ func TestTimelogDialogSubmitsCreateAndEdit(t *testing.T) {
 	// A note written in the Wrike web app can be longer than anything typed here, an edit of the hours sends it back whole.
 	long := strings.Repeat("abcdefghij", 25)
 	d3, _ := newTimelogDialog("T", "Fix", &store.Timelog{ID: "L2", TaskID: "T", Hours: 1, TrackedDate: "2026-09-01", Comment: long}, "", now, 80)
-	_, cmd = dialog(d3).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = dialog(d3).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got, ok := collect(cmd)[0].(submitTimelogMsg); !ok || got.comment != long {
 		t.Errorf("an edit cut a %d character note to %d characters", len(long), len(got.comment))
 	}
@@ -53,8 +59,8 @@ func TestEntryPickerEmitsOneMessageForTheRowUnderTheCursor(t *testing.T) {
 		{ID: "b", Hours: 2, TrackedDate: "2026-09-02"},
 	}
 	d := dialog(newEntryPicker(logs, false))
-	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	d, _ = d.Update(keyRunes("j"))
+	_, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("edit mode enter should emit exactly one message: %#v", msgs)
@@ -64,8 +70,8 @@ func TestEntryPickerEmitsOneMessageForTheRowUnderTheCursor(t *testing.T) {
 	}
 
 	d = dialog(newEntryPicker(logs, true))
-	d, _ = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd = d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	d, _ = d.Update(keyRunes("j"))
+	_, cmd = d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs = collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("delete mode enter should emit exactly one message: %#v", msgs)
@@ -94,13 +100,13 @@ func TestTimelogDialogReadsAWeekdayAsTheLastOne(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
 	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	dl, _ = dl.Update(keyRunes("2"))
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "mon" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) == 0 {
 		t.Fatal("enter emitted nothing, want submitTimelogMsg")
@@ -117,26 +123,26 @@ func TestTimelogDialogShowsTheDayItReads(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	dl, _ = dl.Update(keyRunes("2"))
 	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "today Thu 3 Sep 2026") {
 		t.Errorf("view does not name the day today reads to:\n%s", view)
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "last wed" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
 	if view := squeeze(dl.View(th, 80, 30)); !strings.Contains(view, "last wed Wed 2 Sep 2026") {
 		t.Errorf("view does not name the day last wed reads to:\n%s", view)
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "someday" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
 	if view := squeeze(dl.View(th, 80, 30)); strings.Contains(view, "Sep 2026") {
 		t.Errorf("view names a day for a value the parser refuses:\n%s", view)
 	}
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("an unreadable date emitted %#v, want nothing", msgs)
 	}
@@ -156,11 +162,11 @@ func TestTimelogDialogScrollsALongNote(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(keyRunes("1"))
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	for _, r := range "START " + strings.Repeat("abcdefghij ", 8) + "the end" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
 	view := dl.View(th, 80, 30)
 	if !strings.Contains(view, "the end") {
@@ -221,26 +227,26 @@ func TestTimelogDialogStepsThroughEarlierNotes(t *testing.T) {
 	if lipgloss.Height(before) != lipgloss.Height(after) {
 		t.Errorf("the box grows from %d to %d lines when the notes land", lipgloss.Height(before), lipgloss.Height(after))
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	dl, _ = dl.Update(keyRunes("2"))
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	if hours := dl.(timelogDialog).inputs[0].Value(); hours != "2" {
 		t.Errorf("ctrl+p in the hours field changed it to %q", hours)
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	for _, r := range "dr" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
 	note := func() string { return dl.(timelogDialog).inputs[2].Value() }
 	steps := []struct {
-		key  tea.KeyType
+		key  tea.KeyPressMsg
 		want string
 	}{
-		{tea.KeyCtrlP, "Review"}, {tea.KeyCtrlP, "Tests"}, {tea.KeyCtrlP, "Tests"},
-		{tea.KeyCtrlN, "Review"}, {tea.KeyCtrlN, "dr"}, {tea.KeyCtrlN, "dr"},
+		{ctrlPKey, "Review"}, {ctrlPKey, "Tests"}, {ctrlPKey, "Tests"},
+		{ctrlNKey, "Review"}, {ctrlNKey, "dr"}, {ctrlNKey, "dr"},
 	}
 	for i, s := range steps {
-		dl, _ = dl.Update(tea.KeyMsg{Type: s.key})
+		dl, _ = dl.Update(s.key)
 		if got := note(); got != s.want {
 			t.Errorf("step %d: note = %q, want %q", i, got, s.want)
 		}
@@ -251,22 +257,22 @@ func TestTimelogDialogStepsThroughEarlierNotes(t *testing.T) {
 		}
 	}
 	// A change to a taken note makes it the typed text: the hint drops the position, and the steps start over from it.
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	dl, _ = dl.Update(keyRunes("s"))
 	if view := squeeze(dl.View(th, 80, 30)); strings.Contains(view, "note 1 of 2") || !strings.Contains(view, "ctrl+p earlier note") {
 		t.Errorf("the hint still counts a changed note:\n%s", view)
 	}
 	for i, s := range []struct {
-		key  tea.KeyType
+		key  tea.KeyPressMsg
 		want string
-	}{{tea.KeyCtrlN, "Reviews"}, {tea.KeyCtrlP, "Review"}, {tea.KeyCtrlN, "Reviews"}} {
-		dl, _ = dl.Update(tea.KeyMsg{Type: s.key})
+	}{{ctrlNKey, "Reviews"}, {ctrlPKey, "Review"}, {ctrlNKey, "Reviews"}} {
+		dl, _ = dl.Update(s.key)
 		if got := note(); got != s.want {
 			t.Errorf("after the change, step %d: note = %q, want %q", i, got, s.want)
 		}
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if got, ok := msgs[0].(submitTimelogMsg); !ok || got.comment != "Review" {
 		t.Errorf("a taken note is not what enter saves: %#v", msgs)
@@ -280,8 +286,8 @@ func TestTimelogDialogTakesALongNoteWhole(t *testing.T) {
 	d, _ := newTimelogDialog("T", "Fix", nil, "", now, 80)
 	d.notes = []string{long}
 	var dl dialog = d
-	for _, k := range []tea.KeyType{tea.KeyTab, tea.KeyTab, tea.KeyCtrlP} {
-		dl, _ = dl.Update(tea.KeyMsg{Type: k})
+	for _, k := range []tea.KeyPressMsg{tabKey, tabKey, ctrlPKey} {
+		dl, _ = dl.Update(k)
 	}
 	if got := dl.(timelogDialog).inputs[2].Value(); got != long {
 		t.Errorf("ctrl+p cut a %d character note to %d characters", len(long), len(got))
@@ -328,8 +334,8 @@ func TestNotesLandOnlyInTheOpenBox(t *testing.T) {
 	}
 	mm, _ = m.Update(notesLoadedMsg{taskID: "T", notes: []string{"Review", "Tests"}})
 	m = mm.(Model)
-	for _, k := range []tea.KeyType{tea.KeyTab, tea.KeyTab, tea.KeyCtrlP, tea.KeyCtrlP} {
-		mm, _ = m.Update(tea.KeyMsg{Type: k})
+	for _, k := range []tea.KeyPressMsg{tabKey, tabKey, ctrlPKey, ctrlPKey} {
+		mm, _ = m.Update(k)
 		m = mm.(Model)
 	}
 	if view := squeeze(m.dialog.View(th, 80, 30)); !strings.Contains(view, "note 2 of 2") {
@@ -340,7 +346,7 @@ func TestNotesLandOnlyInTheOpenBox(t *testing.T) {
 	if view := squeeze(m.dialog.View(th, 80, 30)); !strings.Contains(view, "ctrl+p earlier note") {
 		t.Errorf("the hint counts a position in the old list:\n%s", view)
 	}
-	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	mm, _ = m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 	m = mm.(Model)
 	if got := m.dialog.(timelogDialog).inputs[2].Value(); got != "Review" {
 		t.Errorf("ctrl+p after a second read: note = %q, want the first of the new list", got)

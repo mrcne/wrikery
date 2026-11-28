@@ -11,11 +11,12 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -204,8 +205,10 @@ func New(o Options) Model {
 }
 
 // applyHelpGlyphs follows the theme: bubbles joins help entries with a bullet and truncates with a real ellipsis, both non ASCII.
+// The colors of the hints come in a dark and a light set.
 func (m *Model) applyHelpGlyphs() {
 	plain := help.New()
+	m.help.Styles = help.DefaultStyles(m.theme.dark())
 	m.help.ShortSeparator, m.help.FullSeparator, m.help.Ellipsis = plain.ShortSeparator, plain.FullSeparator, plain.Ellipsis
 	if m.theme.ASCII {
 		m.help.ShortSeparator, m.help.FullSeparator = "  ", "    "
@@ -282,8 +285,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dialog = d
 		}
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case tea.PasteMsg:
+		return m.handlePaste(msg.Content)
 	case SyncStateMsg:
 		return m.onSyncState(msg.State)
 	case setConfigMsg:
@@ -1002,7 +1007,7 @@ func (m Model) reload(entities []string) tea.Cmd {
 
 // updateSidebar hands the key to the sidebar and writes the pin changes it made before the update returns.
 // An intent message could land after a quit key, so the writes do not travel as commands.
-func (m *Model) updateSidebar(msg tea.KeyMsg) tea.Cmd {
+func (m *Model) updateSidebar(msg tea.KeyPressMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.sidebar, cmd = m.sidebar.Update(msg)
 	m.syncPaneSizes()
@@ -1146,7 +1151,7 @@ func (m Model) reloadTask() tea.Cmd {
 
 // timesheetKey routes a key on the timesheet screen: to the grid, or to the detail pane open beside it while that has the keys.
 // With the grid focused and the pane open, the pane follows the row under the cursor, the way it follows the list.
-func (m Model) timesheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) timesheetKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.timesheet.detailOpen && key.Matches(msg, m.keys.NextPane, m.keys.PrevPane) {
 		m.timesheet.detailFocus = !m.timesheet.detailFocus
 		if m.timesheet.detailFocus {
@@ -1272,15 +1277,58 @@ func (m *Model) openDialog(d dialog) {
 	m.overlay = overlayDialog
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlC {
+// textFocus says whether a text field has the keys.
+// A box is named here when it has one, so a new box takes no paste until somebody adds it.
+func (m Model) textFocus() bool {
+	switch {
+	case m.overlay == overlayDialog:
+		switch m.dialog.(type) {
+		case titleDialog, createDialog, timelogDialog, datesDialog, budgetDialog, commentDialog,
+			actionsDialog, foldersDialog, assigneeDialog, scopesDialog, filterDialog:
+			return true
+		}
+		return false
+	case m.overlay == overlaySearch:
+		return true
+	case m.overlay != overlayNone:
+		return false
+	case m.screen == screenFirstRun:
+		return m.firstRun.step == stepSignIn
+	case m.screen == screenSettings && m.settings.editing:
+		return m.settings.choices == nil
+	}
+	return m.typing()
+}
+
+// handlePaste hands pasted text to the field that has the keys, down the path of a key press, the fields and what follows a change in them are built on that path.
+// Without such a field the text is dropped, as key presses it would run whatever its letters are bound to.
+func (m Model) handlePaste(text string) (tea.Model, tea.Cmd) {
+	if text == "" || !m.textFocus() {
+		return m, nil
+	}
+	// One key press can carry the whole text, but then the text is its name, and a paste of the word enter would be the enter key to every binding.
+	// No name of a key is long or has a space in it, so only a short paste without one is typed rune by rune.
+	if utf8.RuneCountInString(text) > 32 || strings.ContainsAny(text, " \t\n") && utf8.RuneCountInString(text) > 1 {
+		return m.handleKey(tea.KeyPressMsg{Code: tea.KeyExtended, Text: text})
+	}
+	var model tea.Model = m
+	var cmds []tea.Cmd
+	for _, r := range text {
+		next, cmd := model.(Model).handleKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+		model, cmds = next, append(cmds, cmd)
+	}
+	return model, tea.Batch(cmds...)
+}
+
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
 		if d, ok := m.dialog.(editorWindowDialog); ok {
 			_ = os.Remove(d.path)
 		}
 		return m.quit()
 	}
 	if m.overlay == overlayDialog && m.dialog != nil {
-		if msg.Type == tea.KeyEsc {
+		if msg.String() == "esc" {
 			cmd := m.dropEditorFile()
 			if d, ok := m.dialog.(switchDialog); ok && !d.answered {
 				// Esc is the answer no, the first run says what to do instead.
@@ -1289,10 +1337,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay, m.dialog = overlayNone, nil
 			return m, cmd
 		}
-		if d, ok := m.dialog.(editorWindowDialog); ok && msg.Type == tea.KeyEnter {
+		if d, ok := m.dialog.(editorWindowDialog); ok && msg.String() == "enter" {
 			return m, m.sendEditorBox(d)
 		}
-		if d, ok := m.dialog.(actionsDialog); ok && msg.Type == tea.KeyEnter {
+		if d, ok := m.dialog.(actionsDialog); ok && msg.String() == "enter" {
 			return m.runPickedAction(d)
 		}
 		var cmd tea.Cmd
@@ -1493,7 +1541,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // taskAction runs the keys that act on the selected task: the dialogs, the editor hand offs, the browser and the clipboard.
 // The main screen and the detail pane beside the timesheet grid share them. The second result is false when the key is none of them.
 // The actions come from taskActionTable, which is also what the actions list shows.
-func (m *Model) taskAction(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (m *Model) taskAction(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	if key.Matches(msg, m.keys.Actions) {
 		cmd := m.withTask(func(t store.Task) tea.Cmd {
 			d, cmd := newActionsDialog(t, m.actions)
@@ -1806,7 +1854,13 @@ func (m Model) copyText(text, toast string) tea.Cmd {
 	}
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	v := tea.NewView(m.frame())
+	v.AltScreen = true
+	return v
+}
+
+func (m Model) frame() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}

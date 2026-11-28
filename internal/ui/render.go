@@ -2,11 +2,10 @@ package ui
 
 import (
 	"strings"
-	"sync"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/styles"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/styles"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -46,17 +45,13 @@ func renderMarkup(html, plain string, width int, mode string) string {
 	return strings.Trim(out, "\n")
 }
 
-var rendererMu sync.Mutex
-
 // newRenderer builds a glamour renderer for the width.
 // Next to the theme modes it takes ascii, for a terminal that cannot draw what the other styles use.
-// glamour keeps no global state, but its style detection queries the terminal in auto mode, so the calls are serialized.
+// Any other mode gets dark, the same default the theme has.
 func newRenderer(width int, mode string) (*glamour.TermRenderer, error) {
-	rendererMu.Lock()
-	defer rendererMu.Unlock()
-	style := glamour.WithAutoStyle()
+	style := glamour.WithStandardStyle("dark")
 	switch mode {
-	case "dark", "light":
+	case "light":
 		style = glamour.WithStandardStyle(mode)
 	case "ascii":
 		cfg := styles.ASCIIStyleConfig
@@ -65,9 +60,8 @@ func newRenderer(width int, mode string) (*glamour.TermRenderer, error) {
 		cfg.ImageText.Format = "Image: {{.text}} ->"
 		style = glamour.WithStyles(cfg)
 	}
-	// glamour colors unconditionally, at true color, while the rest of the UI goes through lipgloss.
-	// Handing it lipgloss's profile leaves color as one decision for the whole frame.
-	return glamour.NewTermRenderer(style, glamour.WithWordWrap(width), glamour.WithColorProfile(lipgloss.ColorProfile()))
+	// glamour colors at true color like lipgloss does, the writer the frame goes out through brings both down to what the terminal has.
+	return glamour.NewTermRenderer(style, glamour.WithWordWrap(width))
 }
 
 // asciiDrawing swaps the drawing characters glamour and lipgloss reach for, and touches nothing else.
@@ -138,7 +132,7 @@ func underlineMarks(s string, plain bool) string {
 			n := escapeLen(s)
 			seq := s[:n]
 			b.WriteString(seq)
-			if seq == "\x1b[0m" {
+			if seq == "\x1b[0m" || seq == "\x1b[m" {
 				armed = false
 			}
 			s = s[n:]

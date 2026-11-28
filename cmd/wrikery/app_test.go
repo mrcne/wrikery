@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/config"
@@ -23,7 +23,7 @@ type quietModel struct{}
 
 func (quietModel) Init() tea.Cmd                       { return nil }
 func (quietModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return quietModel{}, nil }
-func (quietModel) View() string                        { return "" }
+func (quietModel) View() tea.View                      { return tea.View{} }
 
 func TestStartEngineDoesNothingAfterShutdown(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "shutdown.db"))
@@ -137,17 +137,19 @@ func TestOfflineStartPutsTheRowsInFlightBack(t *testing.T) {
 	}
 }
 
-// recorder is a program model that hands every message to the test, the window size ones aside.
+// recorder is a program model that hands every message to the test, the ones bubbletea sends on its own at the start aside.
 type recorder struct{ got chan tea.Msg }
 
 func (r recorder) Init() tea.Cmd { return nil }
 func (r recorder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if _, ok := msg.(tea.WindowSizeMsg); !ok {
+	switch msg.(type) {
+	case tea.WindowSizeMsg, tea.EnvMsg, tea.ColorProfileMsg:
+	default:
 		r.got <- msg
 	}
 	return r, nil
 }
-func (r recorder) View() string { return "" }
+func (r recorder) View() tea.View { return tea.View{} }
 
 // An answer about the token opens the sign in screen, no answer is offline mode with the reason.
 func TestStartFailureTellsTheTokenAnswersFromTheNetwork(t *testing.T) {

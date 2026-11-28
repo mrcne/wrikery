@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -70,9 +70,9 @@ type settingsModel struct {
 }
 
 func newSettings(cfg config.Config, theme, file string, keys KeyMap) settingsModel {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = ""
-	in.Width = 40
+	in.SetWidth(40)
 	return settingsModel{cfg: cfg, theme: theme, file: file, keys: keys, budget: budgetRowText(cfg.Budget, nil, false), input: in}
 }
 
@@ -179,7 +179,7 @@ func orText(s, fallback string) string {
 	return s
 }
 
-func (s settingsModel) Update(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
+func (s settingsModel) Update(msg tea.KeyPressMsg) (settingsModel, tea.Cmd) {
 	if s.editing {
 		return s.updateEdit(msg)
 	}
@@ -239,7 +239,7 @@ func (s settingsModel) saveFailed() settingsModel {
 }
 
 // updateEdit has the keys while a row is open: enter saves, esc cancels, left and right pick on a choice row, everything else types into the field.
-func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
+func (s settingsModel) updateEdit(msg tea.KeyPressMsg) (settingsModel, tea.Cmd) {
 	switch {
 	case s.saving:
 		// The hook answers within the moment, the row holds its value and its keys until it does.
@@ -258,7 +258,7 @@ func (s settingsModel) updateEdit(msg tea.KeyMsg) (settingsModel, tea.Cmd) {
 		return s, intent(setConfigMsg{key: s.editKey, value: value})
 	case s.choices != nil:
 		switch {
-		case key.Matches(msg, s.keys.Right), msg.Type == tea.KeySpace:
+		case key.Matches(msg, s.keys.Right), msg.String() == "space":
 			s.choice = (s.choice + 1) % len(s.choices)
 		case key.Matches(msg, s.keys.Left):
 			s.choice = (s.choice + len(s.choices) - 1) % len(s.choices)
@@ -338,7 +338,7 @@ func (s settingsModel) View(th Theme, width, height int) string {
 			// The field takes the room the row has after the label, so the cursor stays on screen on a narrow terminal.
 			// The cursor is set again because the field scrolls only when the cursor moves, not when its width changes.
 			in := s.input
-			in.Width = max(width-2-len(hint)-2-31-1, 10) // the label column, a space, and the cursor cell after the text
+			in.SetWidth(max(width-2-len(hint)-2-31-1, 10)) // the label column, a space, and the cursor cell after the text
 			in.SetCursor(in.Position())
 			value = in.View()
 		}

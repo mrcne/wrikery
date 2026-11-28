@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -40,7 +40,7 @@ func TestFoldersDialogMovesOutOfTheFolderInView(t *testing.T) {
 	if !strings.Contains(view, "enter moves to Design system, leaves On-call") {
 		t.Errorf("the first line should say what enter does:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"DSG"}, remove: []string{"ONC"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -55,10 +55,10 @@ func TestFoldersDialogOnlyAddsWhereNoFolderIsInView(t *testing.T) {
 		t.Errorf("an empty match should say so:\n%s", view)
 	}
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	dl = typeRunes(dl, "ios")
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"IOS"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -69,20 +69,20 @@ func TestFoldersDialogOnlyAddsWhereNoFolderIsInView(t *testing.T) {
 func TestFoldersDialogAppliesTogglesInsteadOfMoving(t *testing.T) {
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT")
 	dl = typeRunes(dl, "des")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	dl = typeRunes(dl, "inf")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40)
 	if !strings.Contains(view, "enter applies 2 changes") || !strings.Contains(view, "[x] Design system") || !strings.Contains(view, "[x] Infra") {
 		t.Errorf("toggled rows and the count should show:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"DSG", "INF"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -94,11 +94,11 @@ func TestFoldersDialogKeepsTheLastFolder(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT")
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if view := dl.View(th, 60, 40); !strings.Contains(view, "a task needs a folder") || !strings.Contains(view, "[x] API") {
 		t.Errorf("unchecking the only folder should be refused:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter on the folder the task is in with nothing to leave -> %#v, want a refusal", msgs)
 	}
@@ -112,8 +112,8 @@ func TestFoldersDialogKeepsTheLastFolder(t *testing.T) {
 		t.Errorf("the unknown parent should be counted:\n%s", view)
 	}
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", remove: []string{"API"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -140,7 +140,7 @@ func TestFoldersDialogListsAFolderUnderTwoParentsOnce(t *testing.T) {
 		t.Errorf("Shared listed %d times, want once", n)
 	}
 	dl := typeRunes(dialog(d), "api")
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"API"}, remove: []string{"SHR"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -168,13 +168,13 @@ func TestFoldersToastNamesTheFolder(t *testing.T) {
 
 func TestFoldersDialogClearsTheRefusalOnAMove(t *testing.T) {
 	dl := foldersDialogFor(store.Task{ID: "T", ParentIDs: []string{"API"}}, "PLT")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyDown})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); strings.Contains(view, "a task needs a folder") {
 		t.Errorf("moving the cursor should bring the key hint back:\n%s", view)
 	}
 	dl = typeRunes(dl, "zzz")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 60, 40); !strings.Contains(view, "no folder matches") || strings.Contains(view, "already in") {
 		t.Errorf("enter with no match should say so:\n%s", view)
 	}
@@ -195,7 +195,7 @@ func TestFoldersDialogListsThePinnedFoldersFirst(t *testing.T) {
 	if !strings.Contains(view, "enter adds to API") {
 		t.Errorf("the first line should offer the pinned folder under the cursor:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"API"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {
@@ -241,7 +241,7 @@ func TestFoldersDialogLeavesAPinnedFolderOnce(t *testing.T) {
 	if !strings.Contains(view, "enter moves to Design system, leaves On-call") || strings.Contains(view, "On-call, On-call") {
 		t.Errorf("the first line should name On-call once:\n%s", view)
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitFoldersMsg{taskID: "T", add: []string{"DSG"}, remove: []string{"ONC"}}
 	if len(msgs) != 2 || !reflect.DeepEqual(msgs[0], want) {

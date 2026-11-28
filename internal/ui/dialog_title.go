@@ -3,9 +3,9 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -20,16 +20,16 @@ type titleDialog struct {
 }
 
 func newTitleDialog(task store.Task, width int) (titleDialog, tea.Cmd) {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = ""
 	in.SetValue(task.Title)
-	in.Width = width - 4
+	in.SetWidth(width - 4)
 	in.CursorEnd()
 	return titleDialog{taskID: task.ID, was: task.Title, input: in}, in.Focus()
 }
 
-func (d titleDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	if msg.Type == tea.KeyEnter {
+func (d titleDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	if msg.String() == "enter" {
 		// Only the ends are trimmed, spaces inside a title are the user's own and folding them would queue a write nobody asked for.
 		title := strings.TrimSpace(d.input.Value())
 		if title == "" {

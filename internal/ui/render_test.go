@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -12,7 +12,7 @@ import (
 
 func TestRenderDescriptionConvertsAndWraps(t *testing.T) {
 	html := `<h2>Steps</h2><ol><li>Generate the new key pair</li><li>Deploy</li></ol><pre><code>make rotate</code></pre><p>` + strings.Repeat("word ", 30) + `</p>`
-	out := RenderDescription(html, "", 40, "dark")
+	out := ansi.Strip(RenderDescription(html, "", 40, "dark"))
 	for _, want := range []string{"Steps", "1. Generate", "make rotate"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered lacks %q:\n%s", want, out)
@@ -60,10 +60,13 @@ func TestRenderDescriptionKeepsLetters(t *testing.T) {
 }
 
 func TestUnderlineMarksArmAfterEveryReset(t *testing.T) {
-	in := "x " + underlineOn + "a \x1b[1mb\x1b[0m c\x1b[0m\n  \x1b[2md" + underlineOff + " e"
-	want := "x \x1b[4ma \x1b[1mb\x1b[0m\x1b[4m c\x1b[0m\n  \x1b[2m\x1b[4md\x1b[24m e"
-	if got := underlineMarks(in, false); got != want {
-		t.Errorf("got  %q\nwant %q", got, want)
+	// The long reset and the short one, which is what lipgloss and glamour write.
+	for _, reset := range []string{"\x1b[0m", "\x1b[m"} {
+		in := "x " + underlineOn + "a \x1b[1mb" + reset + " c" + reset + "\n  \x1b[2md" + underlineOff + " e"
+		want := "x \x1b[4ma \x1b[1mb" + reset + "\x1b[4m c" + reset + "\n  \x1b[2m\x1b[4md\x1b[24m e"
+		if got := underlineMarks(in, false); got != want {
+			t.Errorf("got  %q\nwant %q", got, want)
+		}
 	}
 	if got := underlineMarks("a "+underlineOn+"b"+underlineOff+" c", true); got != "a _b_ c" {
 		t.Errorf("plain: got %q", got)

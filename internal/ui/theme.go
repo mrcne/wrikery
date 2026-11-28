@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -14,7 +16,7 @@ import (
 // Its ASCII flag covers the glyphs and borders drawn here and the decorations glamour puts around a description.
 // The words themselves keep their letters, a description written in Polish still reads as Polish.
 type Theme struct {
-	Accent, Text, Muted, Dim, Border, Error, Warn, Success lipgloss.TerminalColor
+	Accent, Text, Muted, Dim, Border, Error, Warn, Success color.Color
 	ASCII                                                  bool
 	Glyphs                                                 Glyphs
 	HidePrefixes                                           []string // title prefixes the rows and cards leave out, from the config
@@ -60,15 +62,13 @@ var wrikeColors = map[string]palette{
 
 var ansiNames = map[string]string{"black": "0", "red": "1", "green": "2", "yellow": "3", "blue": "4", "magenta": "5", "cyan": "6", "white": "7"}
 
-func (t Theme) fromPalette(p palette) lipgloss.TerminalColor {
-	switch t.mode {
-	case "dark":
-		return lipgloss.Color(p.dark)
-	case "light":
+func (t Theme) fromPalette(p palette) color.Color {
+	if t.mode == "light" {
 		return lipgloss.Color(p.light)
 	}
-	// An unset mode means auto: adapt to the terminal's own light or dark background.
-	return lipgloss.AdaptiveColor{Light: p.light, Dark: p.dark}
+	// Auto is resolved at the start, before a theme is built, so no other mode arrives here.
+	// A theme built without one gets dark, which is also what auto resolves to in a pipe.
+	return lipgloss.Color(p.dark)
 }
 
 func NewTheme(cfg config.UIConfig) Theme {
@@ -95,7 +95,20 @@ func NewTheme(cfg config.UIConfig) Theme {
 	return t
 }
 
-func (t Theme) StatusColor(cs store.CustomStatus) lipgloss.TerminalColor {
+// dark says which of their two sets of colors the bubbles components take.
+func (t Theme) dark() bool { return t.mode != "light" }
+
+// newInput is a text field in the terminal's own colors: bubbles would color the prompt, the cursor and the text of a field without focus with the ANSI white, which is hard to read on a light background.
+func newInput() textinput.Model {
+	in := textinput.New()
+	styles := in.Styles()
+	plain := textinput.StyleState{Placeholder: styles.Focused.Placeholder, Suggestion: styles.Focused.Suggestion}
+	styles.Focused, styles.Blurred, styles.Cursor.Color = plain, plain, nil
+	in.SetStyles(styles)
+	return in
+}
+
+func (t Theme) StatusColor(cs store.CustomStatus) color.Color {
 	if p, ok := wrikeColors[cs.Color]; ok {
 		return t.fromPalette(p)
 	}

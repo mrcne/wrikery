@@ -1,11 +1,9 @@
 package ui_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -16,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
-	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
@@ -68,75 +66,129 @@ func testOptionsWithCopy(st *store.Store) (ui.Options, *[]string) {
 	return o, &copied
 }
 
-func press(tm *teatest.TestModel, keys ...string) {
+// keyRunes is the key press of typed text: one rune is a key of its own, several arrive as one message the way an input method sends them.
+func keyRunes(s string) tea.KeyPressMsg {
+	if r := []rune(s); len(r) == 1 {
+		return tea.KeyPressMsg{Code: r[0], Text: s}
+	}
+	return tea.KeyPressMsg{Code: tea.KeyExtended, Text: s}
+}
+
+func press(tm *testUI, keys ...string) {
 	for _, k := range keys {
 		switch k {
 		case "enter":
-			tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyEnter})
 		case "esc":
-			tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyEscape})
 		case "tab":
-			tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyTab})
 		case "shift+tab":
-			tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 		case "space":
-			tm.Send(tea.KeyMsg{Type: tea.KeySpace})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 		case "down":
-			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyDown})
 		case "up":
-			tm.Send(tea.KeyMsg{Type: tea.KeyUp})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyUp})
 		case "ctrl+f":
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlF})
+			tm.Send(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 		case "ctrl+p":
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
+			tm.Send(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 		default:
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+			tm.Send(keyRunes(k))
 		}
 	}
 }
 
-// Reading teatest's output drains it, and bubbletea only repaints the lines that changed.
-// Two waits for text drawn in the same frame would then see only the first one, so every model keeps the frames it has produced so far and each wait searches that whole history.
-var frames sync.Map // *teatest.TestModel -> *bytes.Buffer
-
-func seenOutput(t *testing.T, tm *teatest.TestModel) *bytes.Buffer {
-	t.Helper()
-	v, loaded := frames.LoadOrStore(tm, &bytes.Buffer{})
-	if !loaded {
-		t.Cleanup(func() { frames.Delete(tm) })
-	}
-	return v.(*bytes.Buffer)
+// The waits search what the model drew and not what bubbletea wrote to the terminal, how much of a frame reaches the terminal is the renderer's business.
+// recorder sits between teatest and the model and keeps every line that differs from the frame before.
+// Only the changed lines: a wait after a mark has to prove that the text was drawn again, and a whole frame repeats everything that stayed on screen.
+// The lines are kept without their styles, as a terminal without color shows them, so a wait and a golden spell out the text alone.
+type recorder struct {
+	ui.Model
+	log *frameLog
 }
 
-func waitFor(t *testing.T, tm *teatest.TestModel, want string) {
+func (r recorder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := r.Model.Update(msg)
+	r.Model = next.(ui.Model)
+	return r, cmd
+}
+
+func (r recorder) View() tea.View {
+	v := r.Model.View()
+	r.log.draw(ansi.Strip(v.Content))
+	return v
+}
+
+// frameLog is written by the program's goroutine and read by the test's.
+type frameLog struct {
+	mu   sync.Mutex
+	last []string
+	seen strings.Builder
+}
+
+func (l *frameLog) draw(frame string) {
+	lines := strings.Split(frame, "\n")
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, line := range lines {
+		if i < len(l.last) && l.last[i] == line {
+			continue
+		}
+		l.seen.WriteString(line)
+		l.seen.WriteByte('\n')
+	}
+	l.last = lines
+}
+
+func (l *frameLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.seen.String()
+}
+
+// screen returns the frame drawn last, for a wait until something is gone.
+func (l *frameLog) screen() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.last, "\n")
+}
+
+type testUI struct {
+	*teatest.TestModel
+	log *frameLog
+}
+
+func start(t *testing.T, m ui.Model, width, height int) *testUI {
+	t.Helper()
+	log := &frameLog{}
+	tm := teatest.NewTestModel(t, recorder{Model: m, log: log}, teatest.WithInitialTermSize(width, height))
+	return &testUI{TestModel: tm, log: log}
+}
+
+func waitFor(t *testing.T, tm *testUI, want string) {
 	t.Helper()
 	waitAfter(t, tm, 0, want)
 }
 
-// mark reads what has been drawn so far and returns its length.
+// mark returns how much has been drawn so far.
 // Text that was already on screen once, such as a pane title the first run box covered, needs it to prove the frame was drawn again.
-func mark(t *testing.T, tm *teatest.TestModel) int {
-	t.Helper()
-	seen := seenOutput(t, tm)
-	if _, err := io.Copy(seen, tm.Output()); err != nil {
-		t.Fatalf("reading the program output: %v", err)
-	}
-	return seen.Len()
+func mark(tm *testUI) int {
+	return len(tm.log.String())
 }
 
-func waitAfter(t *testing.T, tm *teatest.TestModel, from int, want string) {
+func waitAfter(t *testing.T, tm *testUI, from int, want string) {
 	t.Helper()
-	seen := seenOutput(t, tm)
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		if _, err := io.Copy(seen, tm.Output()); err != nil {
-			t.Fatalf("reading the program output: %v", err)
-		}
-		if strings.Contains(seen.String()[from:], want) {
+		seen := tm.log.String()[from:]
+		if strings.Contains(seen, want) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("waiting for %q, output so far:\n%s", want, seen.String()[from:])
+			t.Fatalf("waiting for %q, drawn so far:\n%s", want, seen)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -145,24 +197,30 @@ func waitAfter(t *testing.T, tm *teatest.TestModel, from int, want string) {
 // waitForHit waits for a search hit row, the title with the hit's folder after it.
 // The title alone is drawn by the list, the detail pane and the changes screen too, and their rows can land after the search box opened.
 // A wait for the title can then pass before the hit is drawn, and an enter on a box with no hits does nothing.
-func waitForHit(t *testing.T, tm *teatest.TestModel, from int, title, folder string) {
+func waitForHit(t *testing.T, tm *testUI, from int, title, folder string) {
 	t.Helper()
 	waitAfter(t, tm, from, title+"  "+folder)
 }
 
+// lastFrame returns the frame a finished program ended on.
+func lastFrame(t *testing.T, tm *testUI) string {
+	t.Helper()
+	return ansi.Strip(tm.FinalModel(t).(recorder).Model.View().Content)
+}
+
 // finalView quits the program and returns the last full frame, without cursor sequences, for goldens.
-func finalView(t *testing.T, tm *teatest.TestModel) string {
+func finalView(t *testing.T, tm *testUI) string {
 	t.Helper()
 	press(tm, "q")
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-	return tm.FinalModel(t).(ui.Model).View()
+	return lastFrame(t, tm)
 }
 
 func TestShellGoldenAtThreeWidths(t *testing.T) {
 	for _, w := range []int{160, 100, 70} {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
-			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
+			tm := start(t, ui.New(testOptions(st)), w, 30)
 			// The frame is captured as it stands, so the wait has to be for something only the finished reads draw.
 			// The detail pane is in the window from 120 columns up, below that the list title is the last thing to land.
 			loaded := "Tasks: My tasks ("
@@ -183,66 +241,66 @@ func TestShellGoldenAtThreeWidths(t *testing.T) {
 func TestTaskActionGoldens(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "n")
 		waitAfter(t, tm, from, "New task")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
 	t.Run("status", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "s")
 		waitAfter(t, tm, from, "Status")
 		// finalView's "q" would reach the dialog instead of quitting, a dialog owns every key but
 		// esc and ctrl+c, so the program is stopped with ctrl+c here to capture it still open.
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
 	t.Run("title", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "e")
 		waitAfter(t, tm, from, "enter saves")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
 	t.Run("importance", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "p")
 		waitAfter(t, tm, from, "Importance")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
 	t.Run("folders", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "m")
 		waitAfter(t, tm, from, "Folders")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
-		golden.RequireEqual(t, []byte(tm.FinalModel(t).(ui.Model).View()))
+		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
 	t.Run("changes", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "!")
 		waitAfter(t, tm, from, "Changes, last 30 days")
 		waitAfter(t, tm, from, "Task not found")
@@ -250,9 +308,9 @@ func TestTaskActionGoldens(t *testing.T) {
 	})
 	t.Run("inbox", func(t *testing.T) {
 		st := seededStore(t)
-		tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+		tm := start(t, ui.New(testOptions(st)), 120, 40)
 		waitFor(t, tm, "-- Comments (")
-		from := mark(t, tm)
+		from := mark(tm)
 		press(tm, "@")
 		waitAfter(t, tm, from, "Inbox, last 30 days")
 		waitAfter(t, tm, from, "mentioned you")
@@ -262,7 +320,7 @@ func TestTaskActionGoldens(t *testing.T) {
 
 func TestSidebarShowsFollowedSpaces(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
+	tm := start(t, ui.New(testOptions(st)), 160, 30)
 	waitFor(t, tm, "Platform")
 	waitFor(t, tm, "Mobile")
 	view := finalView(t, tm)
@@ -277,7 +335,7 @@ func TestSidebarShowsFollowedSpaces(t *testing.T) {
 
 func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	tm := start(t, ui.New(testOptions(st)), 100, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "tab") // list -> detail, at 100 columns the sidebar leaves the window
 	waitFor(t, tm, "-- Comments (")
@@ -290,7 +348,7 @@ func TestTabMovesFocusAndWindowSlides(t *testing.T) {
 
 func TestDetailShowsTheSelectedTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks")
 	// The detail follows the list cursor.
 	// The demo task with a queued comment sits far down the list, so the filter is the short way to it.
@@ -331,9 +389,9 @@ func TestOpeningATaskMarksItOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 	previewed, opened := tasks[0], tasks[1]
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "j") // move the cursor onto the second task, which only previews it
 	// Wait for the detail pane to actually show the preview before the deliberate enter,
 	// or a slow repaint could let enter race ahead of the cursor move and open the still previewed task.
@@ -365,7 +423,7 @@ func TestOpeningATaskMarksItOpened(t *testing.T) {
 
 func TestStatusBarReactsToEngineMessages(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	tm.Send(ui.OutboxChangedMsg{Pending: 2, Failed: 1})
 	waitFor(t, tm, "2 pending")
@@ -384,7 +442,7 @@ func TestOfflineModeGoesOnlineOnRAfterAConfirm(t *testing.T) {
 	o.Demo, o.Offline = false, true
 	var online atomic.Int32
 	o.Hooks.GoOnline = func() { online.Add(1) }
-	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(o), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	waitFor(t, tm, "offline mode")
 	waitFor(t, tm, "R go online")
@@ -392,14 +450,14 @@ func TestOfflineModeGoesOnlineOnRAfterAConfirm(t *testing.T) {
 	// The demo data leaves one comment queued.
 	waitFor(t, tm, "Go online? 1 queued write goes out first, oldest first.")
 	// After esc the help still names R as the way online, it would say refresh had esc gone online.
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "esc", "?")
 	waitAfter(t, tm, from, "esc or ? to close")
 	waitAfter(t, tm, from, "go online")
 	press(tm, "?", "R", "y")
 	waitFor(t, tm, "going online")
 	waitFor(t, tm, "syncing")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "R")
 	waitAfter(t, tm, from, "refreshing")
 	if n := online.Load(); n != 1 {
@@ -411,7 +469,7 @@ func TestOfflineModeShowsQueuedOnTheDetail(t *testing.T) {
 	st := seededStore(t)
 	o := testOptions(st)
 	o.Offline = true
-	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(120, 40))
+	tm := start(t, ui.New(o), 120, 40)
 	waitFor(t, tm, "Tasks: My tasks")
 	press(tm, "/")
 	press(tm, "fix auth")
@@ -437,7 +495,7 @@ func TestSignInMeetingAnotherAccountOpensTheBox(t *testing.T) {
 			DBFile:  "/home/ada/.local/share/wrikery/wrike.db",
 			Confirm: func() (string, error) { confirmed.Add(1); return "Ada Nowak", nil }}
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Paste a permanent access token")
 	press(tm, "abc", "enter")
 	waitFor(t, tm, "Is this the new home of this cache?")
@@ -446,7 +504,7 @@ func TestSignInMeetingAnotherAccountOpensTheBox(t *testing.T) {
 	if n := confirmed.Load(); n != 0 {
 		t.Fatalf("n confirmed %d times", n)
 	}
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "Is this the new home of this cache?")
 	press(tm, "y")
@@ -461,7 +519,7 @@ func TestSignInMeetingAnotherAccountOpensTheBox(t *testing.T) {
 // The demo seed leaves one pending comment and two failed writes, see internal/demo/seed.go.
 func TestStatusBarShowsSeededCountsOnFirstFrame(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	waitFor(t, tm, "1 pending")
 	waitFor(t, tm, "2 failed")
@@ -472,11 +530,11 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 	for _, w := range []int{160, 120, 70} {
 		t.Run(fmt.Sprint(w), func(t *testing.T) {
 			st := seededStore(t)
-			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(w, 30))
+			tm := start(t, ui.New(testOptions(st)), w, 30)
 			waitFor(t, tm, "Tasks: My tasks (")
 			press(tm, "?")
 			waitFor(t, tm, "esc or ? to close")
-			for _, r := range seenOutput(t, tm).String() {
+			for _, r := range tm.log.String() {
 				if r > 127 {
 					t.Fatalf("ASCII mode drew %q", r)
 				}
@@ -489,22 +547,22 @@ func TestHelpOverlayStaysASCII(t *testing.T) {
 
 func TestTaskListFiltersAndFollowsTheSidebar(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks (")
 	// The list follows the sidebar cursor.
 	// This runs first because the filter has to be the last thing on screen, only the frame the program ends on can be read row by row.
 	press(tm, "shift+tab")
 	press(tm, "j")
 	waitFor(t, tm, "Tasks: Mobile")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "k")
 	waitAfter(t, tm, from, "Tasks: My tasks (")
 	press(tm, "tab")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "/")
 	press(tm, "a", "u", "t", "h")
 	waitAfter(t, tm, from, "Tasks: My tasks (")
-	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= 30 {
+	if n := taskListTitleCount(t, tm.log.String()[from:]); n >= 30 {
 		t.Fatalf("filtering by 'auth' should narrow the list below 30, title count is %d", n)
 	}
 	press(tm, "enter") // leave the filter input, the filter itself stays
@@ -556,7 +614,7 @@ func taskListTitleCount(t *testing.T, output string) int {
 
 func TestHelpOverlayListsBindings(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "?")
 	waitFor(t, tm, "changes")
@@ -569,18 +627,18 @@ func TestHelpOverlayListsBindings(t *testing.T) {
 
 func TestQuickSearchJumpsToTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	// #1200033 is whatever the demo's My tasks list preselects, not the task the search will find.
 	// Asserting it changes is what proves enter actually jumped, "#12000" alone is a prefix every demo task shares.
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "fix auth retry") // the only task matching all three words is IEAATASK00, Fix auth retry loop
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
 	// A permalink is on screen from the very first task the detail pane ever showed, so the wait needs a fresh mark:
 	// only a frame drawn after enter proves the overlay actually closed.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 	view := finalView(t, tm)
@@ -594,16 +652,16 @@ func TestQuickSearchJumpsToTask(t *testing.T) {
 // of the task the search just loaded.
 func TestQuickSearchFromChangesScreenJumpsToMain(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "!")
 	waitFor(t, tm, "Changes, last")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 	view := finalView(t, tm)
@@ -615,32 +673,32 @@ func TestQuickSearchFromChangesScreenJumpsToMain(t *testing.T) {
 func TestCopyBindingsCopyTheRightText(t *testing.T) {
 	st := seededStore(t)
 	opts, copied := testOptionsWithCopy(st)
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(opts), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "Y")
 	waitAfter(t, tm, from, "Copied")
 	if want := "1200000-fix-auth-retry-loop"; len(*copied) != 1 || (*copied)[0] != want {
 		t.Fatalf("copy branch: got %v, want [%q]", *copied, want)
 	}
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "i")
 	waitAfter(t, tm, from, "Copied")
 	if want := "IEAATASK00"; len(*copied) != 2 || (*copied)[1] != want {
 		t.Fatalf("copy id: got %v, want id %q at index 1", *copied, want)
 	}
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "y")
 	waitAfter(t, tm, from, "Copied")
 	if want := "https://www.wrike.com/open.htm?id=1200000"; len(*copied) != 3 || (*copied)[2] != want {
@@ -650,25 +708,25 @@ func TestCopyBindingsCopyTheRightText(t *testing.T) {
 
 func TestCommentDialogQueuesAndMarks(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	// "Fix auth retry loop" is IEAATASK00 and the only task matching all three words, so the search lands on it.
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "c")
 	waitAfter(t, tm, from, "Comment on")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "hello from the test")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
+	tm.Send(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	waitAfter(t, tm, from, "Comment queued")
 	// The seeded comment already shows the sending mark and closing the box redraws it, so waiting for the mark proves nothing.
 	// The count is the one thing only the reload after the write draws, so the view below is read after that reload landed.
@@ -693,17 +751,17 @@ func TestCommentDialogQueuesAndMarks(t *testing.T) {
 
 func TestStatusDialogQueuesAndMarks(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	// #1200033 (IEAATASK33) is whatever the demo's My tasks list preselects, currently Blocked
 	// in the Engineering workflow. j moves the cursor down one row, to Done, the next status in
 	// workflow order.
 	waitFor(t, tm, "#1200033")
 
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "s")
 	waitAfter(t, tm, from, "Status")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "j", "enter")
 	waitAfter(t, tm, from, "Status set to Done")
 	// The demo seed already leaves one comment pending, so a second write makes two, read straight
@@ -721,16 +779,16 @@ func TestStatusDialogQueuesAndMarks(t *testing.T) {
 
 func TestAssigneeDialogAddsAResponsible(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	// IEAATASK33, the demo's My tasks preselection, starts out responsible to Ada (me) and Celina.
 	// "dawid" narrows the contact list to Dawid Mroz alone.
 	waitFor(t, tm, "#1200033")
 
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "a")
 	waitAfter(t, tm, from, "Assignees")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "dawid", "space", "enter")
 	waitAfter(t, tm, from, "Assignees updated")
 
@@ -745,24 +803,24 @@ func TestAssigneeDialogAddsAResponsible(t *testing.T) {
 
 func TestDatesDialogSetsDue(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	// "Fix auth retry loop" is IEAATASK00, the same task the comment flow test picks, and it
 	// starts with no dates block, so typing straight into the due field needs no clearing first.
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "d")
 	waitAfter(t, tm, from, "Dates")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "tab", "tomorrow", "enter")
 	waitAfter(t, tm, from, "Dates updated")
 
@@ -778,23 +836,23 @@ func TestDatesDialogSetsDue(t *testing.T) {
 
 func TestActionsListOpensTheDatesBox(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, ".")
 	waitAfter(t, tm, from, "Actions on")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "dat", "enter")
 	waitAfter(t, tm, from, "Dates")
 	// The dates box takes the keys that follow, so it is open and nothing closed it behind the run.
 	// The start field is prefilled when the task has dates, ctrl+u clears it first.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "ctrl+u", "2026-09-10")
 	waitAfter(t, tm, from, "Thu 10 Sep 2026")
 	press(tm, "esc")
 
 	// From the detail pane too: the focus starts on the list, one tab is the detail, see TestTabMovesFocusAndWindowSlides.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "tab", ".")
 	waitAfter(t, tm, from, "Actions on")
 	press(tm, "esc")
@@ -802,13 +860,13 @@ func TestActionsListOpensTheDatesBox(t *testing.T) {
 	// On the timesheet grid . is this week, the grid runs no task key. The test clock sits in the week of 31 Aug 2026.
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "]")
 	waitAfter(t, tm, from, "Timesheet: 7 Sep - 13 Sep 2026")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, ".")
 	waitAfter(t, tm, from, "Timesheet: 31 Aug - 6 Sep 2026")
-	if strings.Contains(seenOutput(t, tm).String()[from:], "Actions on") {
+	if strings.Contains(tm.log.String()[from:], "Actions on") {
 		t.Error(". on the timesheet grid opened the actions list")
 	}
 }
@@ -816,31 +874,31 @@ func TestActionsListOpensTheDatesBox(t *testing.T) {
 // A list filter nothing matches leaves no task selected, and the box has nothing to open on.
 func TestActionsListSaysNoTaskOnAnEmptyList(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "/", "zzzz", "enter") // enter leaves the filter input, the filter itself stays
 	waitFor(t, tm, "Select a task.")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, ".")
 	waitAfter(t, tm, from, "no task selected")
 }
 
 func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "!")
 	waitAfter(t, tm, from, "Changes, last 30 days")
 	waitAfter(t, tm, from, "Task not found")
 
 	// Move to the second failure and confirm it is listed too, before acting on it.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "j")
 	waitAfter(t, tm, from, "Timesheet is locked")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "x")
 	waitAfter(t, tm, from, "Discard this write?")
 
@@ -864,7 +922,7 @@ func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 		}
 	}
 	// The discarded time entry leaves the queue block and lands at the top of the history, marked so.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "y")
 	waitCounts(1, 1)
 	waitAfter(t, tm, from, "discarded")
@@ -873,7 +931,7 @@ func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 	}
 
 	// The failed update is the first queue row, the retrying comment the second, see the demo seed.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "k")
 	press(tm, "r")
 	waitCounts(2, 0)
@@ -901,9 +959,9 @@ func TestChangesScreenRetriesAndDiscards(t *testing.T) {
 // The history rows the demo seeds show their old and new values, the command's row its tag, and a discarded one its mark.
 func TestChangesScreenShowsASentWriteWithItsOldValue(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "!")
 	waitAfter(t, tm, from, "Changes, last 30 days")
 	waitAfter(t, tm, from, "Backlog -> In progress")
@@ -921,22 +979,22 @@ func TestChangesScreenShowsASentWriteWithItsOldValue(t *testing.T) {
 
 func TestChangesEnterOpensTheTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 
 	// Put the sidebar's selected node on IEAATASK00's folder (ProjectAPI), which is not
 	// IEAATASK01's folder (Web), so a reload keyed off a stale selection cannot find IEAATASK01
 	// by coincidence and the assertions below actually exercise the fix.
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "!")
 	// The title is drawn before the rows arrive from the store, and enter on an empty list does nothing,
 	// so the wait is for the first row, the one the cursor starts on.
@@ -944,7 +1002,7 @@ func TestChangesEnterOpensTheTask(t *testing.T) {
 	waitAfter(t, tm, from, "Add signing keys")
 
 	// The cursor starts on the task update failure, IEAATASK01, permalink #1200001.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200001")
 
@@ -972,7 +1030,7 @@ func TestChangesEnterOpensTheTask(t *testing.T) {
 // fixedNow is Thursday 2026-09-03, so this week's Monday is 2026-08-31.
 func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks:")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -989,7 +1047,7 @@ func TestTimesheetLogsTimeFromGrid(t *testing.T) {
 // The last of the eight rows is "Write tests for onboarding flow", task IEAATASK19 in Web, which is completed.
 func TestEnterOnTheTimesheetOpensTheTaskBesideTheGrid(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1006,7 +1064,7 @@ func TestEnterOnTheTimesheetOpensTheTaskBesideTheGrid(t *testing.T) {
 // Esc on the detail closes it and the cursor is on the cell it was on.
 func TestEscOnTheTimesheetDetailReturnsToTheCell(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1023,7 +1081,7 @@ func TestEscOnTheTimesheetDetailReturnsToTheCell(t *testing.T) {
 // Logged time often sits on finished work, so the list has to show the completed task although the done toggle starts off.
 func TestEnterOnTheTimesheetDetailGoesToTheMainScreen(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1041,13 +1099,13 @@ func TestEnterOnTheTimesheetDetailGoesToTheMainScreen(t *testing.T) {
 // so T and esc do not leave a task the list is not on in the pane. The list starts on IEAATASK33.
 func TestLeavingTheTimesheetPutsTheDetailBackOnTheListRow(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
 	press(tm, "j", "j", "j", "j", "j", "j", "j", "enter")
 	waitFor(t, tm, "#1200019")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "esc", "esc")
 	waitAfter(t, tm, from, "#1200033")
 	view := finalView(t, tm)
@@ -1060,7 +1118,7 @@ func TestLeavingTheTimesheetPutsTheDetailBackOnTheListRow(t *testing.T) {
 // Esc with the grid focused closes the detail as well.
 func TestTabOnTheTimesheetFollowsTheRows(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1078,7 +1136,7 @@ func TestTabOnTheTimesheetFollowsTheRows(t *testing.T) {
 // Below 120 columns the detail takes the whole box instead of a share beside the grid.
 func TestTheTimesheetDetailCoversTheGridOnANarrowTerminal(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	tm := start(t, ui.New(testOptions(st)), 100, 30)
 	waitFor(t, tm, "Tasks:")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1093,13 +1151,13 @@ func TestTheTimesheetDetailCoversTheGridOnANarrowTerminal(t *testing.T) {
 // Tab on a narrow terminal brings the grid back alone, the detail stays open for the next tab.
 func TestTabOnANarrowTimesheetShowsTheGridAgain(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(100, 30))
+	tm := start(t, ui.New(testOptions(st)), 100, 30)
 	waitFor(t, tm, "Tasks:")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
 	press(tm, "enter")
 	waitFor(t, tm, "#1200001")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "tab")
 	waitAfter(t, tm, from, "Mon 31")
 	view := finalView(t, tm)
@@ -1112,12 +1170,12 @@ func TestTabOnANarrowTimesheetShowsTheGridAgain(t *testing.T) {
 // the detail pane empties and an action key says so instead of reaching the task selected before.
 func TestEmptyListDropsTheSelectedTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "/", "zzz", "enter")
 	waitAfter(t, tm, from, "Tasks: My tasks (0)")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "s")
 	waitAfter(t, tm, from, "no task selected")
 	view := finalView(t, tm)
@@ -1131,10 +1189,10 @@ func TestEmptyListDropsTheSelectedTask(t *testing.T) {
 // underneath it to act on and the key would otherwise reach whatever task was selected before.
 func TestChangesRoutesKeysToTheScreen(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "!")
 	waitAfter(t, tm, from, "Changes, last 30 days")
 
@@ -1153,20 +1211,20 @@ func TestChangesRoutesKeysToTheScreen(t *testing.T) {
 // The first L asks before it queues, a fresh store has no saved yes.
 func TestNextStatusKeyAsksThenQueuesAStatusChange(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	// The demo seeds queued rows of its own, so the count before the key is the baseline.
 	before, _, err := st.Outbox().Counts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "L")
 	waitAfter(t, tm, from, "comes only once")
 	if n, _, _ := st.Outbox().Counts(context.Background()); n != before {
 		t.Fatalf("L queued a task update before the yes, pending went from %d to %d", before, n)
 	}
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "y")
 	waitAfter(t, tm, from, "Status set to ")
 	after, _, err := st.Outbox().Counts(context.Background())
@@ -1183,16 +1241,16 @@ func TestNextStatusKeyAsksThenQueuesAStatusChange(t *testing.T) {
 
 func TestTitleKeyQueuesTheNewTitle(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	before, _, err := st.Outbox().Counts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "e")
 	waitAfter(t, tm, from, "enter saves")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, " now", "enter")
 	waitAfter(t, tm, from, "Title updated")
 	after, _, err := st.Outbox().Counts(context.Background())
@@ -1215,16 +1273,16 @@ func TestTitleKeyQueuesTheNewTitle(t *testing.T) {
 
 func TestImportanceKeyQueuesTheChange(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	before, _, err := st.Outbox().Counts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "p")
 	waitAfter(t, tm, from, "Importance")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "k", "enter")
 	waitAfter(t, tm, from, "Importance set to High")
 	after, _, err := st.Outbox().Counts(context.Background())
@@ -1240,14 +1298,14 @@ func TestImportanceKeyQueuesTheChange(t *testing.T) {
 func TestFoldersKeyMovesTheTaskOutOfTheFolderInView(t *testing.T) {
 	st := seededStore(t)
 	ctx := context.Background()
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "shift+tab", "j") // the sidebar, then Mobile
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "enter", "tab")
 	waitAfter(t, tm, from, "Tasks: Mobile (")
 	// The pane title counts the shown tasks, done ones hidden, so the number comes from the screen and not from the store.
-	shown := regexp.MustCompile(`Tasks: Mobile \((\d+)\)`).FindStringSubmatch(seenOutput(t, tm).String()[from:])
+	shown := regexp.MustCompile(`Tasks: Mobile \((\d+)\)`).FindStringSubmatch(tm.log.String()[from:])
 	if shown == nil {
 		t.Fatal("no Mobile count on screen")
 	}
@@ -1256,10 +1314,10 @@ func TestFoldersKeyMovesTheTaskOutOfTheFolderInView(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "m")
 	waitAfter(t, tm, from, "Folders")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "des", "enter")
 	waitAfter(t, tm, from, "Moved to Design system")
 	waitAfter(t, tm, from, fmt.Sprintf("Tasks: Mobile (%d)", count-1))
@@ -1274,13 +1332,13 @@ func TestFoldersKeyMovesTheTaskOutOfTheFolderInView(t *testing.T) {
 
 func TestBoardTogglesAndKeepsTheSelection(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "j", "j")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "b")
 	waitAfter(t, tm, from, "Board: My tasks (")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "v", "v")
 	waitAfter(t, tm, from, "Board: My tasks, by assignee (")
 	view := finalView(t, tm)
@@ -1296,24 +1354,24 @@ func TestBoardTogglesAndKeepsTheSelection(t *testing.T) {
 
 func TestBoardSidePanesShowWhileFocused(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "b")
 	waitAfter(t, tm, from, "Board: My tasks (")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "shift+tab")
 	waitAfter(t, tm, from, "Spaces")
 	press(tm, "j")
 	waitFor(t, tm, "Board: Mobile (")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "esc")
 	waitAfter(t, tm, from, "Board: Mobile (")
 	// The divider was on screen in the list shape already, so only a frame drawn after this mark proves the detail came back.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "-- Comments (")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "esc")
 	waitAfter(t, tm, from, "Board: Mobile (")
 	view := finalView(t, tm)
@@ -1328,16 +1386,16 @@ func TestBoardMovesACardWithL(t *testing.T) {
 	if err := st.SetMeta(context.Background(), store.MetaKeyStatusMoveConfirmed, "1"); err != nil {
 		t.Fatal(err)
 	}
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "b")
 	waitAfter(t, tm, from, "Board: My tasks (")
 	before, _, err := st.Outbox().Counts(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "L")
 	waitAfter(t, tm, from, "Status set to ")
 	after, _, err := st.Outbox().Counts(context.Background())
@@ -1369,13 +1427,13 @@ func TestViewGoldens(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			st := seededStore(t)
-			tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(c.width, 40))
+			tm := start(t, ui.New(testOptions(st)), c.width, 40)
 			loaded := "Tasks: My tasks ("
 			if c.width >= 120 {
 				loaded = "-- Comments ("
 			}
 			waitFor(t, tm, loaded)
-			from := mark(t, tm)
+			from := mark(tm)
 			press(tm, c.keys...)
 			waitAfter(t, tm, from, c.wait)
 			golden.RequireEqual(t, []byte(finalView(t, tm)))
@@ -1387,9 +1445,9 @@ func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
 	t.Setenv("VISUAL", "")
 	t.Setenv("EDITOR", "")
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "E")
 	waitAfter(t, tm, from, "set $EDITOR (or $VISUAL) to write in an editor")
 }
@@ -1398,12 +1456,12 @@ func TestDescriptionKeyNeedsAnEditor(t *testing.T) {
 func TestDescriptionKeyWithAWindowEditorAsksBeforeDropping(t *testing.T) {
 	t.Setenv("VISUAL", "true")
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "E")
 	waitAfter(t, tm, from, "returned at once")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "esc")
 	waitAfter(t, tm, from, "description edit dropped")
 }
@@ -1411,9 +1469,9 @@ func TestDescriptionKeyWithAWindowEditorAsksBeforeDropping(t *testing.T) {
 // The demo opens on My tasks, so the box starts without a folder and the create assigns the task to the user.
 func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+	tm := start(t, ui.New(testOptions(st)), 120, 40)
 	waitFor(t, tm, "-- Comments (")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "n")
 	waitAfter(t, tm, from, "pick a folder")
 	press(tm, "tab", "api", "enter")
@@ -1421,7 +1479,7 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 	press(tm, "Ship it", "enter")
 	waitAfter(t, tm, from, "Task added to Platform / API")
 	waitAfter(t, tm, from, "(sending)")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 
 	ctx := context.Background()
@@ -1446,7 +1504,7 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 		t.Errorf("no queued create under %s, states: %v", got.ID, states)
 	}
 	// The detail header follows the cursor, so the title with the mark there proves the new row is the selected one.
-	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
+	final := ansi.Strip(lastFrame(t, tm))
 	if !strings.Contains(final, "Ship it (sending)") {
 		t.Errorf("final view should show the new task in the detail header with the sending mark:\n%s", final)
 	}
@@ -1459,7 +1517,7 @@ func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 40))
+	tm := start(t, ui.New(testOptions(st)), 120, 40)
 	waitFor(t, tm, "-- Comments (")
 	press(tm, "/", "Swapped", "enter")
 	waitFor(t, tm, "(sending)")
@@ -1475,10 +1533,10 @@ func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
 	tm.Send(ui.OutboxChangedMsg{Pending: 0, Failed: 0})
 	tm.Send(ui.StoreChangedMsg{Entities: []string{"tasks", "comments", "timelogs"}})
 	waitFor(t, tm, "#1299999")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 
-	final := ansi.Strip(tm.FinalModel(t).(ui.Model).View())
+	final := ansi.Strip(lastFrame(t, tm))
 	for _, want := range []string{"Swapped", "#1299999"} {
 		if !strings.Contains(final, want) {
 			t.Errorf("final view should contain %q:\n%s", want, final)
@@ -1501,14 +1559,14 @@ func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 				t.Fatal(err)
 			}
 			opts, copied := testOptionsWithCopy(st)
-			tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 40))
+			tm := start(t, ui.New(opts), 120, 40)
 			waitFor(t, tm, "-- Comments (")
-			from := mark(t, tm)
+			from := mark(tm)
 			press(tm, "/", "Unsent", "enter")
 			waitAfter(t, tm, from, "(sending)")
 			press(tm, k)
 			waitAfter(t, tm, from, "not on Wrike yet")
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+			tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 			tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 			if len(*copied) != 0 {
 				t.Errorf("copied %v, want nothing for a task that has no id yet", *copied)
@@ -1521,11 +1579,11 @@ func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 // The list follows the first match while typing, and esc hands the keys back.
 func TestSidebarFilterTakesTheKeysWhileTyping(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "shift+tab", "/", "q")
 	waitFor(t, tm, "/q")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "esc", "/", "m", "o", "b")
 	waitAfter(t, tm, from, "Tasks: Mobile (")
 	press(tm, "esc")
@@ -1538,7 +1596,7 @@ func TestSidebarFilterTakesTheKeysWhileTyping(t *testing.T) {
 func TestPinsSurviveARestart(t *testing.T) {
 	st := seededStore(t)
 	ctx := context.Background()
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "shift+tab", "j", "space") // Mobile is the second row, pin it
 	waitFor(t, tm, "Mobile *")
@@ -1556,7 +1614,7 @@ func TestPinsSurviveARestart(t *testing.T) {
 	if err != nil || !slices.Equal(pins, []string{demo.SpaceMobile}) || only != "1" {
 		t.Fatalf("store after quitting: pins %v, toggle %q, err %v", pins, only, err)
 	}
-	tm = teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm = start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Mobile *")
 	if view := finalView(t, tm); !strings.Contains(view, "Pinned") || strings.Contains(view, "v Platform") {
 		t.Errorf("the toggle and the pin should come back after a restart:\n%s", view)
@@ -1566,16 +1624,17 @@ func TestPinsSurviveARestart(t *testing.T) {
 // On-call sits under Infra, which starts collapsed. A jump into it has to open the way, or the list stays where it was.
 func TestJumpOpensTheWayToACollapsedFolder(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "refactor sync cursor") // IEAATASK04, the only task with all three words, lives in On-call
 	waitForHit(t, tm, from, "Refactor sync cursor", "On-call")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "Tasks: Platform / Infra / On-call (")
+	waitAfter(t, tm, from, "#1200004") // the detail pane is read after the list, and q can overtake that read
 	view := finalView(t, tm)
 	if !strings.Contains(view, "#1200004") || !strings.Contains(view, "On-call") {
 		t.Errorf("the jump should select On-call in the tree and show the task:\n%s", view)
@@ -1584,7 +1643,7 @@ func TestJumpOpensTheWayToACollapsedFolder(t *testing.T) {
 
 func TestSettingsScreenUnfollowsASpace(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, ",")
 	waitFor(t, tm, "Mobile, Platform")
@@ -1606,7 +1665,14 @@ func TestSettingsScreenUnfollowsASpace(t *testing.T) {
 	if slices.Contains(ids, demo.SpaceMobile) || !slices.Contains(ids, demo.SpacePlatform) {
 		t.Fatalf("followed = %v", ids)
 	}
+	from := mark(tm)
 	press(tm, "esc")
+	waitAfter(t, tm, from, "Tasks: My tasks (")
+	// The tree is read again after the write, and q can overtake that read and end the program on the old sidebar.
+	deadline := time.Now().Add(3 * time.Second)
+	for strings.Contains(tm.log.screen(), "Wishlist") && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
 	view := finalView(t, tm)
 	if strings.Contains(view, "Wishlist") || !strings.Contains(view, "Design system") {
 		t.Errorf("the sidebar should have dropped the Mobile space and kept Platform:\n%s", view)
@@ -1616,7 +1682,7 @@ func TestSettingsScreenUnfollowsASpace(t *testing.T) {
 // A write that fails must not be followed by the success toast, the store still follows the scope and the user has to know.
 func TestSettingsBoxReportsAFailedWrite(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks: My tasks (")
 	press(tm, ",")
 	waitFor(t, tm, "Mobile, Platform")
@@ -1638,18 +1704,18 @@ func TestSettingsBoxReportsAFailedWrite(t *testing.T) {
 
 func TestFilterBoxNarrowsTheListAndTheBoard(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks (")
-	all := taskListTitleCount(t, seenOutput(t, tm).String())
+	all := taskListTitleCount(t, tm.log.String())
 	press(tm, "f")
 	waitFor(t, tm, "[ ] High")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "space", "enter")
 	waitAfter(t, tm, from, "showing High")
-	if n := taskListTitleCount(t, seenOutput(t, tm).String()[from:]); n >= all {
+	if n := taskListTitleCount(t, tm.log.String()[from:]); n >= all {
 		t.Fatalf("High only should narrow the list below %d, title count is %d", all, n)
 	}
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "F")
 	waitAfter(t, tm, from, fmt.Sprintf("Tasks: My tasks (%d)", all))
 	press(tm, "b")
@@ -1669,15 +1735,15 @@ func TestFilterBoxNarrowsTheListAndTheBoard(t *testing.T) {
 // so the search jump is the way to a detail that shows every relation.
 func TestDetailShowsTheRelationsOfADemoTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 50))
+	tm := start(t, ui.New(testOptions(st)), 160, 50)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
 	// The title is in the list already, only a frame drawn after typing proves the search found it.
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "fix auth retry")
 	waitForHit(t, tm, from, "Fix auth retry loop", "API")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "#1200000")
 	waitFor(t, tm, "-- Dependencies (2)")
@@ -1693,7 +1759,7 @@ func TestDetailShowsTheRelationsOfADemoTask(t *testing.T) {
 // and the interface reloads only the open task for it.
 func TestDetailReloadsOnADependenciesStoreChange(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 50))
+	tm := start(t, ui.New(testOptions(st)), 160, 50)
 	waitFor(t, tm, "#1200033")
 	err := st.Dependencies().ReplaceForTask(context.Background(), "IEAATASK33", []store.Dependency{
 		{ID: "IEAADEP99", PredecessorID: "IEAATASK33", SuccessorID: "IEAATASK00", RelationType: "FinishToStart"},
@@ -1711,7 +1777,7 @@ func TestAHiddenSidebarIsAwayFromTheStart(t *testing.T) {
 	if err := st.SetMeta(context.Background(), store.MetaKeySidebarHidden, "1"); err != nil {
 		t.Fatal(err)
 	}
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 30))
+	tm := start(t, ui.New(testOptions(st)), 160, 30)
 	waitFor(t, tm, "-- Comments (")
 	if out := finalView(t, tm); strings.Contains(out, "Spaces") || !strings.Contains(out, "Tasks: My tasks (") {
 		t.Errorf("the frame with a saved hidden sidebar:\n%s", out)
@@ -1722,7 +1788,7 @@ func TestAHiddenSidebarIsAwayFromTheStart(t *testing.T) {
 // so ctrl+p has something to step to. The first timesheet row is a task with seeded entries and notes.
 func TestLogTimeBoxOffersTheEarlierNotesOfTheTask(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(testOptions(st)), 120, 30)
 	waitFor(t, tm, "Tasks:")
 	press(tm, "T")
 	waitFor(t, tm, "Timesheet: 31 Aug - 6 Sep 2026")
@@ -1751,14 +1817,14 @@ func reachingOptions(t *testing.T, st *store.Store) ui.Options {
 
 func TestQuickSearchFetchesAnUncachedTaskFromWrike(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(reachingOptions(t, st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(reachingOptions(t, st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "MAAAAAEPXpuV")
 	waitAfter(t, tm, from, "open from Wrike: MAAAAAEPXpuV")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "Outside the scopes")
 	view := finalView(t, tm)
@@ -1773,14 +1839,14 @@ func TestQuickSearchReachRowSaysNoSuchTask(t *testing.T) {
 	opts.Hooks.Reach = func(ctx context.Context, ref store.TaskRef) (store.Task, error) {
 		return store.Task{}, ui.ErrNoSuchTask
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(opts), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "MAAAAAEPXpuV")
 	waitAfter(t, tm, from, "open from Wrike: MAAAAAEPXpuV")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "no task with this id on Wrike, or no access")
 	// The box is still up with the reason in it, esc is what closes it, and the main screen takes q again.
@@ -1792,14 +1858,14 @@ func TestQuickSearchReachRowSaysNoSuchTask(t *testing.T) {
 
 func TestQuickSearchReachRowInTheDemo(t *testing.T) {
 	st := seededStore(t)
-	tm := teatest.NewTestModel(t, ui.New(testOptions(st)), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(testOptions(st)), 160, 40)
 	waitFor(t, tm, "#1200033")
 	press(tm, "ctrl+f")
 	waitFor(t, tm, "Search")
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "https://www.wrike.com/open.htm?id=4552825749")
 	waitAfter(t, tm, from, "open from Wrike: https://www.wrike.com/open.htm?id=4552825749")
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "enter")
 	waitAfter(t, tm, from, "not available in the demo")
 }
@@ -1808,7 +1874,7 @@ func TestDetailShowsTheBudgetOfTheDemoTask(t *testing.T) {
 	st := seededStore(t)
 	o := testOptions(st)
 	o.Config.Budget = config.BudgetConfig{Source: "field", Field: demo.BudgetField}
-	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(o), 160, 40)
 	// Fix auth retry loop, the first demo task, carries 20h and two entries of 1h 30m.
 	press(tm, "/", "fix auth retry", "enter")
 	waitFor(t, tm, "#1200000")
@@ -1858,11 +1924,11 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 			t.Fatalf("asked = %v, want %d calls", got, want)
 		}
 	}
-	tm := teatest.NewTestModel(t, ui.New(o), teatest.WithInitialTermSize(160, 40))
+	tm := start(t, ui.New(o), 160, 40)
 	waitFor(t, tm, "Tasks: My tasks")
 
 	// Walking past within the second asks nothing.
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "j")
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	press(tm, "j")
@@ -1872,7 +1938,7 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 	}
 
 	// Resting on it asks once.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "k")
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	waitCalls(1, 3*time.Second)
@@ -1883,10 +1949,10 @@ func TestRestingOnANeverReadTaskAsksForItsThread(t *testing.T) {
 
 	// Away and back asks again, and this time the hook fails.
 	// Two presses inside one frame leave the screen as it was and draw nothing, so the move away is waited for first.
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "j")
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, tasks[2].Permalink))
-	from = mark(t, tm)
+	from = mark(tm)
 	press(tm, "k")
 	waitAfter(t, tm, from, "#"+permalinkNumber(t, unread.Permalink))
 	waitCalls(2, 3*time.Second)

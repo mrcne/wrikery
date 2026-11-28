@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/exp/teatest"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
@@ -35,7 +35,7 @@ func TestFirstRunFlow(t *testing.T) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Paste a permanent access token")
 	press(tm, "abc", "enter")
 	if got := <-verified; got != "abc" {
@@ -60,16 +60,27 @@ func TestFirstRunFlow(t *testing.T) {
 	press(tm, "j", "j", "space", "enter")
 
 	waitFor(t, tm, "Syncing")
-	scopes, err := st.Scopes().Followed(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ids []string
-	for _, sc := range scopes {
-		ids = append(ids, sc.ID)
-	}
-	if !slices.Contains(ids, demo.SpacePlatform) || slices.Contains(ids, demo.SpaceMobile) {
-		t.Fatalf("followed = %v", ids)
+	// The step is drawn before its command writes the scopes, so one read of the store can come too early.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		scopes, err := st.Scopes().Followed(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, sc := range scopes {
+			ids = append(ids, sc.ID)
+		}
+		if slices.Contains(ids, demo.SpaceMobile) {
+			t.Fatalf("followed = %v", ids)
+		}
+		if slices.Contains(ids, demo.SpacePlatform) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("followed = %v", ids)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	if err := st.Tasks().ApplyPage(ctx, demo.SpacePlatform, nil, "2026-09-03T12:00:00Z"); err != nil {
@@ -92,7 +103,7 @@ func TestFirstRunDataCenterRowCyclesAndSubmitsThePick(t *testing.T) {
 		verified <- call{token, host}
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "detected automatically")
 	press(tm, "down", "space", "space")
 	waitFor(t, tm, "https://app-eu.wrike.com/appconsole.htm?#/api")
@@ -113,7 +124,7 @@ func TestFirstRunTypingOnTheDataCenterRowGoesToTheTokenField(t *testing.T) {
 		verified <- call{token, host}
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "detected automatically")
 	press(tm, "down", "space", "abc", "enter")
 	select {
@@ -135,7 +146,7 @@ func TestFirstRunJOnTheDataCenterRowIsNotTyped(t *testing.T) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "detected automatically")
 	press(tm, "down", "j", "abc", "enter")
 	select {
@@ -158,7 +169,7 @@ func TestFirstRunDataCenterRowIsFixedByTheConfigHost(t *testing.T) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "host in the config file")
 	waitFor(t, tm, "https://app-eu.wrike.com/appconsole.htm?#/api")
 	press(tm, "down", "abc", "enter")
@@ -170,7 +181,7 @@ func TestFirstRunDataCenterRowIsFixedByTheConfigHost(t *testing.T) {
 // The re-auth screen is the same box, so the row is there after a 401 or a 300 from the engine.
 func TestReauthScreenShowsTheDataCenterRow(t *testing.T) {
 	opts := testOptions(seededStore(t))
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "detected automatically")
@@ -184,7 +195,7 @@ func TestReauthScreenShowsTheDataCenterRow(t *testing.T) {
 func TestFirstRunDataCenterRowFitsTheBox(t *testing.T) {
 	opts := testOptions(freshStore(t))
 	opts.Demo, opts.FirstRun = false, true
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(76, 30))
+	tm := start(t, ui.New(opts), 76, 30)
 	waitFor(t, tm, "down to pick one")
 	press(tm, "down")
 	waitFor(t, tm, "left and right to change, up for the token")
@@ -212,14 +223,14 @@ func TestFirstRunKeepsALongTokenWhole(t *testing.T) {
 		verified <- got
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Paste a permanent access token")
 	press(tm, token, "enter")
 	if got := <-verified; got != token {
 		t.Fatalf("verified %d characters, want %d: the input cut the token", len(got), len(token))
 	}
 	waitFor(t, tm, "Hello Ada Nowak")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
 }
 
@@ -232,7 +243,7 @@ func TestFirstRunShowsTheTokenLink(t *testing.T) {
 	opts := testOptions(st)
 	opts.Demo = false
 	opts.FirstRun = true
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "appconsole.htm?#/api")
 	if err := tm.Quit(); err != nil {
 		t.Fatal(err)
@@ -244,13 +255,13 @@ func TestAuthRequiredReturnsToTokenStep(t *testing.T) {
 	st := seededStore(t)
 	opts := testOptions(st)
 	opts.Hooks.VerifyToken = func(context.Context, string, string) (string, error) { return "Ada Nowak", nil }
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike did not accept the stored token")
 
 	// The pane titles were on screen before the box covered them, so only the frames drawn from here on prove the main screen is back.
-	from := mark(t, tm)
+	from := mark(tm)
 	press(tm, "newtoken", "enter")
 	waitAfter(t, tm, from, "Tasks")
 	view := finalView(t, tm)
@@ -289,7 +300,7 @@ func browserOptions(t *testing.T, st *store.Store, secret string) (ui.Options, c
 
 func TestFirstRunPasteErrorKeepsTheAttempt(t *testing.T) {
 	opts, result, pasted, _ := browserOptions(t, freshStore(t), "s3cret")
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "login.wrike.com")
@@ -314,7 +325,7 @@ func TestFirstRunSaysWhenNoListenerRuns(t *testing.T) {
 		si.Listening = false
 		return si, err
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "paste the address the browser lands on, nothing listens on the port")
@@ -328,7 +339,7 @@ func TestFirstRunTabIsIgnoredWhileTheSignInStarts(t *testing.T) {
 		<-release
 		return inner(secret)
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "starting the sign in")
@@ -336,7 +347,7 @@ func TestFirstRunTabIsIgnoredWhileTheSignInStarts(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	close(release)
 	waitFor(t, tm, "waiting for the browser")
-	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Paste a permanent access token") {
+	if seen := tm.log.String(); strings.Contains(seen, "Paste a permanent access token") {
 		t.Fatal("tab switched to the token field while the sign in was starting")
 	}
 }
@@ -346,11 +357,11 @@ func TestReauthNoticeForATokenWithTheBrowserBox(t *testing.T) {
 	opts, _, _, _ := browserOptions(t, st, "s3cret")
 	opts.FirstRun = false
 	opts.SignedInWith = ui.SignedInWithToken
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike did not accept the stored token. Sign in again to continue.")
-	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Paste it again") {
+	if seen := tm.log.String(); strings.Contains(seen, "Paste it again") {
 		t.Fatal("the notice asks for a paste above the browser box")
 	}
 }
@@ -367,7 +378,7 @@ func freshStore(t *testing.T) *store.Store {
 
 func TestFirstRunBrowserShowsTheAddressAndTakesAPaste(t *testing.T) {
 	opts, result, pasted, _ := browserOptions(t, freshStore(t), "s3cret")
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "login.wrike.com")
@@ -391,7 +402,7 @@ func TestFirstRunBrowserNeedsTheSecret(t *testing.T) {
 		t.Error("the hook ran without a secret")
 		return ui.SignIn{}, nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Client secret")
 	press(tm, "enter")
 	waitFor(t, tm, "the client secret is needed")
@@ -404,7 +415,7 @@ func TestFirstRunTabSwitchesToTheTokenField(t *testing.T) {
 		verified <- token
 		return "Ada Nowak", nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "tab")
 	waitFor(t, tm, "Paste a permanent access token")
@@ -417,7 +428,7 @@ func TestFirstRunTabSwitchesToTheTokenField(t *testing.T) {
 
 func TestFirstRunEscCancelsTheAttempt(t *testing.T) {
 	opts, result, _, cancelled := browserOptions(t, freshStore(t), "s3cret")
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "waiting for the browser")
@@ -432,7 +443,7 @@ func TestFirstRunEscCancelsTheAttempt(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	press(tm, "tab")
 	waitFor(t, tm, "Paste a permanent access token")
-	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "Hello Late") {
+	if seen := tm.log.String(); strings.Contains(seen, "Hello Late") {
 		t.Fatal("the late answer of a cancelled attempt was taken")
 	}
 }
@@ -442,7 +453,7 @@ func TestReauthNoticeNamesTheSession(t *testing.T) {
 	opts, _, _, _ := browserOptions(t, st, "s3cret")
 	opts.FirstRun = false
 	opts.SignedInWith = ui.SignedInWithBrowser
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Tasks")
 	tm.Send(ui.SyncStateMsg{State: "auth_required"})
 	waitFor(t, tm, "Wrike no longer accepts the session")
@@ -469,11 +480,11 @@ func TestFirstRunPickerStartsFromTheFollowedSet(t *testing.T) {
 	opts.Demo = false
 	opts.FirstRun = true
 	opts.Hooks.VerifyToken = func(context.Context, string, string) (string, error) { return "Ada Nowak", nil }
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Paste a permanent access token")
 	press(tm, "abc", "enter")
 	waitFor(t, tm, "[x] Platform")
-	if seen := seenOutput(t, tm); !strings.Contains(seen.String(), "[ ] Mobile") {
+	if seen := tm.log.String(); !strings.Contains(seen, "[ ] Mobile") {
 		t.Fatal("an unfollowed space shows as ticked")
 	}
 }
@@ -485,11 +496,11 @@ func TestFirstRunCtrlYCopiesTheAddress(t *testing.T) {
 		copied = append(copied, text)
 		return nil
 	}
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "waiting for the browser")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlY})
+	tm.Send(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	waitFor(t, tm, "address copied")
 	if len(copied) != 1 || copied[0] != "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s" {
 		t.Fatalf("copied %q", copied)
@@ -500,10 +511,10 @@ func TestFirstRunShowsNoKeyHints(t *testing.T) {
 	opts := testOptions(freshStore(t))
 	opts.Demo = false
 	opts.FirstRun = true
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Paste a permanent access token")
 	// None of the main screen keys work under the box, and q is swallowed by the field.
-	if seen := seenOutput(t, tm); strings.Contains(seen.String(), "ctrl+f search") || strings.Contains(seen.String(), "q quit") {
+	if seen := tm.log.String(); strings.Contains(seen, "ctrl+f search") || strings.Contains(seen, "q quit") {
 		t.Fatal("the first run frame carries the main screen key hints")
 	}
 }
@@ -511,7 +522,7 @@ func TestFirstRunShowsNoKeyHints(t *testing.T) {
 // Esc on the account box after a browser sign in is the answer no: nothing is confirmed and the screen says what to do instead.
 func TestEscOnTheAccountBoxAfterABrowserSignIn(t *testing.T) {
 	opts, result, _, _ := browserOptions(t, freshStore(t), "s3cret")
-	tm := teatest.NewTestModel(t, ui.New(opts), teatest.WithInitialTermSize(120, 30))
+	tm := start(t, ui.New(opts), 120, 30)
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "login.wrike.com")

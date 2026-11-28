@@ -6,12 +6,18 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
 
-func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+// keyRunes is the key press of typed text: one rune is a key of its own, several arrive as one message the way an input method sends them.
+func keyRunes(s string) tea.KeyPressMsg {
+	if r := []rune(s); len(r) == 1 {
+		return tea.KeyPressMsg{Code: r[0], Text: s}
+	}
+	return tea.KeyPressMsg{Code: tea.KeyExtended, Text: s}
+}
 
 func pendingWrites(t *testing.T, st *store.Store) int {
 	t.Helper()
@@ -50,8 +56,8 @@ func TestFirstStatusMoveAsksOnce(t *testing.T) {
 			t.Errorf("the prompt does not name %q:\n%s", want, d.prompt)
 		}
 	}
-	if !strings.Contains(squeeze(m.View()), "comes only once") {
-		t.Errorf("the box is not drawn:\n%s", m.View())
+	if !strings.Contains(squeeze(m.frame()), "comes only once") {
+		t.Errorf("the box is not drawn:\n%s", m.frame())
 	}
 	if n := pendingWrites(t, st); n != before {
 		t.Fatalf("the first L queued a write before the yes, pending %d -> %d", before, n)
@@ -170,7 +176,7 @@ func TestCancelledStatusMoveAsksAgain(t *testing.T) {
 	m := moveModel(t, "IEAATASK12")
 	st := m.opts.Store
 	before := pendingWrites(t, st)
-	for _, cancel := range []tea.KeyMsg{{Type: tea.KeyEsc}, keyRunes("n")} {
+	for _, cancel := range []tea.KeyPressMsg{{Code: tea.KeyEscape}, keyRunes("n")} {
 		m = pump(m, keyRunes("L"))
 		if _, ok := m.dialog.(confirmDialog); !ok {
 			t.Fatalf("L opened %T before %s, want the confirm box", m.dialog, cancel)

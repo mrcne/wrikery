@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
 type KeyMap struct {
 	Quit, Help, Search, Timesheet, Changes, Inbox, Settings, Refresh, NextPane, PrevPane, Back, HideSidebar                       key.Binding
@@ -29,7 +29,7 @@ func defaultKeyMap() KeyMap {
 		Up: b("k", "up", "k", "up"), Down: b("j", "down", "j", "down"), Top: b("g", "first", "g", "home"), Bottom: b("G", "last", "G", "end"),
 		HalfDown: b("ctrl+d", "half page down", "ctrl+d", "pgdown"), HalfUp: b("ctrl+u", "half page up", "ctrl+u", "pgup"),
 		Filter: b("/", "filter", "/"), Enter: b("enter", "open", "enter"), Left: b("h", "collapse / left", "h", "left"), Right: b("l", "expand / right", "l", "right"),
-		ToggleDone: b("z", "show completed", "z"), Pin: b("space", "pin / unpin", " "), Pinned: b("P", "pinned only", "P"),
+		ToggleDone: b("z", "show completed", "z"), Pin: b("space", "pin / unpin", "space"), Pinned: b("P", "pinned only", "P"),
 		Board: b("b", "board / list", "b"), GroupBy: b("v", "group by", "v"),
 		FilterBox: b("f", "filter box", "f"), ClearFilter: b("F", "clear filter", "F"),
 		EditRow: b("enter", "open or edit the row", "enter"), Pick: b("h", "pick a value on an open row", "h", "l", "left", "right"), CancelEdit: b("esc", "cancel an edit", "esc"),

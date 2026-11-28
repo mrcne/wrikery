@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -23,7 +23,7 @@ func rootWithTree(t *testing.T, width int) Model {
 }
 
 func pressS(m Model) Model {
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	next, _ := m.handleKey(keyRunes("S"))
 	return next.(Model)
 }
 
@@ -49,12 +49,12 @@ func TestSHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 	if d := m.keys.HideSidebar.Help().Desc; d != "show sidebar" || !offersWayBack(m) {
 		t.Errorf("while hidden the key reads %q and the hint row offers it: %v, want show sidebar in both", d, offersWayBack(m))
 	}
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	next, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = next.(Model)
 	if m.focus != paneDetail {
 		t.Errorf("tab from the list focused %v, want the detail", m.focus)
 	}
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	next, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = next.(Model)
 	if m.focus != paneList {
 		t.Errorf("tab from the detail focused %v, want the list, the sidebar is hidden", m.focus)
@@ -77,7 +77,7 @@ func TestSHidesTheSidebarAndBringsItBackOnItsNode(t *testing.T) {
 // ctrl+b is what editors use for the same thing, it stays as a second key for terminals that pass it on.
 func TestCtrlBHidesTheSidebarToo(t *testing.T) {
 	m := rootWithTree(t, 160)
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyCtrlB})
+	next, _ := m.handleKey(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	if m = next.(Model); !m.sidebarHidden {
 		t.Error("ctrl+b left the sidebar shown")
 	}
@@ -93,7 +93,7 @@ func TestAHiddenSidebarIsNotFocusedByTheListOrByEsc(t *testing.T) {
 	if m.focus != paneList {
 		t.Errorf("h on the list focused %v, want the list to keep the focus", m.focus)
 	}
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	next, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = next.(Model)
 	if m.focus != paneList {
 		t.Errorf("esc on the one pane screen focused %v, want the list", m.focus)
@@ -110,7 +110,7 @@ func TestTheBoardCyclesWithoutAHiddenSidebar(t *testing.T) {
 	if !m.sidebarHidden || m.focus != paneBoard {
 		t.Fatalf("S on the board: hidden=%v focus=%v, want hidden with the board focused", m.sidebarHidden, m.focus)
 	}
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	next, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	m = next.(Model)
 	if m.focus != paneDetail {
 		t.Errorf("shift+tab from the board focused %v, want the detail", m.focus)

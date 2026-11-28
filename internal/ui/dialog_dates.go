@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -28,7 +28,7 @@ type datesDialog struct {
 func newDatesDialog(task store.Task, now time.Time) (datesDialog, tea.Cmd) {
 	d := datesDialog{taskID: task.ID, milestone: task.Dates != nil && task.Dates.Type == store.DatesMilestone, now: now}
 	for i, label := range []string{"start", "due"} {
-		in := textinput.New()
+		in := newInput()
 		in.Prompt = fmt.Sprintf("%-6s", label)
 		in.Placeholder = "2026-09-12, fri, last fri, +3d, today, empty clears"
 		in.CharLimit = 20
@@ -45,13 +45,13 @@ func newDatesDialog(task store.Task, now time.Time) (datesDialog, tea.Cmd) {
 	return d, d.inputs[0].Focus()
 }
 
-func (d datesDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyTab, tea.KeyDown, tea.KeyUp, tea.KeyShiftTab:
+func (d datesDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "down", "up", "shift+tab":
 		d.inputs[d.focus].Blur()
 		d.focus = 1 - d.focus
 		return d, d.inputs[d.focus].Focus()
-	case tea.KeyEnter:
+	case "enter":
 		start, err := ParseDay(d.inputs[0].Value(), d.now)
 		if err != nil {
 			d.errText = "start: " + err.Error()

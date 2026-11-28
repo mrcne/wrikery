@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -74,10 +74,10 @@ func TestTimesheetGridTotalsAndCursor(t *testing.T) {
 	if ts.title() != "Timesheet: 31 Aug - 6 Sep 2026" {
 		t.Errorf("title = %q", ts.title())
 	}
-	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
-	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
-	_, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	ts, _ = ts.Update(keyRunes("l"))
+	ts, _ = ts.Update(keyRunes("j"))
+	ts, _ = ts.Update(keyRunes("l"))
+	_, cmd := ts.Update(keyRunes("e"))
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("e on a two entry cell should ask which one: %#v", msgs)
@@ -85,7 +85,7 @@ func TestTimesheetGridTotalsAndCursor(t *testing.T) {
 	if pick, ok := msgs[0].(pickEntryMsg); !ok || len(pick.logs) != 2 {
 		t.Errorf("got %#v", msgs[0])
 	}
-	_, cmd = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	_, cmd = ts.Update(keyRunes("]"))
 	if msgs := collect(cmd); len(msgs) != 1 || msgs[0].(loadWeekMsg).start.Format("2006-01-02") != "2026-09-07" {
 		t.Errorf("] -> %#v", msgs)
 	}
@@ -244,7 +244,7 @@ func TestTimesheetGridScrollsTheCursorIntoView(t *testing.T) {
 	}
 
 	for i := 0; i < 25; i++ {
-		ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		ts, _ = ts.Update(keyRunes("j"))
 	}
 	if ts.cursorRow != 25 {
 		t.Fatalf("cursorRow = %d, want 25", ts.cursorRow)
@@ -345,7 +345,7 @@ func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
 		logs:      []store.Timelog{{ID: "a", TaskID: "T1", TrackedDate: "2026-08-31", Hours: 2}},
 		titles:    map[string]string{"T1": "Fix auth retry loop"},
 	})
-	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
 	_, cmd := ts.Update(enter)
 	if cmd == nil {
 		t.Fatal("enter on a row sent nothing")
@@ -353,7 +353,7 @@ func TestEnterOnATimesheetRowAsksForItsTask(t *testing.T) {
 	if msg, ok := cmd().(openBesideMsg); !ok || msg.id != "T1" {
 		t.Errorf("enter on a row sent %#v, want openBesideMsg for T1", cmd())
 	}
-	_, cmd = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	_, cmd = ts.Update(keyRunes("e"))
 	if msg, ok := cmd().(editEntryMsg); !ok || msg.log.ID != "a" {
 		t.Errorf("e sent %#v, want editEntryMsg for entry a", cmd())
 	}
@@ -387,8 +387,8 @@ func TestTimesheetMarksTheRowUnderTheCursor(t *testing.T) {
 	if !strings.HasPrefix(lines[3], "    + new task") || !strings.HasPrefix(lines[5], "    Total") {
 		t.Errorf("the add row and the totals should sit under the titles:\n%s", strings.Join(lines, "\n"))
 	}
-	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	ts, _ = ts.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	ts, _ = ts.Update(keyRunes("j"))
+	ts, _ = ts.Update(keyRunes("j"))
 	lines = strings.Split(ansi.Strip(ts.View(th, 100, 12)), "\n")
 	if !strings.HasPrefix(lines[1], "  o Fix auth retry loop") || !strings.HasPrefix(lines[3], ">   + new task") {
 		t.Errorf("the mark should have moved to the new task row:\n%s", strings.Join(lines, "\n"))
@@ -428,14 +428,14 @@ func TestTaskKeysOnTheTimesheetActOnTheOpenDetail(t *testing.T) {
 	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
 	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
 	m.selectedTaskID = "T1"
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ := m.handleKey(keyRunes("s"))
 	m = next.(Model)
 	if d, ok := m.dialog.(statusDialog); !ok || m.overlay != overlayDialog || d.taskID != "T1" {
 		t.Fatalf("s on the focused detail should open the status box for T1, got %T with overlay %v", m.dialog, m.overlay)
 	}
 	m.overlay, m.dialog = overlayNone, nil
 	m.timesheet.detailFocus = false
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ = m.handleKey(keyRunes("s"))
 	m = next.(Model)
 	if m.dialog != nil {
 		t.Errorf("s with the grid focused opened %T", m.dialog)
@@ -451,7 +451,7 @@ func TestKeysOnTheGridPaneRightAfterAMoveDoNotReachTheTaskBefore(t *testing.T) {
 			return next.(Model)
 		},
 		"tab": func(m Model) Model {
-			next, _ := m.timesheetKey(tea.KeyMsg{Type: tea.KeyTab})
+			next, _ := m.timesheetKey(tea.KeyPressMsg{Code: tea.KeyTab})
 			return next.(Model)
 		},
 	} {
@@ -463,7 +463,7 @@ func TestKeysOnTheGridPaneRightAfterAMoveDoNotReachTheTaskBefore(t *testing.T) {
 			m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
 			m.selectedTaskID = "T1"
 			// j moves the cursor and the selection, the read of T2 is held back.
-			next, _ := m.timesheetKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+			next, _ := m.timesheetKey(keyRunes("j"))
 			m = next.(Model)
 			if m.selectedTaskID != "T2" || m.detail.task.ID != "T1" {
 				t.Fatalf("after j the selection is on %q and the pane on %q, want T2 with the pane behind", m.selectedTaskID, m.detail.task.ID)
@@ -475,7 +475,7 @@ func TestKeysOnTheGridPaneRightAfterAMoveDoNotReachTheTaskBefore(t *testing.T) {
 			if got, ok := m.selectedTask(); ok && got.ID != "T2" {
 				t.Errorf("the keys act on %q, want T2 or no task", got.ID)
 			}
-			next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			next, _ = m.handleKey(keyRunes("s"))
 			m = next.(Model)
 			if d, ok := m.dialog.(statusDialog); ok && d.taskID != "T2" {
 				t.Errorf("s opened the status box for %q, want T2 or none", d.taskID)
@@ -578,7 +578,7 @@ func TestTaskKeysOnThePaneSkipTheMainScreenContext(t *testing.T) {
 	b2.ParentIDs = []string{"ONC"}
 	m.detail.set(taskLoadedMsg{asked: "b2", task: b2})
 	m.selectedTaskID = "b2"
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	next, _ := m.handleKey(keyRunes("m"))
 	m = next.(Model)
 	d, ok := m.dialog.(foldersDialog)
 	if !ok {
@@ -588,7 +588,7 @@ func TestTaskKeysOnThePaneSkipTheMainScreenContext(t *testing.T) {
 		t.Errorf("the folders box on the timesheet would leave %v on a move, the list's node is not on screen", d.leaving)
 	}
 	m.overlay, m.dialog = overlayNone, nil
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")})
+	next, _ = m.handleKey(keyRunes("L"))
 	m = next.(Model)
 	if strings.Contains(m.status.toast, "another workflow") {
 		t.Errorf("L on the pane was refused for the board's bucket column: %q", m.status.toast)
@@ -613,7 +613,7 @@ func TestAFocusedPaneKeepsItsTaskWhenItsRowGoes(t *testing.T) {
 	if m.selectedTaskID != "T2" {
 		t.Errorf("the focused pane switched to %s when its row went", m.selectedTaskID)
 	}
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	next, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = next.(Model)
 	if m.timesheet.detailFocus || m.selectedTaskID != "T1" {
 		t.Errorf("tab to the grid should put the pane on the row under the cursor, got focus %v selected %s", m.timesheet.detailFocus, m.selectedTaskID)
@@ -642,7 +642,7 @@ func TestLogTimeOnThePaneTakesTheCellDay(t *testing.T) {
 	m.timesheet.detailOpen, m.timesheet.detailFocus = true, true
 	m.detail.set(taskLoadedMsg{asked: "T1", task: store.Task{ID: "T1", Title: "Alpha", Status: "Active"}})
 	m.selectedTaskID = "T1"
-	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")})
+	next, _ := m.handleKey(keyRunes("t"))
 	m = next.(Model)
 	d, ok := m.dialog.(timelogDialog)
 	if !ok {
@@ -687,7 +687,7 @@ func TestTimesheetSetsTheTotalsApartWithRules(t *testing.T) {
 		},
 		titles: map[string]string{"T1": "Fix auth retry loop", "T2": "Rotate signing keys"},
 	})
-	out := ts.View(th, 100, 12)
+	out := ansi.Strip(ts.View(th, 100, 12))
 	for _, want := range []string{"Sun 6 |  Total", "- |   3:30", "- |   4:30", "- |   8:00"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("grid lacks the vertical rule in %q:\n%s", want, out)
@@ -712,7 +712,7 @@ func TestTimesheetEnterOnAnUncachedRowAsksTheReach(t *testing.T) {
 		logs:      []store.Timelog{{ID: "c", TaskID: "T9", TrackedDate: "2026-09-03", Hours: 1}},
 		titles:    map[string]string{"T9": ""},
 	})
-	ts, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	ts, cmd := ts.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	var reach *reachMsg
 	var toast *toastMsg
 	for _, msg := range collect(cmd) {
@@ -730,7 +730,7 @@ func TestTimesheetEnterOnAnUncachedRowAsksTheReach(t *testing.T) {
 		t.Errorf("toast = %#v, want the fetching note", toast)
 	}
 	// A second enter while the fetch runs sends nothing more, the week reload ends the wait.
-	if _, cmd := ts.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	if _, cmd := ts.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
 		t.Errorf("a second enter sent %#v", collect(cmd))
 	}
 }

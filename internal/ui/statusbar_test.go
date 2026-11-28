@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -25,7 +26,7 @@ func TestStatusBarShowsOfflineMode(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	s := statusModel{state: "offline_mode", pending: 2}
-	out := s.View(th, 80, "", now)
+	out := ansi.Strip(s.View(th, 80, "", now))
 	if !strings.Contains(out, "offline mode  2 pending") || strings.Contains(out, "since") {
 		t.Errorf("offline mode bar = %q", out)
 	}
@@ -36,7 +37,7 @@ func TestStatusBarShowsTheMissingDataCenter(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	s := statusModel{state: "no_data_center", pending: 1}
-	out := s.View(th, 100, "", now)
+	out := ansi.Strip(s.View(th, 100, "", now))
 	if !strings.Contains(out, "offline, no data center found, R tries again  1 pending") {
 		t.Errorf("no data center bar = %q", out)
 	}

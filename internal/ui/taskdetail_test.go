@@ -8,7 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -48,7 +48,7 @@ func TestDetailShowsMetadataCommentsAndMarkers(t *testing.T) {
 		crumb:    "Platform / API",
 	})
 	d.layout(th, ref, now, 60, 30, "dark", false)
-	out := d.View()
+	out := ansi.Strip(d.View())
 	for _, want := range []string{"Fix auth retry", "(failed, ! to review)", "#1200001", "Platform / API", "In progress", "Ada Nowak, Bartek Lis", "8 Sep -> 12 Sep", "Body text", "Comments (2)", "Ada Nowak (sending)", "Reproduced", "Time (1)", "1h 30m"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("detail lacks %q:\n%s", want, out)
@@ -67,7 +67,7 @@ func TestDetailMarksAQueuedTask(t *testing.T) {
 		states: map[string]store.OutboxState{"T1": store.StatePending},
 	})
 	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 60, 30, "dark", false)
-	if out := d.View(); !strings.Contains(out, "Fix auth retry (sending)") {
+	if out := ansi.Strip(d.View()); !strings.Contains(out, "Fix auth retry (sending)") {
 		t.Errorf("a queued task should say so on the title:\n%s", out)
 	}
 }
@@ -143,7 +143,7 @@ func TestDetailShowsTheRelations(t *testing.T) {
 		states: map[string]store.OutboxState{},
 	})
 	d.layout(th, ref, now, 70, 40, "dark", false)
-	out := d.View()
+	out := ansi.Strip(d.View())
 	for _, want := range []string{
 		"Subtask of   o Plan the release",
 		"a task outside the followed spaces",
@@ -196,13 +196,13 @@ func TestDetailMovesTheRelationToASecondLineWhenItDoesNotFit(t *testing.T) {
 		states:  map[string]store.OutboxState{},
 	})
 	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 40, 30, "dark", false)
-	out := d.View()
+	out := ansi.Strip(d.View())
 	// The viewport pads every line to the width, so the two lines are checked on their own.
 	if !strings.Contains(out, "predecessor  o Rotate the signing keys") || !strings.Contains(out, "\n             finish to start, lag 2 days") {
 		t.Errorf("a relation that does not fit the line goes under the title, indented to the label column:\n%s", out)
 	}
 	d.layout(th, refData{}, time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC), 80, 30, "dark", false)
-	if !strings.Contains(d.View(), "predecessor  o Rotate the signing keys  finish to start, lag 2 days") {
+	if !strings.Contains(ansi.Strip(d.View()), "predecessor  o Rotate the signing keys  finish to start, lag 2 days") {
 		t.Errorf("a relation that fits stays on the line:\n%s", d.View())
 	}
 }
@@ -276,7 +276,7 @@ func TestDetailShowsTheTimeLine(t *testing.T) {
 		"no budget":  {colleague, budgetInfo{}, "Time         2h 30m"},
 		"no entries": {nil, budgetInfo{has: true, hours: 20}, "Time         0h of 20h, 20h left"},
 	} {
-		if out := render(tc.logs, tc.b); !strings.Contains(out, tc.want) {
+		if out := ansi.Strip(render(tc.logs, tc.b)); !strings.Contains(out, tc.want) {
 			t.Errorf("%s: detail lacks %q:\n%s", name, tc.want, out)
 		}
 	}

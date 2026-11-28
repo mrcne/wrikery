@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -61,7 +61,7 @@ func TestFilterBoxTicksOnePersonAndSubmitsTheChange(t *testing.T) {
 	l.narrow = rowFilter{importance: setOf("High")}
 	d, _ := newFilterDialog(&l)
 	var dl dialog = d
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 1 {
 		t.Fatalf("enter with nothing changed should only close, got %#v", msgs)
 	} else if _, ok := msgs[0].(closeDialogMsg); !ok {
@@ -69,23 +69,23 @@ func TestFilterBoxTicksOnePersonAndSubmitsTheChange(t *testing.T) {
 	}
 	type_ := func(s string) {
 		for _, r := range s {
-			dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			dl, _ = dl.Update(keyRunes(string(r)))
 		}
 	}
 	clear := func(n int) {
 		for range n {
-			dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+			dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 		}
 	}
 	type_("ada")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	clear(3)
 	type_("bar")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // Bartek takes Ada's place, one person at a time
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // Bartek takes Ada's place, one person at a time
 	clear(3)
 	type_("in")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // In Progress
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // In Progress
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 {
 		t.Fatalf("enter should submit and close, got %#v", msgs)

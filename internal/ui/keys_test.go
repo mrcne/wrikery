@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestDefaultKeyMapGroupsCoverExpectedActions(t *testing.T) {
@@ -25,12 +25,12 @@ func TestDefaultKeyMapMatchesTheKeysItAdvertises(t *testing.T) {
 	k := defaultKeyMap()
 	for _, tc := range []struct {
 		name string
-		msg  tea.KeyMsg
+		msg  tea.KeyPressMsg
 		want key.Binding
 	}{
-		{"q quits", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}, k.Quit},
-		{"ctrl+c quits", tea.KeyMsg{Type: tea.KeyCtrlC}, k.Quit},
-		{"? opens help", tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")}, k.Help},
+		{"q quits", keyRunes("q"), k.Quit},
+		{"ctrl+c quits", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, k.Quit},
+		{"? opens help", keyRunes("?"), k.Help},
 	} {
 		if !key.Matches(tc.msg, tc.want) {
 			t.Errorf("%s: %v did not match", tc.name, tc.msg)

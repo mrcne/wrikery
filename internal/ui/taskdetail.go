@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -70,7 +70,8 @@ func (d taskDetailModel) title() string {
 // The description itself is compared as well, since a queued edit changes it before the updated date moves.
 // offline is the root's mode, it sends nothing, so a queued write reads queued and not sending.
 func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, height int, mode string, offline bool) {
-	d.vp.Width, d.vp.Height = width, height
+	d.vp.SetWidth(width)
+	d.vp.SetHeight(height)
 	if !d.loaded || width <= 0 {
 		d.content = lipgloss.NewStyle().Foreground(th.Muted).Render("Select a task.")
 		d.vp.SetContent(d.content)
@@ -237,7 +238,7 @@ func (d *taskDetailModel) layout(th Theme, ref refData, now time.Time, width, he
 	}
 }
 
-func (d taskDetailModel) Update(msg tea.KeyMsg) (taskDetailModel, tea.Cmd) {
+func (d taskDetailModel) Update(msg tea.KeyPressMsg) (taskDetailModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, d.keys.Down):
 		d.vp.ScrollDown(1)

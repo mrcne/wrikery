@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/demo"
 	"github.com/mrcne/wrikery/internal/store"
@@ -40,7 +40,7 @@ func pinnedOnPlatform(t *testing.T, m Model) Model {
 	t.Helper()
 	m = pump(m, focusMsg{pane: paneSidebar})
 	m.sidebar.selectByID(demo.SpacePlatform)
-	m = pump(m, tea.KeyMsg{Type: tea.KeySpace})
+	m = pump(m, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	m.sidebar.selectByID(demo.ProjectAPI)
 	m = pump(m, typed("P"))
 	if !m.sidebar.pinnedOnly || m.selectedNode.id != demo.ProjectAPI {

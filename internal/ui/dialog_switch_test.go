@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -45,7 +44,7 @@ func TestAnotherAccountStateOpensTheBoxOnR(t *testing.T) {
 	if bar := ansi.Strip(m.status.View(m.theme, 120, "", m.opts.Now())); !strings.Contains(bar, "another account, R decides") {
 		t.Errorf("bar = %q", bar)
 	}
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	next, cmd := m.Update(keyRunes("R"))
 	m = next.(Model)
 	for _, msg := range collect(cmd) {
 		next, _ = m.Update(msg)

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestEditorArgv(t *testing.T) {
@@ -167,7 +167,7 @@ func windowPopup(t *testing.T, edit *descriptionEdit) (Model, string) {
 // and returns the rest of what came out.
 func enterInPopup(t *testing.T, m Model) (Model, []tea.Msg) {
 	t.Helper()
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	var out []tea.Msg
 	for _, msg := range collect(cmd) {
@@ -189,9 +189,9 @@ func TestEditorWindowSecondEnterDoesNotReopenTheBox(t *testing.T) {
 	if err := os.WriteFile(path, []byte("once\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	next, first := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, first := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
-	next, second := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, second := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	sent := 0
 	for _, msg := range append(collect(first), collect(second)...) {
@@ -287,7 +287,7 @@ func TestEditorWindowEscDropsTheFile(t *testing.T) {
 		want string
 	}{"description": {edit, "description edit dropped"}, "comment": {nil, "comment dropped, nothing sent"}} {
 		m, path := windowPopup(t, c.edit)
-		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 		got := next.(Model)
 		if cmd == nil {
 			t.Fatalf("%s: expected a command to clear the toast later", name)
@@ -306,7 +306,7 @@ func TestEditorWindowEscDropsTheFile(t *testing.T) {
 
 func TestEditorWindowQuitRemovesTheFile(t *testing.T) {
 	m, path := windowPopup(t, nil)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("msgs = %#v", msgs)

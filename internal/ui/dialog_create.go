@@ -3,9 +3,9 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type submitCreateMsg struct {
@@ -35,10 +35,10 @@ type createDialog struct {
 }
 
 func newCreateDialog(nodes []treeNode, pinned map[string]bool, crumbs map[string]string, presetID string, mine bool, width int) (createDialog, tea.Cmd) {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = ""
 	in.Placeholder = "task title"
-	in.Width = width - 4
+	in.SetWidth(width - 4)
 	// Focus first, the model is copied into the dialog below and a focus after that would reach the copy.
 	cmd := in.Focus()
 	rows, _ := treeRows(nodes, pinned)
@@ -71,19 +71,19 @@ func (d createDialog) focus(f createField) (createDialog, tea.Cmd) {
 	return d, cmd
 }
 
-func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d createDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	if d.done {
 		// The close travels through the queue, a key that arrives before it must not act.
 		return d, nil
 	}
 	switch {
-	case msg.Type == tea.KeyTab:
+	case msg.String() == "tab":
 		d.errText = ""
 		if d.field == fieldTitle {
 			return d.focus(fieldFolder)
 		}
 		return d.focus(fieldTitle)
-	case msg.Type == tea.KeyEnter && d.field == fieldFolder:
+	case msg.String() == "enter" && d.field == fieldFolder:
 		r, ok := d.folders.current()
 		if !ok {
 			d.errText = "no folder matches"
@@ -95,7 +95,7 @@ func (d createDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		d.folders.selectID(r.id)
 		d.errText = ""
 		return d.focus(fieldTitle)
-	case msg.Type == tea.KeyEnter:
+	case msg.String() == "enter":
 		// Only the ends are trimmed, spaces inside a title are the user's own.
 		title := strings.TrimSpace(d.title.Value())
 		if title == "" {

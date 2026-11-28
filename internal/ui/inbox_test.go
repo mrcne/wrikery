@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -82,28 +82,28 @@ func TestInboxViewSaysWhenEmpty(t *testing.T) {
 func TestInboxKeysMoveAndEnterOpensTheTask(t *testing.T) {
 	m := inboxModel{keys: defaultKeyMap(), height: 8}
 	m.set(inboxRows(10), "")
-	press := func(k tea.KeyMsg) {
+	press := func(k tea.KeyPressMsg) {
 		m, _ = m.Update(k)
 	}
 	for range 5 {
-		press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		press(keyRunes("j"))
 	}
 	if m.cursor != 5 || m.offset != 1 {
 		t.Errorf("after five downs: cursor %d offset %d, want 5 and 1 with a capacity of height-3", m.cursor, m.offset)
 	}
-	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	press(keyRunes("G"))
 	if m.cursor != 9 || m.offset != 5 {
 		t.Errorf("after G: cursor %d offset %d, want 9 and 5", m.cursor, m.offset)
 	}
-	press(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	press(keyRunes("g"))
 	if m.cursor != 0 || m.offset != 0 {
 		t.Errorf("after g: cursor %d offset %d, want 0 and 0", m.cursor, m.offset)
 	}
-	press(tea.KeyMsg{Type: tea.KeyCtrlD})
+	press(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if m.cursor != 2 || m.offset != 0 {
 		t.Errorf("after ctrl+d: cursor %d offset %d, want 2 and 0", m.cursor, m.offset)
 	}
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter sent %#v, want one open", msgs)
@@ -192,7 +192,7 @@ func TestLeavingTheInboxWritesTheMarkerAndClearsTheCount(t *testing.T) {
 	if m.status.unread != 2 {
 		t.Fatalf("unread at start = %d, want the demo's two", m.status.unread)
 	}
-	m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+	m = pump(m, keyRunes("@"))
 	if m.screen != screenInbox || len(m.inbox.rows) == 0 {
 		t.Fatalf("@ gave screen %v with %d rows", m.screen, len(m.inbox.rows))
 	}
@@ -200,7 +200,7 @@ func TestLeavingTheInboxWritesTheMarkerAndClearsTheCount(t *testing.T) {
 	if first.ID != "IEAACMTI1" || !first.Mentioned || len(m.inbox.rows[0].task.ParentIDs) == 0 {
 		t.Errorf("first row = %+v with task %+v, want the demo's mention of today with its task's folders for the jump", first, m.inbox.rows[0].task)
 	}
-	m = pump(m, tea.KeyMsg{Type: tea.KeyEsc})
+	m = pump(m, tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.screen != screenMain {
 		t.Fatalf("esc left the screen at %v", m.screen)
 	}
@@ -210,7 +210,7 @@ func TestLeavingTheInboxWritesTheMarkerAndClearsTheCount(t *testing.T) {
 	if m.status.unread != 0 {
 		t.Errorf("unread after leaving = %d, want 0", m.status.unread)
 	}
-	m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")}, tea.KeyMsg{Type: tea.KeyEnter})
+	m = pump(m, keyRunes("@"), tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.screen != screenMain || m.selectedTaskID != first.TaskID {
 		t.Errorf("enter gave screen %v on task %q, want the main screen on %q", m.screen, m.selectedTaskID, first.TaskID)
 	}
@@ -218,7 +218,7 @@ func TestLeavingTheInboxWritesTheMarkerAndClearsTheCount(t *testing.T) {
 
 func TestAStoreChangeReloadsTheInboxAndTheCount(t *testing.T) {
 	m := demoModel(t)
-	m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+	m = pump(m, keyRunes("@"))
 	first := m.inbox.rows[0].row
 	ctx := context.Background()
 	if _, err := m.opts.Store.Comments().UpsertCached(ctx, []store.Comment{{ID: "IEAACMTNEW", TaskID: first.TaskID, AuthorID: "KUAAAAB1", Text: "just now", CreatedDate: "2026-09-03T11:00:00Z"}}); err != nil {
@@ -245,9 +245,9 @@ func TestInboxLoadsNothingWithoutAMeID(t *testing.T) {
 
 // q and a command's jump leave the screen like esc does, so what was read is not unread again at the next start.
 func TestQuittingFromTheInboxWritesTheMarker(t *testing.T) {
-	for _, quit := range []tea.KeyMsg{{Type: tea.KeyRunes, Runes: []rune("q")}, {Type: tea.KeyCtrlC}} {
+	for _, quit := range []tea.KeyPressMsg{keyRunes("q"), {Code: 'c', Mod: tea.ModCtrl}} {
 		m := demoModel(t)
-		m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+		m = pump(m, keyRunes("@"))
 		first := m.inbox.rows[0].row
 		next, cmd := m.Update(quit)
 		if cmd == nil {
@@ -264,7 +264,7 @@ func TestQuittingFromTheInboxWritesTheMarker(t *testing.T) {
 
 func TestControlFolderFromTheInboxWritesTheMarker(t *testing.T) {
 	m := demoModel(t)
-	m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+	m = pump(m, keyRunes("@"))
 	first := m.inbox.rows[0].row
 	m = pump(m, ControlMsg{Op: OpFolder, FolderID: demo.ProjectAPI})
 	if m.screen != screenMain {
@@ -277,7 +277,7 @@ func TestControlFolderFromTheInboxWritesTheMarker(t *testing.T) {
 
 func TestControlSelectFromTheInboxWritesTheMarker(t *testing.T) {
 	m := demoModel(t)
-	m = pump(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("@")})
+	m = pump(m, keyRunes("@"))
 	first := m.inbox.rows[0].row
 	m = pump(m, ControlMsg{Op: OpSelect, TaskID: first.TaskID})
 	if m.screen != screenMain || m.selectedTaskID != first.TaskID {

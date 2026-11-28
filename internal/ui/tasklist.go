@@ -7,10 +7,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -46,7 +46,7 @@ type taskListModel struct {
 }
 
 func newTaskList(keys KeyMap) taskListModel {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = "/"
 	in.CharLimit = 80
 	return taskListModel{keys: keys, filter: in}
@@ -308,16 +308,16 @@ func (l taskListModel) footer(th Theme, width int) string {
 	return ansi.Truncate(strings.Join(parts, "   "), width, "...")
 }
 
-func (l taskListModel) Update(msg tea.KeyMsg) (taskListModel, tea.Cmd) {
+func (l taskListModel) Update(msg tea.KeyPressMsg) (taskListModel, tea.Cmd) {
 	before, _ := l.current()
 	if l.filtering {
-		switch msg.Type {
-		case tea.KeyEsc:
+		switch msg.String() {
+		case "esc":
 			l.filter.SetValue("")
 			l.filtering = false
 			l.filter.Blur()
 			l.applyFilter()
-		case tea.KeyEnter:
+		case "enter":
 			l.filtering = false
 			l.filter.Blur()
 		default:

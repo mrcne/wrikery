@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -47,7 +47,7 @@ type editorWindowDialog struct {
 	saveFirst bool // enter found the file still untouched
 }
 
-func (d editorWindowDialog) Update(tea.KeyMsg) (dialog, tea.Cmd) { return d, nil }
+func (d editorWindowDialog) Update(tea.KeyPressMsg) (dialog, tea.Cmd) { return d, nil }
 
 func (d editorWindowDialog) View(th Theme, width, height int) string {
 	w := min(width, 60)

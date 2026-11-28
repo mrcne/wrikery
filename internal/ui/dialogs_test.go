@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -13,12 +13,12 @@ import (
 func TestConfirmDialogEmitsOnYes(t *testing.T) {
 	type payload struct{ n int }
 	d := dialog(confirmDialog{prompt: "Sure?", onYes: payload{7}})
-	_, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	_, cmd := d.Update(keyRunes("y"))
 	msgs := collect(cmd)
 	if len(msgs) != 2 || msgs[0] != (payload{7}) || msgs[1] != (closeDialogMsg{}) {
 		t.Errorf("msgs = %#v", msgs)
 	}
-	_, cmd = d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+	_, cmd = d.Update(keyRunes("n"))
 	if msgs := collect(cmd); len(msgs) != 1 || msgs[0] != (closeDialogMsg{}) {
 		t.Errorf("n -> %#v", msgs)
 	}
@@ -28,14 +28,14 @@ func TestConfirmDialogEmitsOnYes(t *testing.T) {
 func TestConfirmDialogAnswersToYOnly(t *testing.T) {
 	type payload struct{ n int }
 	d := dialog(confirmDialog{prompt: "Sure?", onYes: payload{7}})
-	if _, cmd := d.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	if _, cmd := d.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
 		t.Errorf("enter answered the box with %#v", collect(cmd))
 	}
-	d, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	d, cmd := d.Update(keyRunes("y"))
 	if msgs := collect(cmd); len(msgs) != 2 {
 		t.Fatalf("y -> %#v", msgs)
 	}
-	if _, cmd := d.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}); cmd != nil {
+	if _, cmd := d.Update(keyRunes("y")); cmd != nil {
 		t.Errorf("a second y before the box closed sent %#v again", collect(cmd))
 	}
 }
@@ -56,7 +56,7 @@ func TestConfirmDialogWrapsItsPrompt(t *testing.T) {
 // ctrl+d sends a comment as well as ctrl+s, the hint under the box has to say so.
 func TestCommentDialogHintNamesBothSendKeys(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
-	d, _ := newCommentDialog("T1", "Fix auth retry loop", 60)
+	d, _ := newCommentDialog(th, "T1", "Fix auth retry loop", 60)
 	out := d.View(th, 60, 40)
 	if !strings.Contains(out, "ctrl+s") || !strings.Contains(out, "ctrl+d") {
 		t.Errorf("hint names only one send key:\n%s", out)
