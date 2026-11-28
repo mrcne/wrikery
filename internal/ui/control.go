@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // The operations a control request names, the same words internal/control puts on the socket.

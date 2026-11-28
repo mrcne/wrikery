@@ -3,9 +3,9 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -33,7 +33,7 @@ func newImportanceDialog(task store.Task, keys KeyMap) importanceDialog {
 	return d
 }
 
-func (d importanceDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d importanceDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	switch {
 	case key.Matches(msg, d.keys.Down):
 		if d.cursor < len(importanceLevels)-1 {
@@ -43,7 +43,7 @@ func (d importanceDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		if d.cursor > 0 {
 			d.cursor--
 		}
-	case msg.Type == tea.KeyEnter:
+	case msg.String() == "enter":
 		if d.cursor == d.was {
 			return d, intent(closeDialogMsg{})
 		}

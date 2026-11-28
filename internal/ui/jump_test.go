@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
@@ -137,9 +137,9 @@ func TestJumpToOwnTaskOutsideTheTreeLandsInMyTasks(t *testing.T) {
 // Once the keys go to the list, the action keys read the row under its cursor,
 // so the pane leaves a task the list does not hold for that row, the same way a move in the list would.
 func TestFocusOnTheListLeavesAHeldTask(t *testing.T) {
-	for name, key := range map[string]tea.KeyMsg{
-		"h":         {Type: tea.KeyRunes, Runes: []rune("h")},
-		"shift+tab": {Type: tea.KeyShiftTab},
+	for name, key := range map[string]tea.KeyPressMsg{
+		"h":         keyRunes("h"),
+		"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
 	} {
 		t.Run(name, func(t *testing.T) {
 			task := outsideTask("KUAAAAB1", outsideFolder)
@@ -228,7 +228,7 @@ func TestAKeyRightAfterAJumpDoesNotReachTheTaskBefore(t *testing.T) {
 		if m.detail.loaded && m.detail.task.ID != task.ID {
 			t.Errorf("before the reads land the pane shows %q, want %q or nothing", m.detail.task.ID, task.ID)
 		}
-		next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+		next, _ = m.handleKey(keyRunes("s"))
 		m = next.(Model)
 		if d, ok := m.dialog.(statusDialog); ok && d.taskID != task.ID {
 			t.Errorf("s before the reads land opened the status box for %q, want %q or none", d.taskID, task.ID)
@@ -294,7 +294,7 @@ func TestAKeyRightAfterAJumpDoesNotReachTheTaskBefore(t *testing.T) {
 func TestEnterRightAfterAListMoveDoesNotReachTheTaskBefore(t *testing.T) {
 	m := pump(demoModel(t), focusMsg{pane: paneList})
 	before := m.detail.task.ID
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	next, cmd := m.Update(keyRunes("j"))
 	m = next.(Model)
 	// The list's intent moves the selection, the read it starts is held back.
 	var read tea.Cmd
@@ -309,14 +309,14 @@ func TestEnterRightAfterAListMoveDoesNotReachTheTaskBefore(t *testing.T) {
 		t.Fatalf("after j the list is on %q and the selection on %q, the pane on %q, want the selection moved off %q with the pane behind",
 			cur.task.ID, m.selectedTaskID, m.detail.task.ID, before)
 	}
-	m = pump(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = pump(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.focus != paneDetail {
 		t.Fatalf("focus %v after enter, want the pane", m.focus)
 	}
 	if got, ok := m.selectedTask(); !ok || got.ID != cur.task.ID {
 		t.Errorf("the keys act on %q, want the row %q", got.ID, cur.task.ID)
 	}
-	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	next, _ = m.handleKey(keyRunes("s"))
 	m = next.(Model)
 	if d, ok := m.dialog.(statusDialog); !ok || d.taskID != cur.task.ID {
 		t.Errorf("s opened %T for %q, want the status box for %q", m.dialog, d.taskID, cur.task.ID)
@@ -383,9 +383,9 @@ func TestRunSearchPutsACachedReferenceFirstAndNamesAnUncachedOne(t *testing.T) {
 // An answer lands only on the ask it belongs to: the same text in a later search, or in pick mode, is another ask.
 func TestReachedAnswerIsMatchedToTheAsk(t *testing.T) {
 	m := demoModel(t)
-	m = pump(m, tea.KeyMsg{Type: tea.KeyCtrlF})
+	m = pump(m, tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	m.search, _ = m.search.Update(searchResultsMsg{seq: m.search.seq, ref: "MAAAAAEPXpuV"})
-	m.search, _ = m.search.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.search, _ = m.search.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	stale := reachedMsg{text: "MAAAAAEPXpuV", seq: m.search.seq - 1, origin: reachFromSearch, err: ErrNoSuchTask}
 	next, _ := m.Update(stale)
 	m = next.(Model)
@@ -478,7 +478,7 @@ func TestAKeyBeforeTheRowsOfANewFolderLandDoesNotReachTheFolderBefore(t *testing
 	}{
 		{"a move in the sidebar", func(m Model) (Model, tea.Cmd) {
 			m = pump(m, focusMsg{pane: paneSidebar})
-			next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+			next, cmd := m.Update(keyRunes("j"))
 			m = next.(Model)
 			// The sidebar's intent names the node, the read it starts is held back.
 			var read tea.Cmd
@@ -511,7 +511,7 @@ func TestAKeyBeforeTheRowsOfANewFolderLandDoesNotReachTheFolderBefore(t *testing
 			if s := show(t, m); s.TaskID != "" || s.FolderID != m.selectedNode.id {
 				t.Errorf("show names the task %q in the folder %q, want no task while the rows are of the folder before", s.TaskID, s.FolderID)
 			}
-			next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+			next, _ := m.handleKey(keyRunes("s"))
 			pressed := next.(Model)
 			if d, ok := pressed.dialog.(statusDialog); ok {
 				t.Errorf("s opened the status box for %q, the row of the folder before was %q", d.taskID, before.task.ID)

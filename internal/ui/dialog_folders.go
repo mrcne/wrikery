@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -66,9 +66,9 @@ func (d foldersDialog) move(target checkRow) (add, remove []string, ok bool) {
 	return add, remove, len(add) > 0 || len(remove) > 0
 }
 
-func (d foldersDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeySpace:
+func (d foldersDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "space":
 		r, ok := d.list.current()
 		if !ok {
 			return d, nil
@@ -82,7 +82,7 @@ func (d foldersDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		d.list.toggle()
 		d.errText = ""
 		return d, nil
-	case tea.KeyEnter:
+	case "enter":
 		add, remove := d.list.diff()
 		if len(add) == 0 && len(remove) == 0 {
 			target, found := d.list.current()

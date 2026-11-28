@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -35,7 +37,7 @@ func testBoardList() taskListModel {
 
 func boardPress(t *testing.T, b boardModel, l *taskListModel, k string) boardModel {
 	t.Helper()
-	b, _ = b.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}, l, nil)
+	b, _ = b.Update(keyRunes(k), l, nil)
 	return b
 }
 
@@ -188,11 +190,11 @@ func TestEscOnTheBoardReturnsToTheList(t *testing.T) {
 	m := New(Options{Now: time.Now})
 	m.shape, m.focus, m.width, m.height = shapeBoard, paneDetail, 160, 40
 	m.list = testBoardList()
-	got, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if g := got.(Model); g.shape != shapeBoard || g.focus != paneBoard {
 		t.Errorf("esc on the detail pane gives the board the width back first, got shape %d pane %d", g.shape, g.focus)
 	}
-	got, _ = got.(Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got, _ = got.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if g := got.(Model); g.shape != shapeList || g.focus != paneList {
 		t.Errorf("esc on the board itself returns to the list, got shape %d pane %d", g.shape, g.focus)
 	}
@@ -200,11 +202,11 @@ func TestEscOnTheBoardReturnsToTheList(t *testing.T) {
 	narrow := New(Options{Now: time.Now})
 	narrow.shape, narrow.focus, narrow.width, narrow.height = shapeBoard, paneDetail, 70, 20
 	narrow.list = testBoardList()
-	got, _ = narrow.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got, _ = narrow.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if g := got.(Model); g.shape != shapeBoard || g.focus != paneBoard {
 		t.Errorf("at 70 esc on the detail lands on the board, got shape %d pane %d", g.shape, g.focus)
 	}
-	got, _ = got.(Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got, _ = got.(Model).Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if g := got.(Model); g.shape != shapeList || g.focus != paneList {
 		t.Errorf("at 70 esc on the board returns to the list, got shape %d pane %d", g.shape, g.focus)
 	}
@@ -224,11 +226,11 @@ func TestTheFirstBoardOfASessionStartsItsWindowAtTheLeft(t *testing.T) {
 		{ID: "b2", Title: "Bartek planned", Status: "Active", CustomStatusID: "T1"},
 	}
 	got, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: tasks, selectID: "b1"})
-	got, _ = got.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("b")})
+	got, _ = got.(Model).Update(keyRunes("b"))
 	g := got.(Model)
 	// Four columns at the floor of 16 and 49 cells next to the markers: the window holds two, and the one with the cursor is the second.
-	if g.board.firstCol != 1 || !strings.Contains(g.View(), "< 1 ") {
-		t.Errorf("the window starts as far left as the cursor column allows, got first column %d:\n%s", g.board.firstCol, g.View())
+	if g.board.firstCol != 1 || !strings.Contains(g.frame(), "< 1 ") {
+		t.Errorf("the window starts as far left as the cursor column allows, got first column %d:\n%s", g.board.firstCol, g.frame())
 	}
 }
 
@@ -299,7 +301,7 @@ func TestFilteringRefitsTheBoard(t *testing.T) {
 	m.board.fit(&m.list, nil)
 	var model tea.Model = m
 	for _, k := range []string{"/", "h", "o", "l", "d"} {
-		model, _ = model.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		model, _ = model.(Model).Update(keyRunes(k))
 	}
 	got := model.(Model)
 	if id := selected(&got.list); id != "b1" {
@@ -362,7 +364,7 @@ func TestHighImportanceIsFlaggedInRowsAndOnCards(t *testing.T) {
 		{ID: "n", Title: "Calm", Status: "Active", CustomStatusID: "S1"},
 	}
 	l.setRows("F1", "API", tasks, nil, "", false)
-	view := l.View(th, l.ref, time.Time{}, 60, 4, true)
+	view := ansi.Strip(l.View(th, l.ref, time.Time{}, 60, 4, true))
 	if !strings.Contains(view, "o ! Hot") || !strings.Contains(view, "o   Calm") {
 		t.Errorf("list rows should flag High in a fixed column:\n%s", view)
 	}

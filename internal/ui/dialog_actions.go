@@ -3,8 +3,8 @@ package ui
 import (
 	"strconv"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -37,7 +37,7 @@ func (d actionsDialog) picked() (int, bool) {
 	return index, err == nil
 }
 
-func (d actionsDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d actionsDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	cmd := d.list.update(msg)
 	return d, cmd
 }

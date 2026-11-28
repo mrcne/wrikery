@@ -7,9 +7,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -40,7 +40,7 @@ func newChecklist(rows []checkRow, checkedIDs []string, placeholder string) (che
 	for _, id := range checkedIDs {
 		c.checked[id], c.original[id] = true, true
 	}
-	c.filter = textinput.New()
+	c.filter = newInput()
 	c.filter.Prompt = "> "
 	c.filter.Placeholder = placeholder
 	c.applyFilter()
@@ -132,14 +132,14 @@ func (c checklist) diff() (add, remove []string) {
 }
 
 // update moves the cursor or feeds the filter. Enter and space are left to the box, they mean different things in each.
-func (c *checklist) update(msg tea.KeyMsg) tea.Cmd {
-	switch msg.Type {
-	case tea.KeyDown, tea.KeyCtrlN:
+func (c *checklist) update(msg tea.KeyPressMsg) tea.Cmd {
+	switch msg.String() {
+	case "down", "ctrl+n":
 		if c.cursor < len(c.visible)-1 {
 			c.cursor++
 		}
 		return nil
-	case tea.KeyUp, tea.KeyCtrlP:
+	case "up", "ctrl+p":
 		if c.cursor > 0 {
 			c.cursor--
 		}

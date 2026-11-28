@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -122,14 +124,14 @@ func TestRetryAndDiscardOnAHistoryRowOnlyWriteTheStatusLine(t *testing.T) {
 		key  string
 		want string
 	}{{"r", "already sent, nothing to retry"}, {"x", "already sent, nothing to discard"}} {
-		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
+		_, cmd := m.Update(keyRunes(c.key))
 		msg, ok := cmd().(toastMsg)
 		if !ok || msg.text != c.want {
 			t.Errorf("%s on a sent row = %#v, want the toast %q", c.key, cmd(), c.want)
 		}
 	}
 	m.move(1)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	_, cmd := m.Update(keyRunes("r"))
 	if msg, ok := cmd().(toastMsg); !ok || msg.text != "already discarded, nothing to retry" {
 		t.Errorf("r on a discarded row = %#v", cmd())
 	}
@@ -139,15 +141,15 @@ func TestChangesKeysMoveByPageAndToTheEnds(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 5}
 	rows := make([]Change, 20)
 	m.set(rows)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")})
+	m, _ = m.Update(keyRunes("G"))
 	if m.cursor != 19 || m.offset != 16 {
 		t.Errorf("after G: cursor %d offset %d, want 19 and 16", m.cursor, m.offset)
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	m, _ = m.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	if m.cursor != 17 {
 		t.Errorf("after ctrl+u: cursor %d, want 17, half of the four rows on screen", m.cursor)
 	}
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	m, _ = m.Update(keyRunes("g"))
 	if m.cursor != 0 || m.offset != 0 {
 		t.Errorf("after g: cursor %d offset %d, want 0 and 0", m.cursor, m.offset)
 	}
@@ -210,7 +212,7 @@ func TestRetryAndDiscardOnARowBeingSentOnlyWriteTheStatusLine(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 6}
 	m.set([]Change{{Row: store.OutboxRow{ID: 7, State: store.StateInflight}}})
 	for _, k := range []string{"r", "x"} {
-		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+		_, cmd := m.Update(keyRunes(k))
 		if msg, ok := cmd().(toastMsg); !ok || msg.text != "being sent right now" {
 			t.Errorf("%s on a row being sent = %#v, want the toast", k, cmd())
 		}
@@ -220,7 +222,7 @@ func TestRetryAndDiscardOnARowBeingSentOnlyWriteTheStatusLine(t *testing.T) {
 func TestEnterOnARowWithoutATaskSaysSo(t *testing.T) {
 	m := changesModel{keys: defaultKeyMap(), height: 6}
 	m.set([]Change{{Row: store.OutboxRow{ID: 7, State: store.StateDiscarded}, Title: "(task local:3)"}})
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter on a row without a task did nothing, want a status line")
 	}
@@ -307,7 +309,7 @@ func TestChangesViewNamesTheSourceOfACommandWrite(t *testing.T) {
 		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T09:00:00Z", Source: store.SourceTUI}, Title: "By hand", Summary: "status  -> Done"},
 		{Row: store.OutboxRow{State: store.StateSent, DoneAt: "2026-10-15T08:00:00Z"}, Title: "From before the column", Summary: "status  -> Done"},
 	})
-	out := m.View(th, now, 100, 8, false)
+	out := ansi.Strip(m.View(th, now, 100, 8, false))
 	if !strings.Contains(out, "2 h ago  codex") || strings.Contains(out, "tui") {
 		t.Errorf("view:\n%s", out)
 	}

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/exp/teatest"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
@@ -230,7 +230,7 @@ func TestFirstRunKeepsALongTokenWhole(t *testing.T) {
 		t.Fatalf("verified %d characters, want %d: the input cut the token", len(got), len(token))
 	}
 	waitFor(t, tm, "Hello Ada Nowak")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(5*time.Second))
 }
 
@@ -500,7 +500,7 @@ func TestFirstRunCtrlYCopiesTheAddress(t *testing.T) {
 	waitFor(t, tm, "Sign in through the browser")
 	press(tm, "enter")
 	waitFor(t, tm, "waiting for the browser")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlY})
+	tm.Send(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
 	waitFor(t, tm, "address copied")
 	if len(copied) != 1 || copied[0] != "https://login.wrike.com/oauth2/authorize/v4?client_id=id1&state=s" {
 		t.Fatalf("copied %q", copied)

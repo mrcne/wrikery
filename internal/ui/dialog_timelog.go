@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -74,7 +74,7 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 		values = []string{formatHours(existing.Hours), existing.TrackedDate, existing.Comment}
 	}
 	for i := range d.inputs {
-		in := textinput.New()
+		in := newInput()
 		in.Prompt = fmt.Sprintf("%-6s", labels[i])
 		if i < 2 {
 			// Hours and a date are a few characters, the limit keeps them inside the box and the day hint right after the date.
@@ -95,28 +95,28 @@ func newTimelogDialog(taskID, title string, existing *store.Timelog, date string
 // The box is drawn at the width of each frame, so a resize while it is open comes through here too.
 func (d *timelogDialog) setWidth(width int) {
 	in := &d.inputs[2]
-	in.Width = min(width, timelogBoxWidth) - 2 - len(in.Prompt) - 1
+	in.SetWidth(min(width, timelogBoxWidth) - 2 - len(in.Prompt) - 1)
 	// The scroll window is computed when the cursor moves, not when the width changes.
 	in.SetCursor(in.Position())
 }
 
-func (d timelogDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyTab, tea.KeyDown:
+func (d timelogDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "tab", "down":
 		d.inputs[d.focus].Blur()
 		d.focus = (d.focus + 1) % 3
 		return d, d.inputs[d.focus].Focus()
-	case tea.KeyShiftTab, tea.KeyUp:
+	case "shift+tab", "up":
 		d.inputs[d.focus].Blur()
 		d.focus = (d.focus + 2) % 3
 		return d, d.inputs[d.focus].Focus()
-	case tea.KeyCtrlP, tea.KeyCtrlN:
+	case "ctrl+p", "ctrl+n":
 		if d.focus == 2 && len(d.notes) > 0 {
-			d.stepNote(msg.Type == tea.KeyCtrlP)
+			d.stepNote(msg.String() == "ctrl+p")
 			d.errText = ""
 			return d, nil
 		}
-	case tea.KeyEnter:
+	case "enter":
 		hours, err := parseHours(d.inputs[0].Value())
 		if err != nil {
 			d.errText = err.Error()
@@ -207,7 +207,7 @@ func newEntryPicker(logs []store.Timelog, forDelete bool) entryPicker {
 	return entryPicker{logs: logs, forDelete: forDelete}
 }
 
-func (d entryPicker) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d entryPicker) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
 		if d.cursor < len(d.logs)-1 {

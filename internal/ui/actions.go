@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -41,7 +41,7 @@ func taskActionTable(k KeyMap) []taskAction {
 	return []taskAction{
 		{key: k.Comment, run: func(m *Model) tea.Cmd {
 			return m.withTask(func(t store.Task) tea.Cmd {
-				d, cmd := newCommentDialog(t.ID, t.Title, min(m.width-4, 80))
+				d, cmd := newCommentDialog(m.theme, t.ID, t.Title, min(m.width-4, 80))
 				m.openDialog(d)
 				return cmd
 			})

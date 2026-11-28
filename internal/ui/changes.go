@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -348,7 +348,7 @@ func (s *changesModel) move(n int) {
 	s.scroll()
 }
 
-func (s changesModel) Update(msg tea.KeyMsg) (changesModel, tea.Cmd) {
+func (s changesModel) Update(msg tea.KeyPressMsg) (changesModel, tea.Cmd) {
 	page := max(1, (s.height-1)/2)
 	switch {
 	case key.Matches(msg, s.keys.Down):

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -34,16 +34,16 @@ func TestScopesDialogPlanCountsFollowsAndUnfollows(t *testing.T) {
 		t.Errorf("the box should open on the followed set with nothing to change:\n%s", view)
 	}
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if view := dl.View(th, 60, 40); !strings.Contains(view, "enter follows 1") || strings.Contains(view, "unfollows") {
 		t.Errorf("after ticking API the first line should say enter follows 1:\n%s", view)
 	}
 	// The filter keeps its query after a toggle, so Mobile needs a new query to show up again.
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	dl = typeRunes(dl, "mob")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if view := dl.View(th, 60, 40); !strings.Contains(view, "enter follows 1 and unfollows 1") {
 		t.Errorf("the first line should count both directions:\n%s", view)
 	}
@@ -57,8 +57,8 @@ func TestScopesDialogEnterSendsTheWholeFollowedSet(t *testing.T) {
 	d, _ := newScopesDialog(items, followed)
 	var dl dialog = d
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := submitScopesMsg{scopes: []store.Scope{
 		{ID: "MOB", Kind: store.ScopeKindSpace, Title: "Mobile", Followed: true},
@@ -71,7 +71,7 @@ func TestScopesDialogEnterSendsTheWholeFollowedSet(t *testing.T) {
 
 	// With nothing changed enter only closes the box, there is nothing to write and nothing to sync again.
 	d, _ = newScopesDialog(items, followed)
-	_, cmd = d.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = d.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{closeDialogMsg{}}) {
 		t.Errorf("enter with no change sent %#v", msgs)
 	}
@@ -106,8 +106,8 @@ func TestScopesDialogListsAFollowedScopeThePickerDoesNot(t *testing.T) {
 		t.Fatalf("the box should list Billing ticked with nothing to change:\n%s", view)
 	}
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 {
 		t.Fatalf("enter should submit and close, got %#v", msgs)
@@ -122,11 +122,11 @@ func TestScopesDialogListsAFollowedScopeThePickerDoesNot(t *testing.T) {
 	}
 	d, _ = newScopesDialog(items, followed)
 	dl = typeRunes(d, "bil")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if view := dl.View(th, 60, 40); !strings.Contains(view, "enter unfollows 1") {
 		t.Errorf("unticking Billing should count as an unfollow:\n%s", view)
 	}
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs = collect(cmd); len(msgs) != 2 || msgs[0].(submitScopesMsg).toast != "No longer following Billing" {
 		t.Errorf("unticking Billing should submit its unfollow, got %#v", msgs)
 	}
@@ -147,9 +147,9 @@ func TestScopesDialogReloadKeepsTheTicks(t *testing.T) {
 	d, _ := newScopesDialog(items, followed)
 	var dl dialog = d
 	dl = typeRunes(dl, "api")
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
 	d = dl.(scopesDialog)
 	d, _ = d.reload(pickerLoadedMsg{

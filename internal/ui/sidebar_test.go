@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -40,12 +40,12 @@ func TestSidebarVisibleFollowsExpansion(t *testing.T) {
 		t.Fatalf("visible = %v", got)
 	}
 	s.cursor = 3 // Infra
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
+	s, _ = s.Update(keyRunes("l"))
 	if got := ids(); !reflect.DeepEqual(got, []string{"me", "S1", "P1", "F1", "F2", "S2", "F9"}) {
 		t.Errorf("after expand = %v", got)
 	}
 	s.cursor = 4 // On-call, a leaf
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")})
+	s, _ = s.Update(keyRunes("h"))
 	if n, _ := s.current(); n.id != "F1" {
 		t.Errorf("h on a leaf should jump to the parent, cursor on %s", n.id)
 	}
@@ -93,7 +93,7 @@ func TestSidebarScrollsToKeepTheCursorVisible(t *testing.T) {
 	s.height = 5
 	s.setTree(flatNodes(12), nil)
 	for range 8 {
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		s, _ = s.Update(keyRunes("j"))
 	}
 	if s.offset != 4 {
 		t.Fatalf("offset after 8 down = %d, want 4", s.offset)
@@ -103,7 +103,7 @@ func TestSidebarScrollsToKeepTheCursorVisible(t *testing.T) {
 		t.Errorf("view lacks the cursor row %q:\n%s", cur.title, out)
 	}
 	for range 6 {
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+		s, _ = s.Update(keyRunes("k"))
 	}
 	if s.offset != 2 {
 		t.Errorf("offset after 6 up = %d, want 2", s.offset)
@@ -114,7 +114,7 @@ func TestSidebarViewMarksCursorAndGlyphs(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
-	out := s.View(th, 28, 10, true)
+	out := ansi.Strip(s.View(th, 28, 10, true))
 	for _, want := range []string{"> My tasks", "12", "v Platform", "  o API", "> Infra", "> Mobile", "    Archive"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view lacks %q:\n%s", want, out)
@@ -135,7 +135,7 @@ func TestSidebarDrawsOneLinePerNodeWhenNamesAreLong(t *testing.T) {
 	nodes[10].title = "Another folder with a name far too long for the pane"
 	s.setTree(nodes, nil)
 	for range 11 {
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		s, _ = s.Update(keyRunes("j"))
 	}
 	out := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 8, true)
 	if got := strings.Count(out, "\n") + 1; got != 8 {
@@ -210,26 +210,26 @@ func TestRowLineKeepsOneLineAndOneStyle(t *testing.T) {
 	}
 	// A part the caller styled on its own ends in a reset, which would end the selection background mid row.
 	// The row style is opened again behind it, so the part keeps its color and the background runs to the end.
-	styled := "\x1b[31mo\x1b[0m API"
-	if out := rowLine(th, styled, 20, false, true); !strings.Contains(out, "\x1b[31m") {
-		t.Errorf("an unselected row keeps the styling of its parts:\n%q", out)
-	}
-	prev := lipgloss.ColorProfile()
-	lipgloss.SetColorProfile(termenv.TrueColor)
-	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
-	out := rowLine(th, styled, 20, true, true)
-	if !strings.Contains(out, "\x1b[31m") {
-		t.Errorf("a selected row keeps the styling of its parts:\n%q", out)
-	}
-	after := out[strings.Index(out, "\x1b[0m")+len("\x1b[0m"):]
-	if !strings.Contains(after, "48;2;") {
-		t.Errorf("the background should be set again after the part's reset:\n%q", out)
+	// The long reset and the short one, which is what lipgloss writes.
+	for _, reset := range []string{"\x1b[0m", "\x1b[m"} {
+		styled := "\x1b[31mo" + reset + " API"
+		if out := rowLine(th, styled, 20, false, true); !strings.Contains(out, "\x1b[31m") {
+			t.Errorf("an unselected row keeps the styling of its parts:\n%q", out)
+		}
+		out := rowLine(th, styled, 20, true, true)
+		if !strings.Contains(out, "\x1b[31m") {
+			t.Errorf("a selected row keeps the styling of its parts:\n%q", out)
+		}
+		_, after, _ := strings.Cut(out, "\x1b[31mo\x1b[m")
+		if !strings.Contains(after, "48;2;") {
+			t.Errorf("the background should be set again after the part's reset:\n%q", out)
+		}
 	}
 }
 
 func typeKeys(s sidebarModel, keys string) sidebarModel {
 	for _, r := range keys {
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		s, _ = s.Update(keyRunes(string(r)))
 	}
 	return s
 }
@@ -254,7 +254,7 @@ func TestSidebarFilterShowsMatchesWithTheirAncestors(t *testing.T) {
 	if n, _ := s.current(); n.id != "F2" {
 		t.Errorf("cursor on %s, want the match F2", n.id)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "P1", "F1", "F2", "S2", "F9"}) {
 		t.Errorf("visible after esc = %v, want the whole tree with Infra opened", got)
 	}
@@ -267,7 +267,7 @@ func TestSidebarFilterEnterKeepsTheQuery(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
 	s = typeKeys(s, "/ap")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	// API and Android app, each under its space, Mobile opened by the query.
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"S1", "P1", "S2", "P2"}) {
 		t.Fatalf("visible after enter = %v", got)
@@ -279,7 +279,7 @@ func TestSidebarFilterEnterKeepsTheQuery(t *testing.T) {
 	if n, _ := s.current(); n.id != "P2" {
 		t.Errorf("G after enter lands on %s, want P2: the keys move again", n.id)
 	}
-	out := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 4, true)
+	out := ansi.Strip(s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 4, true))
 	if lines := strings.Split(out, "\n"); len(lines) != 4 || !strings.Contains(lines[3], "/ap") {
 		t.Errorf("the query should stay on the last line:\n%s", out)
 	}
@@ -303,13 +303,13 @@ func TestSidebarPinsNarrowTheTree(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
 	s.cursor = 2 // API
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if got := s.takeChanges(); !reflect.DeepEqual(got, []pinChange{{id: "P1", on: true}}) {
 		t.Fatalf("changes after pinning API = %+v", got)
 	}
 	s.cursor = 3 // Infra, collapsed
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	s, _ = s.Update(keyRunes("P"))
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "P1", "F1"}) {
 		t.Fatalf("pinned only = %v", got)
 	}
@@ -329,14 +329,14 @@ func TestSidebarPinsNarrowTheTree(t *testing.T) {
 	if got := visibleIDs(s); len(got) != 0 {
 		t.Errorf("mob in pinned only = %v, want nothing", got)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	out := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 6, true)
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	out := ansi.Strip(s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 6, true))
 	if !strings.Contains(out, "API *") || !strings.Contains(out, "Infra *") || strings.Contains(out, "Platform *") {
 		t.Errorf("pinned rows carry the mark:\n%s", out)
 	}
 	// Space on a pinned row unpins it, the row leaves the pinned tree and the cursor goes to its parent, not to the top.
 	s.selectByID("P1")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2"}) {
 		t.Errorf("after unpinning API = %v", got)
 	}
@@ -345,7 +345,7 @@ func TestSidebarPinsNarrowTheTree(t *testing.T) {
 	}
 	// Unpinning the last pin turns the toggle off, or My tasks would sit alone in the pane.
 	s.selectByID("F1")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if s.pinnedOnly || len(visibleIDs(s)) != 7 {
 		t.Errorf("after the last unpin pinnedOnly=%v visible=%v", s.pinnedOnly, visibleIDs(s))
 	}
@@ -357,7 +357,7 @@ func TestSidebarPinsNarrowTheTree(t *testing.T) {
 func TestSidebarPinnedOnlyWithNothingPinnedSaysSo(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
-	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, cmd := s.Update(keyRunes("P"))
 	if s.pinnedOnly || cmd == nil {
 		t.Fatalf("pinnedOnly=%v cmd=%v, want the toggle refused with a toast", s.pinnedOnly, cmd)
 	}
@@ -365,7 +365,7 @@ func TestSidebarPinnedOnlyWithNothingPinnedSaysSo(t *testing.T) {
 		t.Errorf("message = %#v, want a toast", cmd())
 	}
 	// My tasks cannot be pinned, it is not a folder.
-	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	s, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if cmd != nil || len(s.pinned) != 0 || len(s.takeChanges()) != 0 {
 		t.Errorf("space on My tasks pinned %v", s.pinned)
 	}
@@ -379,7 +379,7 @@ func TestSidebarIgnoresPinsOutsideTheTree(t *testing.T) {
 	if s.pinnedOnly || len(visibleIDs(s)) != 6 {
 		t.Fatalf("pinnedOnly=%v visible=%v with a pin outside the tree", s.pinnedOnly, visibleIDs(s))
 	}
-	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, cmd := s.Update(keyRunes("P"))
 	if s.pinnedOnly || cmd == nil {
 		t.Errorf("P with only a stale pin: pinnedOnly=%v cmd=%v, want the toast", s.pinnedOnly, cmd)
 	}
@@ -409,7 +409,7 @@ func TestSidebarFilterKeepsTheAncestorsInView(t *testing.T) {
 	if s.offset != 0 {
 		t.Errorf("offset = %d, want 0 so Platform stays in view", s.offset)
 	}
-	out := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 4, true)
+	out := ansi.Strip(s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 28, 4, true))
 	if !strings.Contains(out, "Platform") || !strings.Contains(out, "v Infra") {
 		t.Errorf("view under the query:\n%s", out)
 	}
@@ -422,7 +422,7 @@ func TestSidebarRevealOfAnUnknownIDChangesNothing(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
 	s = typeKeys(s, "/ap")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	s.selectByID("P1")
 	if s.reveal("ZZZ") {
 		t.Fatal("reveal of an unknown id returned true")
@@ -440,7 +440,7 @@ func TestSidebarEscWithNoMatchGoesBackToTheNodeBefore(t *testing.T) {
 	if _, ok := s.current(); ok {
 		t.Fatal("zzz should match nothing")
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if n, _ := s.current(); n.id != "P1" {
 		t.Errorf("after esc the cursor is on %s, want P1", n.id)
 	}
@@ -464,13 +464,13 @@ func TestSidebarPinnedOnlyKeepsTheCursorNearby(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), &pinState{ids: []string{"P1"}})
 	s.selectByID("F1") // Infra, under Platform which leads to the pin
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, _ = s.Update(keyRunes("P"))
 	if n, _ := s.current(); n.id != "S1" {
 		t.Errorf("P with the cursor on Infra lands on %s, want its parent S1", n.id)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, _ = s.Update(keyRunes("P"))
 	s.selectByID("F9") // Archive, a root with no pinned relative
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	s, _ = s.Update(keyRunes("P"))
 	if n, _ := s.current(); n.id != "P1" {
 		t.Errorf("P with the cursor on Archive lands on %s, want the last row P1", n.id)
 	}
@@ -480,7 +480,7 @@ func TestSidebarRevealKeepsAFilterTheNodeMatches(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(sampleNodes(), nil)
 	s = typeKeys(s, "/ap")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !s.reveal("P2") || s.filter.Value() != "ap" {
 		t.Errorf("reveal of a match should keep the query, got %q", s.filter.Value())
 	}
@@ -534,17 +534,17 @@ func TestSidebarHalfPageMovesHalfTheVisibleRows(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setSize(28, 8)
 	s.setTree(flatNodes(20), nil)
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if s.cursor != 4 {
 		t.Fatalf("ctrl+d from the top lands on %d, want 4 with eight rows in view", s.cursor)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyPgDown})
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	if s.cursor != 4 {
 		t.Errorf("pgdown then ctrl+u lands on %d, want 4", s.cursor)
 	}
 	s = typeKeys(s, "G")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	if s.cursor != 19 {
 		t.Errorf("ctrl+d on the last row stays at 19, got %d", s.cursor)
 	}
@@ -638,7 +638,7 @@ func TestTreeReplacementKeepsTheOpenedRowOfAFolderWithTwoParents(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(twoParents(), nil)
 	s.selectByID("F1")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S1", "F1", "F2", "F3"}) {
 		t.Fatalf("visible after opening Infra under Platform = %v", got)
 	}
@@ -669,9 +669,9 @@ func TestPinnedViewKeepsTheCursorOnTheOtherRowOfAFolder(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(twoOnCallNodes(), &pinState{ids: []string{"F3"}})
 	s.selectByID("F3")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	s.selectByID("F1")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	s.selectByID("F2")
 	if s.visible[s.cursor] != 3 {
 		t.Fatalf("cursor on node %d, want On-call under Infra", s.visible[s.cursor])
@@ -697,7 +697,7 @@ func TestReselectLeavesTheParentsOfAHiddenNodeClosed(t *testing.T) {
 	}, &pinState{ids: []string{"F2", "S2"}, only: true})
 	s.selectByID("F2")
 	// Unpinning On-call takes Platform and everything under it out of the view, Mobile stays as the one pin.
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeySpace})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 	if got := visibleIDs(s); !reflect.DeepEqual(got, []string{"me", "S2"}) {
 		t.Fatalf("visible after the unpin = %v, want My tasks and Mobile", got)
 	}
@@ -713,9 +713,9 @@ func TestTreeReplacementKeepsAMovedFolderOpen(t *testing.T) {
 	s := newSidebar(defaultKeyMap(), nil)
 	s.setTree(twoOnCallNodes(), nil)
 	s.selectByID("F3")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	s.selectByID("F1")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	// Infra moved under Shared, with On-call still under it.
 	s.setTree([]treeNode{
 		{id: "me", title: "My tasks", kind: nodeMe},

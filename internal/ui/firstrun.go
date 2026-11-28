@@ -3,11 +3,11 @@ package ui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -55,19 +55,19 @@ type firstRunModel struct {
 }
 
 func newFirstRun(step firstRunStep, notice string, keys KeyMap, browser, needSecret bool, clientID string) firstRunModel {
-	in := textinput.New()
+	in := newInput()
 	in.Placeholder = "paste the token here"
 	in.EchoMode = textinput.EchoPassword
 	// A permanent token is a JWT of several hundred characters and a character limit would cut it without a word,
 	// so the input takes any length and scrolls it instead of wrapping out of the border.
-	in.Width = 60
-	secret := textinput.New()
+	in.SetWidth(60)
+	secret := newInput()
 	secret.Placeholder = "paste the client secret here"
 	secret.EchoMode = textinput.EchoPassword
-	secret.Width = 60
-	paste := textinput.New()
+	secret.SetWidth(60)
+	paste := newInput()
 	paste.Placeholder = "http://localhost:8731/callback?code=..."
-	paste.Width = 60
+	paste.SetWidth(60)
 	sp := spinner.New(spinner.WithSpinner(spinner.Line))
 	f := firstRunModel{step: step, notice: notice, browser: browser, needSecret: needSecret, clientID: clientID,
 		input: in, secret: secret, paste: paste, spinner: sp, keys: keys}
@@ -137,13 +137,13 @@ func (f firstRunModel) Update(msg tea.Msg) (firstRunModel, tea.Cmd) {
 		var cmd tea.Cmd
 		f.spinner, cmd = f.spinner.Update(msg)
 		return f, cmd
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return f.handleKey(msg)
 	}
 	return f, nil
 }
 
-func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
+func (f firstRunModel) handleKey(msg tea.KeyPressMsg) (firstRunModel, tea.Cmd) {
 	switch f.step {
 	case stepSignIn:
 		if f.browser && !f.useToken {
@@ -153,18 +153,18 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 			return f.handleRowKey(msg)
 		}
 		// Tab and not a letter, a token may contain any letter.
-		if msg.Type == tea.KeyTab && f.browser && !f.verifying {
+		if msg.String() == "tab" && f.browser && !f.verifying {
 			f.useToken, f.errText = false, ""
 			f.focus()
 			return f, nil
 		}
 		// Down and not j for the same reason, and not during a check: the next keys of someone still typing stay in the field.
-		if msg.Type == tea.KeyDown && f.configHost == "" && len(f.hosts) > 0 && !f.verifying {
+		if msg.String() == "down" && f.configHost == "" && len(f.hosts) > 0 && !f.verifying {
 			f.onRow = true
 			f.focus()
 			return f, nil
 		}
-		if msg.Type == tea.KeyEnter {
+		if msg.String() == "enter" {
 			return f.submitToken()
 		}
 		var cmd tea.Cmd
@@ -180,11 +180,11 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 			if f.cursor > 0 {
 				f.cursor--
 			}
-		case msg.Type == tea.KeySpace:
+		case msg.String() == "space":
 			if len(f.items) > 0 && !f.items[f.cursor].disabled {
 				f.items[f.cursor].checked = !f.items[f.cursor].checked
 			}
-		case msg.Type == tea.KeyEnter:
+		case msg.String() == "enter":
 			var selected []store.Scope
 			for _, it := range f.items {
 				if it.checked && !it.disabled {
@@ -195,7 +195,7 @@ func (f firstRunModel) handleKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
 			return f, intent(firstRunConfirmScopesMsg{scopes: selected})
 		}
 	case stepSyncing:
-		if msg.Type == tea.KeyEnter {
+		if msg.String() == "enter" {
 			return f, intent(firstRunFinishedMsg{})
 		}
 	}
@@ -216,25 +216,25 @@ func (f firstRunModel) submitToken() (firstRunModel, tea.Cmd) {
 // enter submits the token with it and tab keeps the switch to the browser box.
 // Text goes to the token field, which takes the focus back: a token pasted while the row has the focus must not vanish.
 // A paste arrives as one key of many runes, so h, l and k as single letters are the row's and a token starting with one is not.
-func (f firstRunModel) handleRowKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
+func (f firstRunModel) handleRowKey(msg tea.KeyPressMsg) (firstRunModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, f.keys.Up):
 		f.onRow = false
 		f.focus()
 	case key.Matches(msg, f.keys.Down):
 		// The row is the last thing in the box, and j must not fall through to the token field as a letter.
-	case f.verifying && (key.Matches(msg, f.keys.Right) || key.Matches(msg, f.keys.Left) || msg.Type == tea.KeySpace):
+	case f.verifying && (key.Matches(msg, f.keys.Right) || key.Matches(msg, f.keys.Left) || msg.String() == "space"):
 		// The failure text names the host being checked, so the pick holds until the answer.
-	case key.Matches(msg, f.keys.Right), msg.Type == tea.KeySpace:
+	case key.Matches(msg, f.keys.Right), msg.String() == "space":
 		f.pick = (f.pick + 1) % (len(f.hosts) + 1)
 	case key.Matches(msg, f.keys.Left):
 		f.pick = (f.pick + len(f.hosts)) % (len(f.hosts) + 1)
-	case msg.Type == tea.KeyEnter:
+	case msg.String() == "enter":
 		return f.submitToken()
-	case msg.Type == tea.KeyTab && f.browser && !f.verifying:
+	case msg.String() == "tab" && f.browser && !f.verifying:
 		f.useToken, f.onRow, f.errText = false, false, ""
 		f.focus()
-	case msg.Type == tea.KeyRunes:
+	case msg.Text != "":
 		f.onRow = false
 		f.focus()
 		var cmd tea.Cmd
@@ -264,10 +264,10 @@ func (f firstRunModel) linkHost() string {
 }
 
 // handleBrowserKey is the browser box: the secret and enter before the attempt, the paste field and esc while the browser is out.
-func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd) {
+func (f firstRunModel) handleBrowserKey(msg tea.KeyPressMsg) (firstRunModel, tea.Cmd) {
 	if f.signIn != nil {
-		switch msg.Type {
-		case tea.KeyEsc:
+		switch msg.String() {
+		case "esc":
 			// The attempt moves on, so the cancelled one's late answer is dropped by the root.
 			f.signIn.Cancel()
 			f.signIn, f.verifying, f.errText = nil, false, ""
@@ -275,7 +275,7 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 			f.paste.SetValue("")
 			f.focus()
 			return f, nil
-		case tea.KeyEnter:
+		case "enter":
 			// A paste that does not pass shows its error and the attempt goes on, the browser may still come back.
 			if address := strings.TrimSpace(f.paste.Value()); address != "" {
 				if err := f.signIn.Paste(address); err != nil {
@@ -286,7 +286,7 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 				f.paste.SetValue("")
 			}
 			return f, nil
-		case tea.KeyCtrlY:
+		case "ctrl+y":
 			// The address breaks across lines inside the box, so a click on it in the terminal gets one line.
 			return f, intent(firstRunCopyAddressMsg{address: f.signIn.URL})
 		}
@@ -294,8 +294,8 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 		f.paste, cmd = f.paste.Update(msg)
 		return f, cmd
 	}
-	switch msg.Type {
-	case tea.KeyTab:
+	switch msg.String() {
+	case "tab":
 		// The hook is starting the attempt, a switch now would leave it running behind the token field.
 		if f.verifying {
 			return f, nil
@@ -303,7 +303,7 @@ func (f firstRunModel) handleBrowserKey(msg tea.KeyMsg) (firstRunModel, tea.Cmd)
 		f.useToken, f.errText = true, ""
 		f.focus()
 		return f, nil
-	case tea.KeyEnter:
+	case "enter":
 		if f.verifying {
 			return f, nil
 		}

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -192,7 +192,7 @@ func (t timesheetModel) titleFor(taskID string) string {
 	return ""
 }
 
-func (t timesheetModel) Update(msg tea.KeyMsg) (timesheetModel, tea.Cmd) {
+func (t timesheetModel) Update(msg tea.KeyPressMsg) (timesheetModel, tea.Cmd) {
 	if !t.loaded {
 		// Nothing to move a cursor over yet, and weekStart is still the zero time,
 		// so ] or [ here would jump to the week of year 1 instead of doing nothing.

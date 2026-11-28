@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -45,7 +45,7 @@ func TestSettingsScreenShowsTheFollowedScopesAndTheFileValues(t *testing.T) {
 
 func TestSettingsEnterOpensThePickerOnTheFollowedRow(t *testing.T) {
 	s := testSettings()
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{openScopesMsg{}}) {
 		t.Errorf("enter on the followed row sent %#v", msgs)
 	}
@@ -55,8 +55,8 @@ func TestSettingsEnterOpensThePickerOnTheFollowedRow(t *testing.T) {
 func TestSettingsEnterOnAFileRowNamesTheKeyWhenNothingCanWriteTheFile(t *testing.T) {
 	s := testSettings()
 	s.editable = false
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(keyRunes("j"))
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter on a file row sent %#v", msgs)
@@ -70,9 +70,9 @@ func TestSettingsEnterOnAFileRowNamesTheKeyWhenNothingCanWriteTheFile(t *testing
 // The data center is set at the sign in, so enter on the host row says where to change it instead of naming a key to edit.
 func TestSettingsEnterOnTheHostRowSaysTheSignInSetsIt(t *testing.T) {
 	s := testSettings()
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(keyRunes("j"))
+	s, _ = s.Update(keyRunes("j"))
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter on the host row sent %#v", msgs)
@@ -87,9 +87,9 @@ func TestSettingsEnterOnTheHostRowSaysTheSignInSetsIt(t *testing.T) {
 func TestSettingsHostRowNamesTheFileAloneWhenTheConfigSetsTheHost(t *testing.T) {
 	s := testSettings()
 	s.cfg.Host = "app-eu.wrike.com"
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(keyRunes("j"))
+	s, _ = s.Update(keyRunes("j"))
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	toast, ok := msgs[0].(toastMsg)
 	if len(msgs) != 1 || !ok || strings.Contains(toast.text, "--logout") || !strings.Contains(toast.text, "/home/ada/.config/wrikery/config.toml") {
@@ -122,7 +122,7 @@ func TestSettingsSidebarRowTogglesIt(t *testing.T) {
 		t.Fatalf("rows = %+v, want a Sidebar row reading hidden", rows)
 	}
 	s.cursor = i
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter on the Sidebar row emitted %#v, want one message", msgs)
@@ -151,7 +151,7 @@ func TestSettingsShowsTheSignInRow(t *testing.T) {
 	if view := s.View(th, 100, 30); !strings.Contains(view, "a permanent token") {
 		t.Errorf("the token row is missing:\n%s", view)
 	}
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	toast, ok := msgs[0].(toastMsg)
 	if !ok || !strings.Contains(toast.text, "--logout") {
@@ -208,7 +208,7 @@ func withText(s settingsModel, text string) settingsModel {
 
 func TestSettingsEnterOnATextRowOpensAFieldWithTheValue(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if !s.editing || s.input.Value() != "90s" {
 		t.Fatalf("editing = %v, field = %q, want the row's value in a field", s.editing, s.input.Value())
 	}
@@ -219,8 +219,8 @@ func TestSettingsEnterOnATextRowOpensAFieldWithTheValue(t *testing.T) {
 
 func TestSettingsEnterSavesTheTypedDuration(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	_, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, cmd := withText(s, "2m").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "poll_interval", value: "2m"}}) {
 		t.Errorf("enter sent %#v, want the key and the typed duration", msgs)
 	}
@@ -228,8 +228,8 @@ func TestSettingsEnterSavesTheTypedDuration(t *testing.T) {
 
 func TestSettingsBareDigitsAreSeconds(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	_, cmd := withText(s, "90").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, cmd := withText(s, "90").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "poll_interval", value: "90s"}}) {
 		t.Errorf("enter sent %#v, want 90s", msgs)
 	}
@@ -237,8 +237,8 @@ func TestSettingsBareDigitsAreSeconds(t *testing.T) {
 
 func TestSettingsRefusesTextThatIsNotADuration(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, cmd := withText(s, "soon").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, cmd := withText(s, "soon").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	want := []tea.Msg{toastMsg{text: "poll_interval needs a duration such as 60s or 2m", isErr: true}}
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, want) {
 		t.Errorf("enter sent %#v, want the duration toast", msgs)
@@ -250,8 +250,8 @@ func TestSettingsRefusesTextThatIsNotADuration(t *testing.T) {
 
 func TestSettingsEscRestoresTheValue(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEsc})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, cmd := withText(s, "2m").Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if s.editing || cmd != nil {
 		t.Errorf("esc left editing = %v, cmd = %v", s.editing, cmd)
 	}
@@ -262,8 +262,8 @@ func TestSettingsEscRestoresTheValue(t *testing.T) {
 
 func TestSettingsChoiceRowCyclesAndWraps(t *testing.T) {
 	s := rowAt(t, testSettings(), "Theme")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	step := func(k tea.KeyMsg, want string) {
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	step := func(k tea.KeyPressMsg, want string) {
 		t.Helper()
 		s, _ = s.Update(k)
 		if got := s.choices[s.choice]; got != want {
@@ -273,17 +273,17 @@ func TestSettingsChoiceRowCyclesAndWraps(t *testing.T) {
 	if got := s.choices[s.choice]; got != "dark" {
 		t.Fatalf("the edit opens on %q, want the file's dark", got)
 	}
-	step(tea.KeyMsg{Type: tea.KeyRight}, "light")
-	step(tea.KeyMsg{Type: tea.KeyRight}, "auto")
-	step(tea.KeyMsg{Type: tea.KeyRight}, "dark")
-	step(tea.KeyMsg{Type: tea.KeyLeft}, "auto")
-	step(tea.KeyMsg{Type: tea.KeySpace}, "dark")
-	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")}, "light")
-	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("h")}, "dark")
-	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}, "dark")
-	step(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}, "dark")
-	step(tea.KeyMsg{Type: tea.KeyRight}, "light")
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	step(tea.KeyPressMsg{Code: tea.KeyRight}, "light")
+	step(tea.KeyPressMsg{Code: tea.KeyRight}, "auto")
+	step(tea.KeyPressMsg{Code: tea.KeyRight}, "dark")
+	step(tea.KeyPressMsg{Code: tea.KeyLeft}, "auto")
+	step(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}, "dark")
+	step(keyRunes("l"), "light")
+	step(keyRunes("h"), "dark")
+	step(keyRunes("j"), "dark")
+	step(keyRunes("k"), "dark")
+	step(tea.KeyPressMsg{Code: tea.KeyRight}, "light")
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.theme", value: "light"}}) {
 		t.Errorf("enter sent %#v", msgs)
 	}
@@ -297,16 +297,16 @@ func TestSettingsPrefixesAreTypedWithCommas(t *testing.T) {
 	if rows := s.rows(); rows[s.cursor].value != "(MX) Backend:, (TX)" {
 		t.Fatalf("the row shows %q, want the prefixes separated by commas", rows[s.cursor].value)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if s.input.Value() != "(MX) Backend:, (TX)" {
 		t.Fatalf("the field starts with %q", s.input.Value())
 	}
-	_, cmd := withText(s, "(MX) Backend:,(AX) , (TX)").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := withText(s, "(MX) Backend:,(AX) , (TX)").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	want := []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{"(MX) Backend:", "(AX)", "(TX)"}}}
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, want) {
 		t.Errorf("enter sent %#v, want the three prefixes trimmed", msgs)
 	}
-	_, cmd = withText(s, "").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = withText(s, "").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.hide_prefixes", value: []string{}}}) {
 		t.Errorf("an empty field sent %#v, want an empty list", msgs)
 	}
@@ -315,7 +315,7 @@ func TestSettingsPrefixesAreTypedWithCommas(t *testing.T) {
 // At 80 columns the open choice row still shows the value being picked, the long hint is for the bar.
 func TestSettingsChoiceRowShowsItsValueOnANarrowTerminal(t *testing.T) {
 	s := rowAt(t, testSettings(), "Log level")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 78, 30)
 	for _, line := range strings.Split(view, "\n") {
 		if strings.Contains(line, "Log level") {
@@ -331,14 +331,14 @@ func TestSettingsChoiceRowShowsItsValueOnANarrowTerminal(t *testing.T) {
 // Enter on a row left as it was writes nothing: no file rewrite, no poll wait restarted.
 func TestSettingsEnterOnAnUnchangedRowSavesNothing(t *testing.T) {
 	s := rowAt(t, testSettings(), "Theme")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); msgs != nil || s.editing {
 		t.Errorf("enter on the unchanged theme sent %#v, editing %v", msgs, s.editing)
 	}
 	s = rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); msgs != nil || s.editing {
 		t.Errorf("enter on the unchanged poll interval sent %#v, editing %v", msgs, s.editing)
 	}
@@ -347,30 +347,30 @@ func TestSettingsEnterOnAnUnchangedRowSavesNothing(t *testing.T) {
 // The field's cursor blinks like every other field's, which needs the command Focus hands back.
 func TestSettingsOpeningATextRowStartsTheCursor(t *testing.T) {
 	s := rowAt(t, testSettings(), "Accent")
-	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
+	if _, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
 		t.Error("opening a text row returned no command for the cursor")
 	}
 	s = rowAt(t, testSettings(), "Theme")
-	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	if _, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
 		t.Error("opening a choice row returned a command, there is no cursor to start")
 	}
 }
 
 func TestSettingsBoolRowsAreChoices(t *testing.T) {
 	s := rowAt(t, testSettings(), "ASCII glyphs")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got := s.choices[s.choice]; got != "true" {
 		t.Fatalf("the glyph edit opens on %q, want true", got)
 	}
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "ui.ascii", value: false}}) {
 		t.Errorf("enter sent %#v, want ui.ascii false", msgs)
 	}
 	s = rowAt(t, testSettings(), "Start offline")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRight})
-	_, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	_, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); !reflect.DeepEqual(msgs, []tea.Msg{setConfigMsg{key: "offline", value: true}}) {
 		t.Errorf("enter sent %#v, want offline true", msgs)
 	}
@@ -379,13 +379,13 @@ func TestSettingsBoolRowsAreChoices(t *testing.T) {
 // The data center is set at the sign in and the budget is two keys with a sync behind them, both rows keep their toasts.
 func TestSettingsHostAndBudgetRowsStayReadOnly(t *testing.T) {
 	s := rowAt(t, testSettings(), "Wrike host")
-	s, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if toast, ok := msgs[0].(toastMsg); len(msgs) != 1 || !ok || !strings.Contains(toast.text, "--logout") || s.editing {
 		t.Errorf("enter on the host row: %#v, editing %v", msgs, s.editing)
 	}
 	s = rowAt(t, testSettings(), "Budget")
-	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs = collect(cmd)
 	if toast, ok := msgs[0].(toastMsg); len(msgs) != 1 || !ok || !strings.Contains(toast.text, "budget.source") || s.editing {
 		t.Errorf("enter on the budget row: %#v, editing %v", msgs, s.editing)
@@ -409,7 +409,7 @@ func TestSettingsFieldFitsTheRowOnANarrowTerminal(t *testing.T) {
 	s := testSettings()
 	s.cfg.UI.HidePrefixes = []string{"(MX)", "(TX)", "(AX)", "(BX)", "(CX)", "(DX)", "(EX)", "(FX)", "(GX)"}
 	s = rowAt(t, s, "Hidden title prefixes")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if view := s.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 80, 30); !strings.Contains(view, "(GX)") {
 		t.Errorf("the end of the field, where the cursor is, is off screen at 80 columns:\n%s", view)
 	}
@@ -418,12 +418,12 @@ func TestSettingsFieldFitsTheRowOnANarrowTerminal(t *testing.T) {
 // Two enters in a row must not start two writes of the file, the second waits for the first answer.
 func TestSettingsSecondEnterWhileSavingSendsNothing(t *testing.T) {
 	s := rowAt(t, testSettings(), "Check Wrike every")
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	s, cmd := withText(s, "2m").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, _ = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	s, cmd := withText(s, "2m").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 1 {
 		t.Fatalf("the first enter sent %#v", msgs)
 	}
-	s, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	s, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); msgs != nil || !s.editing {
 		t.Errorf("the second enter sent %#v with editing %v, want nothing while the save runs", msgs, s.editing)
 	}

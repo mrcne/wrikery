@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -397,7 +397,7 @@ func (b boardModel) fallback(l *taskListModel) int {
 	return 0
 }
 
-func (b boardModel) Update(msg tea.KeyMsg, l *taskListModel, hide []string) (boardModel, tea.Cmd) {
+func (b boardModel) Update(msg tea.KeyPressMsg, l *taskListModel, hide []string) (boardModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, b.keys.Filter), key.Matches(msg, b.keys.ToggleDone):
 		// The filter input and the done toggle live on the list, the board only draws their result.

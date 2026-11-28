@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -23,14 +22,9 @@ import (
 func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	// The golden holds comment times, so the zone must not depend on the machine.
-	local, profile := time.Local, lipgloss.ColorProfile()
+	local := time.Local
 	time.Local = time.UTC
-	// Colors would put escape codes into the text the tests compare.
-	lipgloss.SetColorProfile(termenv.Ascii)
-	t.Cleanup(func() {
-		time.Local = local
-		lipgloss.SetColorProfile(profile)
-	})
+	t.Cleanup(func() { time.Local = local })
 	st, err := store.Open(filepath.Join(t.TempDir(), "wrike.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +41,9 @@ func testEnv(t *testing.T) (Env, *bytes.Buffer, *bytes.Buffer) {
 		SignedIn: func() (bool, error) { return false, nil },
 		Deadline: 300 * time.Millisecond,
 		Stdin:    strings.NewReader(""),
-		Stdout:   &out,
-		Stderr:   &errOut,
+		// Colors would put escape codes into the text the tests compare, this is the writer main gives a pipe.
+		Stdout: &colorprofile.Writer{Forward: &out, Profile: colorprofile.NoTTY},
+		Stderr: &errOut,
 	}
 	return env, &out, &errOut
 }

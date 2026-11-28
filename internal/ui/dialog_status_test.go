@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -25,8 +25,8 @@ func TestStatusDialogListsTheTaskWorkflowWithoutHidden(t *testing.T) {
 	if len(d.items) != 2 || d.items[0].ID != "C" || d.items[1].ID != "E" || d.cursor != 1 {
 		t.Errorf("items = %+v cursor = %d", d.items, d.cursor)
 	}
-	d3, _ := dialog(d).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
-	_, cmd := d3.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	d3, _ := dialog(d).Update(keyRunes("k"))
+	_, cmd := d3.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 2 || msgs[0] != (submitStatusMsg{taskID: "T", statusID: "C", name: "Backlog", group: "Active"}) {
 		t.Errorf("enter -> %#v", msgs)
@@ -44,7 +44,7 @@ func TestStatusDialogRefusesATaskWhoseWorkflowIsNotCached(t *testing.T) {
 	if len(d.items) != 0 {
 		t.Errorf("items = %+v, want none", d.items)
 	}
-	_, cmd := dialog(d).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dialog(d).Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("enter -> %#v, want nothing queued", msgs)
 	}

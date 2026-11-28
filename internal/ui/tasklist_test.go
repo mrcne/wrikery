@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -57,18 +57,18 @@ func TestTaskListFilterAndDoneToggle(t *testing.T) {
 	if len(l.rows) != 2 {
 		t.Fatalf("done tasks shown by default: %d rows", len(l.rows))
 	}
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	l, _ = l.Update(keyRunes("z"))
 	if len(l.rows) != 3 {
 		t.Fatalf("z did not show done tasks: %d rows", len(l.rows))
 	}
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	l, _ = l.Update(keyRunes("/"))
 	for _, r := range "fix" {
-		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		l, _ = l.Update(keyRunes(string(r)))
 	}
 	if len(l.rows) != 2 || !l.filtering {
 		t.Fatalf("filter 'fix' -> %d rows, filtering=%v", len(l.rows), l.filtering)
 	}
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	l, _ = l.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if len(l.rows) != 3 || l.filtering {
 		t.Errorf("esc should clear the filter: %d rows", len(l.rows))
 	}
@@ -131,7 +131,7 @@ func TestTaskListReselectsByID(t *testing.T) {
 }
 
 func pressKey(l taskListModel, k string) taskListModel {
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+	l, _ = l.Update(keyRunes(k))
 	return l
 }
 
@@ -214,12 +214,12 @@ func TestFilterPullsTheWindowBackWhenTheListShrinks(t *testing.T) {
 	l.height = 10
 	l.cursor = 25
 	l.scroll()
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	l, _ = l.Update(keyRunes("/"))
 	for _, r := range "auth" {
-		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		l, _ = l.Update(keyRunes(string(r)))
 	}
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	out := l.View(NewTheme(config.UIConfig{}), refData{}, time.Now(), 80, 10, true)
+	l, _ = l.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	out := ansi.Strip(l.View(NewTheme(config.UIConfig{}), refData{}, time.Now(), 80, 10, true))
 	for _, want := range []string{"Task 3 auth", "Task 13 auth", "Task 23 auth"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("filtered list lacks %q:\n%s", want, out)
@@ -266,8 +266,8 @@ func TestJumpLiftsTheDoneToggleAndTheFilter(t *testing.T) {
 		t.Error("the lifted toggle should fall back when the list moves to another node")
 	}
 	l.setRows("F1", "API", tasks, nil, "2", true)
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
-	l, _ = l.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	l, _ = l.Update(keyRunes("z"))
+	l, _ = l.Update(keyRunes("z"))
 	l.setRows("F2", "Web", tasks, nil, "", false)
 	if !l.showDone {
 		t.Error("a toggle the user pressed after the jump should stay as they left it")
@@ -312,7 +312,7 @@ func TestDoneToggleOnTheBoardDropsTheSelectionWhenEmpty(t *testing.T) {
 	m.list.showDone = true
 	next, _ := m.Update(tasksLoadedMsg{nodeID: "F1", crumb: "API", tasks: []store.Task{{ID: "T1", Title: "done", Status: "Completed"}}})
 	next, _ = next.(Model).Update(taskSelectedMsg{id: "T1"})
-	next, _ = next.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z")})
+	next, _ = next.(Model).Update(keyRunes("z"))
 	if m = next.(Model); m.selectedTaskID != "" || m.list.count != 0 {
 		t.Errorf("z that empties the board should drop the selection, selected %q with %d rows", m.selectedTaskID, m.list.count)
 	}
@@ -369,11 +369,11 @@ func TestTaskListHalfPageIsHalfTheVisibleRows(t *testing.T) {
 		l := newTaskList(defaultKeyMap())
 		l.height = c.height
 		l.setRows("F1", "", tasks, nil, "", false)
-		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+		l, _ = l.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 		if l.cursor != c.want {
 			t.Errorf("height %d: ctrl+d lands on %d, want %d", c.height, l.cursor, c.want)
 		}
-		l, _ = l.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+		l, _ = l.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 		if l.cursor != 0 {
 			t.Errorf("height %d: ctrl+u goes back to 0, got %d", c.height, l.cursor)
 		}

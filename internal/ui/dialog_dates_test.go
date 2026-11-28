@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/store"
@@ -37,15 +37,15 @@ func TestDatesDialogKeepsAMilestoneWhoseDueDateMoves(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
 	task := store.Task{ID: "T1", Dates: &store.TaskDates{Type: "Milestone", Due: "2026-09-10T17:00:00"}}
 	typeDue := func(dl dialog, word string) dialog {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 		for _, r := range word {
-			dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			dl, _ = dl.Update(keyRunes(string(r)))
 		}
 		return dl
 	}
 	d, _ := newDatesDialog(task, now)
-	_, cmd := typeDue(d, "2026-09-15").Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := typeDue(d, "2026-09-15").Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got, ok := collect(cmd)[0].(submitDatesMsg); !ok || got.dates != (store.TaskDates{Type: "Milestone", Due: "2026-09-15"}) {
 		t.Errorf("submit = %#v, want the milestone on the new day", got)
 	}
@@ -53,9 +53,9 @@ func TestDatesDialogKeepsAMilestoneWhoseDueDateMoves(t *testing.T) {
 	d, _ = newDatesDialog(task, now)
 	var dl dialog = d
 	for _, r := range "2026-09-08" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	_, cmd = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got, ok := collect(cmd)[0].(submitDatesMsg); !ok || got.dates != (store.TaskDates{Type: "Planned", Start: "2026-09-08", Due: "2026-09-10"}) {
 		t.Errorf("submit = %#v, want a planned task from the start typed to the milestone's day", got)
 	}
@@ -66,12 +66,12 @@ func TestDatesDialogSubmitsQuickWord(t *testing.T) {
 	task := store.Task{ID: "T1", Dates: &store.TaskDates{Type: "Planned", Start: "2026-09-01", Due: "2026-09-02"}}
 	d, _ := newDatesDialog(task, now)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "+3d" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	got, ok := msgs[0].(submitDatesMsg)
 	if !ok || got.dates.Type != "Planned" || got.dates.Due != "2026-09-06" {
@@ -94,7 +94,7 @@ func TestDatesDialogPrefillsTimedDatesAsDateOnly(t *testing.T) {
 		t.Errorf("due prefill = %q, want 2026-09-02", got)
 	}
 	var dl dialog = d
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) == 0 {
 		t.Fatalf("Update on enter emitted nothing, want submitDatesMsg")
@@ -110,12 +110,12 @@ func TestDatesDialogRejectsDueBeforeStart(t *testing.T) {
 	task := store.Task{ID: "T1", Dates: &store.TaskDates{Type: "Planned", Start: "2026-09-01", Due: "2026-09-02"}}
 	d, _ := newDatesDialog(task, now)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	for _, r := range "2026-08-01" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	dl, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 0 {
 		t.Errorf("due before start emitted %#v, want nothing", msgs)
 	}
@@ -129,11 +129,11 @@ func TestDatesDialogReadsAWeekdayAsTheComingOne(t *testing.T) {
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC) // Thursday
 	d, _ := newDatesDialog(store.Task{ID: "T1"}, now)
 	var dl dialog = d
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyTab})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	for _, r := range "mon" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) == 0 {
 		t.Fatal("enter emitted nothing, want submitDatesMsg")
@@ -161,9 +161,9 @@ func TestDatesDialogWrapsTheParserError(t *testing.T) {
 	d, _ := newDatesDialog(store.Task{ID: "T1"}, now)
 	var dl dialog = d
 	for _, r := range "someday" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	view := dl.View(NewTheme(config.UIConfig{Theme: "dark", ASCII: true}), 80, 30)
 	if !strings.Contains(squeeze(view), "+3d or 12 sep") {
 		t.Errorf("view cuts the error short:\n%s", view)

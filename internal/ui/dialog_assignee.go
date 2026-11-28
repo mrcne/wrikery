@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -53,12 +53,12 @@ func newAssigneeDialog(task store.Task, ref refData) (assigneeDialog, tea.Cmd) {
 	return assigneeDialog{taskID: task.ID, list: list}, cmd
 }
 
-func (d assigneeDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeySpace:
+func (d assigneeDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "space":
 		d.list.toggle()
 		return d, nil
-	case tea.KeyEnter:
+	case "enter":
 		add, remove := d.list.diff()
 		if len(add) == 0 && len(remove) == 0 {
 			return d, intent(closeDialogMsg{})

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -51,7 +51,7 @@ func TestSearchPickModeEmitsSearchPickMsg(t *testing.T) {
 	s.pickMode = true
 	s.results = []store.Task{{ID: "IEAATASK00", Title: "Fix auth retry loop"}}
 
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("enter in pick mode should emit exactly one message: %#v", msgs)
@@ -100,7 +100,7 @@ func TestSearchShowsTheReachRowAndAsksOnEnter(t *testing.T) {
 	if v := s.View(th, testWorkflows(), 60); !strings.Contains(v, "open from Wrike: MAAAAAEPXpuV") || strings.Contains(v, "no matches") {
 		t.Errorf("view without hits:\n%s", v)
 	}
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	want := reachMsg{ref: store.TaskRef{Kind: store.RefID, Value: "MAAAAAEPXpuV"}, text: "MAAAAAEPXpuV", seq: 1, origin: reachFromSearch}
 	if len(msgs) != 1 || msgs[0] != want {
@@ -110,7 +110,7 @@ func TestSearchShowsTheReachRowAndAsksOnEnter(t *testing.T) {
 	if v := s.View(th, testWorkflows(), 60); !strings.Contains(v, "fetching from Wrike...") {
 		t.Errorf("view while fetching:\n%s", v)
 	}
-	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd != nil {
+	if _, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd != nil {
 		t.Error("a second enter while fetching sent something")
 	}
 	s.reachFailed("MAAAAAEPXpuV", "no task with this id on Wrike, or no access")
@@ -129,19 +129,19 @@ func TestSearchKeepsTheTitleHitsAboveTheReachRow(t *testing.T) {
 	s.seq = 1
 	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "ReleaseNotes", tasks: []store.Task{
 		{ID: "IEAATASK00", Title: "Release notes"}, {ID: "IEAATASK01", Title: "Release notes, again"}}})
-	down := tea.KeyMsg{Type: tea.KeyCtrlN}
+	down := tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}
 	s, _ = s.Update(down)
 	s, _ = s.Update(down)
 	s, _ = s.Update(down)
 	if s.cursor != 2 {
 		t.Fatalf("cursor = %d, want the third row, the reach row, and no further", s.cursor)
 	}
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 1 || msgs[0].(reachMsg).ref != (store.TaskRef{Kind: store.RefID, Value: "ReleaseNotes"}) {
 		t.Errorf("enter on the last row sent %#v", msgs)
 	}
 	s.cursor = 0
-	_, cmd = s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if msgs := collect(cmd); len(msgs) != 1 || msgs[0].(openTaskMsg).task.ID != "IEAATASK00" {
 		t.Errorf("enter on the first hit sent %#v", msgs)
 	}
@@ -151,7 +151,7 @@ func TestSearchPickModeReachesWithThePickOrigin(t *testing.T) {
 	s := newSearch(defaultKeyMap())
 	s.pickMode, s.seq = true, 1
 	s, _ = s.Update(searchResultsMsg{seq: 1, ref: "4552825749"})
-	_, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	want := reachMsg{ref: store.TaskRef{Kind: store.RefNumber, Value: "4552825749"}, text: "4552825749", seq: 1, origin: reachFromPick}
 	if msgs := collect(cmd); len(msgs) != 1 || msgs[0] != want {
 		t.Errorf("enter in pick mode sent %#v", msgs)
@@ -183,14 +183,14 @@ func TestSearchKeepsTheReachRowVisibleBehindManyHits(t *testing.T) {
 	if more == 0 || row != more+1 || strings.Contains(v, "Release 3") {
 		t.Errorf("want three hits, the count of the hidden ones and the reach row on the next line:\n%s", v)
 	}
-	down := tea.KeyMsg{Type: tea.KeyCtrlN}
+	down := tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}
 	for range 5 {
 		s, _ = s.Update(down)
 	}
 	if s.cursor != 3 {
 		t.Fatalf("cursor = %d, want the reach row right after the third hit", s.cursor)
 	}
-	if _, cmd := s.Update(tea.KeyMsg{Type: tea.KeyEnter}); len(collect(cmd)) != 1 {
+	if _, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); len(collect(cmd)) != 1 {
 		t.Error("enter on the reach row sent nothing")
 	}
 }

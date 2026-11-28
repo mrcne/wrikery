@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -22,15 +22,15 @@ func TestAssigneeDialogFiltersTogglesAndDiffs(t *testing.T) {
 	}
 	var dl dialog = d
 	for _, r := range "cel" {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		dl, _ = dl.Update(keyRunes(string(r)))
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // toggles Celina
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // toggles Celina
 	for range 3 {
-		dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	}
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeyDown})  // to Bartek
-	dl, _ = dl.Update(tea.KeyMsg{Type: tea.KeySpace}) // untoggles Bartek
-	_, cmd := dl.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeyDown})             // to Bartek
+	dl, _ = dl.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}) // untoggles Bartek
+	_, cmd := dl.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	if len(msgs) == 0 {
 		t.Fatalf("Update on enter emitted nothing, want submitAssigneesMsg")

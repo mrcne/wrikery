@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/mrcne/wrikery/internal/auth"
 	"github.com/mrcne/wrikery/internal/cli"
 	"github.com/mrcne/wrikery/internal/config"
@@ -186,8 +186,10 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		err = errors.Join(err, stopProfile())
 		runtime.KeepAlive(final)
 	}()
-	if noColor {
-		lipgloss.SetColorProfile(termenv.Ascii)
+	var progOpts []tea.ProgramOption
+	if p := colorProfile(noColor); p == colorprofile.NoTTY {
+		// Any other profile is left to bubbletea, which also asks the terminal what the environment does not say.
+		progOpts = append(progOpts, tea.WithColorProfile(p))
 	}
 	paths, cfg, err := setup(configPath)
 	if err != nil {
@@ -238,7 +240,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 		p := tea.NewProgram(ui.New(ui.Options{
 			Version: buildVersion(), Store: st, Config: cfg, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Demo: true,
 			Hooks: ui.Hooks{Refresh: func() {}, WakeOutbox: func() {}, OpenURL: openURL, Copy: copyText},
-		}), tea.WithAltScreen())
+		}), progOpts...)
 		if l := startControl(demoSocketPath(paths), controlHandler(p.Send, outboxCounts(st))); l != nil {
 			defer func() { _ = l.Close() }()
 		}
@@ -269,7 +271,7 @@ func run(demoMode, logout bool, configPath string, noColor bool, offlineFlag *bo
 	a.prog = tea.NewProgram(ui.New(ui.Options{
 		Version: buildVersion(), Store: st, Config: cfg, AutoTheme: autoTheme, ConfigFile: paths.ConfigFile, Offline: offline,
 		FirstRun: firstRun, DataCenters: apiHosts, SignedInWith: signedInWith(session, firstRun), SignedInApp: session.ClientID, Hooks: a.hooks(),
-	}), tea.WithAltScreen())
+	}), progOpts...)
 	if l := startControl(socketPath(paths), controlHandler(a.prog.Send, outboxCounts(st))); l != nil {
 		defer func() { _ = l.Close() }()
 	}
@@ -323,9 +325,6 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 			fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
 		}
 	}()
-	if o.noColor {
-		lipgloss.SetColorProfile(termenv.Ascii)
-	}
 	paths, cfg, err := setup(o.config)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "wrikery: "+err.Error())
@@ -386,9 +385,10 @@ func runCommand(args []string, global *flag.FlagSet, o *rootOpts) int {
 		Offline:      offlineMode(cfg, offlineFlag),
 		TokenFromEnv: creds.fromEnv,
 		Stdin:        os.Stdin,
-		Stdout:       os.Stdout,
-		Stderr:       os.Stderr,
-		GlobalFlags:  global,
+		// lipgloss styles at full color, this writer brings the output down to what stdout takes, nothing at all in a pipe.
+		Stdout:      &colorprofile.Writer{Forward: os.Stdout, Profile: colorProfile(o.noColor)},
+		Stderr:      os.Stderr,
+		GlobalFlags: global,
 	}, args)
 }
 
@@ -488,10 +488,24 @@ func resolveTheme(cfg config.UIConfig, terminal bool) config.UIConfig {
 		return cfg
 	}
 	cfg.Theme = "dark"
-	if terminal && !lipgloss.HasDarkBackground() {
+	if terminal && !darkBackground() {
 		cfg.Theme = "light"
 	}
 	return cfg
+}
+
+// A variable so that a test can answer for the terminal.
+// Stdout is asked and stdout answers: a command can get its text through a pipe on stdin and still print to a terminal.
+var darkBackground = func() bool { return lipgloss.HasDarkBackground(os.Stdout, os.Stdout) }
+
+// colorProfile is what stdout can show.
+// Without color means plain text here, as it always did: the Ascii profile would keep bold and underline, NoTTY keeps nothing.
+func colorProfile(noColor bool) colorprofile.Profile {
+	p := colorprofile.Detect(os.Stdout, os.Environ())
+	if noColor || p == colorprofile.ASCII {
+		return colorprofile.NoTTY
+	}
+	return p
 }
 
 // outboxCounts reads the queue counts for a reload asked for on the control socket.

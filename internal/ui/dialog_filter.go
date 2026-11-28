@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type submitFilterMsg struct{ filter rowFilter }
@@ -99,9 +99,9 @@ func peopleInView(l *taskListModel) []string {
 	return out
 }
 
-func (d filterDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeySpace:
+func (d filterDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	switch msg.String() {
+	case "space":
 		if r, ok := d.list.current(); ok && strings.HasPrefix(r.id, "p:") && !d.list.checked[r.id] {
 			for id := range d.list.checked {
 				if strings.HasPrefix(id, "p:") {
@@ -111,7 +111,7 @@ func (d filterDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
 		}
 		d.list.toggle()
 		return d, nil
-	case tea.KeyEnter:
+	case "enter":
 		if add, remove := d.list.diff(); len(add) == 0 && len(remove) == 0 {
 			return d, intent(closeDialogMsg{})
 		}

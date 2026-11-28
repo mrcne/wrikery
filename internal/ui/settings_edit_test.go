@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 )
@@ -31,7 +31,7 @@ func answering(cfg config.Config) func(string, any) (config.Config, error) {
 	return func(string, any) (config.Config, error) { return cfg, nil }
 }
 
-func keyAt(m Model, k tea.KeyMsg) (Model, tea.Cmd) {
+func keyAt(m Model, k tea.KeyPressMsg) (Model, tea.Cmd) {
 	next, cmd := m.Update(k)
 	return next.(Model), cmd
 }
@@ -58,9 +58,9 @@ func TestSavingAThemeRebuildsTheThemeAtOnce(t *testing.T) {
 		return saved, nil
 	})
 	m.settings = rowAt(t, m.settings, "Theme")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyRight})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if gotKey != "ui.theme" || gotValue != "light" {
 		t.Errorf("the hook got %q = %#v, want ui.theme = light", gotKey, gotValue)
@@ -79,9 +79,9 @@ func TestSavingAThemeRebuildsTheThemeAtOnce(t *testing.T) {
 func TestSavingAutoThemeUsesTheDetectedBackground(t *testing.T) {
 	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "auto", ASCII: true}}))
 	m.settings = rowAt(t, m.settings, "Theme")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyLeft})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if m.theme.mode != "light" || m.opts.Config.UI.Theme != "light" {
 		t.Errorf("auto resolved to %q in the theme and %q in the config, want the detected light", m.theme.mode, m.opts.Config.UI.Theme)
@@ -96,9 +96,9 @@ func TestSavingAutoThemeUsesTheDetectedBackground(t *testing.T) {
 func TestSavingPrefixesReachesTheSidebarAndTheBoard(t *testing.T) {
 	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true, HidePrefixes: []string{"(MX)"}}}))
 	m.settings = rowAt(t, m.settings, "Hidden title prefixes")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.settings = withText(m.settings, "(MX)")
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	want := []string{"(MX)"}
 	if !reflect.DeepEqual(m.theme.HidePrefixes, want) || !reflect.DeepEqual(m.sidebar.hide, want) {
@@ -109,9 +109,9 @@ func TestSavingPrefixesReachesTheSidebarAndTheBoard(t *testing.T) {
 func TestSavingGlyphsSwitchesTheHelpSeparators(t *testing.T) {
 	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: false}}))
 	m.settings = rowAt(t, m.settings, "ASCII glyphs")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyRight})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if m.theme.ASCII || m.help.Ellipsis == "..." {
 		t.Errorf("after glyphs off: theme ASCII %v, help ellipsis %q, want the unicode glyphs back", m.theme.ASCII, m.help.Ellipsis)
@@ -119,8 +119,8 @@ func TestSavingGlyphsSwitchesTheHelpSeparators(t *testing.T) {
 	back := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true}}))
 	back.opts.Config.UI.ASCII = false
 	back.settings = rowAt(t, back.settings, "ASCII glyphs")
-	back, _ = keyAt(back, tea.KeyMsg{Type: tea.KeyEnter})
-	back, cmd = keyAt(back, tea.KeyMsg{Type: tea.KeyEnter})
+	back, _ = keyAt(back, tea.KeyPressMsg{Code: tea.KeyEnter})
+	back, cmd = keyAt(back, tea.KeyPressMsg{Code: tea.KeyEnter})
 	back = saveThrough(back, cmd)
 	if !back.theme.ASCII || back.help.Ellipsis != "..." || back.help.ShortSeparator != "  " {
 		t.Errorf("after glyphs on: theme ASCII %v, ellipsis %q, separator %q", back.theme.ASCII, back.help.Ellipsis, back.help.ShortSeparator)
@@ -133,9 +133,9 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 	})
 	m.opts.ConfigFile, m.settings.file = "/x/config.toml", "/x/config.toml"
 	m.settings = rowAt(t, m.settings, "Check Wrike every")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.settings = withText(m.settings, "5s")
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if !m.settings.editing || m.settings.input.Value() != "5s" {
 		t.Errorf("after the refusal editing = %v, field = %q, want the edit kept", m.settings.editing, m.settings.input.Value())
@@ -146,7 +146,7 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 	}
 	// The refusal frees the row for the next try.
 	m.settings = withText(m.settings, "30s")
-	if _, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter}); len(collect(cmd)) != 1 {
+	if _, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter}); len(collect(cmd)) != 1 {
 		t.Error("enter after a refused save sent nothing, the row is still waiting on the first save")
 	}
 }
@@ -154,18 +154,18 @@ func TestAFailedSaveKeepsTheEdit(t *testing.T) {
 func TestSaveToastsSayWhatHappensNext(t *testing.T) {
 	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", Offline: true, UI: config.UIConfig{Theme: "dark", ASCII: true}}))
 	m.settings = rowAt(t, m.settings, "Start offline")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyRight})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if !strings.Contains(m.status.toast, "offline saved, read at the next start") {
 		t.Errorf("toast = %q", m.status.toast)
 	}
 	m = editModel(t, answering(config.Config{PollInterval: 30 * time.Second, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true}}))
 	m.settings = rowAt(t, m.settings, "Check Wrike every")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.settings = withText(m.settings, "30s")
-	m, cmd = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if !strings.Contains(m.status.toast, "poll_interval saved, next check in 30s") {
 		t.Errorf("toast = %q", m.status.toast)
@@ -176,10 +176,10 @@ func TestSaveToastsSayWhatHappensNext(t *testing.T) {
 func TestKeysDuringAnEditStayOnTheRow(t *testing.T) {
 	m := editModel(t, answering(config.Config{}))
 	m.settings = rowAt(t, m.settings, "Accent")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	for _, r := range ",q" {
 		var cmd tea.Cmd
-		m, cmd = keyAt(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m, cmd = keyAt(m, keyRunes(string(r)))
 		if cmd != nil && reflect.ValueOf(cmd).Pointer() == reflect.ValueOf(tea.Quit).Pointer() {
 			t.Fatalf("%q quit the program during an edit", r)
 		}
@@ -192,7 +192,7 @@ func TestKeysDuringAnEditStayOnTheRow(t *testing.T) {
 func TestWithoutTheHookTheFileRowsAreReadOnly(t *testing.T) {
 	m := editModel(t, nil)
 	m.settings = rowAt(t, m.settings, "Check Wrike every")
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	msgs := collect(cmd)
 	toast, ok := msgs[0].(toastMsg)
 	if len(msgs) != 1 || !ok || !strings.Contains(toast.text, "set poll_interval in") || m.settings.editing {
@@ -204,7 +204,7 @@ func TestWithoutTheHookTheFileRowsAreReadOnly(t *testing.T) {
 func TestLeavingTheSettingsScreenClosesAnOpenRow(t *testing.T) {
 	m := editModel(t, answering(config.Config{}))
 	m.settings = rowAt(t, m.settings, "Accent")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.openScreen(screenMain)
 	if m.settings.editing {
 		t.Error("the row is still open after the screen changed")
@@ -216,9 +216,9 @@ func TestPollIntervalToastInOfflineModePromisesNoCheck(t *testing.T) {
 	m := editModel(t, answering(config.Config{PollInterval: 30 * time.Second, LogLevel: "info", UI: config.UIConfig{Theme: "dark", ASCII: true}}))
 	m.opts.Offline, m.status.state = true, "offline_mode"
 	m.settings = rowAt(t, m.settings, "Check Wrike every")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.settings = withText(m.settings, "30s")
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if !strings.Contains(m.status.toast, "poll_interval saved, applies to the next check") || strings.Contains(m.status.toast, "30s") {
 		t.Errorf("toast = %q", m.status.toast)
@@ -232,9 +232,9 @@ func TestSavingLaysThePanesOutAgain(t *testing.T) {
 		t.Fatalf("the list already has a height of %d before any layout", m.list.height)
 	}
 	m.settings = rowAt(t, m.settings, "Theme")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyRight})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyRight})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if m.list.height == 0 {
 		t.Error("the panes were not laid out again after the save")
@@ -261,9 +261,9 @@ func TestSavingAutoWithoutADetectedBackgroundWaitsForTheNextStart(t *testing.T) 
 	m := editModel(t, answering(config.Config{PollInterval: time.Minute, LogLevel: "info", UI: config.UIConfig{Theme: "auto", ASCII: true}}))
 	m.opts.AutoTheme = ""
 	m.settings = rowAt(t, m.settings, "Theme")
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
-	m, _ = keyAt(m, tea.KeyMsg{Type: tea.KeyLeft})
-	m, cmd := keyAt(m, tea.KeyMsg{Type: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = keyAt(m, tea.KeyPressMsg{Code: tea.KeyLeft})
+	m, cmd := keyAt(m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = saveThrough(m, cmd)
 	if m.theme.mode != "dark" || m.settings.theme != "auto" {
 		t.Errorf("theme mode %q, settings theme %q, want the dark colors kept and auto on the row", m.theme.mode, m.settings.theme)

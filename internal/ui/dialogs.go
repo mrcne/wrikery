@@ -4,14 +4,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // dialog is a centered box that owns its keys until it emits closeDialogMsg. esc is handled by the root.
 type dialog interface {
-	Update(msg tea.KeyMsg) (dialog, tea.Cmd)
+	Update(msg tea.KeyPressMsg) (dialog, tea.Cmd)
 	// View gets the width and height it may use, a box that lists things sizes its list from the height.
 	View(th Theme, width, height int) string
 }
@@ -47,8 +47,12 @@ type commentDialog struct {
 	ta     textarea.Model
 }
 
-func newCommentDialog(taskID, title string, width int) (commentDialog, tea.Cmd) {
+func newCommentDialog(th Theme, taskID, title string, width int) (commentDialog, tea.Cmd) {
 	ta := textarea.New()
+	// The cursor line has a background of its own, black on a dark terminal and white on a light one.
+	styles := textarea.DefaultStyles(th.dark())
+	styles.Cursor.Color = nil
+	ta.SetStyles(styles)
 	ta.Placeholder = "write a comment, ctrl+s sends"
 	ta.SetWidth(width - 4)
 	ta.SetHeight(6)
@@ -56,8 +60,8 @@ func newCommentDialog(taskID, title string, width int) (commentDialog, tea.Cmd) 
 	return commentDialog{taskID: taskID, title: title, ta: ta}, ta.Focus()
 }
 
-func (d commentDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlS || msg.Type == tea.KeyCtrlD {
+func (d commentDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
+	if msg.String() == "ctrl+s" || msg.String() == "ctrl+d" {
 		text := strings.TrimSpace(d.ta.Value())
 		if text == "" {
 			return d, nil
@@ -84,7 +88,7 @@ type confirmDialog struct {
 	answered bool
 }
 
-func (d confirmDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d confirmDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	if d.answered {
 		return d, nil
 	}

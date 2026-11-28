@@ -6,14 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
 )
 
-func typed(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+func typed(s string) tea.KeyPressMsg { return keyRunes(s) }
 
 // Enter closes the actions box and runs the row in the same update, so a second enter already in the queue
 // meets the box the run opened and never runs the row again.
@@ -25,7 +25,7 @@ func TestEnterInTheActionsBoxRunsTheRowAtOnce(t *testing.T) {
 	}
 	m = pump(m, typed("a"), typed("s"), typed("s"))
 	// The command is not run on purpose: the run must not travel through a message.
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if _, ok := m.dialog.(assigneeDialog); !ok {
 		t.Errorf("after enter the dialog is %T, want the assignee box in the same update", m.dialog)
@@ -41,7 +41,7 @@ func TestEnterInTheActionsBoxRefusesWhenTheSelectionMoved(t *testing.T) {
 	if after, _ := m.selectedTask(); after.ID == before.ID {
 		t.Fatal("j did not move the selection")
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if m.dialog != nil {
 		t.Errorf("after enter the dialog is %T, want none", m.dialog)
@@ -72,7 +72,7 @@ func TestBudgetRowOpensTheBoxOrSaysWhy(t *testing.T) {
 	m = pump(m, typed("."))
 	// Without a budget source the row says so, and the list is gone.
 	m = pump(m, typed("b"), typed("u"), typed("d"))
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if m.dialog != nil || !strings.Contains(m.status.toast, "No budget source is set") {
 		t.Errorf("dialog %T, toast %q", m.dialog, m.status.toast)
@@ -91,7 +91,7 @@ func TestBudgetRowOpensTheBoxOrSaysWhy(t *testing.T) {
 		t.Fatalf("the detail did not load the budget: loaded %v, task %q, %+v", m.detail.loaded, m.detail.task.ID, m.detail.budget)
 	}
 	m = pump(m, typed("."), typed("b"), typed("u"), typed("d"))
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = next.(Model)
 	if d, ok := m.dialog.(budgetDialog); !ok || d.input.Value() != "20" {
 		t.Errorf("after enter the dialog is %T, want the budget box prefilled with 20, toast %q", m.dialog, m.status.toast)

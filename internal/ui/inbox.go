@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/store"
@@ -88,7 +88,7 @@ func (s *inboxModel) move(n int) {
 	s.scroll()
 }
 
-func (s inboxModel) Update(msg tea.KeyMsg) (inboxModel, tea.Cmd) {
+func (s inboxModel) Update(msg tea.KeyPressMsg) (inboxModel, tea.Cmd) {
 	page := max(1, s.capacity()/2)
 	switch {
 	case key.Matches(msg, s.keys.Down):

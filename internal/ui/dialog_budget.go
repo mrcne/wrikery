@@ -3,9 +3,9 @@ package ui
 import (
 	"math"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrcne/wrikery/internal/store"
 )
@@ -26,7 +26,7 @@ type budgetDialog struct {
 }
 
 func newBudgetDialog(task store.Task, b budgetInfo) (budgetDialog, tea.Cmd) {
-	in := textinput.New()
+	in := newInput()
 	in.Prompt = "hours "
 	in.Placeholder = "20h, 1h 30m, 0.5, empty clears"
 	in.CharLimit = 20
@@ -40,11 +40,11 @@ func newBudgetDialog(task store.Task, b budgetInfo) (budgetDialog, tea.Cmd) {
 	return d, cmd
 }
 
-func (d budgetDialog) Update(msg tea.KeyMsg) (dialog, tea.Cmd) {
+func (d budgetDialog) Update(msg tea.KeyPressMsg) (dialog, tea.Cmd) {
 	if d.done {
 		return d, nil
 	}
-	if msg.Type == tea.KeyEnter {
+	if msg.String() == "enter" {
 		hours, err := parseDuration(d.input.Value())
 		if err != nil {
 			d.errText = err.Error()

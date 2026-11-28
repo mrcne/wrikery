@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/mrcne/wrikery/internal/config"
@@ -13,7 +13,7 @@ import (
 
 func TestBoxHasTitleInTopBorderAndExactSize(t *testing.T) {
 	th := NewTheme(config.UIConfig{Theme: "dark", ASCII: true})
-	out := th.box("Tasks", "one\ntwo", 20, 6, true)
+	out := ansi.Strip(th.box("Tasks", "one\ntwo", 20, 6, true))
 	lines := strings.Split(out, "\n")
 	if len(lines) != 6 {
 		t.Fatalf("height = %d, want 6:\n%s", len(lines), out)

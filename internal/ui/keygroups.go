@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/charmbracelet/bubbles/key"
+import "charm.land/bubbles/v2/key"
 
 // KeyGroup is one part of the interface with the bindings the ? overlay shows for it, for the manual.
 type KeyGroup struct {

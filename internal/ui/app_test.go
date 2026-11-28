@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
-	"github.com/charmbracelet/x/exp/teatest"
+	"github.com/charmbracelet/x/exp/teatest/v2"
 
 	"github.com/mrcne/wrikery/internal/config"
 	"github.com/mrcne/wrikery/internal/demo"
@@ -66,29 +66,37 @@ func testOptionsWithCopy(st *store.Store) (ui.Options, *[]string) {
 	return o, &copied
 }
 
+// keyRunes is the key press of typed text: one rune is a key of its own, several arrive as one message the way an input method sends them.
+func keyRunes(s string) tea.KeyPressMsg {
+	if r := []rune(s); len(r) == 1 {
+		return tea.KeyPressMsg{Code: r[0], Text: s}
+	}
+	return tea.KeyPressMsg{Code: tea.KeyExtended, Text: s}
+}
+
 func press(tm *testUI, keys ...string) {
 	for _, k := range keys {
 		switch k {
 		case "enter":
-			tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyEnter})
 		case "esc":
-			tm.Send(tea.KeyMsg{Type: tea.KeyEsc})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyEscape})
 		case "tab":
-			tm.Send(tea.KeyMsg{Type: tea.KeyTab})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyTab})
 		case "shift+tab":
-			tm.Send(tea.KeyMsg{Type: tea.KeyShiftTab})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 		case "space":
-			tm.Send(tea.KeyMsg{Type: tea.KeySpace})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 		case "down":
-			tm.Send(tea.KeyMsg{Type: tea.KeyDown})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyDown})
 		case "up":
-			tm.Send(tea.KeyMsg{Type: tea.KeyUp})
+			tm.Send(tea.KeyPressMsg{Code: tea.KeyUp})
 		case "ctrl+f":
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlF})
+			tm.Send(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 		case "ctrl+p":
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlP})
+			tm.Send(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
 		default:
-			tm.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)})
+			tm.Send(keyRunes(k))
 		}
 	}
 }
@@ -96,6 +104,7 @@ func press(tm *testUI, keys ...string) {
 // The waits search what the model drew and not what bubbletea wrote to the terminal, how much of a frame reaches the terminal is the renderer's business.
 // recorder sits between teatest and the model and keeps every line that differs from the frame before.
 // Only the changed lines: a wait after a mark has to prove that the text was drawn again, and a whole frame repeats everything that stayed on screen.
+// The lines are kept without their styles, as a terminal without color shows them, so a wait and a golden spell out the text alone.
 type recorder struct {
 	ui.Model
 	log *frameLog
@@ -107,10 +116,10 @@ func (r recorder) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return r, cmd
 }
 
-func (r recorder) View() string {
-	frame := r.Model.View()
-	r.log.draw(frame)
-	return frame
+func (r recorder) View() tea.View {
+	v := r.Model.View()
+	r.log.draw(ansi.Strip(v.Content))
+	return v
 }
 
 // frameLog is written by the program's goroutine and read by the test's.
@@ -196,7 +205,7 @@ func waitForHit(t *testing.T, tm *testUI, from int, title, folder string) {
 // lastFrame returns the frame a finished program ended on.
 func lastFrame(t *testing.T, tm *testUI) string {
 	t.Helper()
-	return tm.FinalModel(t).(recorder).Model.View()
+	return ansi.Strip(tm.FinalModel(t).(recorder).Model.View().Content)
 }
 
 // finalView quits the program and returns the last full frame, without cursor sequences, for goldens.
@@ -237,7 +246,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		from := mark(tm)
 		press(tm, "n")
 		waitAfter(t, tm, from, "New task")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
@@ -250,7 +259,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		waitAfter(t, tm, from, "Status")
 		// finalView's "q" would reach the dialog instead of quitting, a dialog owns every key but
 		// esc and ctrl+c, so the program is stopped with ctrl+c here to capture it still open.
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
@@ -261,7 +270,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		from := mark(tm)
 		press(tm, "e")
 		waitAfter(t, tm, from, "enter saves")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
@@ -272,7 +281,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		from := mark(tm)
 		press(tm, "p")
 		waitAfter(t, tm, from, "Importance")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
@@ -283,7 +292,7 @@ func TestTaskActionGoldens(t *testing.T) {
 		from := mark(tm)
 		press(tm, "m")
 		waitAfter(t, tm, from, "Folders")
-		tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+		tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 		tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 		golden.RequireEqual(t, []byte(lastFrame(t, tm)))
 	})
@@ -717,7 +726,7 @@ func TestCommentDialogQueuesAndMarks(t *testing.T) {
 
 	from = mark(tm)
 	press(tm, "hello from the test")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlS})
+	tm.Send(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	waitAfter(t, tm, from, "Comment queued")
 	// The seeded comment already shows the sending mark and closing the box redraws it, so waiting for the mark proves nothing.
 	// The count is the one thing only the reload after the write draws, so the view below is read after that reload landed.
@@ -1470,7 +1479,7 @@ func TestCreateTaskQueuesAndSelectsTheNewRow(t *testing.T) {
 	press(tm, "Ship it", "enter")
 	waitAfter(t, tm, from, "Task added to Platform / API")
 	waitAfter(t, tm, from, "(sending)")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 
 	ctx := context.Background()
@@ -1524,7 +1533,7 @@ func TestCreateSwapLeavesNoErrorBehind(t *testing.T) {
 	tm.Send(ui.OutboxChangedMsg{Pending: 0, Failed: 0})
 	tm.Send(ui.StoreChangedMsg{Entities: []string{"tasks", "comments", "timelogs"}})
 	waitFor(t, tm, "#1299999")
-	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 
 	final := ansi.Strip(lastFrame(t, tm))
@@ -1557,7 +1566,7 @@ func TestCopyKeysRefuseAnUnconfirmedTask(t *testing.T) {
 			waitAfter(t, tm, from, "(sending)")
 			press(tm, k)
 			waitAfter(t, tm, from, "not on Wrike yet")
-			tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+			tm.Send(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 			tm.WaitFinished(t, teatest.WithFinalTimeout(3*time.Second))
 			if len(*copied) != 0 {
 				t.Errorf("copied %v, want nothing for a task that has no id yet", *copied)
